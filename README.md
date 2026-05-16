@@ -1,16 +1,16 @@
 # Matgate
 
-Matgate is a self-hosted gateway for your home network. It gives you one browser UI and one login for remote desktop sessions, shell access, file access, and a local browser gateway.
+Matgate is a self-hosted gateway for your home network. It gives you one web UI and one login for remote desktop sessions, shell access, and file access.
 
 It is designed to sit behind a reverse proxy such as Caddy and to run entirely in Docker. Matgate is not a Microsoft RD Gateway. For RDP and SSH it uses Apache Guacamole and `guacd` behind the scenes, while Matgate itself handles auth, permissions, tabs, file management, and local data storage.
 
 ## What Matgate gives you
 
-- Browser-based RDP, SSH, and local Chromium sessions
+- Web-based RDP and SSH sessions
 - File gateway for SFTP, FTP, and SMB
 - Upload, download, delete, move, copy, archive extraction, and media preview in the file manager
 - Multiple open connections as tabs
-- Session restore in the browser
+- Session restore in the web UI
 - Local users stored in JSON files
 - Global servers and user-owned servers
 - Admin roles and per-server access control
@@ -25,7 +25,6 @@ It is designed to sit behind a reverse proxy such as Caddy and to run entirely i
 | --- | --- |
 | RDP | Remote Windows desktops through Guacamole |
 | SSH | Remote shell access through Guacamole |
-| Browser | A local Chromium container exposed as a browser session |
 | SFTP | File access through the Matgate file gateway |
 | FTP | File access through the Matgate file gateway |
 | SMB | File access through the Matgate file gateway |
@@ -35,17 +34,16 @@ It is designed to sit behind a reverse proxy such as Caddy and to run entirely i
 ```text
 Browser -> Matgate -> Guacamole / guacd -> RDP or SSH
 Browser -> Matgate -> File gateway backend -> SFTP / FTP / SMB
-Browser -> Matgate -> Local Chromium container -> Browser session
 ```
 
-Matgate keeps the UI, permissions, and session state in one place. The browser only talks to Matgate, which then talks to the remote systems in your network.
+Matgate keeps the UI, permissions, and session state in one place. The client only talks to Matgate, which then talks to the remote systems in your network.
 
 ## Quick start
 
 1. Install Docker and Docker Compose.
 2. Create an optional `.env` file in the repository root.
 3. Start the stack with Docker Compose.
-4. Open Matgate in your browser on port `8088`.
+4. Open Matgate on port `8088`.
 
 ```powershell
 docker compose up --build
@@ -68,7 +66,6 @@ MATGATE_DATA_DIR=./data
 MATGATE_GUACAMOLE_JSON_SECRET_KEY=0123456789abcdeffedcba9876543210
 MATGATE_DNS_SERVER=10.10.0.1
 MATGATE_DNS_SEARCH=example.home
-MATGATE_BROWSER_VNC_PASSWORD=change-me-now
 ```
 
 | Variable | Purpose |
@@ -79,8 +76,6 @@ MATGATE_BROWSER_VNC_PASSWORD=change-me-now
 | `MATGATE_GUACAMOLE_JSON_SECRET_KEY` | 32 hex characters used for Guacamole JSON auth |
 | `MATGATE_DNS_SERVER` | DNS server used inside Docker containers |
 | `MATGATE_DNS_SEARCH` | DNS search domain used inside Docker containers |
-| `MATGATE_BROWSER_VNC_PASSWORD` | Password for the internal Chromium VNC session |
-| `MATGATE_BROWSER_GATEWAY_ENABLED` | Enables or disables the local browser gateway |
 
 `MATGATE_GUACAMOLE_JSON_SECRET_KEY` must be exactly 32 hex characters. Use your own random value.
 The Compose stack provides sane defaults, but you should override secrets and DNS settings for real use.
@@ -94,9 +89,8 @@ Matgate stores all persistent data under the configured data directory. In the d
 | `data/users.json` | Local users and permissions |
 | `data/servers.json` | Global servers and user-owned servers |
 | `data/guacamole/` | Guacamole runtime and sync data |
-| `data/browser/` | Persistent Chromium profile |
 
-Back up the whole data directory regularly. It contains the users, server definitions, and browser profile state.
+Back up the whole data directory regularly. It contains the users and server definitions.
 
 ## Permission model
 
@@ -137,7 +131,7 @@ The repository uses GitHub Actions to build and publish the Docker image on push
 | Path | Purpose |
 | --- | --- |
 | `Matgate/` | ASP.NET Core application |
-| `docker-compose.yml` | Full local stack with Caddy, Matgate, Guacamole, guacd, and Chromium |
+| `docker-compose.yml` | Full local stack with Caddy, Matgate, Guacamole, and guacd |
 | `Matgate/Dockerfile` | Application container image |
 | `.github/workflows/` | CI and Docker image build workflow |
 
@@ -148,7 +142,7 @@ Matgate is an actively evolving self-hosted project. The current focus is on:
 - stable remote sessions
 - file gateway workflows
 - user and server management
-- polish for the browser workspace
+- workspace polish
 - keeping the UI simple enough for everyday home-network use
 
 ## Contributing

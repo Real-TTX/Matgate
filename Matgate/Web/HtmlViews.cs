@@ -18,7 +18,7 @@ public sealed class HtmlViews
         ["Home"] = "Home",
         ["About"] = "Über",
         ["About Matgate"] = "Über Matgate",
-        ["Local login for RDP, SSH, browser and file access in your home network."] = "Lokale Anmeldung fuer RDP-, SSH-, Browser- und Dateizugriffe im Heimnetz.",
+        ["Local login for RDP, SSH and file access in your home network."] = "Lokale Anmeldung fuer RDP-, SSH- und Dateizugriffe im Heimnetz.",
         ["Account"] = "Konto",
         ["Admin"] = "Admin",
         ["Version"] = "Version",
@@ -128,7 +128,7 @@ public sealed class HtmlViews
         ["Protocol"] = "Protokoll",
         ["Host or IP"] = "Host oder IP",
         ["Target user"] = "Ziel-Benutzer",
-        ["Target/VNC password"] = "Ziel-/VNC-Passwort",
+        ["Target password"] = "Ziel-Passwort",
         ["Leave password empty to keep it unchanged."] = "Passwort leer lassen, um es unveraendert zu lassen.",
         ["Domain (RDP/SMB)"] = "Domain (RDP/SMB)",
         ["File start path / SMB share"] = "Datei-Startpfad / SMB-Share",
@@ -159,7 +159,6 @@ public sealed class HtmlViews
         ["This server is not a file connection."] = "Dieser Server ist keine Dateiverbindung.",
         ["File viewer"] = "Dateiansicht",
         ["Open raw"] = "Rohdatei oeffnen",
-        ["Open in browser"] = "Im Browser oeffnen",
         ["Back to Matgate"] = "Zurueck zu Matgate",
         ["No preview available"] = "Keine Vorschau verfuegbar",
         ["File access failed"] = "Dateizugriff fehlgeschlagen"
@@ -176,7 +175,7 @@ public sealed class HtmlViews
                 <div>
                     <p class="eyebrow">Matgate</p>
                     <h1>{{T(context, "Home Network Gateway")}}</h1>
-                    <p class="muted">{{T(context, "Local login for RDP, SSH, browser and file access in your home network.")}}</p>
+                    <p class="muted">{{T(context, "Local login for RDP, SSH and file access in your home network.")}}</p>
                 </div>
                 <form method="post" action="/login" class="stack">
                     {{errorHtml}}
@@ -581,7 +580,7 @@ public sealed class HtmlViews
                                 <p class="eyebrow">{{T(context, "About")}}</p>
                                 <h1>{{T(context, "About Matgate")}}</h1>
                                 <p class="version-number">{{E(version)}}</p>
-                                <p class="muted">{{T(context, "Local login for RDP, SSH, browser and file access in your home network.")}}</p>
+                                <p class="muted">{{T(context, "Local login for RDP, SSH and file access in your home network.")}}</p>
                             </div>
                         </div>
                     </section>
@@ -4164,9 +4163,8 @@ public sealed class HtmlViews
 
     private static string ServerFields(HttpContext context, MatgateUser currentUser, ServerEndpoint? server = null)
     {
-        var selectedRdp = Selected(server?.Protocol is null or ServerProtocol.Rdp);
+        var selectedRdp = Selected(server?.Protocol is null or ServerProtocol.Rdp or ServerProtocol.LegacyBrowser);
         var selectedSsh = Selected(server?.Protocol == ServerProtocol.Ssh);
-        var selectedBrowser = Selected(server?.Protocol == ServerProtocol.Browser);
         var selectedSftp = Selected(server?.Protocol == ServerProtocol.Sftp);
         var selectedFtp = Selected(server?.Protocol == ServerProtocol.Ftp);
         var selectedSmb = Selected(server?.Protocol == ServerProtocol.Smb);
@@ -4220,7 +4218,6 @@ public sealed class HtmlViews
                         <select name="protocol">
                             <option value="Rdp"{{selectedRdp}}>RDP</option>
                             <option value="Ssh"{{selectedSsh}}>SSH</option>
-                            <option value="Browser"{{selectedBrowser}}>Browser</option>
                             <option value="Sftp"{{selectedSftp}}>SFTP</option>
                             <option value="Ftp"{{selectedFtp}}>FTP</option>
                             <option value="Smb"{{selectedSmb}}>SMB</option>
@@ -4233,10 +4230,10 @@ public sealed class HtmlViews
                         </select>
                     </label>
                     <label>{{T(context, "Host or IP")}}
-                        <input name="host" value="{{A(server?.Host)}}" placeholder="PC-Terminal / browser" required>
+                        <input name="host" value="{{A(server?.Host)}}" placeholder="PC-Terminal / Host" required>
                     </label>
                     <label>Port
-                        <input name="port" type="number" min="1" max="65535" value="{{A(port)}}" placeholder="3389 / 22 / 5900 / 21 / 445">
+                        <input name="port" type="number" min="1" max="65535" value="{{A(port)}}" placeholder="3389 / 22 / 21 / 445">
                     </label>
                 </div>
             </section>
@@ -4406,7 +4403,6 @@ public sealed class HtmlViews
             {
                 "rdp" => "RDP / Desktop",
                 "ssh" => "SSH / Terminal",
-                "browser" => "Browser",
                 "sftp" => "SFTP / Secure files",
                 "ftp" => "FTP / Transfer",
                 "smb" => "SMB / Share",
@@ -4497,7 +4493,6 @@ public sealed class HtmlViews
             "info" => """<circle cx="12" cy="12" r="9"/><path d="M12 17v-6"/><path d="M12 8h.01"/>""",
             "rdp" => """<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/><path d="M8 8h3v3H8z"/><path d="M13 8h3v3h-3z"/><path d="M8 13h3v1H8z"/><path d="M13 13h3v1h-3z"/>""",
             "ssh" => """<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3"/><path d="M12 15h5"/>""",
-            "browser" => """<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M3 9h18"/><path d="M8 7h.01"/><path d="M11 7h.01"/><circle cx="12" cy="14.5" r="3.5"/><path d="M8.5 14.5h7"/><path d="M12 11a6 6 0 0 1 0 7"/><path d="M12 11a6 6 0 0 0 0 7"/>""",
             "sftp" => """<path d="M3 8a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><rect x="9" y="12" width="6" height="5" rx="1"/><path d="M10.5 12v-1.5a1.5 1.5 0 0 1 3 0V12"/>""",
             "ftp" => """<path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/><path d="M7 9l5-5 5 5"/><path d="M12 4v12"/><path d="m8 13 4 4 4-4"/>""",
             "smb" => """<rect x="4" y="4" width="16" height="6" rx="2"/><rect x="4" y="14" width="16" height="6" rx="2"/><path d="M8 7h.01"/><path d="M8 17h.01"/><path d="M12 10v4"/><path d="M9 12h6"/>""",

@@ -1572,6 +1572,10 @@ public static class EndpointMapping
         var protocol = Enum.TryParse<ServerProtocol>(form["protocol"].ToString(), ignoreCase: true, out var parsed)
             ? parsed
             : existing?.Protocol ?? ServerProtocol.Rdp;
+        if (protocol == ServerProtocol.LegacyBrowser)
+        {
+            protocol = ServerProtocol.Rdp;
+        }
         var canManageGlobal = currentUser.IsAdmin || currentUser.CanManageServers;
         var canCreatePrivate = currentUser.IsAdmin || currentUser.CanCreateServers;
         var requestedPrivate = string.Equals(form["scope"].ToString(), "private", StringComparison.OrdinalIgnoreCase);
@@ -1600,10 +1604,8 @@ public static class EndpointMapping
             ServerProtocol.Sftp => 22,
             ServerProtocol.Ftp => 21,
             ServerProtocol.Smb => 445,
-            ServerProtocol.Browser => 5900,
             _ => 3389
         };
-        var defaultHost = protocol == ServerProtocol.Browser ? "browser" : "";
         var port = int.TryParse(form["port"].ToString(), out var parsedPort) && parsedPort is >= 1 and <= 65535
             ? parsedPort
             : existing?.Port ?? defaultPort;
@@ -1618,7 +1620,7 @@ public static class EndpointMapping
             Name = Clean(form["name"].ToString(), existing?.Name ?? ""),
             Protocol = protocol,
             IconKey = ServerEndpoint.NormalizeIconKey(form["iconKey"].ToString()),
-            Host = Clean(form["host"].ToString(), existing?.Host ?? defaultHost),
+            Host = Clean(form["host"].ToString(), existing?.Host ?? ""),
             Port = port,
             UserName = Clean(form["targetUserName"].ToString(), ""),
             Password = form["targetPassword"].ToString(),

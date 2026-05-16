@@ -34,10 +34,6 @@ services:
       Guacamole__JsonSecretKey: ${MATGATE_GUACAMOLE_JSON_SECRET_KEY:-0123456789abcdeffedcba9876543210}
       Guacamole__PublicBasePath: /guacamole
       Guacamole__DirectLaunch: "true"
-      MATGATE_BROWSER_GATEWAY_ENABLED: ${MATGATE_BROWSER_GATEWAY_ENABLED:-true}
-      MATGATE_BROWSER_HOST: browser
-      MATGATE_BROWSER_PORT: "5900"
-      MATGATE_BROWSER_VNC_PASSWORD: ${MATGATE_BROWSER_VNC_PASSWORD:-matgate1}
     volumes:
       - ./data:/data
     restart: unless-stopped
@@ -57,20 +53,4 @@ services:
       GUACD_PORT: "4822"
       JSON_ENABLED: "true"
       JSON_SECRET_KEY: ${MATGATE_GUACAMOLE_JSON_SECRET_KEY:-0123456789abcdeffedcba9876543210}
-    restart: unless-stopped
-
-  browser:
-    <<: *home-dns
-    image: jlesage/chromium:latest
-    environment:
-      TZ: ${TZ:-Europe/Berlin}
-      LANG: ${MATGATE_BROWSER_LANG:-de_DE.UTF-8}
-      KEEP_APP_RUNNING: "1"
-      DISPLAY_WIDTH: ${MATGATE_BROWSER_DISPLAY_WIDTH:-1920}
-      DISPLAY_HEIGHT: ${MATGATE_BROWSER_DISPLAY_HEIGHT:-1080}
-      VNC_LISTENING_PORT: "5900"
-      VNC_PASSWORD: ${MATGATE_BROWSER_VNC_PASSWORD:-matgate1}
-    volumes:
-      - ./data/browser:/config
-    shm_size: "2gb"
     restart: unless-stopped

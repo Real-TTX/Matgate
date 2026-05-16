@@ -166,53 +166,37 @@ public sealed class JsonDataStore
         }
     }
 
-    public async Task EnsureBrowserGatewayEndpointAsync(
-        IConfiguration configuration,
-        ILogger logger,
-        CancellationToken cancellationToken = default)
+    public async Task RemoveLegacyGatewayServersAsync(CancellationToken cancellationToken = default)
     {
-        if (!BrowserGatewayEnabled(configuration))
+        await _gate.WaitAsync(cancellationToken);
+        try
         {
-            return;
-        }
+            var servers = await ReadListAsync<ServerEndpoint>(ServersPath, cancellationToken);
+            var legacyServerIds = servers
+                .Where(server => server.Protocol == ServerProtocol.LegacyBrowser)
+                .Select(server => server.Id)
+                .ToHashSet();
 
-        var host = ConfigValue(configuration, "MATGATE_BROWSER_HOST", "Matgate:BrowserHost", "browser");
-        var name = ConfigValue(configuration, "MATGATE_BROWSER_NAME", "Matgate:BrowserName", "Lokaler Browser");
-        var password = ConfigValue(configuration, "MATGATE_BROWSER_VNC_PASSWORD", "Matgate:BrowserVncPassword", "matgate1");
-        var port = int.TryParse(
-            ConfigValue(configuration, "MATGATE_BROWSER_PORT", "Matgate:BrowserPort", "5900"),
-            out var parsedPort)
-            && parsedPort is >= 1 and <= 65535
-                ? parsedPort
-                : 5900;
-
-        var created = false;
-        await UpdateServersAsync(servers =>
-        {
-            if (servers.Any(server => server.Protocol == ServerProtocol.Browser))
+            if (legacyServerIds.Count == 0)
             {
                 return;
             }
 
-            var now = DateTimeOffset.UtcNow;
-            servers.Add(new ServerEndpoint
-            {
-                Name = name,
-                Protocol = ServerProtocol.Browser,
-                Host = host,
-                Port = port,
-                Password = password,
-                IsEnabled = true,
-                Notes = "Chromium im Matgate-Docker-Netz",
-                CreatedAt = now,
-                UpdatedAt = now
-            });
-            created = true;
-        }, cancellationToken);
+            servers.RemoveAll(server => server.Protocol == ServerProtocol.LegacyBrowser);
+            await WriteListAsync(ServersPath, servers, cancellationToken);
 
-        if (created)
+            var users = await ReadListAsync<MatgateUser>(UsersPath, cancellationToken);
+            foreach (var user in users)
+            {
+                user.ServerAccess.RemoveAll(legacyServerIds.Contains);
+            }
+
+            await WriteListAsync(UsersPath, users, cancellationToken);
+            _logger.LogInformation("Removed legacy gateway server entries from the data store.");
+        }
+        finally
         {
-            logger.LogInformation("Seeded local browser gateway endpoint '{Name}' at {Host}:{Port}.", name, host, port);
+            _gate.Release();
         }
     }
 
@@ -239,16 +223,6 @@ public sealed class JsonDataStore
         }
 
         File.Move(tempPath, path, overwrite: true);
-    }
-
-    private static bool BrowserGatewayEnabled(IConfiguration configuration)
-    {
-        var value = Environment.GetEnvironmentVariable("MATGATE_BROWSER_GATEWAY_ENABLED")
-            ?? configuration["Matgate:BrowserGatewayEnabled"];
-
-        return !string.Equals(value, "false", StringComparison.OrdinalIgnoreCase)
-            && !string.Equals(value, "0", StringComparison.OrdinalIgnoreCase)
-            && !string.Equals(value, "no", StringComparison.OrdinalIgnoreCase);
     }
 
     private static string ConfigValue(

@@ -9,7 +9,6 @@ public sealed class ServerEndpoint
     [
         "rdp",
         "ssh",
-        "browser",
         "sftp",
         "ftp",
         "smb",
@@ -70,7 +69,7 @@ public sealed class ServerEndpoint
 
     public static bool IsGuacamoleProtocol(ServerProtocol protocol)
     {
-        return protocol is ServerProtocol.Rdp or ServerProtocol.Ssh or ServerProtocol.Browser;
+        return protocol is ServerProtocol.Rdp or ServerProtocol.Ssh;
     }
 
     public static bool IsFileProtocol(ServerProtocol protocol)
@@ -84,7 +83,6 @@ public sealed class ServerEndpoint
         {
             ServerProtocol.Rdp => "rdp",
             ServerProtocol.Ssh => "ssh",
-            ServerProtocol.Browser => "browser",
             ServerProtocol.Sftp => "sftp",
             ServerProtocol.Ftp => "ftp",
             ServerProtocol.Smb => "smb",

@@ -43,9 +43,7 @@ public sealed class GuacamoleConfigWriter
 
     public static string ProtocolName(ServerProtocol protocol)
     {
-        return protocol == ServerProtocol.Browser
-            ? "vnc"
-            : protocol.ToString().ToLowerInvariant();
+        return protocol.ToString().ToLowerInvariant();
     }
 
     private async Task WritePropertiesAsync(string guacamoleHome, CancellationToken cancellationToken)

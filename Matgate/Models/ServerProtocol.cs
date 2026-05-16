@@ -4,7 +4,7 @@ public enum ServerProtocol
 {
     Rdp,
     Ssh,
-    Browser,
+    LegacyBrowser,
     Sftp,
     Ftp,
     Smb
