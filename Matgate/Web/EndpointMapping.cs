@@ -57,7 +57,7 @@ public static class EndpointMapping
         app.MapGet("/api/files/{id:guid}/list", ListFilesAsync).RequireAuthorization();
         app.MapGet("/api/files/{id:guid}/download", DownloadFileAsync).RequireAuthorization();
         app.MapGet("/api/files/{id:guid}/view", ViewFileAsync).RequireAuthorization();
-        app.MapPost("/api/files/{id:guid}/zip", DownloadZipAsync).RequireAuthorization();
+        app.MapPost("/api/files/{id:guid}/zip", CreateZipAsync).RequireAuthorization();
         app.MapPost("/api/files/{id:guid}/upload", UploadFileAsync).RequireAuthorization();
         app.MapPost("/api/files/{id:guid}/create-file", CreateFileAsync).RequireAuthorization();
         app.MapPost("/api/files/{id:guid}/extract", ExtractArchiveAsync).RequireAuthorization();
@@ -444,14 +444,13 @@ public static class EndpointMapping
         }
     }
 
-    private static async Task<IResult> DownloadZipAsync(
+    private static async Task<IResult> CreateZipAsync(
         Guid id,
         HttpContext context,
         JsonDataStore store,
         IFileGatewayService files)
     {
-        var form = await context.Request.ReadFormAsync(context.RequestAborted);
-        if (!ValidateCsrf(context, form))
+        if (!ValidateCsrfHeader(context))
         {
             return Results.BadRequest(new { error = HtmlViews.Translate(context, "Invalid request") });
         }
@@ -462,25 +461,53 @@ public static class EndpointMapping
             return access.Result;
         }
 
-        var paths = CleanPathList(form["paths"]);
+        var request = await context.Request.ReadFromJsonAsync<FileZipCreateRequest>(cancellationToken: context.RequestAborted);
+        var paths = CleanPathList(request?.Paths);
         if (paths.Count == 0)
         {
             return Results.BadRequest(new { error = HtmlViews.Translate(context, "No file selected.") });
         }
 
+        if (request is null || string.IsNullOrWhiteSpace(request.DestinationPath) || string.IsNullOrWhiteSpace(request.ArchiveName))
+        {
+            return Results.BadRequest(new { error = HtmlViews.Translate(context, "Invalid request") });
+        }
+
+        var destinationPath = NormalizeVirtualPathForEndpoint(request.DestinationPath);
+        var archiveName = NormalizeZipArchiveFileName(request.ArchiveName);
+        var tempPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.zip");
+
         try
         {
-            context.Response.ContentType = "application/zip";
-            context.Response.Headers["Content-Disposition"] = AttachmentContentDisposition("matgate-files.zip");
-            context.Response.Headers["X-Content-Type-Options"] = "nosniff";
-
-            using var archive = new ZipArchive(context.Response.Body, ZipArchiveMode.Create, leaveOpen: true);
-            foreach (var selectedPath in paths)
+            await using (var tempWrite = new FileStream(
+                tempPath,
+                FileMode.CreateNew,
+                FileAccess.ReadWrite,
+                FileShare.None,
+                bufferSize: 64 * 1024,
+                options: FileOptions.Asynchronous | FileOptions.SequentialScan))
             {
-                await AddPathToZipAsync(access.Server!, files, archive, selectedPath, FileNameFromVirtualPath(selectedPath), context.RequestAborted);
+                using (var archive = new ZipArchive(tempWrite, ZipArchiveMode.Create, leaveOpen: true))
+                {
+                    foreach (var selectedPath in paths)
+                    {
+                        await AddPathToZipAsync(access.Server!, files, archive, selectedPath, FileNameFromVirtualPath(selectedPath), context.RequestAborted);
+                    }
+                }
+
+                await tempWrite.FlushAsync(context.RequestAborted);
             }
 
-            return Results.Empty;
+            await using var tempRead = new FileStream(
+                tempPath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                bufferSize: 64 * 1024,
+                options: FileOptions.Asynchronous | FileOptions.SequentialScan);
+
+            await files.UploadAsync(access.Server!, destinationPath, tempRead, archiveName, context.RequestAborted);
+            return Results.Ok(new { ok = true, fileName = archiveName });
         }
         catch (OperationCanceledException)
         {
@@ -493,6 +520,19 @@ public static class EndpointMapping
         catch (Exception ex) when (ex is InvalidOperationException or IOException or InvalidDataException)
         {
             return Results.BadRequest(new { error = ex.Message });
+        }
+        finally
+        {
+            try
+            {
+                if (File.Exists(tempPath))
+                {
+                    File.Delete(tempPath);
+                }
+            }
+            catch
+            {
+            }
         }
     }
 
@@ -2061,6 +2101,14 @@ public static class EndpointMapping
             .LastOrDefault() ?? "matgate-file";
     }
 
+    private static string NormalizeZipArchiveFileName(string? archiveName)
+    {
+        var cleaned = CleanLeafNameForEndpoint(archiveName);
+        return cleaned.EndsWith(".zip", StringComparison.OrdinalIgnoreCase)
+            ? cleaned
+            : cleaned + ".zip";
+    }
+
     private static IReadOnlyList<string> SafeZipEntryParts(string fullName)
     {
         return fullName
@@ -2204,6 +2252,8 @@ public static class EndpointMapping
     private sealed record FileServerAccess(ServerEndpoint? Server, IResult? Result);
 
     private sealed record FileBatchRequest(IReadOnlyList<string>? Paths);
+
+    private sealed record FileZipCreateRequest(string? DestinationPath, string? ArchiveName, IReadOnlyList<string>? Paths);
 
     private sealed record FileBatchTransferRequest(IReadOnlyList<string>? Paths, string? DestinationPath);
 

@@ -558,7 +558,7 @@ public sealed class HtmlViews
     private static string AboutBody(HttpContext context, string version, string closeButton)
     {
         return $$"""
-            <section class="file-viewer-page about-viewer">
+            <section class="file-viewer-page embedded-viewer about-viewer">
                 <div class="session-tab-row viewer-tab-row">
                     <div class="session-tabs viewer-tabs">
                         <div class="session-tab active viewer-tab">
@@ -573,15 +573,13 @@ public sealed class HtmlViews
                     </div>
                 </div>
                 <div class="viewer-body">
-                    <section class="viewer-stage about-stage">
-                        <div class="about-window">
-                            <div class="about-brand">{{Logo()}}</div>
-                            <div class="about-copy">
-                                <p class="eyebrow">{{T(context, "About")}}</p>
-                                <h1>{{T(context, "About Matgate")}}</h1>
-                                <p class="version-number">{{E(version)}}</p>
-                                <p class="muted">{{T(context, "Local login for RDP, SSH and file access in your home network.")}}</p>
-                            </div>
+                    <section class="viewer-stage empty-viewer about-stage">
+                        <div class="about-brand">{{Logo()}}</div>
+                        <div class="about-copy">
+                            <p class="eyebrow">{{T(context, "About")}}</p>
+                            <h1>{{T(context, "About Matgate")}}</h1>
+                            <p class="version-number">{{E(version)}}</p>
+                            <p class="muted">{{T(context, "Local login for RDP, SSH and file access in your home network.")}}</p>
                         </div>
                     </section>
                 </div>
@@ -824,6 +822,8 @@ public sealed class HtmlViews
             selection = Language(context) == "de" ? "Auswahl" : "Selection",
             selectAll = Language(context) == "de" ? "Alles auswaehlen" : "Select all",
             clearSelection = Language(context) == "de" ? "Auswahl aufheben" : "Clear selection",
+            archiveName = Language(context) == "de" ? "Archivname" : "Archive name",
+            zipCreated = Language(context) == "de" ? "ZIP-Archiv erstellt" : "ZIP archive created",
             destinationPath = Language(context) == "de" ? "Zielpfad" : "Destination path",
             folder = Language(context) == "de" ? "Ordner" : "Folder",
             refresh = Language(context) == "de" ? "Aktualisieren" : "Refresh",
@@ -978,9 +978,10 @@ public sealed class HtmlViews
                         <button id="clipboard-close" type="button">{{T(context, "Close")}}</button>
                     </div>
                 </form>
-                <dialog id="about-dialog" class="file-viewer-dialog about-dialog">
+                <dialog id="about-dialog" class="matgate-dialog file-viewer-dialog">
                     {{AboutBody(context, aboutVersion, aboutModalClose)}}
                 </dialog>
+                <dialog id="file-viewer-dialog" class="matgate-dialog file-viewer-dialog"></dialog>
             </section>
             </div>
             <script src="/guacamole/guacamole-common-js/all.min.js"></script>
@@ -1009,6 +1010,7 @@ public sealed class HtmlViews
                 const disconnectActiveButton = document.getElementById('disconnect-active-button');
                 const aboutInfoButton = document.getElementById('status-info-button');
                 const aboutDialog = document.getElementById('about-dialog');
+                const fileViewerDialog = document.getElementById('file-viewer-dialog');
                 const credentialDialog = document.getElementById('credential-dialog');
                 const credentialFields = document.getElementById('credential-fields');
                 const credentialCancel = document.getElementById('credential-cancel');
@@ -1022,6 +1024,7 @@ public sealed class HtmlViews
                 let credentialTab = null;
                 let resizeTimer = null;
                 let gatewayLatencyMs = null;
+                let fileViewerLoadToken = 0;
 
                 const closeAboutDialog = () => {
                     if (aboutDialog && typeof aboutDialog.close === 'function' && aboutDialog.open) {
@@ -1062,6 +1065,87 @@ public sealed class HtmlViews
                             closeAboutDialog();
                         }
                     });
+                }
+                if (fileViewerDialog) {
+                    fileViewerDialog.addEventListener('click', (event) => {
+                        if (event.target === fileViewerDialog) {
+                            closeFileViewerDialog();
+                        }
+                    });
+                    fileViewerDialog.addEventListener('close', () => {
+                        fileViewerLoadToken += 1;
+                        fileViewerDialog.replaceChildren();
+                    });
+                }
+
+                function closeFileViewerDialog() {
+                    fileViewerLoadToken += 1;
+                    if (fileViewerDialog && typeof fileViewerDialog.close === 'function' && fileViewerDialog.open) {
+                        fileViewerDialog.close();
+                        return;
+                    }
+
+                    if (fileViewerDialog) {
+                        fileViewerDialog.replaceChildren();
+                    }
+                }
+
+                async function openFileViewerDialog(tab, path) {
+                    const pageUrl = `/files/${tab.serverId}/view?path=${encodeURIComponent(path)}&embedded=1`;
+                    if (!fileViewerDialog || typeof fileViewerDialog.showModal !== 'function') {
+                        window.location.href = `/files/${tab.serverId}/view?path=${encodeURIComponent(path)}`;
+                        return;
+                    }
+
+                    const loadToken = ++fileViewerLoadToken;
+                    fileViewerDialog.replaceChildren();
+                    const loading = document.createElement('div');
+                    loading.className = 'file-viewer-dialog-loading';
+                    loading.textContent = `${ui('loading')}...`;
+                    fileViewerDialog.appendChild(loading);
+                    if (!fileViewerDialog.open) {
+                        fileViewerDialog.showModal();
+                    }
+
+                    try {
+                        const response = await fetch(pageUrl, { cache: 'no-store' });
+                        if (loadToken !== fileViewerLoadToken) {
+                            return;
+                        }
+
+                        if (!response.ok) {
+                            const errorText = await response.text().catch(() => '');
+                            fileViewerDialog.innerHTML = `
+                                <div class="file-viewer-dialog-loading error">
+                                    <div>
+                                        <h2>${escapeHtml(ui('fileAccessFailed'))}</h2>
+                                        <p>${escapeHtml(errorText || ui('fileAccessFailed'))}</p>
+                                    </div>
+                                </div>`;
+                            return;
+                        }
+
+                        const html = await response.text();
+                        if (loadToken !== fileViewerLoadToken) {
+                            return;
+                        }
+
+                        fileViewerDialog.innerHTML = html;
+                    }
+                    catch (error) {
+                        if (loadToken !== fileViewerLoadToken) {
+                            return;
+                        }
+
+                        const message = error instanceof Error ? error.message : ui('fileAccessFailed');
+                        fileViewerDialog.innerHTML = `
+                            <div class="file-viewer-dialog-loading error">
+                                <div>
+                                    <h2>${escapeHtml(ui('error') || 'Error')}</h2>
+                                    <p>${escapeHtml(message)}</p>
+                                </div>
+                            </div>`;
+                    }
                 }
 
                 function showView(view, updateHistory) {
@@ -1878,7 +1962,7 @@ public sealed class HtmlViews
                     });
                     manager.querySelector('[data-file-action="zip"]').addEventListener('click', () => {
                         closeFileMenus(tab);
-                        downloadSelectedAsZip(tab);
+                        createZipArchive(tab);
                     });
                     manager.querySelector('[data-file-action="delete-selected"]').addEventListener('click', () => {
                         closeFileMenus(tab);
@@ -1897,7 +1981,7 @@ public sealed class HtmlViews
 
                 async function loadFilePath(tab, path) {
                     if (!tab || !tab.fileUi) {
-                        return;
+                        return false;
                     }
 
                     setStatus(tab, ui('loading'));
@@ -1922,6 +2006,7 @@ public sealed class HtmlViews
                         updateFileSelectionActions(tab);
                         saveWorkspaceTabs();
                         setStatus(tab, ui('ready'));
+                        return true;
                     }
                     catch (error) {
                         const message = error instanceof Error ? error.message : ui('fileAccessFailed');
@@ -1931,6 +2016,7 @@ public sealed class HtmlViews
                         if (!tab.fileUi.tbody.children.length) {
                             setOverlay(tab, ui('fileAccessFailed'), message, true);
                         }
+                        return false;
                     }
                 }
 
@@ -2129,34 +2215,49 @@ public sealed class HtmlViews
                     tab.fileUi.extractArchiveButton.setAttribute('aria-pressed', active ? 'true' : 'false');
                 }
 
-                function downloadSelectedAsZip(tab) {
+                function suggestArchiveName(paths) {
+                    const firstPath = (paths[0] || '').toString().replace(/\/+$/, '');
+                    const leaf = firstPath.split('/').filter(Boolean).pop() || 'matgate-archive';
+                    const dotIndex = leaf.lastIndexOf('.');
+                    const baseName = dotIndex > 0 ? leaf.slice(0, dotIndex) : leaf;
+                    return `${baseName || 'matgate-archive'}.zip`;
+                }
+
+                async function createZipArchive(tab) {
                     const paths = selectedFilePaths(tab);
                     if (!paths.length) {
                         return;
                     }
 
-                    const frameName = 'matgate-download-frame';
-                    if (!document.querySelector(`iframe[name="${frameName}"]`)) {
-                        const frame = document.createElement('iframe');
-                        frame.name = frameName;
-                        frame.className = 'hidden';
-                        document.body.appendChild(frame);
+                    const defaultName = suggestArchiveName(paths);
+                    const archiveName = window.prompt(ui('archiveName'), defaultName);
+                    if (archiveName === null) {
+                        return;
                     }
 
-                    const form = document.createElement('form');
-                    form.method = 'post';
-                    form.action = `/api/files/${tab.serverId}/zip`;
-                    form.target = frameName;
-                    form.className = 'hidden';
-                    form.appendChild(hiddenInput('_csrf', csrfToken));
-                    for (const path of paths) {
-                        form.appendChild(hiddenInput('paths', path));
+                    const trimmedName = archiveName.trim();
+                    if (!trimmedName) {
+                        return;
                     }
 
-                    document.body.appendChild(form);
-                    form.submit();
-                    form.remove();
-                    flashStatus(tab, ui('zipDownloadStarted'));
+                    const created = await runFileMutation(tab, async () => {
+                        const response = await fetch(`/api/files/${tab.serverId}/zip`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-Matgate-Csrf': csrfToken
+                            },
+                            body: JSON.stringify({
+                                destinationPath: tab.filePath || '/',
+                                archiveName: trimmedName,
+                                paths
+                            })
+                        });
+                        await ensureFileResponse(response, ui('actionFailed'));
+                    });
+                    if (created) {
+                        flashStatus(tab, ui('zipCreated'));
+                    }
                 }
 
                 function hiddenInput(name, value) {
@@ -2239,7 +2340,7 @@ public sealed class HtmlViews
                 }
 
                 function viewFileEntry(tab, path) {
-                    window.location.href = `/files/${tab.serverId}/view?path=${encodeURIComponent(path)}`;
+                    openFileViewerDialog(tab, path);
                     flashStatus(tab, ui('viewStarted'));
                 }
 
@@ -2278,13 +2379,14 @@ public sealed class HtmlViews
                         await action();
                         tab.lastMessage = ui('actionDone');
                         tab.lastSyncAt = Date.now();
-                        await loadFilePath(tab, tab.filePath || '/');
+                        return await loadFilePath(tab, tab.filePath || '/');
                     }
                     catch (error) {
                         const message = error instanceof Error ? error.message : ui('actionFailed');
                         tab.lastError = message;
                         setStatus(tab, uiText.error || 'Error');
                         setFileMessage(tab, message);
+                        return false;
                     }
                 }
 
@@ -3855,37 +3957,6 @@ public sealed class HtmlViews
                         color: var(--text);
                         flex-direction: column;
                     }
-                    .about-stage {
-                        align-items: center;
-                        background: #f3f6f4;
-                        justify-content: center;
-                    }
-                    .about-window {
-                        align-items: flex-start;
-                        background: #ffffff;
-                        border: 1px solid var(--line);
-                        border-radius: 8px;
-                        box-shadow: 0 18px 60px rgb(31 39 37 / 10%);
-                        display: flex;
-                        flex-direction: column;
-                        gap: 16px;
-                        max-width: 760px;
-                        padding: clamp(20px, 4vw, 32px);
-                        width: min(760px, 100%);
-                    }
-                    .about-brand {
-                        align-items: center;
-                        display: inline-flex;
-                    }
-                    .about-copy {
-                        display: flex;
-                        flex-direction: column;
-                        gap: 8px;
-                        min-width: 0;
-                    }
-                    .about-copy .version-number {
-                        margin: 0;
-                    }
                     .embedded-viewer {
                         background: var(--panel);
                         border: 1px solid var(--line);
@@ -3926,6 +3997,7 @@ public sealed class HtmlViews
                     .embedded-viewer .audio-stage audio {
                         max-width: 100%;
                     }
+                    .matgate-dialog,
                     .file-viewer-dialog {
                         background: transparent;
                         border: 0;
@@ -3935,27 +4007,33 @@ public sealed class HtmlViews
                         padding: 0;
                         width: min(1160px, calc(100vw - 32px));
                     }
-                    .file-viewer-dialog::backdrop,
-                    .about-dialog::backdrop {
+                    .matgate-dialog::backdrop,
+                    .file-viewer-dialog::backdrop {
                         background: rgb(10 14 12 / 72%);
                         backdrop-filter: blur(2px);
                     }
-                    .about-dialog {
+                    .about-viewer {
                         height: min(88vh, 920px);
                     }
-                    .about-dialog .about-viewer {
-                        height: 100%;
-                        min-height: 0;
+                    .about-stage {
+                        align-items: center;
+                        background: #ffffff;
+                        gap: 16px;
+                        justify-content: center;
                     }
-                    .about-dialog .viewer-body {
-                        min-height: 0;
+                    .about-brand {
+                        align-items: center;
+                        display: inline-flex;
                     }
-                    .about-dialog .about-stage {
-                        min-height: 0;
+                    .about-copy {
+                        display: flex;
+                        flex-direction: column;
+                        gap: 8px;
+                        max-width: 760px;
+                        min-width: 0;
                     }
-                    .about-dialog .about-window {
-                        max-width: none;
-                        width: min(760px, 100%);
+                    .about-copy .version-number {
+                        margin: 0;
                     }
                     .file-viewer-dialog-content {
                         width: 100%;
@@ -4053,6 +4131,7 @@ public sealed class HtmlViews
                         .viewer-body { padding: 12px; }
                         .viewer-stage { min-height: 260px; }
                         .embedded-viewer { height: calc(100vh - 16px); width: calc(100vw - 16px); }
+                        .matgate-dialog,
                         .file-viewer-dialog { width: calc(100vw - 16px); }
                     }
                 </style>
