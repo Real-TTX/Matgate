@@ -1852,9 +1852,6 @@ public sealed class HtmlViews
                                     ${fileIcon('upload')}<span>${escapeHtml(ui('upload'))}</span>
                                     <input type="file" class="file-upload-input" multiple>
                                 </label>
-                                <button type="button" class="file-toggle-button" data-file-action="toggle-unzip" aria-pressed="false" title="${escapeHtml(ui('unzip'))}">
-                                    ${fileIcon('archive')}<span>${escapeHtml(ui('unzip'))}</span>
-                                </button>
                             </div>
                         </div>
                         <div class="file-message hidden"></div>
@@ -1876,8 +1873,6 @@ public sealed class HtmlViews
                         uploadInput: manager.querySelector('.file-upload-input'),
                         createMenu: manager.querySelector('.file-create-menu'),
                         actionsMenu: manager.querySelector('.file-actions-menu'),
-                        extractArchiveButton: manager.querySelector('[data-file-action="toggle-unzip"]'),
-                        extractArchiveMode: false,
                         selectAllButton: null,
                         batchButtons: Array.from(manager.querySelectorAll('[data-file-action="zip"], [data-file-action="copy"], [data-file-action="move"], [data-file-action="delete-selected"]'))
                     };
@@ -1940,7 +1935,6 @@ public sealed class HtmlViews
                                 const formData = new FormData();
                                 formData.append('path', tab.filePath || '/');
                                 formData.append('file', file);
-                                formData.append('unzip', tab.fileUi.extractArchiveMode ? 'true' : 'false');
                                 const response = await fetch(`/api/files/${tab.serverId}/upload`, {
                                     method: 'POST',
                                     headers: { 'X-Matgate-Csrf': csrfToken },
@@ -1968,13 +1962,7 @@ public sealed class HtmlViews
                         closeFileMenus(tab);
                         deleteSelectedEntries(tab);
                     });
-                    tab.fileUi.extractArchiveButton.addEventListener('click', () => {
-                        tab.fileUi.extractArchiveMode = !tab.fileUi.extractArchiveMode;
-                        updateFileUploadMode(tab);
-                    });
-
                     tab.displayRoot.appendChild(manager);
-                    updateFileUploadMode(tab);
                     hideOverlay(tab);
                     loadFilePath(tab, tab.filePath);
                 }
@@ -2203,16 +2191,6 @@ public sealed class HtmlViews
 
                     tab.lastMessage = count > 0 ? `${count} ${ui('selected')}` : ui('ready');
                     updateStatusBar();
-                }
-
-                function updateFileUploadMode(tab) {
-                    if (!tab.fileUi?.extractArchiveButton) {
-                        return;
-                    }
-
-                    const active = Boolean(tab.fileUi.extractArchiveMode);
-                    tab.fileUi.extractArchiveButton.classList.toggle('is-active', active);
-                    tab.fileUi.extractArchiveButton.setAttribute('aria-pressed', active ? 'true' : 'false');
                 }
 
                 function suggestArchiveName(paths) {
@@ -3630,8 +3608,7 @@ public sealed class HtmlViews
                     }
                     .file-toolbar button,
                     .file-menu > summary,
-                    .file-upload-button,
-                    .file-toggle-button {
+                    .file-upload-button {
                         gap: 7px;
                         min-height: 36px;
                         padding: 6px 10px;
@@ -3651,17 +3628,6 @@ public sealed class HtmlViews
                         display: inline-flex;
                         font-weight: 600;
                         gap: 7px;
-                        justify-content: center;
-                    }
-                    .file-toggle-button {
-                        align-items: center;
-                        background: #ffffff;
-                        border: 1px solid var(--line);
-                        border-radius: 8px;
-                        color: var(--text);
-                        cursor: pointer;
-                        display: inline-flex;
-                        font-weight: 600;
                         justify-content: center;
                     }
                     .file-menu {
@@ -3706,8 +3672,7 @@ public sealed class HtmlViews
                         justify-content: flex-start;
                         width: 100%;
                     }
-                    .file-tool-button.is-active,
-                    .file-toggle-button.is-active {
+                    .file-tool-button.is-active {
                         background: #eef7f1;
                         border-color: var(--accent);
                         color: var(--accent-2);
@@ -4120,7 +4085,7 @@ public sealed class HtmlViews
                         .file-toolbar-group { flex: 1 1 100%; }
                         .file-toolbar-group > * { flex: 1 1 calc(50% - 8px); justify-content: center; }
                         .file-path-input { flex-basis: 100%; }
-                        .file-upload-button, .file-toggle-button { width: 100%; }
+                        .file-upload-button { width: 100%; }
                         .file-menu { width: 100%; }
                         .file-menu > summary { justify-content: center; width: 100%; }
                         .file-menu-panel { position: static; width: 100%; }
