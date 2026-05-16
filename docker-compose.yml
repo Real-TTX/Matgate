@@ -1,0 +1,76 @@
+name: matgate
+
+x-home-dns: &home-dns
+  dns:
+    - ${MATGATE_DNS_SERVER:-10.10.0.1}
+  dns_search:
+    - ${MATGATE_DNS_SEARCH:-Schmoldt.local}
+
+services:
+  edge:
+    <<: *home-dns
+    image: caddy:2
+    depends_on:
+      - matgate
+      - guacamole
+    ports:
+      - "8088:8088"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+    restart: unless-stopped
+
+  matgate:
+    <<: *home-dns
+    build:
+      context: .
+      dockerfile: Matgate/Dockerfile
+      args:
+        MATGATE_VERSION_SUFFIX: ${MATGATE_VERSION_SUFFIX:-}
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      MATGATE_DATA_DIR: /data
+      MATGATE_ADMIN_USER: ${MATGATE_ADMIN_USER:-admin}
+      MATGATE_ADMIN_PASSWORD: ${MATGATE_ADMIN_PASSWORD:-change-me-now}
+      Guacamole__JsonSecretKey: ${MATGATE_GUACAMOLE_JSON_SECRET_KEY:-0123456789abcdeffedcba9876543210}
+      Guacamole__PublicBasePath: /guacamole
+      Guacamole__DirectLaunch: "true"
+      MATGATE_BROWSER_GATEWAY_ENABLED: ${MATGATE_BROWSER_GATEWAY_ENABLED:-true}
+      MATGATE_BROWSER_HOST: browser
+      MATGATE_BROWSER_PORT: "5900"
+      MATGATE_BROWSER_VNC_PASSWORD: ${MATGATE_BROWSER_VNC_PASSWORD:-matgate1}
+    volumes:
+      - ./data:/data
+    restart: unless-stopped
+
+  guacd:
+    <<: *home-dns
+    image: guacamole/guacd:1.6.0
+    restart: unless-stopped
+
+  guacamole:
+    <<: *home-dns
+    image: guacamole/guacamole:1.6.0
+    depends_on:
+      - guacd
+    environment:
+      GUACD_HOSTNAME: guacd
+      GUACD_PORT: "4822"
+      JSON_ENABLED: "true"
+      JSON_SECRET_KEY: ${MATGATE_GUACAMOLE_JSON_SECRET_KEY:-0123456789abcdeffedcba9876543210}
+    restart: unless-stopped
+
+  browser:
+    <<: *home-dns
+    image: jlesage/chromium:latest
+    environment:
+      TZ: ${TZ:-Europe/Berlin}
+      LANG: ${MATGATE_BROWSER_LANG:-de_DE.UTF-8}
+      KEEP_APP_RUNNING: "1"
+      DISPLAY_WIDTH: ${MATGATE_BROWSER_DISPLAY_WIDTH:-1920}
+      DISPLAY_HEIGHT: ${MATGATE_BROWSER_DISPLAY_HEIGHT:-1080}
+      VNC_LISTENING_PORT: "5900"
+      VNC_PASSWORD: ${MATGATE_BROWSER_VNC_PASSWORD:-matgate1}
+    volumes:
+      - ./data/browser:/config
+    shm_size: "2gb"
+    restart: unless-stopped
