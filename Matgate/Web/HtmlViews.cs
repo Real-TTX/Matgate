@@ -719,6 +719,38 @@ public sealed class HtmlViews
         return embedded ? body : Layout(context, user, file.FileName, body, "viewer-main");
     }
 
+    public string FileViewerError(
+        HttpContext context,
+        ServerEndpoint server,
+        string path,
+        string title,
+        string message)
+    {
+        return $$"""
+            <section class="file-viewer-page embedded-viewer">
+                <div class="session-tab-row viewer-tab-row">
+                    <div class="session-tabs viewer-tabs">
+                        <div class="session-tab active viewer-tab">
+                            <div class="session-tab-main viewer-tab-main" aria-current="page">
+                                <span class="session-tab-title">{{ServerIcon(server, "small")}}<span>{{E(title)}}</span></span>
+                                <small>{{E(path)}}</small>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="tab-actions viewer-actions">
+                        <a class="button" href="/sessions" data-file-viewer-close onclick="return window.MatgateCloseFileViewer(event, this)">{{Icon("x")}}{{T(context, "Close")}}</a>
+                    </div>
+                </div>
+                <div class="viewer-body">
+                    <section class="viewer-stage empty-viewer">
+                        <h2>{{E(title)}}</h2>
+                        <p>{{E(message)}}</p>
+                    </section>
+                </div>
+            </section>
+            """;
+    }
+
     public string SessionsWorkspace(
         HttpContext context,
         MatgateUser user,
@@ -1130,7 +1162,7 @@ public sealed class HtmlViews
                             return;
                         }
 
-                        fileViewerDialog.innerHTML = html;
+                        fileViewerDialog.innerHTML = normalizeFileViewerMarkup(html);
                     }
                     catch (error) {
                         if (loadToken !== fileViewerLoadToken) {
@@ -1146,6 +1178,26 @@ public sealed class HtmlViews
                                 </div>
                             </div>`;
                     }
+                }
+
+                function normalizeFileViewerMarkup(html) {
+                    try {
+                        const doc = new DOMParser().parseFromString(html, 'text/html');
+                        const embeddedViewer = doc.querySelector('section.file-viewer-page');
+                        if (embeddedViewer) {
+                            return embeddedViewer.outerHTML;
+                        }
+
+                        const main = doc.querySelector('main');
+                        if (main) {
+                            return main.innerHTML.trim() || html;
+                        }
+                    }
+                    catch {
+                        // Fall back to the raw response below.
+                    }
+
+                    return html;
                 }
 
                 function showView(view, updateHistory) {

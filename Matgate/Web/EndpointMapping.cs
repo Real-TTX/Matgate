@@ -334,16 +334,28 @@ public static class EndpointMapping
             return Results.Redirect("/login");
         }
 
+        var embedded = IsTruthyQuery(context.Request.Query["embedded"]) || IsTruthyQuery(context.Request.Query["dialog"]);
         try
         {
             var fileInfo = await files.GetFileInfoAsync(access.Server!, path, context.RequestAborted);
-            var embedded = IsTruthyQuery(context.Request.Query["embedded"]) || IsTruthyQuery(context.Request.Query["dialog"]);
             return Results.Content(
                 views.FileViewer(context, user, access.Server!, fileInfo, path ?? "/", embedded),
                 "text/html");
         }
         catch (Exception ex) when (ex is InvalidOperationException or IOException)
         {
+            if (embedded)
+            {
+                return Results.Content(
+                    views.FileViewerError(
+                        context,
+                        access.Server!,
+                        path ?? "/",
+                        HtmlViews.Translate(context, "File access failed"),
+                        ex.Message),
+                    "text/html");
+            }
+
             return Results.Content(views.Message(
                 context,
                 user,
