@@ -22,6 +22,8 @@ public sealed class MatgateUser
 
     public string PreferredLanguage { get; set; } = "en";
 
+    public string PreferredTheme { get; set; } = "system";
+
     public bool IsEnabled { get; set; } = true;
 
     public List<Guid> ServerAccess { get; set; } = [];

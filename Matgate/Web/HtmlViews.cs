@@ -11,6 +11,7 @@ namespace Matgate.Web;
 public sealed class HtmlViews
 {
     private const string LanguageCookieName = "Matgate.Language";
+    private const string ThemeCookieName = "Matgate.Theme";
 
     private static readonly IReadOnlyDictionary<string, string> GermanText = new Dictionary<string, string>
     {
@@ -18,7 +19,7 @@ public sealed class HtmlViews
         ["Home"] = "Home",
         ["About"] = "Über",
         ["About Matgate"] = "Über Matgate",
-        ["Local login for RDP, SSH and file access in your home network."] = "Lokale Anmeldung fuer RDP-, SSH- und Dateizugriffe im Heimnetz.",
+        ["Local login for RDP, SSH, websites and file access in your home network."] = "Lokale Anmeldung fuer RDP-, SSH-, Website- und Dateizugriffe im Heimnetz.",
         ["Account"] = "Konto",
         ["Admin"] = "Admin",
         ["Version"] = "Version",
@@ -40,6 +41,12 @@ public sealed class HtmlViews
         ["Manage servers"] = "Server verwalten",
         ["Can create own servers"] = "Eigene Server anlegen",
         ["Preferred language"] = "Bevorzugte Sprache",
+        ["Preferred theme"] = "Bevorzugtes Theme",
+        ["Theme"] = "Theme",
+        ["System"] = "System",
+        ["Light"] = "Hell",
+        ["Dark"] = "Dunkel",
+        ["Default follows system theme."] = "Standard folgt dem System-Theme.",
         ["English"] = "Englisch",
         ["German"] = "Deutsch",
         ["Create"] = "Anlegen",
@@ -81,6 +88,9 @@ public sealed class HtmlViews
         ["RDP settings"] = "RDP-Einstellungen",
         ["SSH settings"] = "SSH-Einstellungen",
         ["File access"] = "Dateizugriff",
+        ["Website settings"] = "Website-Einstellungen",
+        ["Website URL"] = "Website-URL",
+        ["Ignore certificate"] = "Zertifikat ignorieren",
         ["New password"] = "Neues Passwort",
         ["Set password"] = "Passwort setzen",
         ["Remove"] = "Entfernen",
@@ -97,6 +107,9 @@ public sealed class HtmlViews
         ["Delete server"] = "Server loeschen",
         ["Domain"] = "Domäne",
         ["Edit"] = "Bearbeiten",
+        ["Name and host are required."] = "Name und Host sind erforderlich.",
+        ["Name and website URL are required."] = "Name und Website-URL sind erforderlich.",
+        ["This server is not a website connection."] = "Dieser Server ist keine Website-Verbindung.",
         ["Invalid request"] = "Ungueltige Anfrage",
         ["The form has expired."] = "Das Formular ist abgelaufen.",
         ["No access"] = "Kein Zugriff",
@@ -139,6 +152,14 @@ public sealed class HtmlViews
         ["New Connection"] = "Neue Verbindung",
         ["No shared connections."] = "Keine freigegebenen Verbindungen.",
         ["Language"] = "Sprache",
+        ["Website"] = "Website",
+        ["Website (Beta)"] = "Website (Beta)",
+        ["Open website"] = "Website oeffnen",
+        ["Open in new tab"] = "In neuem Tab oeffnen",
+        ["Website proxy"] = "Website-Proxy",
+        ["Opening website"] = "Website wird geoeffnet",
+        ["Website loaded"] = "Website geladen",
+        ["Forward"] = "Vorwaerts",
         ["Logout"] = "Logout",
         ["Username or password is invalid."] = "Benutzername oder Passwort stimmt nicht.",
         ["Invalid data"] = "Ungueltige Daten",
@@ -175,7 +196,7 @@ public sealed class HtmlViews
                 <div>
                     <p class="eyebrow">Matgate</p>
                     <h1>{{T(context, "Home Network Gateway")}}</h1>
-                    <p class="muted">{{T(context, "Local login for RDP, SSH and file access in your home network.")}}</p>
+                    <p class="muted">{{T(context, "Local login for RDP, SSH, websites and file access in your home network.")}}</p>
                 </div>
                 <form method="post" action="/login" class="stack">
                     {{errorHtml}}
@@ -203,14 +224,14 @@ public sealed class HtmlViews
                         <div class="server-title">
                             {{ServerIcon(server)}}
                             <div>
-                                <span class="badge">{{E(server.Protocol.ToString().ToUpperInvariant())}}</span>
+                                <span class="badge">{{E(ServerProtocolLabel(server.Protocol))}}</span>
                                 {{ServerScopeBadge(context, server, currentUser: user)}}
                                 <h2>{{E(server.Name)}}</h2>
                             </div>
                         </div>
-                        <a class="button primary" href="/sessions?open={{server.Id}}">{{Icon("play")}}{{T(context, "Connect")}}</a>
+                        <a class="button primary" href="/sessions?open={{server.Id}}">{{Icon("play")}}{{(server.Protocol == ServerProtocol.Website ? T(context, "Open") : T(context, "Connect"))}}</a>
                     </div>
-                    <p class="target">{{E(server.Host)}}:{{server.Port}}</p>
+                    <p class="target">{{E(ServerTargetValue(server))}}</p>
                     <p class="muted">{{E(server.Notes)}}</p>
                 </article>
                 """));
@@ -289,13 +310,18 @@ public sealed class HtmlViews
                         <label>{{T(context, "Initial password")}}
                             <input name="password" type="password" minlength="10" required>
                         </label>
-                        <label>{{T(context, "Preferred language")}}
-                            <select name="preferredLanguage">
-                                {{LanguageOptions(context, "en")}}
-                            </select>
-                        </label>
-                    </div>
-                </section>
+                    <label>{{T(context, "Preferred language")}}
+                        <select name="preferredLanguage">
+                            {{LanguageOptions(context, "en")}}
+                        </select>
+                    </label>
+                    <label>{{T(context, "Preferred theme")}}
+                        <select name="preferredTheme">
+                            {{ThemeOptions(context, "system")}}
+                        </select>
+                    </label>
+                </div>
+            </section>
                 <section class="panel">
                     <h2>{{T(context, "Permissions")}}</h2>
                     <div class="form-grid">
@@ -335,8 +361,8 @@ public sealed class HtmlViews
                         <td>
                             <span class="server-name-cell">{{ServerIcon(server, "small")}}<a href="/admin/servers/{{server.Id}}">{{E(server.Name)}}</a></span>
                         </td>
-                        <td><span class="badge">{{E(server.Protocol.ToString().ToUpperInvariant())}}</span></td>
-                        <td>{{E(server.Host)}}:{{server.Port}}</td>
+                        <td><span class="badge">{{E(ServerProtocolLabel(server.Protocol))}}</span></td>
+                        <td>{{E(ServerTargetValue(server))}}</td>
                     </tr>
                     """;
             }));
@@ -364,6 +390,11 @@ public sealed class HtmlViews
                         <label>{{T(context, "Preferred language")}}
                             <select name="preferredLanguage">
                                 {{LanguageOptions(context, editedUser.PreferredLanguage)}}
+                            </select>
+                        </label>
+                        <label>{{T(context, "Preferred theme")}}
+                            <select name="preferredTheme">
+                                {{ThemeOptions(context, editedUser.PreferredTheme)}}
                             </select>
                         </label>
                         <label class="check"><input type="checkbox" name="isEnabled"{{Checked(editedUser.IsEnabled)}}> {{T(context, "Enabled")}}</label>
@@ -536,6 +567,11 @@ public sealed class HtmlViews
                             {{LanguageOptions(context, user.PreferredLanguage)}}
                         </select>
                     </label>
+                    <label>{{T(context, "Preferred theme")}}
+                        <select name="preferredTheme">
+                            {{ThemeOptions(context, user.PreferredTheme)}}
+                        </select>
+                    </label>
                     <div class="actions"><button type="submit" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button></div>
                 </form>
             </section>
@@ -547,42 +583,30 @@ public sealed class HtmlViews
     public string About(HttpContext context, MatgateUser user)
     {
         var version = ApplicationVersion();
-        var closeButton = $$"""
-            <a class="button" href="/sessions" data-about-close onclick="return window.MatgateCloseAboutWindow(event, this)">{{Icon("x")}}{{T(context, "Close")}}</a>
-            """;
-        var body = AboutBody(context, version, closeButton);
+        var body = AboutBody(context, version);
 
         return Layout(context, user, T(context, "About"), body, "viewer-main");
     }
 
-    private static string AboutBody(HttpContext context, string version, string closeButton)
+    private static string AboutBody(HttpContext context, string version)
     {
         return $$"""
-            <section class="file-viewer-page embedded-viewer about-viewer">
-                <div class="session-tab-row viewer-tab-row">
-                    <div class="session-tabs viewer-tabs">
-                        <div class="session-tab active viewer-tab">
-                            <div class="session-tab-main viewer-tab-main" aria-current="page">
-                                <span class="session-tab-title">{{Icon("info")}}<span>{{T(context, "About Matgate")}}</span></span>
-                                <small>MATGATE {{E(version)}}</small>
-                            </div>
-                        </div>
+            <section class="about-page">
+                <div class="page-head about-head">
+                    <div class="about-copy">
+                        <p class="eyebrow">{{T(context, "About")}}</p>
+                        <h1>{{T(context, "About Matgate")}}</h1>
+                        <p class="muted">{{T(context, "Local login for RDP, SSH, websites and file access in your home network.")}}</p>
                     </div>
-                    <div class="tab-actions viewer-actions">
-                        {{closeButton}}
+                    <div class="about-brand">{{Logo()}}</div>
+                </div>
+                <section class="panel about-card">
+                    <div class="row split about-meta">
+                        <strong>MATGATE {{E(version)}}</strong>
+                        <span class="badge">MIT</span>
                     </div>
-                </div>
-                <div class="viewer-body">
-                    <section class="viewer-stage empty-viewer about-stage">
-                        <div class="about-brand">{{Logo()}}</div>
-                        <div class="about-copy">
-                            <p class="eyebrow">{{T(context, "About")}}</p>
-                            <h1>{{T(context, "About Matgate")}}</h1>
-                            <p class="version-number">{{E(version)}}</p>
-                            <p class="muted">{{T(context, "Local login for RDP, SSH and file access in your home network.")}}</p>
-                        </div>
-                    </section>
-                </div>
+                    <p class="muted">{{T(context, "Matgate keeps browser-based sessions, file access and admin pages in one place.")}}</p>
+                </section>
             </section>
             """;
     }
@@ -600,8 +624,8 @@ public sealed class HtmlViews
                 <tr>
                     <td><span class="server-name-cell">{{ServerIcon(server, "small")}}<a href="/admin/servers/{{server.Id}}">{{E(server.Name)}}</a></span></td>
                     <td>{{ServerScopeBadge(context, server, users)}}</td>
-                    <td><span class="badge">{{E(server.Protocol.ToString().ToUpperInvariant())}}</span></td>
-                    <td>{{E(server.Host)}}:{{server.Port}}</td>
+                    <td><span class="badge">{{E(ServerProtocolLabel(server.Protocol))}}</span></td>
+                    <td>{{E(ServerTargetValue(server))}}</td>
                     <td>{{(server.IsEnabled ? T(context, "Active") : T(context, "Off"))}}</td>
                 </tr>
                 """));
@@ -766,7 +790,7 @@ public sealed class HtmlViews
             protocol = server.Protocol.ToString().ToUpperInvariant(),
             iconKey = ServerEndpoint.EffectiveIconKey(server.Protocol, server.IconKey),
             iconHtml = Icon(ServerEndpoint.EffectiveIconKey(server.Protocol, server.IconKey)),
-            target = $"{server.Host}:{server.Port}"
+            target = ServerTargetValue(server)
         }), new JsonSerializerOptions(JsonSerializerDefaults.Web));
         var initialOpenServerId = JsonSerializer.Serialize(openServerId?.ToString() ?? "");
         var csrfToken = JsonSerializer.Serialize(context.User.FindFirstValue("csrf") ?? "");
@@ -791,6 +815,14 @@ public sealed class HtmlViews
             check = Icon("check"),
             delete = Icon("trash")
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        var websiteIcons = JsonSerializer.Serialize(new
+        {
+            back = Icon("arrow-left"),
+            forward = Icon("arrow-right"),
+            refresh = Icon("refresh"),
+            open = Icon("external-link"),
+            globe = Icon("globe")
+        }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
         var archiveExtensions = JsonSerializer.Serialize(FileArchiveFormats.SupportedExtensions, new JsonSerializerOptions(JsonSerializerDefaults.Web));
         var uiText = JsonSerializer.Serialize(new
         {
@@ -803,6 +835,13 @@ public sealed class HtmlViews
             ready = T(context, "Ready"),
             chooseConnection = Language(context) == "de" ? "Verbindung auswaehlen" : "Choose a connection",
             starting = Language(context) == "de" ? "Startet" : "Starting",
+            website = T(context, "Website"),
+            websiteBeta = T(context, "Website (Beta)"),
+            websiteProxy = T(context, "Website proxy"),
+            websiteOpening = T(context, "Opening website"),
+            websiteLoaded = T(context, "Website loaded"),
+            forward = T(context, "Forward"),
+            openInNewTab = T(context, "Open in new tab"),
             waiting = Language(context) == "de" ? "Wartet" : "Waiting",
             connecting = Language(context) == "de" ? "Verbindet" : "Connecting",
             connected = Language(context) == "de" ? "Verbunden" : "Connected",
@@ -895,11 +934,11 @@ public sealed class HtmlViews
                         <div class="server-title">
                             {{ServerIcon(server)}}
                             <div>
-                                <span class="badge">{{E(server.Protocol.ToString().ToUpperInvariant())}}</span>
+                                <span class="badge">{{E(ServerProtocolLabel(server.Protocol))}}</span>
                                 <h2>{{E(server.Name)}}</h2>
                             </div>
                         </div>
-                        <p class="target">{{E(server.Host)}}:{{server.Port}}</p>
+                        <p class="target">{{E(ServerTargetValue(server))}}</p>
                         <p class="muted">{{E(server.Notes)}}</p>
                     </div>
                     <button type="button" class="primary workspace-open-button" data-server-id="{{server.Id}}">{{Icon("play")}}{{T(context, "Open")}}</button>
@@ -913,12 +952,12 @@ public sealed class HtmlViews
                         <div class="server-title">
                             {{ServerIcon(server)}}
                             <div>
-                                <span class="badge">{{E(server.Protocol.ToString().ToUpperInvariant())}}</span>
+                                <span class="badge">{{E(ServerProtocolLabel(server.Protocol))}}</span>
                                 {{ServerScopeBadge(context, server, currentUser: user)}}
                                 <h2>{{E(server.Name)}}</h2>
                             </div>
                         </div>
-                        <p class="target">{{E(server.Host)}}:{{server.Port}}</p>
+                        <p class="target">{{E(ServerTargetValue(server))}}</p>
                         <p class="muted">{{E(server.Notes)}}</p>
                     </div>
                     <div class="actions">
@@ -943,23 +982,16 @@ public sealed class HtmlViews
                 </section>
                 """
             : "";
-        var aboutVersion = ApplicationVersion();
-        var aboutModalClose = $$"""
-            <button type="button" class="button" onclick="return window.MatgateCloseAboutModal(event, this)">{{Icon("x")}}{{T(context, "Close")}}</button>
-            """;
-
         var body = $$"""
             <div id="matgate-shell" class="matgate-shell">
+            <div class="shell-page-row">
+                <div id="shell-page-tabs" class="session-tabs shell-page-tabs" role="tablist"></div>
+                <div id="session-tabs" class="session-tabs shell-page-tabs" role="tablist"></div>
+                <button id="new-connection-tab" type="button" class="session-tab session-new-tab" role="tab" aria-label="{{A(T(context, "New connection"))}}">{{Icon("plus")}}</button>
+                <div id="connection-tab-actions" class="tab-actions" aria-label="{{A(T(context, "Actions for the active tab"))}}"></div>
+            </div>
+            <div id="shell-page-panels" class="shell-page-panels">
             <section id="home-view" class="app-view session-page multi-session-page active">
-                <div class="session-tab-row">
-                    <div id="session-tabs" class="session-tabs" role="tablist"></div>
-                    <button id="new-connection-tab" type="button" class="session-tab session-new-tab" role="tab" aria-label="{{A(T(context, "New connection"))}}">{{Icon("plus")}}</button>
-                    <div class="tab-actions" aria-label="{{A(T(context, "Actions for the active tab"))}}">
-                        <button id="clipboard-send-button" type="button">{{Icon("clipboard")}}{{T(context, "Clipboard")}}</button>
-                        <button id="fullscreen-button" type="button">{{Icon("maximize")}}{{T(context, "Fullscreen")}}</button>
-                        <button id="disconnect-active-button" type="button" class="danger">{{Icon("trash")}}{{T(context, "Disconnect")}}</button>
-                    </div>
-                </div>
                 <div id="session-deck" class="session-deck">
                     <div id="new-connection-panel" class="connection-picker-panel">
                         <div class="connection-picker-inner">
@@ -971,24 +1003,6 @@ public sealed class HtmlViews
                                 {{connectionChoices}}
                             </section>
                             {{ownServersSection}}
-                        </div>
-                    </div>
-                </div>
-                <div id="session-statusbar" class="session-statusbar">
-                    <div class="status-primary">
-                        <strong id="status-title">{{T(context, "No active tab")}}</strong>
-                        <span id="status-target">-</span>
-                    </div>
-                    <div class="status-secondary">
-                        <div class="status-metrics">
-                            <span id="status-state">{{T(context, "Ready")}}</span>
-                            <span id="status-latency">{{T(context, "Gateway: -")}}</span>
-                            <span id="status-tunnel">{{T(context, "Tunnel: -")}}</span>
-                            <span id="status-sync">{{T(context, "Sync: -")}}</span>
-                            <span id="status-message">-</span>
-                        </div>
-                        <div class="status-actions">
-                            <button id="status-info-button" type="button" class="status-info-button" title="{{A(aboutTitle)}}" aria-label="{{A(aboutTitle)}}">{{Icon("info")}}</button>
                         </div>
                     </div>
                 </div>
@@ -1010,11 +1024,27 @@ public sealed class HtmlViews
                         <button id="clipboard-close" type="button">{{T(context, "Close")}}</button>
                     </div>
                 </form>
-                <dialog id="about-dialog" class="matgate-dialog file-viewer-dialog">
-                    {{AboutBody(context, aboutVersion, aboutModalClose)}}
-                </dialog>
                 <dialog id="file-viewer-dialog" class="matgate-dialog file-viewer-dialog"></dialog>
             </section>
+            </div>
+            <div id="session-statusbar" class="session-statusbar">
+                <div class="status-primary">
+                    <strong id="status-title">{{T(context, "No active tab")}}</strong>
+                    <span id="status-target">-</span>
+                </div>
+                <div class="status-secondary">
+                    <div class="status-metrics">
+                        <span id="status-state">{{T(context, "Ready")}}</span>
+                        <span id="status-latency">{{T(context, "Gateway: -")}}</span>
+                        <span id="status-tunnel">{{T(context, "Tunnel: -")}}</span>
+                        <span id="status-sync">{{T(context, "Sync: -")}}</span>
+                        <span id="status-message">-</span>
+                    </div>
+                    <div class="status-actions">
+                        <button id="status-info-button" type="button" class="status-info-button" title="{{A(aboutTitle)}}" aria-label="{{A(aboutTitle)}}">{{Icon("info")}}</button>
+                    </div>
+                </div>
+            </div>
             </div>
             <script src="/guacamole/guacamole-common-js/all.min.js"></script>
             <script>
@@ -1024,6 +1054,7 @@ public sealed class HtmlViews
                 const csrfToken = {{csrfToken}};
                 const uiText = {{uiText}};
                 const fileIcons = {{fileIcons}};
+                const websiteIcons = {{websiteIcons}};
                 const archiveExtensions = {{archiveExtensions}};
                 const homeView = document.getElementById('home-view');
                 const tabsRoot = document.getElementById('session-tabs');
@@ -1041,7 +1072,6 @@ public sealed class HtmlViews
                 const fullscreenButton = document.getElementById('fullscreen-button');
                 const disconnectActiveButton = document.getElementById('disconnect-active-button');
                 const aboutInfoButton = document.getElementById('status-info-button');
-                const aboutDialog = document.getElementById('about-dialog');
                 const fileViewerDialog = document.getElementById('file-viewer-dialog');
                 const credentialDialog = document.getElementById('credential-dialog');
                 const credentialFields = document.getElementById('credential-fields');
@@ -1049,54 +1079,31 @@ public sealed class HtmlViews
                 const clipboardDialog = document.getElementById('clipboard-dialog');
                 const clipboardText = document.getElementById('clipboard-text');
                 const clipboardClose = document.getElementById('clipboard-close');
+                const shellPageTabs = document.getElementById('shell-page-tabs');
+                const shellPagePanels = document.getElementById('shell-page-panels');
                 const tabs = new Map();
-                const workspaceStorageKey = 'matgate.workspace.tabs.v1';
+                const workspaceStorageKey = 'matgate.workspace.tabs.v2';
+                const shellTabStorageKey = 'matgate.shell.tabs.v1';
+                const shellTabs = new Map();
 
                 let activeTabId = null;
+                let activeShellTabId = '';
+                let draggedTabId = null;
                 let credentialTab = null;
                 let resizeTimer = null;
                 let gatewayLatencyMs = null;
                 let fileViewerLoadToken = 0;
 
-                const closeAboutDialog = () => {
-                    if (aboutDialog && typeof aboutDialog.close === 'function' && aboutDialog.open) {
-                        aboutDialog.close();
-                    }
-                };
-
-                window.MatgateCloseAboutModal = (event) => {
+                window.MatgateOpenAboutTab = (event) => {
                     if (event) {
                         event.preventDefault();
                     }
 
-                    closeAboutDialog();
-                    return false;
-                };
-                window.MatgateOpenAboutModal = (event) => {
-                    if (event) {
-                        event.preventDefault();
-                    }
-
-                    if (!aboutDialog || typeof aboutDialog.showModal !== 'function') {
-                        window.open('/about', '_blank', 'noopener');
-                        return false;
-                    }
-
-                    if (typeof aboutDialog.showModal === 'function' && !aboutDialog.open) {
-                        aboutDialog.showModal();
-                    }
-
+                    openShellTab('/about', ui('about'), aboutInfoButton?.innerHTML || '');
                     return false;
                 };
                 if (aboutInfoButton) {
-                    aboutInfoButton.addEventListener('click', window.MatgateOpenAboutModal);
-                }
-                if (aboutDialog) {
-                    aboutDialog.addEventListener('click', (event) => {
-                        if (event.target === aboutDialog) {
-                            closeAboutDialog();
-                        }
-                    });
+                    aboutInfoButton.addEventListener('click', window.MatgateOpenAboutTab);
                 }
                 if (fileViewerDialog) {
                     fileViewerDialog.addEventListener('click', (event) => {
@@ -1201,36 +1208,232 @@ public sealed class HtmlViews
                 }
 
                 function showView(view, updateHistory) {
-                    homeView.classList.add('active');
+                    activateNewConnectionTab();
                     document.body.dataset.view = 'home';
                     document.title = `${ui('dashboard')} - Matgate`;
 
                     if (updateHistory && location.pathname !== '/') {
                         history.pushState({ view: 'home' }, '', '/');
                     }
+                }
 
-                    const activeTab = tabs.get(activeTabId);
-                    if (activeTab) {
-                        fitDisplay(activeTab);
-                        activeTab.panel.focus();
+                function setWorkspaceVisible(active) {
+                    if (homeView) {
+                        homeView.classList.toggle('hidden', !active);
+                    }
+
+                    if (shellPagePanels) {
+                        shellPagePanels.classList.toggle('hidden', false);
+                    }
+                }
+
+                function shellEmbeddedUrl(url) {
+                    try {
+                        const parsed = new URL(url, window.location.origin);
+                        parsed.searchParams.set('embed', '1');
+                        return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+                    }
+                    catch {
+                        return `${url}${url.includes('?') ? '&' : '?'}embed=1`;
+                    }
+                }
+
+                function saveShellTabs() {
+                    try {
+                        localStorage.setItem(shellTabStorageKey, JSON.stringify({
+                            tabs: Array.from(shellTabs.values()).map(tab => ({
+                                id: tab.id,
+                                title: tab.title,
+                                url: tab.url,
+                                iconHtml: tab.iconHtml || '',
+                                description: tab.description || ''
+                            })),
+                            activeTabId: activeShellTabId
+                        }));
+                    }
+                    catch {
+                        // Ignore storage failures.
+                    }
+                }
+
+                function createShellTab(tab) {
+                    if (!shellPageTabs || !shellPagePanels || shellTabs.has(tab.id)) {
+                        return shellTabs.get(tab.id) || null;
+                    }
+
+                    const button = document.createElement('div');
+                    button.className = 'session-tab shell-page-tab';
+                    button.setAttribute('data-shell-tab-id', tab.id);
+
+                    const main = document.createElement('button');
+                    main.type = 'button';
+                    main.className = 'session-tab-main shell-tab-main';
+
+                    const title = document.createElement('span');
+                    title.className = 'session-tab-title shell-tab-title';
+                    title.innerHTML = `${tab.iconHtml || ''}<span>${escapeHtml(tab.title)}</span>`;
+
+                    const subtitle = document.createElement('small');
+                    subtitle.className = 'shell-tab-description';
+                    try {
+                        const parsedUrl = new URL(tab.url, window.location.origin);
+                        subtitle.textContent = tab.description || `${parsedUrl.pathname}${parsedUrl.search}${parsedUrl.hash}`;
+                    }
+                    catch {
+                        subtitle.textContent = tab.description || tab.url;
+                    }
+                    main.append(title, subtitle);
+                    main.addEventListener('click', () => activateShellTab(tab.id));
+
+                    const close = document.createElement('button');
+                    close.type = 'button';
+                    close.className = 'session-tab-close';
+                    close.setAttribute('aria-label', ui('close'));
+                    close.innerHTML = '&times;';
+                    close.addEventListener('click', (event) => {
+                        event.stopPropagation();
+                        closeShellTab(tab.id);
+                    });
+
+                    const panel = document.createElement('section');
+                    panel.className = 'shell-page-panel hidden';
+                    panel.setAttribute('data-shell-panel-id', tab.id);
+                    const iframe = document.createElement('iframe');
+                    iframe.title = tab.title;
+                    iframe.src = shellEmbeddedUrl(tab.url);
+                    panel.appendChild(iframe);
+
+                    button.append(main, close);
+                    button.addEventListener('click', event => {
+                        if (event.target instanceof Element && event.target.closest('.session-tab-close')) {
+                            return;
+                        }
+
+                        activateShellTab(tab.id);
+                    });
+                    shellPageTabs.appendChild(button);
+                    shellPagePanels.appendChild(panel);
+
+                    const entry = { ...tab, button, panel, iframe };
+                    shellTabs.set(tab.id, entry);
+                    return entry;
+                }
+
+                function activateShellTab(tabId) {
+                    activeShellTabId = tabId;
+                    activeTabId = null;
+                    newConnectionTab.classList.remove('active');
+                    newConnectionPanel.classList.add('hidden');
+                    for (const tab of tabs.values()) {
+                        tab.tabButton.classList.remove('active');
+                        tab.panel.classList.add('hidden');
+                    }
+                    setWorkspaceVisible(false);
+                    document.title = `${(shellTabs.get(tabId)?.title || ui('dashboard'))} - Matgate`;
+
+                    shellTabs.forEach(tab => {
+                        tab.button.classList.toggle('active', tab.id === tabId);
+                        tab.panel.classList.toggle('hidden', tab.id !== tabId);
+                    });
+
+                    shellTabs.get(tabId)?.button.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+
+                    saveShellTabs();
+                }
+
+                function closeShellTab(tabId) {
+                    const tab = shellTabs.get(tabId);
+                    if (!tab) {
+                        return;
+                    }
+
+                    tab.button.remove();
+                    tab.panel.remove();
+                    shellTabs.delete(tabId);
+
+                    if (activeShellTabId === tabId) {
+                        activeShellTabId = '';
+                        activateNewConnectionTab();
+                    }
+
+                    saveShellTabs();
+                }
+
+                function openShellTab(url, title, iconHtml = '', description = '') {
+                    if (!url) {
+                        activateNewConnectionTab();
+                        return;
+                    }
+
+                    const existing = Array.from(shellTabs.values()).find(tab => tab.url === url);
+                    if (existing) {
+                        activateShellTab(existing.id);
+                        return;
+                    }
+
+                    const id = `shell-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+                    createShellTab({ id, url, title, iconHtml, description });
+                    activateShellTab(id);
+                }
+
+                function restoreShellTabs() {
+                    if (!shellPageTabs || !shellPagePanels) {
+                        return;
+                    }
+
+                    try {
+                        const raw = localStorage.getItem(shellTabStorageKey);
+                        if (!raw) {
+                            activateNewConnectionTab();
+                            return;
+                        }
+
+                        const state = JSON.parse(raw);
+                        const storedTabs = Array.isArray(state.tabs) ? state.tabs : [];
+                        storedTabs.forEach(tab => {
+                            if (tab && tab.id && tab.url && tab.title) {
+                                createShellTab(tab);
+                            }
+                        });
+
+                        const preferred = state.activeTabId && shellTabs.has(state.activeTabId)
+                            ? state.activeTabId
+                            : '';
+                        if (preferred) {
+                            activateShellTab(preferred);
+                        }
+                        else {
+                            activateNewConnectionTab();
+                        }
+                    }
+                    catch {
+                        activateNewConnectionTab();
                     }
                 }
 
                 function wireShellNavigation() {
-                    document.querySelectorAll('a[href="/"], a[href="/sessions"]').forEach(anchor => {
+                    document.querySelectorAll('.workspace-open-button').forEach(button => {
+                        button.addEventListener('click', () => {
+                            openServer(button.getAttribute('data-server-id') || '');
+                        });
+                    });
+
+                    document.querySelectorAll('[data-shell-open-tab="1"]').forEach(anchor => {
                         anchor.addEventListener('click', event => {
                             if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button !== 0) {
                                 return;
                             }
 
-                            event.preventDefault();
-                            showView('home', true);
-                        });
-                    });
+                            const url = anchor.getAttribute('href') || '';
+                            const title = anchor.getAttribute('data-shell-title') || anchor.textContent.trim() || '';
+                            const description = anchor.getAttribute('data-shell-description') || '';
+                            const iconHtml = anchor.querySelector('.icon')?.outerHTML || anchor.getAttribute('data-shell-icon-html') || '';
+                            if (!url) {
+                                return;
+                            }
 
-                    document.querySelectorAll('.workspace-open-button').forEach(button => {
-                        button.addEventListener('click', () => {
-                            openServer(button.getAttribute('data-server-id') || '');
+                            event.preventDefault();
+                            openShellTab(url, title, iconHtml, description);
                         });
                     });
 
@@ -1246,11 +1449,21 @@ public sealed class HtmlViews
                         return crypto.randomUUID();
                     }
 
-                    return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+                    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, ch => {
+                        const random = Math.floor(Math.random() * 16);
+                        const value = ch === 'x' ? random : (random & 0x3) | 0x8;
+                        return value.toString(16);
+                    });
                 }
 
                 function findServer(serverId) {
                     return availableServers.find(server => server.id === serverId);
+                }
+
+                function orderedSessionTabs() {
+                    return Array.from(tabsRoot.querySelectorAll('.session-tab[data-tab-id]'))
+                        .map(tabButton => tabs.get(tabButton.getAttribute('data-tab-id') || ''))
+                        .filter(Boolean);
                 }
 
                 function ui(key) {
@@ -1259,6 +1472,92 @@ public sealed class HtmlViews
 
                 function isFileProtocol(protocol) {
                     return ['SFTP', 'FTP', 'SMB'].includes((protocol || '').toUpperCase());
+                }
+
+                function isWebsiteProtocol(protocol) {
+                    return (protocol || '').toUpperCase() === 'WEBSITE';
+                }
+
+                function protocolLabel(protocol) {
+                    switch ((protocol || '').toUpperCase()) {
+                        case 'WEBSITE': return uiText.websiteBeta || 'Website (Beta)';
+                        default: return protocol || '-';
+                    }
+                }
+
+                function buildWebsiteTabUrl(serverId, tabId, sourceUrl = '') {
+                    const fallbackUrl = `/website/${serverId}/${tabId}/proxy/`;
+                    if (!sourceUrl) {
+                        return fallbackUrl;
+                    }
+
+                    try {
+                        const url = new URL(sourceUrl, window.location.origin);
+                        if (url.origin !== window.location.origin) {
+                            return fallbackUrl;
+                        }
+
+                        const tabSpecificMatch = url.pathname.match(/^\/website\/[^/]+\/[^/]+\/proxy\/?/i);
+                        if (tabSpecificMatch) {
+                            return `${url.origin}${url.pathname.replace(/^\/website\/[^/]+\/[^/]+\/proxy\/?/i, `/website/${serverId}/${tabId}/proxy/`)}${url.search}${url.hash}`;
+                        }
+
+                        const legacyMatch = url.pathname.match(/^\/website\/[^/]+\/proxy\/?/i);
+                        if (legacyMatch) {
+                            return `${url.origin}${url.pathname.replace(/^\/website\/[^/]+\/proxy\/?/i, `/website/${serverId}/${tabId}/proxy/`)}${url.search}${url.hash}`;
+                        }
+                    }
+                    catch {
+                        // Fall back to a clean proxy URL.
+                    }
+
+                    return fallbackUrl;
+                }
+
+                function buildWebsiteDisplayUrl(tab, sourceUrl = '') {
+                    const fallbackUrl = tab.target || '';
+                    if (!sourceUrl) {
+                        return fallbackUrl;
+                    }
+
+                    try {
+                        const url = new URL(sourceUrl, window.location.origin);
+                        const proxyMatch = url.pathname.match(/^\/website\/[^/]+\/(?:[^/]+\/)?proxy\/?(.*)$/i);
+                        if (!proxyMatch) {
+                            return url.origin === window.location.origin ? fallbackUrl : sourceUrl;
+                        }
+
+                        const targetBase = new URL(tab.target || fallbackUrl || window.location.origin, window.location.origin);
+                        const relativePath = `${proxyMatch[1] || ''}${url.search}${url.hash}`;
+                        return new URL(relativePath, targetBase).href;
+                    }
+                    catch {
+                        // Fall back to the configured target URL.
+                    }
+
+                    return fallbackUrl || sourceUrl;
+                }
+
+                function updateWebsiteLocation(tabId, url) {
+                    const tab = tabs.get(tabId);
+                    if (!tab || !isWebsiteProtocol(tab.protocol)) {
+                        return;
+                    }
+
+                    const nextProxyUrl = typeof url === 'string' && url.trim()
+                        ? url.trim()
+                        : tab.target || '';
+                    const nextDisplayUrl = buildWebsiteDisplayUrl(tab, nextProxyUrl);
+
+                    tab.currentUrl = nextProxyUrl;
+                    tab.displayUrl = nextDisplayUrl;
+                    if (tab.websiteUi?.address) {
+                        tab.websiteUi.address.value = nextDisplayUrl;
+                    }
+
+                    tab.lastSyncAt = Date.now();
+                    tab.lastMessage = uiText.websiteLoaded || 'Website loaded';
+                    updateStatusBar();
                 }
 
                 function setStatus(tab, status) {
@@ -1282,12 +1581,6 @@ public sealed class HtmlViews
                 }
 
                 function updateTabActions() {
-                    const activeTab = tabs.get(activeTabId);
-                    const hasActiveConnection = Boolean(activeTab);
-                    disconnectActiveButton.disabled = !hasActiveConnection;
-                    fullscreenButton.disabled = !hasActiveConnection;
-                    clipboardSendButton.disabled = !activeTab || isFileProtocol(activeTab.protocol);
-                    disconnectActiveButton.textContent = activeTab && isFileProtocol(activeTab.protocol) ? ui('close') : ui('disconnect');
                     updateStatusBar();
                 }
 
@@ -1295,7 +1588,14 @@ public sealed class HtmlViews
                     activeTabId = null;
                     newConnectionTab.classList.add('active');
                     newConnectionPanel.classList.remove('hidden');
+                    activeShellTabId = '';
+                    setWorkspaceVisible(true);
+                    document.title = `${ui('dashboard')} - Matgate`;
 
+                    shellTabs.forEach(tab => {
+                        tab.button.classList.remove('active');
+                        tab.panel.classList.add('hidden');
+                    });
                     for (const tab of tabs.values()) {
                         tab.tabButton.classList.remove('active');
                         tab.panel.classList.add('hidden');
@@ -1306,15 +1606,26 @@ public sealed class HtmlViews
                 }
 
                 function createTab(server, options = {}) {
-                    const tabId = newTabId();
+                    const tabId = options.tabId || newTabId();
+                    const isWebsite = isWebsiteProtocol(server.protocol);
                     const tabButton = document.createElement('div');
                     tabButton.className = 'session-tab';
                     tabButton.setAttribute('role', 'tab');
+                    tabButton.setAttribute('data-tab-id', tabId);
+                    tabButton.draggable = true;
 
                     const tabMain = document.createElement('button');
                     tabMain.type = 'button';
                     tabMain.className = 'session-tab-main';
-                    tabMain.innerHTML = `<span class="session-tab-title">${server.iconHtml || ''}<span>${escapeHtml(server.name)}</span></span><small>${escapeHtml(ui('starting'))}</small>`;
+                    const tabTitle = document.createElement('span');
+                    tabTitle.className = 'session-tab-title';
+                    tabTitle.innerHTML = `${server.iconHtml || ''}<span>${escapeHtml(server.name)}</span>`;
+
+                    const tabDescription = document.createElement('small');
+                    tabDescription.className = 'session-tab-description';
+                    tabDescription.textContent = ui('starting');
+
+                    tabMain.append(tabTitle, tabDescription);
 
                     const closeButton = document.createElement('button');
                     closeButton.type = 'button';
@@ -1323,14 +1634,65 @@ public sealed class HtmlViews
                     closeButton.innerHTML = '&times;';
 
                     tabButton.append(tabMain, closeButton);
+                    tabButton.addEventListener('click', event => {
+                        if (event.target instanceof Element && event.target.closest('.session-tab-close')) {
+                            return;
+                        }
+
+                        activateTab(tab.id);
+                    });
                     tabsRoot.appendChild(tabButton);
+
+                    tabButton.addEventListener('dragstart', event => {
+                        draggedTabId = tab.id;
+                        tabButton.classList.add('dragging');
+                        try {
+                            event.dataTransfer.effectAllowed = 'move';
+                            event.dataTransfer.setData('text/plain', tab.id);
+                        }
+                        catch {
+                            // Ignore drag data issues.
+                        }
+                    });
+                    tabButton.addEventListener('dragend', () => {
+                        tabButton.classList.remove('dragging');
+                        draggedTabId = null;
+                        saveWorkspaceTabs();
+                    });
+                    tabButton.addEventListener('dragover', event => {
+                        if (!draggedTabId || draggedTabId === tabId) {
+                            return;
+                        }
+
+                        event.preventDefault();
+                        const draggingTab = tabs.get(draggedTabId);
+                        if (!draggingTab || !draggingTab.tabButton) {
+                            return;
+                        }
+
+                        const rect = tabButton.getBoundingClientRect();
+                        const insertBefore = event.clientX < rect.left + (rect.width / 2);
+                        const referenceNode = insertBefore ? tabButton : tabButton.nextSibling;
+                        if (draggingTab.tabButton !== referenceNode) {
+                            tabsRoot.insertBefore(draggingTab.tabButton, referenceNode);
+                        }
+                    });
+                    tabButton.addEventListener('drop', event => {
+                        if (!draggedTabId) {
+                            return;
+                        }
+
+                        event.preventDefault();
+                        draggedTabId = null;
+                        saveWorkspaceTabs();
+                    });
 
                     const panel = document.createElement('div');
                     panel.className = 'connection-panel hidden';
                     panel.tabIndex = 0;
 
                     const displayRoot = document.createElement('div');
-                    displayRoot.className = 'guac-display';
+                    displayRoot.className = isWebsite ? 'website-display' : 'guac-display';
 
                     const overlay = document.createElement('div');
                     overlay.className = 'connection-overlay';
@@ -1374,7 +1736,7 @@ public sealed class HtmlViews
                         tabButton,
                         tabMain,
                         closeButton,
-                        statusLabel: tabMain.querySelector('small'),
+                        statusLabel: tabDescription,
                         panel,
                         displayRoot,
                         overlay,
@@ -1393,12 +1755,103 @@ public sealed class HtmlViews
                         connectionName: '',
                         encryptedData: '',
                         remoteClipboard: '',
+                        websiteUi: null,
+                        currentUrl: '',
+                        displayUrl: '',
                         statusTimer: null,
                         statusUpdatedAt: Date.now(),
                         watchdog: null
                     };
 
-                    tabMain.addEventListener('click', () => activateTab(tab.id));
+                    if (isWebsite) {
+                        const websiteShell = document.createElement('div');
+                        websiteShell.className = 'website-shell';
+                        websiteShell.innerHTML = `
+                            <div class="website-toolbar">
+                                <div class="website-toolbar-group">
+                                    <button type="button" class="website-tool-button" data-website-action="back" title="${escapeHtml(uiText.back || 'Back')}">
+                                        ${websiteIcons.back}<span>${escapeHtml(uiText.back || 'Back')}</span>
+                                    </button>
+                                    <button type="button" class="website-tool-button" data-website-action="forward" title="${escapeHtml(uiText.forward || 'Forward')}">
+                                        ${websiteIcons.forward}<span>${escapeHtml(uiText.forward || 'Forward')}</span>
+                                    </button>
+                                    <button type="button" class="website-tool-button" data-website-action="reload" title="${escapeHtml(uiText.refresh || 'Refresh')}">
+                                        ${websiteIcons.refresh}<span>${escapeHtml(uiText.refresh || 'Refresh')}</span>
+                                    </button>
+                                </div>
+                                <div class="website-toolbar-group website-toolbar-address">
+                                    <input class="website-address" type="text" readonly value="${escapeHtml(server.target || '')}" aria-label="${escapeHtml(uiText.website || 'Website')}">
+                                </div>
+                                <div class="website-toolbar-group">
+                                    <button type="button" class="website-tool-button" data-website-action="open" title="${escapeHtml(uiText.openInNewTab || 'Open in new tab')}">
+                                        ${websiteIcons.open}<span>${escapeHtml(uiText.openInNewTab || 'Open in new tab')}</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <iframe class="website-frame" title="${escapeHtml(server.name)}" allow="clipboard-read; clipboard-write; fullscreen"></iframe>`;
+                        displayRoot.appendChild(websiteShell);
+                        tab.websiteUi = {
+                            shell: websiteShell,
+                            frame: websiteShell.querySelector('.website-frame'),
+                            address: websiteShell.querySelector('.website-address'),
+                            backButton: websiteShell.querySelector('[data-website-action="back"]'),
+                            forwardButton: websiteShell.querySelector('[data-website-action="forward"]'),
+                            reloadButton: websiteShell.querySelector('[data-website-action="reload"]'),
+                            openButton: websiteShell.querySelector('[data-website-action="open"]')
+                        };
+                        tab.websiteUi.frame.name = tab.id;
+                        tab.websiteUi.frame.addEventListener('load', () => {
+                            if (!tabs.has(tab.id)) {
+                                return;
+                            }
+
+                            try {
+                                updateWebsiteLocation(tab.id, tab.websiteUi.frame.contentWindow.location.href);
+                            }
+                            catch {
+                                updateWebsiteLocation(tab.id, tab.target || '');
+                            }
+
+                            hideOverlay(tab);
+                            setStatus(tab, ui('ready'));
+                            updateStatusBar();
+                        });
+                        tab.websiteUi.backButton.addEventListener('click', () => {
+                            try {
+                                tab.websiteUi.frame.contentWindow.history.back();
+                            }
+                            catch {
+                                // Ignore navigation issues.
+                            }
+                        });
+                        tab.websiteUi.forwardButton.addEventListener('click', () => {
+                            try {
+                                tab.websiteUi.frame.contentWindow.history.forward();
+                            }
+                            catch {
+                                // Ignore navigation issues.
+                            }
+                        });
+                        tab.websiteUi.reloadButton.addEventListener('click', () => {
+                            try {
+                                tab.websiteUi.frame.contentWindow.location.reload();
+                            }
+                            catch {
+                                tab.websiteUi.frame.src = tab.websiteUi.frame.src;
+                            }
+                        });
+                        tab.websiteUi.openButton.addEventListener('click', () => {
+                            const nextTabId = newTabId();
+                            const current = tab.websiteUi.frame?.contentWindow?.location?.href
+                                || tab.websiteUi.frame?.src
+                                || tab.currentUrl
+                                || tab.websiteUi.address.value
+                                || tab.target
+                                || '';
+                            window.open(buildWebsiteTabUrl(tab.serverId, nextTabId, current), '_blank', 'noopener');
+                        });
+                    }
+
                     closeButton.addEventListener('click', event => {
                         event.stopPropagation();
                         closeTab(tab.id);
@@ -1421,8 +1874,15 @@ public sealed class HtmlViews
                     }
 
                     activeTabId = tabId;
+                    activeShellTabId = '';
+                    setWorkspaceVisible(true);
                     newConnectionTab.classList.remove('active');
                     newConnectionPanel.classList.add('hidden');
+                    document.title = `${tabs.get(tabId)?.name || ui('dashboard')} - Matgate`;
+                    shellTabs.forEach(tab => {
+                        tab.button.classList.remove('active');
+                        tab.panel.classList.add('hidden');
+                    });
                     for (const tab of tabs.values()) {
                         const active = tab.id === tabId;
                         tab.tabButton.classList.toggle('active', active);
@@ -1432,6 +1892,7 @@ public sealed class HtmlViews
                     const activeTab = tabs.get(tabId);
                     fitDisplay(activeTab);
                     activeTab.panel.focus();
+                    activeTab.tabButton.scrollIntoView({ block: 'nearest', inline: 'nearest' });
                     updateTabActions();
                     saveWorkspaceTabs();
                 }
@@ -1446,6 +1907,9 @@ public sealed class HtmlViews
                     window.clearInterval(tab.watchdog);
                     if (tab.client) {
                         tab.client.disconnect();
+                    }
+                    if (tab.websiteUi?.frame) {
+                        tab.websiteUi.frame.src = 'about:blank';
                     }
 
                     if (credentialTab && credentialTab.id === tabId) {
@@ -1471,10 +1935,10 @@ public sealed class HtmlViews
                     saveWorkspaceTabs();
                 }
 
-                function openServer(serverId, filePath = '') {
+                function openServer(serverId, filePath = '', tabId = '') {
                     const server = findServer(serverId);
                     if (server) {
-                        return createTab(server, { filePath });
+                        return createTab(server, { filePath, tabId });
                     }
 
                     return null;
@@ -1483,12 +1947,14 @@ public sealed class HtmlViews
                 function saveWorkspaceTabs() {
                     try {
                         const activeTab = tabs.get(activeTabId);
+                        const orderedTabs = orderedSessionTabs();
                         const state = {
-                            tabs: Array.from(tabs.values()).map(tab => ({
+                            tabs: orderedTabs.map(tab => ({
+                                tabId: tab.id,
                                 serverId: tab.serverId,
                                 filePath: isFileProtocol(tab.protocol) ? (tab.filePath || '/') : ''
                             })),
-                            activeServerId: activeTab ? activeTab.serverId : ''
+                            activeTabId: activeTab ? activeTab.id : ''
                         };
 
                         localStorage.setItem(workspaceStorageKey, JSON.stringify(state));
@@ -1502,7 +1968,7 @@ public sealed class HtmlViews
                     try {
                         const raw = localStorage.getItem(workspaceStorageKey);
                         if (!raw) {
-                            return { tabs: [], activeServerId: '' };
+                            return { tabs: [], activeTabId: '', activeServerId: '' };
                         }
 
                         const state = JSON.parse(raw);
@@ -1510,17 +1976,19 @@ public sealed class HtmlViews
                         return {
                             tabs: tabStates
                                 .map(tabState => typeof tabState === 'string'
-                                    ? { serverId: tabState, filePath: '' }
+                                    ? { serverId: tabState, filePath: '', tabId: '' }
                                     : {
+                                        tabId: tabState.tabId || tabState.tabID || tabState.id || '',
                                         serverId: tabState.serverId || tabState.id || '',
                                         filePath: tabState.filePath || tabState.path || ''
                                     })
                                 .filter(tabState => Boolean(findServer(tabState.serverId))),
+                            activeTabId: typeof state.activeTabId === 'string' ? state.activeTabId : '',
                             activeServerId: findServer(state.activeServerId) ? state.activeServerId : ''
                         };
                     }
                     catch {
-                        return { tabs: [], activeServerId: '' };
+                        return { tabs: [], activeTabId: '', activeServerId: '' };
                     }
                 }
 
@@ -1678,15 +2146,23 @@ public sealed class HtmlViews
                     }
 
                     statusTitle.textContent = tab.name;
-                    statusTarget.textContent = `${tab.protocol} ${tab.target}`;
+                    statusTarget.textContent = isWebsiteProtocol(tab.protocol)
+                        ? `${protocolLabel(tab.protocol)} ${tab.displayUrl || tab.target || tab.currentUrl}`
+                        : `${protocolLabel(tab.protocol)} ${tab.target}`;
                     statusState.textContent = tab.status || ui('ready');
                     statusLatency.textContent = gatewayLatencyMs === null ? 'Gateway: -' : `Gateway: ${gatewayLatencyMs} ms`;
                     statusTunnel.textContent = isFileProtocol(tab.protocol)
                         ? `Tunnel: ${ui('fileApi')}`
+                        : isWebsiteProtocol(tab.protocol)
+                            ? `Tunnel: ${uiText.websiteProxy || 'Website proxy'}`
                         : `Tunnel: ${tab.tunnelState || '-'}`;
                     statusSync.textContent = `Sync: ${formatAge(tab.lastSyncAt)}`;
                     statusMessage.textContent = tab.lastError || tab.lastMessage || '-';
                 }
+
+                window.MatgateWebsiteLocationChanged = (tabId, url) => {
+                    updateWebsiteLocation(tabId, url);
+                };
 
                 function statusName(state) {
                     switch (state) {
@@ -1702,6 +2178,11 @@ public sealed class HtmlViews
                 async function startTab(tab) {
                     if (isFileProtocol(tab.protocol)) {
                         startFileTab(tab);
+                        return;
+                    }
+
+                    if (isWebsiteProtocol(tab.protocol)) {
+                        startWebsiteTab(tab);
                         return;
                     }
 
@@ -2017,6 +2498,30 @@ public sealed class HtmlViews
                     tab.displayRoot.appendChild(manager);
                     hideOverlay(tab);
                     loadFilePath(tab, tab.filePath);
+                }
+
+                function startWebsiteTab(tab) {
+                    tab.terminal = false;
+                    tab.client = null;
+                    tab.keyboard = null;
+                    tab.tunnelState = uiText.websiteProxy || 'Website proxy';
+                    tab.lastError = '';
+                    tab.lastMessage = uiText.websiteOpening || 'Opening website';
+                    tab.connectedAt ??= Date.now();
+                    tab.lastSyncAt = null;
+                    tab.displayRoot.className = 'website-display';
+                    setStatus(tab, ui('loading'));
+                    setOverlay(tab, uiText.websiteOpening || 'Opening website', `${tab.name} ${uiText.isLoading || 'is loading'}.`, false);
+
+                    if (!tab.websiteUi) {
+                        return;
+                    }
+
+                    const proxyUrl = `/website/${tab.serverId}/${tab.id}/proxy/`;
+                    tab.currentUrl = proxyUrl;
+                    tab.displayUrl = buildWebsiteDisplayUrl(tab, proxyUrl);
+                    tab.websiteUi.address.value = tab.displayUrl;
+                    tab.websiteUi.frame.src = proxyUrl;
                 }
 
                 async function loadFilePath(tab, path) {
@@ -2622,39 +3127,45 @@ public sealed class HtmlViews
                     return div.innerHTML;
                 }
 
-                disconnectActiveButton.addEventListener('click', () => {
-                    if (activeTabId) {
-                        closeTab(activeTabId);
-                    }
-                });
+                if (disconnectActiveButton) {
+                    disconnectActiveButton.addEventListener('click', () => {
+                        if (activeTabId) {
+                            closeTab(activeTabId);
+                        }
+                    });
+                }
 
-                clipboardSendButton.addEventListener('click', async () => {
-                    const activeTab = tabs.get(activeTabId);
-                    if (!activeTab) {
-                        return;
-                    }
+                if (clipboardSendButton) {
+                    clipboardSendButton.addEventListener('click', async () => {
+                        const activeTab = tabs.get(activeTabId);
+                        if (!activeTab) {
+                            return;
+                        }
 
-                    try {
-                        const text = await readBrowserClipboard();
-                        if (!sendClipboardText(activeTab, text)) {
+                        try {
+                            const text = await readBrowserClipboard();
+                            if (!sendClipboardText(activeTab, text)) {
+                                openClipboardDialog(activeTab.remoteClipboard || '');
+                            }
+                        }
+                        catch {
                             openClipboardDialog(activeTab.remoteClipboard || '');
                         }
-                    }
-                    catch {
-                        openClipboardDialog(activeTab.remoteClipboard || '');
-                    }
-                });
+                    });
+                }
 
-                fullscreenButton.addEventListener('click', () => {
-                    const activeTab = tabs.get(activeTabId);
-                    const target = activeTab ? activeTab.panel : deck;
-                    if (!document.fullscreenElement) {
-                        target.requestFullscreen().then(scheduleResize).catch(() => {});
-                    }
-                    else {
-                        document.exitFullscreen().then(scheduleResize).catch(() => {});
-                    }
-                });
+                if (fullscreenButton) {
+                    fullscreenButton.addEventListener('click', () => {
+                        const activeTab = tabs.get(activeTabId);
+                        const target = activeTab ? activeTab.panel : deck;
+                        if (!document.fullscreenElement) {
+                            target.requestFullscreen().then(scheduleResize).catch(() => {});
+                        }
+                        else {
+                            document.exitFullscreen().then(scheduleResize).catch(() => {});
+                        }
+                    });
+                }
 
                 credentialDialog.addEventListener('submit', event => {
                     event.preventDefault();
@@ -2696,6 +3207,7 @@ public sealed class HtmlViews
                 wireShellNavigation();
                 activateNewConnectionTab();
                 showView('home', false);
+                restoreShellTabs();
                 measureGatewayLatency();
                 window.setInterval(measureGatewayLatency, 5000);
 
@@ -2707,14 +3219,15 @@ public sealed class HtmlViews
 
                 const openedTabs = [];
                 for (const tabState of tabStatesToOpen) {
-                    const tab = openServer(tabState.serverId, tabState.filePath || '');
+                    const tab = openServer(tabState.serverId, tabState.filePath || '', tabState.tabId || '');
                     if (tab) {
                         openedTabs.push(tab);
                     }
                 }
 
-                const preferredServerId = initialOpenServerId || restoredWorkspace.activeServerId;
-                const preferredTab = openedTabs.find(tab => tab.serverId === preferredServerId) || openedTabs[0];
+                const preferredTab = openedTabs.find(tab => tab.id === restoredWorkspace.activeTabId)
+                    || openedTabs.find(tab => tab.serverId === (initialOpenServerId || restoredWorkspace.activeServerId))
+                    || openedTabs[0];
                 if (preferredTab) {
                     activateTab(preferredTab.id);
                 }
@@ -2747,9 +3260,9 @@ public sealed class HtmlViews
             <section class="session-page">
                 <div class="session-bar">
                     <div>
-                        <span class="badge">{{E(server.Protocol.ToString().ToUpperInvariant())}}</span>
+                        <span class="badge">{{E(ServerProtocolLabel(server.Protocol))}}</span>
                         <strong>{{E(server.Name)}}</strong>
-                        <span class="muted">{{E(server.Host)}}:{{server.Port}}</span>
+                        <span class="muted">{{E(ServerTargetValue(server))}}</span>
                     </div>
                     <div class="session-actions">
                         <a class="button" href="/">Dashboard</a>
@@ -3046,45 +3559,35 @@ public sealed class HtmlViews
     private static string Layout(HttpContext context, MatgateUser? user, string title, string body, string mainClass = "")
     {
         var language = Language(context);
-        var aboutVersion = ApplicationVersion();
-        var aboutModalClose = $$"""
-            <button type="button" class="button" onclick="return window.MatgateCloseAboutModal(event, this)">{{Icon("x")}}{{T(context, "Close")}}</button>
-            """;
-        var adminMenu = user is not null && (user.IsAdmin || user.CanManageServers)
-            ? $$"""
-                <details class="nav-menu admin-menu">
-                    <summary class="menu-trigger">{{Icon(user.IsAdmin ? "shield" : "server")}}<span>{{T(context, user.IsAdmin ? "Administration" : "Servers")}}</span><span class="menu-caret">{{Icon("chevron-down")}}</span></summary>
-                    <div class="menu-panel">
-                        <a href="/admin/servers">{{Icon("server")}}{{T(context, "Servers")}}</a>
-                        {{(user.IsAdmin ? $"""<a href="/admin/users">{Icon("users")}{T(context, "Users")}</a>""" : "")}}
-                    </div>
-                </details>
-                """
-            : "";
-        var accountMenu = user is null ? "" : $$"""
-            <details class="nav-menu account-menu">
-                <summary class="menu-trigger account-trigger">
-                    {{Icon("user")}}<span class="account-name">{{E(string.IsNullOrWhiteSpace(user.DisplayName) ? user.UserName : user.DisplayName)}}</span><span class="menu-caret">{{Icon("chevron-down")}}</span>
-                </summary>
-                <div class="menu-panel">
-                    <a href="/account">{{Icon("user")}}{{T(context, "Account")}}</a>
-                    <form method="post" action="/logout" class="inline">
-                        {{Csrf(context)}}
-                        <button type="submit">{{Icon("logout")}}{{T(context, "Logout")}}</button>
-                    </form>
-                </div>
-            </details>
-            """;
-        var navigation = user is null ? "" : $$"""
-            <nav>
-                <a href="/">{{Icon("home")}}{{T(context, "Home")}}</a>
-                {{adminMenu}}
-                {{accountMenu}}
+        var theme = Theme(context, user);
+        var requestPath = context.Request.Path.Value ?? "/";
+        var displayName = user is null ? "" : string.IsNullOrWhiteSpace(user.DisplayName) ? user.UserName : user.DisplayName;
+        var canManageAdminArea = user is not null && (user.IsAdmin || user.CanManageServers);
+        var serversActive = requestPath.StartsWith("/admin/servers", StringComparison.OrdinalIgnoreCase);
+        var usersActive = requestPath.StartsWith("/admin/users", StringComparison.OrdinalIgnoreCase);
+        var accountActive = requestPath.StartsWith("/account", StringComparison.OrdinalIgnoreCase);
+        var serversClass = serversActive ? " active" : "";
+        var usersClass = usersActive ? " active" : "";
+        var accountClass = accountActive ? " active" : "";
+        var shellTabs = user is null ? "" : $$"""
+            <nav class="shell-tabs" aria-label="Primary">
+                {{(canManageAdminArea ? $"""<a class="shell-tab{serversClass}" href="/admin/servers" data-shell-open-tab="1" data-shell-title="{A(T(context, "Servers"))}">{Icon("server")}<span>{T(context, "Servers")}</span></a>""" : "")}}
+                {{(user!.IsAdmin ? $"""<a class="shell-tab{usersClass}" href="/admin/users" data-shell-open-tab="1" data-shell-title="{A(T(context, "Users"))}">{Icon("users")}<span>{T(context, "Users")}</span></a>""" : "")}}
+                <a class="shell-tab{accountClass}" href="/account" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Account"))}}">{{Icon("user")}}<span class="account-name">{{E(displayName)}}</span></a>
             </nav>
             """;
+        var shellActions = user is null ? "" : $$"""
+            <div class="shell-actions">
+                <form method="post" action="/logout" class="inline">
+                    {{Csrf(context)}}
+                    <button type="submit" class="shell-action">{{Icon("logout")}}<span>{{T(context, "Logout")}}</span></button>
+                </form>
+            </div>
+            """;
+        var navigation = user is null ? "" : shellTabs + shellActions;
         return $$"""
             <!doctype html>
-            <html lang="{{language}}">
+            <html lang="{{language}}" data-theme="{{theme}}" data-embedded="{{(string.Equals(context.Request.Query["embed"].ToString(), "1", StringComparison.OrdinalIgnoreCase) ? "1" : "0")}}">
             <head>
                 <meta charset="utf-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -3095,14 +3598,56 @@ public sealed class HtmlViews
                 <style>
                     :root {
                         color-scheme: light;
+                        --radius: 2px;
+                        --shell-height: 34px;
                         --bg: #f4f6f4;
                         --panel: #ffffff;
+                        --surface: #ffffff;
+                        --surface-2: #eef2ef;
+                        --surface-3: #dfe7e3;
                         --text: #1f2725;
                         --muted: #67706c;
                         --line: #dce2de;
                         --accent: #176b5b;
                         --accent-2: #2b5876;
                         --danger: #a63a3a;
+                        --shadow: 0 10px 24px rgb(31 39 37 / 8%);
+                        --shadow-strong: 0 12px 28px rgb(31 39 37 / 14%);
+                    }
+                    :root[data-theme="dark"] {
+                        color-scheme: dark;
+                        --bg: #0f1412;
+                        --panel: #161c19;
+                        --surface: #171d1a;
+                        --surface-2: #1d2421;
+                        --surface-3: #232c28;
+                        --text: #edf2ef;
+                        --muted: #a0aca6;
+                        --line: #2f3d37;
+                        --accent: #5bc2a8;
+                        --accent-2: #8cb8e0;
+                        --danger: #d46f6f;
+                        --shadow: 0 10px 24px rgb(0 0 0 / 32%);
+                        --shadow-strong: 0 12px 28px rgb(0 0 0 / 42%);
+                    }
+                    @media (prefers-color-scheme: dark) {
+                        :root[data-theme="system"],
+                        :root:not([data-theme="light"]):not([data-theme="dark"]) {
+                            color-scheme: dark;
+                            --bg: #0f1412;
+                            --panel: #161c19;
+                            --surface: #171d1a;
+                            --surface-2: #1d2421;
+                            --surface-3: #232c28;
+                            --text: #edf2ef;
+                            --muted: #a0aca6;
+                            --line: #2f3d37;
+                            --accent: #5bc2a8;
+                            --accent-2: #8cb8e0;
+                            --danger: #d46f6f;
+                            --shadow: 0 10px 24px rgb(0 0 0 / 32%);
+                            --shadow-strong: 0 12px 28px rgb(0 0 0 / 42%);
+                        }
                     }
                     * { box-sizing: border-box; }
                     body {
@@ -3112,14 +3657,17 @@ public sealed class HtmlViews
                         font-family: Segoe UI, system-ui, -apple-system, sans-serif;
                         line-height: 1.5;
                     }
+                    html[data-embedded="1"] header {
+                        display: none;
+                    }
                     header {
-                        background: #ffffff;
+                        background: var(--surface);
                         border-bottom: 1px solid var(--line);
                         display: flex;
                         align-items: center;
                         justify-content: space-between;
-                        gap: 24px;
-                        padding: 14px clamp(16px, 4vw, 44px);
+                        gap: 16px;
+                        padding: 6px clamp(12px, 3vw, 24px);
                         position: sticky;
                         top: 0;
                         z-index: 5;
@@ -3128,24 +3676,25 @@ public sealed class HtmlViews
                         align-items: center;
                         color: var(--text);
                         display: inline-flex;
-                        font-size: 20px;
+                        font-size: 18px;
                         font-weight: 800;
                         gap: 10px;
                         letter-spacing: 0;
                         text-decoration: none;
+                        white-space: nowrap;
                     }
                     .brand-mark {
                         align-items: center;
                         background: linear-gradient(135deg, #176b5b, #2b5876);
-                        border-radius: 8px;
+                        border-radius: var(--radius);
                         box-shadow: inset 0 0 0 1px rgb(255 255 255 / 28%);
                         color: #ffffff;
                         display: inline-flex;
-                        height: 34px;
+                        height: 30px;
                         justify-content: center;
                         overflow: hidden;
                         position: relative;
-                        width: 34px;
+                        width: 30px;
                     }
                     .brand-gate {
                         border: 2px solid rgb(255 255 255 / 80%);
@@ -3164,66 +3713,149 @@ public sealed class HtmlViews
                         top: 3px;
                     }
                     .brand-word span { color: var(--accent); }
+                    .shell-page-row {
+                        align-items: center;
+                        background: var(--surface);
+                        border-bottom: 1px solid var(--line);
+                        display: flex;
+                        gap: 8px;
+                        min-height: 40px;
+                        overflow: visible;
+                        padding: 2px 12px;
+                    }
+                    .shell-page-tabs {
+                        flex: 1 1 auto;
+                        min-width: 0;
+                    }
+                    .shell-page-panels {
+                        display: flex;
+                        flex: 1 1 auto;
+                        min-height: 0;
+                        position: relative;
+                    }
+                    .shell-page-panel {
+                        inset: 0;
+                        position: absolute;
+                    }
+                    .shell-page-panel iframe {
+                        border: 0;
+                        display: block;
+                        height: 100%;
+                        width: 100%;
+                    }
                     .icon {
                         fill: none;
                         flex: 0 0 auto;
-                        height: 18px;
+                        height: 17px;
                         stroke: currentColor;
                         stroke-linecap: round;
                         stroke-linejoin: round;
                         stroke-width: 2;
-                        width: 18px;
+                        width: 17px;
                     }
-                    nav { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+                    nav { display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; overflow: visible; min-width: 0; }
+                    .shell-tabs {
+                        flex: 1 1 auto;
+                        min-width: 0;
+                        overflow-x: auto;
+                        overflow-y: visible;
+                        justify-content: flex-end;
+                        padding-right: 2px;
+                        scrollbar-width: thin;
+                    }
+                    .shell-tab {
+                        align-items: center;
+                        background: transparent;
+                        border: 1px solid transparent;
+                        border-radius: 0;
+                        color: var(--text);
+                        cursor: pointer;
+                        display: inline-flex;
+                        gap: 7px;
+                        min-height: 28px;
+                        padding: 4px 8px;
+                        text-decoration: none;
+                        white-space: nowrap;
+                    }
+                    .shell-tab.active {
+                        background: var(--surface-2);
+                        border-color: var(--accent);
+                        box-shadow: inset 0 -2px 0 var(--accent);
+                    }
+                    .shell-tab-main {
+                        background: transparent;
+                        border: 0;
+                        border-radius: 0;
+                        display: grid;
+                        gap: 0;
+                        justify-items: start;
+                        min-height: 40px;
+                        min-width: 140px;
+                        padding: 4px 9px;
+                        width: 100%;
+                    }
+                    .shell-tab-title {
+                        max-width: none;
+                        width: 100%;
+                    }
+                    .shell-tab-description {
+                        color: var(--muted);
+                        display: block;
+                        font-size: 11px;
+                        line-height: 1.2;
+                        min-height: 1.2em;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        white-space: nowrap;
+                        width: 100%;
+                    }
+                    .shell-actions {
+                        display: flex;
+                        flex: 0 0 auto;
+                        align-items: center;
+                        gap: 6px;
+                        margin-left: 8px;
+                    }
+                    .shell-action {
+                        align-items: center;
+                        background: transparent;
+                        border: 1px solid transparent;
+                        border-radius: 0;
+                        color: var(--muted);
+                        cursor: pointer;
+                        display: inline-flex;
+                        gap: 7px;
+                        min-height: 28px;
+                        padding: 4px 8px;
+                        text-decoration: none;
+                        white-space: nowrap;
+                    }
+                    .shell-tab:hover,
+                    .shell-tab:focus-visible,
+                    .shell-action:hover,
+                    .shell-action:focus-visible {
+                        background: var(--surface-2);
+                        border-color: var(--line);
+                    }
                     nav a, .button, button {
                         border: 1px solid var(--line);
-                        border-radius: 8px;
-                        background: #ffffff;
+                        border-radius: var(--radius);
+                        background: var(--surface);
                         color: var(--text);
                         cursor: pointer;
                         display: inline-flex;
                         align-items: center;
-                        min-height: 38px;
-                        padding: 8px 12px;
+                        min-height: 30px;
+                        padding: 4px 9px;
                         text-decoration: none;
                         font: inherit;
                         gap: 7px;
-                    }
-                    .nav-menu {
-                        position: relative;
-                    }
-                    .nav-menu > summary {
-                        align-items: center;
-                        border: 1px solid var(--line);
-                        border-radius: 8px;
-                        background: #ffffff;
-                        color: var(--text);
-                        cursor: pointer;
-                        display: inline-flex;
-                        gap: 7px;
-                        min-height: 38px;
-                        padding: 8px 12px;
-                        text-decoration: none;
-                        font: inherit;
-                        list-style: none;
-                    }
-                    .nav-menu > summary::-webkit-details-marker { display: none; }
-                    .nav-menu[open] > summary,
-                    .nav-menu > summary:hover {
-                        background: #f5f8f6;
-                    }
-                    .menu-caret {
-                        display: inline-flex;
-                    }
-                    .menu-caret .icon {
-                        height: 14px;
-                        width: 14px;
                     }
                     .menu-panel {
-                        background: #ffffff;
+                        background: var(--surface);
                         border: 1px solid var(--line);
-                        border-radius: 8px;
-                        box-shadow: 0 16px 32px rgb(31 39 37 / 12%);
+                        border-radius: var(--radius);
+                        box-shadow: var(--shadow-strong);
                         display: grid;
                         gap: 4px;
                         min-width: 220px;
@@ -3231,7 +3863,7 @@ public sealed class HtmlViews
                         position: absolute;
                         right: 0;
                         top: calc(100% + 8px);
-                        z-index: 12;
+                        z-index: 30;
                     }
                     .menu-panel a,
                     .menu-panel button {
@@ -3246,26 +3878,38 @@ public sealed class HtmlViews
                         overflow: hidden;
                         text-overflow: ellipsis;
                         white-space: nowrap;
-                        max-width: 160px;
+                        max-width: 180px;
                     }
                     button:disabled { cursor: not-allowed; opacity: .55; }
                     .primary { background: var(--accent); border-color: var(--accent); color: #ffffff; }
                     .danger { background: var(--danger); border-color: var(--danger); color: #ffffff; }
-                    main { width: min(1180px, calc(100% - 32px)); margin: 28px auto 56px; }
-                    main.session-main { width: 100%; height: calc(100vh - 67px); margin: 0; }
+                    main { width: min(1180px, calc(100% - 24px)); margin: 22px auto 44px; }
+                    main.shell-main {
+                        display: flex;
+                        flex-direction: column;
+                        gap: 0;
+                        height: calc(100vh - 54px);
+                        margin: 0;
+                        width: 100%;
+                    }
+                    main.session-main { width: 100%; height: calc(100vh - 54px); margin: 0; }
                     h1, h2 { line-height: 1.15; margin: 0; }
                     h1 { font-size: clamp(30px, 4vw, 52px); }
                     h2 { font-size: 20px; margin-bottom: 18px; }
                     .eyebrow { color: var(--accent-2); font-weight: 700; margin: 0 0 6px; text-transform: uppercase; }
                     .muted { color: var(--muted); }
-                    .target { font-family: Consolas, ui-monospace, monospace; }
+                    .target {
+                        font-family: Consolas, ui-monospace, monospace;
+                        overflow-wrap: anywhere;
+                        word-break: break-word;
+                    }
                     .page-head { align-items: center; display: flex; justify-content: space-between; gap: 18px; margin-bottom: 22px; }
                     .panel, .card, .auth-panel {
                         background: var(--panel);
                         border: 1px solid var(--line);
-                        border-radius: 8px;
-                        padding: 22px;
-                        box-shadow: 0 12px 32px rgb(31 39 37 / 6%);
+                        border-radius: var(--radius);
+                        padding: 18px;
+                        box-shadow: var(--shadow);
                     }
                     .panel + .panel { margin-top: 18px; }
                     .grid { display: grid; gap: 16px; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); }
@@ -3274,16 +3918,16 @@ public sealed class HtmlViews
                     .stack { display: grid; gap: 14px; }
                     .form-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); align-items: end; }
                     label { display: grid; gap: 6px; font-weight: 600; }
-                    .check { align-items: center; display: flex; gap: 8px; min-height: 42px; }
+                    .check { align-items: center; display: flex; gap: 8px; min-height: 34px; }
                     input, select, textarea {
                         border: 1px solid var(--line);
-                        border-radius: 8px;
+                        border-radius: var(--radius);
                         font: inherit;
-                        min-height: 42px;
-                        padding: 9px 10px;
+                        min-height: 34px;
+                        padding: 7px 9px;
                         width: 100%;
                     }
-                    textarea { min-height: 84px; resize: vertical; }
+                    textarea { min-height: 76px; resize: vertical; }
                     .actions { align-items: end; display: flex; gap: 10px; }
                     .server-form-footer {
                         align-items: center;
@@ -3305,9 +3949,9 @@ public sealed class HtmlViews
                     .wide { grid-column: 1 / -1; }
                     .inline { display: inline; margin: 0; }
                     .auth-panel { display: grid; gap: 26px; grid-template-columns: minmax(0, 1fr) minmax(280px, 380px); margin: 10vh auto 0; max-width: 880px; }
-                    .notice { border-radius: 8px; padding: 10px 12px; }
+                    .notice { border-radius: var(--radius); padding: 10px 12px; }
                     .error { background: #fff1f1; border: 1px solid #f0caca; color: #7d2424; }
-                    .badge { background: #e8f1ee; border-radius: 999px; color: var(--accent); display: inline-block; font-size: 12px; font-weight: 800; padding: 3px 8px; }
+                    .badge { background: var(--surface-2); border-radius: var(--radius); color: var(--accent); display: inline-block; font-size: 12px; font-weight: 800; padding: 3px 7px; }
                     .server-title {
                         align-items: center;
                         display: flex;
@@ -3319,9 +3963,9 @@ public sealed class HtmlViews
                     }
                     .server-icon {
                         align-items: center;
-                        background: #e8f1ee;
-                        border: 1px solid #d1e1dc;
-                        border-radius: 8px;
+                        background: var(--surface-2);
+                        border: 1px solid var(--line);
+                        border-radius: var(--radius);
                         color: var(--accent);
                         display: inline-flex;
                         flex: 0 0 auto;
@@ -3342,17 +3986,20 @@ public sealed class HtmlViews
                         display: inline-flex;
                         gap: 9px;
                     }
-                    .empty { border: 1px dashed var(--line); border-radius: 8px; color: var(--muted); padding: 22px; }
+                    .empty { border: 1px dashed var(--line); border-radius: var(--radius); color: var(--muted); padding: 18px; }
                     .table-wrap { overflow-x: auto; }
                     table { border-collapse: collapse; width: 100%; }
                     th, td { border-bottom: 1px solid var(--line); padding: 12px 8px; text-align: left; vertical-align: top; }
                     .danger-zone { border-color: #efc7c7; }
                     .matgate-shell {
                         background: var(--bg);
+                        display: flex;
+                        flex-direction: column;
                         height: 100%;
-                        min-height: calc(100vh - 67px);
+                        min-height: calc(100vh - 54px);
                         overflow: hidden;
                         position: relative;
+                        width: 100%;
                     }
                     .app-view {
                         inset: 0;
@@ -3384,22 +4031,22 @@ public sealed class HtmlViews
                     .session-page { display: flex; flex-direction: column; height: 100%; min-height: 0; }
                     .session-bar {
                         align-items: center;
-                        background: #ffffff;
+                        background: var(--surface);
                         border-bottom: 1px solid var(--line);
                         display: flex;
                         justify-content: space-between;
                         gap: 14px;
-                        min-height: 54px;
-                        padding: 8px clamp(12px, 3vw, 24px);
+                        min-height: 38px;
+                        padding: 5px clamp(10px, 2vw, 18px);
                     }
                     .session-bar > div:first-child { align-items: center; display: flex; flex-wrap: wrap; gap: 10px; min-width: 0; }
                     .session-actions { align-items: center; display: flex; gap: 8px; flex-wrap: wrap; }
                     .session-tab-row {
                         align-items: stretch;
-                        background: #eef2ef;
+                        background: var(--surface-2);
                         border-bottom: 1px solid var(--line);
                         display: flex;
-                        min-height: 44px;
+                        min-height: 40px;
                     }
                     .session-tabs {
                         align-items: stretch;
@@ -3407,35 +4054,41 @@ public sealed class HtmlViews
                         display: flex;
                         flex: 0 1 auto;
                         gap: 1px;
-                        min-height: 44px;
+                        min-height: 40px;
                         min-width: 0;
                         overflow-x: auto;
                     }
                     .tab-actions {
                         align-items: center;
-                        background: #ffffff;
+                        background: var(--surface);
                         border-left: 1px solid var(--line);
                         display: flex;
                         flex: 0 0 auto;
                         gap: 8px;
                         justify-content: flex-end;
                         margin-left: auto;
-                        padding: 4px clamp(8px, 2vw, 14px);
+                        padding: 3px clamp(8px, 2vw, 12px);
+                    }
+                    #connection-tab-actions {
+                        flex: 0 0 clamp(180px, 18vw, 240px);
+                        min-width: clamp(180px, 18vw, 240px);
                     }
                     .tab-actions button {
-                        min-height: 34px;
-                        padding: 6px 10px;
+                        min-height: 28px;
+                        padding: 4px 9px;
                         white-space: nowrap;
                     }
                     .session-tab {
                         align-items: stretch;
-                        background: #dfe7e3;
+                        background: var(--surface-3);
                         border-right: 1px solid var(--line);
                         display: flex;
                         flex: 0 0 auto;
                         max-width: 280px;
+                        cursor: grab;
                     }
-                    .session-tab.active { background: #ffffff; }
+                    .session-tab.active { background: var(--surface); }
+                    .session-tab.dragging { opacity: .65; }
                     .session-new-tab {
                         align-items: center;
                         border: 0;
@@ -3446,9 +4099,9 @@ public sealed class HtmlViews
                         font-weight: 800;
                         justify-content: center;
                         max-width: none;
-                        min-height: 44px;
-                        min-width: 52px;
-                        padding: 0 14px;
+                        min-height: 40px;
+                        min-width: 44px;
+                        padding: 0 10px;
                     }
                     .session-tab-main {
                         background: transparent;
@@ -3457,34 +4110,48 @@ public sealed class HtmlViews
                         display: grid;
                         gap: 0;
                         justify-items: start;
-                        min-height: 44px;
-                        min-width: 160px;
-                        padding: 5px 10px;
+                        min-height: 40px;
+                        min-width: 150px;
+                        padding: 4px 9px;
+                        width: 100%;
                     }
                     .session-tab-title {
                         align-items: center;
                         display: flex;
                         gap: 7px;
-                        max-width: 190px;
+                        max-width: none;
                         min-width: 0;
+                        width: 100%;
                     }
                     .session-tab-title .icon {
                         height: 15px;
                         width: 15px;
                     }
                     .session-tab-title span {
-                        max-width: 190px;
+                        max-width: none;
+                        min-width: 0;
+                        width: 100%;
                         overflow: hidden;
                         text-overflow: ellipsis;
                         white-space: nowrap;
                     }
-                    .session-tab-main small { color: var(--muted); font-size: 12px; }
+                    .session-tab-description {
+                        color: var(--muted);
+                        display: block;
+                        font-size: 11px;
+                        line-height: 1.2;
+                        min-height: 1.2em;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        white-space: nowrap;
+                        width: 100%;
+                    }
                     .session-tab-close {
                         background: transparent;
                         border: 0;
                         border-radius: 0;
-                        min-height: 44px;
-                        padding: 0 10px;
+                        min-height: 40px;
+                        padding: 0 8px;
                     }
                     .session-deck {
                         background: #111614;
@@ -3494,14 +4161,14 @@ public sealed class HtmlViews
                     }
                     .session-statusbar {
                         align-items: center;
-                        background: #ffffff;
+                        background: var(--surface);
                         border-top: 1px solid var(--line);
                         color: var(--text);
                         display: flex;
-                        gap: 16px;
+                        gap: 12px;
                         justify-content: space-between;
-                        min-height: 34px;
-                        padding: 5px clamp(12px, 3vw, 24px);
+                        min-height: 28px;
+                        padding: 3px clamp(10px, 2vw, 18px);
                     }
                     .status-primary, .status-secondary, .status-metrics, .status-actions {
                         align-items: center;
@@ -3525,16 +4192,16 @@ public sealed class HtmlViews
                         appearance: none;
                         background: transparent;
                         border: 1px solid var(--line);
-                        border-radius: 999px;
+                        border-radius: var(--radius);
                         color: var(--muted);
                         display: inline-flex;
                         flex: 0 0 auto;
-                        height: 28px;
+                        height: 24px;
                         justify-content: center;
                         padding: 0;
                         text-decoration: none;
                         transition: background-color .15s ease, border-color .15s ease, color .15s ease;
-                        width: 28px;
+                        width: 24px;
                     }
                     .status-info-button:hover {
                         background: #eef4f1;
@@ -3546,11 +4213,11 @@ public sealed class HtmlViews
                         font-size: 13px;
                     }
                     #status-state {
-                        background: #e8f1ee;
-                        border-radius: 999px;
+                        background: var(--surface-2);
+                        border-radius: var(--radius);
                         color: var(--accent);
                         font-weight: 700;
-                        padding: 2px 8px;
+                        padding: 2px 7px;
                     }
                     #status-message { max-width: 360px; }
                     .connection-panel {
@@ -3563,11 +4230,11 @@ public sealed class HtmlViews
                         width: 100%;
                     }
                     .connection-picker-panel {
-                        background: #f8faf9;
+                        background: var(--bg);
                         height: 100%;
                         inset: 0;
                         overflow: auto;
-                        padding: clamp(18px, 4vw, 40px);
+                        padding: clamp(14px, 3vw, 28px);
                         position: absolute;
                         width: 100%;
                     }
@@ -3588,13 +4255,13 @@ public sealed class HtmlViews
                     }
                     .connection-choice {
                         align-items: stretch;
-                        background: #ffffff;
+                        background: var(--surface);
                         border: 1px solid var(--line);
-                        border-radius: 8px;
+                        border-radius: var(--radius);
                         display: grid;
-                        gap: 16px;
-                        min-height: 170px;
-                        padding: 18px;
+                        gap: 12px;
+                        min-height: 150px;
+                        padding: 14px;
                     }
                     .connection-choice h2 {
                         margin: 8px 0 8px;
@@ -3625,8 +4292,66 @@ public sealed class HtmlViews
                         width: 100%;
                     }
                     .guac-display > div { transform-origin: center center; }
+                    .website-display {
+                        background: var(--bg);
+                        color: var(--text);
+                        height: 100%;
+                        overflow: hidden;
+                        width: 100%;
+                    }
+                    .website-shell {
+                        display: flex;
+                        flex-direction: column;
+                        height: 100%;
+                        min-height: 0;
+                        width: 100%;
+                    }
+                    .website-toolbar {
+                        align-items: center;
+                        background: var(--surface);
+                        border-bottom: 1px solid var(--line);
+                        display: flex;
+                        flex-wrap: wrap;
+                        gap: 8px;
+                        padding: 6px 8px;
+                    }
+                    .website-toolbar-group {
+                        align-items: center;
+                        display: flex;
+                        gap: 8px;
+                        min-width: 0;
+                    }
+                    .website-toolbar-address {
+                        flex: 1 1 340px;
+                    }
+                    .website-address {
+                        font-family: Consolas, ui-monospace, monospace;
+                        min-height: 32px;
+                    }
+                    .website-tool-button {
+                        align-items: center;
+                        background: var(--surface);
+                        border: 1px solid var(--line);
+                        border-radius: var(--radius);
+                        color: var(--text);
+                        cursor: pointer;
+                        display: inline-flex;
+                        gap: 7px;
+                        justify-content: center;
+                        min-height: 32px;
+                        padding: 4px 8px;
+                    }
+                    .website-tool-button:hover {
+                        background: #f5f8f6;
+                    }
+                    .website-frame {
+                        border: 0;
+                        flex: 1;
+                        min-height: 0;
+                        width: 100%;
+                    }
                     .file-display {
-                        background: #f8faf9;
+                        background: var(--bg);
                         color: var(--text);
                         height: 100%;
                         overflow: hidden;
@@ -3635,21 +4360,21 @@ public sealed class HtmlViews
                     .file-manager {
                         display: flex;
                         flex-direction: column;
-                        gap: 10px;
+                        gap: 8px;
                         height: 100%;
-                        padding: 12px;
+                        padding: 8px;
                     }
                     .file-toolbar {
                         align-items: center;
                         display: flex;
                         flex-wrap: wrap;
-                        gap: 8px;
+                        gap: 6px;
                     }
                     .file-toolbar-group {
                         align-items: center;
                         display: flex;
                         flex-wrap: wrap;
-                        gap: 8px;
+                        gap: 6px;
                     }
                     .file-toolbar-main {
                         flex: 1 1 560px;
@@ -3662,19 +4387,19 @@ public sealed class HtmlViews
                     .file-menu > summary,
                     .file-upload-button {
                         gap: 7px;
-                        min-height: 36px;
-                        padding: 6px 10px;
+                        min-height: 32px;
+                        padding: 4px 8px;
                     }
                     .file-path-input {
                         flex: 1 1 220px;
                         font-family: Consolas, ui-monospace, monospace;
-                        min-height: 36px;
+                        min-height: 32px;
                     }
                     .file-upload-button {
                         align-items: center;
                         background: var(--accent);
                         border: 1px solid var(--accent);
-                        border-radius: 8px;
+                        border-radius: var(--radius);
                         color: #ffffff;
                         cursor: pointer;
                         display: inline-flex;
@@ -3687,9 +4412,9 @@ public sealed class HtmlViews
                     }
                     .file-menu > summary {
                         align-items: center;
-                        background: #ffffff;
+                        background: var(--surface);
                         border: 1px solid var(--line);
-                        border-radius: 8px;
+                        border-radius: var(--radius);
                         color: var(--text);
                         cursor: pointer;
                         display: inline-flex;
@@ -3706,10 +4431,10 @@ public sealed class HtmlViews
                         background: #f5f8f6;
                     }
                     .file-menu-panel {
-                        background: #ffffff;
+                        background: var(--surface);
                         border: 1px solid var(--line);
-                        border-radius: 8px;
-                        box-shadow: 0 16px 32px rgb(31 39 37 / 12%);
+                        border-radius: var(--radius);
+                        box-shadow: var(--shadow-strong);
                         display: grid;
                         gap: 4px;
                         min-width: 240px;
@@ -3731,16 +4456,16 @@ public sealed class HtmlViews
                     }
                     .file-upload-input { display: none; }
                     .file-message {
-                        background: #fff6df;
-                        border: 1px solid #ead6a1;
-                        border-radius: 8px;
-                        color: #6b5518;
+                        background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+                        border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line));
+                        border-radius: var(--radius);
+                        color: var(--text);
                         padding: 8px 10px;
                     }
                     .file-table-wrap {
-                        background: #ffffff;
+                        background: var(--surface);
                         border: 1px solid var(--line);
-                        border-radius: 8px;
+                        border-radius: var(--radius);
                         flex: 1;
                         min-height: 0;
                         overflow: auto;
@@ -3823,7 +4548,7 @@ public sealed class HtmlViews
                         color: var(--muted);
                     }
                     .parent-directory {
-                        background: #f2f6f4;
+                        background: var(--surface-2);
                     }
                     .file-row-actions {
                         display: inline-flex;
@@ -3870,21 +4595,21 @@ public sealed class HtmlViews
                         text-align: center;
                     }
                     main.viewer-main {
-                        min-height: calc(100vh - 67px);
+                        min-height: calc(100vh - 54px);
                         padding: 0;
                     }
                     .file-viewer-page {
                         display: flex;
                         flex-direction: column;
-                        min-height: calc(100vh - 67px);
+                        min-height: calc(100vh - 54px);
                         padding: 0;
                     }
                     .viewer-tab-row {
                         align-items: stretch;
-                        background: #eef2ef;
+                        background: var(--surface-2);
                         border-bottom: 1px solid var(--line);
                         display: flex;
-                        min-height: 44px;
+                        min-height: 36px;
                     }
                     .viewer-tabs {
                         flex: 1 1 auto;
@@ -3916,7 +4641,7 @@ public sealed class HtmlViews
                         align-items: center;
                         background: #111614;
                         border: 1px solid var(--line);
-                        border-radius: 8px;
+                        border-radius: var(--radius);
                         display: flex;
                         flex: 1;
                         justify-content: center;
@@ -3932,9 +4657,9 @@ public sealed class HtmlViews
                     }
                     .viewer-audio-mark {
                         align-items: center;
-                        background: #ffffff;
+                        background: var(--surface);
                         border: 1px solid var(--line);
-                        border-radius: 8px;
+                        border-radius: var(--radius);
                         color: var(--accent);
                         display: inline-flex;
                         height: 86px;
@@ -3961,7 +4686,7 @@ public sealed class HtmlViews
                         object-fit: contain;
                     }
                     .document-stage {
-                        background: #ffffff;
+                        background: var(--surface);
                         padding: 0;
                     }
                     .document-stage iframe {
@@ -3970,15 +4695,15 @@ public sealed class HtmlViews
                         width: 100%;
                     }
                     .empty-viewer {
-                        background: #ffffff;
+                        background: var(--surface);
                         color: var(--text);
                         flex-direction: column;
                     }
                     .embedded-viewer {
                         background: var(--panel);
                         border: 1px solid var(--line);
-                        border-radius: 12px;
-                        box-shadow: 0 24px 90px rgb(0 0 0 / 32%);
+                        border-radius: var(--radius);
+                        box-shadow: var(--shadow-strong);
                         display: flex;
                         flex-direction: column;
                         gap: 14px;
@@ -4029,14 +4754,16 @@ public sealed class HtmlViews
                         background: rgb(10 14 12 / 72%);
                         backdrop-filter: blur(2px);
                     }
-                    .about-viewer {
-                        height: min(88vh, 920px);
+                    .about-page {
+                        display: grid;
+                        gap: 18px;
+                        margin: 0 auto;
+                        max-width: 1120px;
+                        padding: clamp(14px, 3vw, 28px);
+                        width: 100%;
                     }
-                    .about-stage {
-                        align-items: center;
-                        background: #ffffff;
-                        gap: 16px;
-                        justify-content: center;
+                    .about-head {
+                        margin-bottom: 0;
                     }
                     .about-brand {
                         align-items: center;
@@ -4052,6 +4779,14 @@ public sealed class HtmlViews
                     .about-copy .version-number {
                         margin: 0;
                     }
+                    .about-card {
+                        display: grid;
+                        gap: 10px;
+                        max-width: 760px;
+                    }
+                    .about-meta {
+                        align-items: center;
+                    }
                     .file-viewer-dialog-content {
                         width: 100%;
                     }
@@ -4059,12 +4794,12 @@ public sealed class HtmlViews
                         align-items: center;
                         background: var(--panel);
                         border: 1px solid var(--line);
-                        border-radius: 12px;
+                        border-radius: var(--radius);
                         color: var(--muted);
                         display: flex;
                         justify-content: center;
-                        min-height: 240px;
-                        padding: 28px;
+                        min-height: 220px;
+                        padding: 22px;
                         text-align: center;
                     }
                     .file-viewer-dialog-loading.error {
@@ -4088,12 +4823,12 @@ public sealed class HtmlViews
                     }
                     .connection-dialog h1 { font-size: 28px; }
                     .credential-dialog {
-                        background: #ffffff;
+                        background: var(--surface);
                         border: 1px solid var(--line);
-                        border-radius: 8px;
-                        box-shadow: 0 18px 60px rgb(0 0 0 / 25%);
+                        border-radius: var(--radius);
+                        box-shadow: var(--shadow-strong);
                         left: 50%;
-                        padding: 22px;
+                        padding: 18px;
                         position: absolute;
                         top: 50%;
                         transform: translate(-50%, -50%);
@@ -4102,18 +4837,50 @@ public sealed class HtmlViews
                     }
                     @media (max-width: 720px) {
                         header, .page-head, .auth-panel { align-items: stretch; flex-direction: column; grid-template-columns: 1fr; }
-                        nav { align-items: stretch; }
-                        nav a, nav button, .button, .nav-menu > summary { justify-content: center; width: 100%; }
-                        .nav-menu { width: 100%; }
-                        .menu-panel {
-                            position: static;
+                        .shell-tabs {
+                            align-items: center;
+                            flex: 1 1 auto;
+                            flex-direction: row;
+                            overflow-x: auto;
+                            overflow-y: hidden;
+                            width: 100%;
+                        }
+                        .shell-tabs > * {
+                            width: auto;
+                        }
+                        .shell-actions {
+                            margin-left: 0;
+                            width: 100%;
+                        }
+                        .shell-action {
+                            justify-content: center;
+                            width: 100%;
+                        }
+                        .shell-page-row {
+                            align-items: stretch;
+                            flex-direction: column;
+                        }
+                        #connection-tab-actions {
+                            flex: 0 0 auto;
                             min-width: 0;
                             width: 100%;
                         }
-                        .account-name {
-                            max-width: none;
+                        .shell-page-tabs {
+                            width: 100%;
                         }
-                        main.session-main { height: auto; min-height: calc(100vh - 67px); }
+                        .shell-page-tabs > * {
+                            width: auto;
+                        }
+                        .shell-page-panel {
+                            position: relative;
+                            width: 100%;
+                        }
+                        .shell-tab,
+                        nav a,
+                        nav button,
+                        .button,
+                        .shell-action { justify-content: center; }
+                        main.session-main { height: auto; min-height: calc(100vh - 54px); }
                         .session-bar { align-items: stretch; flex-direction: column; }
                         .session-actions > * { flex: 1; justify-content: center; }
                         .session-tab-row { flex-direction: column; }
@@ -4145,8 +4912,8 @@ public sealed class HtmlViews
                         .viewer-tab-row { align-items: stretch; flex-direction: column; }
                         .viewer-actions { flex-wrap: wrap; }
                         .viewer-actions > * { flex: 1; justify-content: center; }
-                        .viewer-body { padding: 12px; }
-                        .viewer-stage { min-height: 260px; }
+                        .viewer-body { padding: 10px; }
+                        .viewer-stage { min-height: 240px; }
                         .embedded-viewer { height: calc(100vh - 16px); width: calc(100vw - 16px); }
                         .matgate-dialog,
                         .file-viewer-dialog { width: calc(100vw - 16px); }
@@ -4162,7 +4929,7 @@ public sealed class HtmlViews
                 <script>
                     (() => {
                         const closeOpenMenus = (keepMenu) => {
-                            document.querySelectorAll('details.nav-menu[open], details.file-menu[open]').forEach((menu) => {
+                            document.querySelectorAll('details.file-menu[open]').forEach((menu) => {
                                 if (menu !== keepMenu) {
                                     menu.removeAttribute('open');
                                 }
@@ -4175,7 +4942,7 @@ public sealed class HtmlViews
                                 return;
                             }
 
-                            const keepMenu = target.closest('details.nav-menu, details.file-menu');
+                            const keepMenu = target.closest('details.file-menu');
                             closeOpenMenus(keepMenu);
                         });
 
@@ -4213,43 +4980,7 @@ public sealed class HtmlViews
                             return false;
                         };
 
-                        window.MatgateCloseAboutWindow = (event, source) => {
-                            const element = source instanceof Element
-                                ? source
-                                : (event && event.currentTarget instanceof Element ? event.currentTarget : null);
-                            try {
-                                if (window.parent && window.parent !== window && typeof window.parent.MatgateCloseAboutModal === 'function') {
-                                    window.parent.MatgateCloseAboutModal();
-                                    return false;
-                                }
-                            }
-                            catch {
-                                // Fall back to local handling below.
-                            }
-
-                            const dialog = element && typeof element.closest === 'function' ? element.closest('dialog') : null;
-                            if (dialog && typeof dialog.close === 'function') {
-                                dialog.close();
-                                return false;
-                            }
-
-                            const referrer = document.referrer || '';
-                            try {
-                                if (referrer) {
-                                    const refUrl = new URL(referrer, window.location.href);
-                                    if (refUrl.origin === window.location.origin) {
-                                        window.history.back();
-                                        return false;
-                                    }
-                                }
-                            }
-                            catch {
-                                // Use fallback below.
-                            }
-
-                            window.location.href = '/sessions';
-                            return false;
-                        };
+                        window.MatgateCloseAboutWindow = () => false;
                     })();
                 </script>
             </body>
@@ -4264,8 +4995,12 @@ public sealed class HtmlViews
         var selectedSftp = Selected(server?.Protocol == ServerProtocol.Sftp);
         var selectedFtp = Selected(server?.Protocol == ServerProtocol.Ftp);
         var selectedSmb = Selected(server?.Protocol == ServerProtocol.Smb);
+        var selectedWebsite = Selected(server?.Protocol == ServerProtocol.Website);
         var iconKey = ServerEndpoint.NormalizeIconKey(server?.IconKey);
         var port = server?.Port.ToString() ?? "";
+        var websiteUrl = string.IsNullOrWhiteSpace(server?.WebsiteUrl)
+            ? (string.IsNullOrWhiteSpace(server?.Host) ? "" : server.Host)
+            : server.WebsiteUrl;
         var keyboardLayout = string.IsNullOrWhiteSpace(server?.KeyboardLayout)
             ? ServerEndpoint.DefaultKeyboardLayout
             : server.KeyboardLayout;
@@ -4317,6 +5052,7 @@ public sealed class HtmlViews
                             <option value="Sftp"{{selectedSftp}}>SFTP</option>
                             <option value="Ftp"{{selectedFtp}}>FTP</option>
                             <option value="Smb"{{selectedSmb}}>SMB</option>
+                            <option value="Website"{{selectedWebsite}}>{{T(context, "Website (Beta)")}}</option>
                         </select>
                     </label>
                     <label>{{T(context, "Server icon")}}
@@ -4325,6 +5061,11 @@ public sealed class HtmlViews
                             {{ServerIconOptions(iconKey)}}
                         </select>
                     </label>
+                </div>
+            </section>
+            <section class="panel server-form-section" data-protocols="rdp,ssh,sftp,ftp,smb">
+                <h2>{{T(context, "Target")}}</h2>
+                <div class="form-grid">
                     <label>{{T(context, "Host or IP")}}
                         <input name="host" value="{{A(server?.Host)}}" placeholder="PC-Terminal / Host" required>
                     </label>
@@ -4333,7 +5074,16 @@ public sealed class HtmlViews
                     </label>
                 </div>
             </section>
-            <section class="panel server-form-section">
+            <section class="panel server-form-section" data-protocols="website">
+                <h2>{{T(context, "Website settings")}}</h2>
+                <div class="form-grid">
+                    <label>{{T(context, "Website URL")}}
+                        <input name="websiteUrl" value="{{A(websiteUrl)}}" placeholder="https://nas.local/admin/" required>
+                    </label>
+                    <label class="check"><input type="checkbox" name="ignoreCertificate"{{Checked(server?.IgnoreCertificate ?? true)}}> {{T(context, "Ignore certificate")}}</label>
+                </div>
+            </section>
+            <section class="panel server-form-section" data-protocols="rdp,ssh,sftp,ftp,smb">
                 <h2>{{T(context, "Credentials")}}</h2>
                 <div class="form-grid">
                     <label>{{T(context, "Target user")}}
@@ -4491,6 +5241,30 @@ public sealed class HtmlViews
         return $"""<span class="badge">{ServerScopeText(context, server, users, currentUser)}</span>""";
     }
 
+    private static string ServerTargetValue(ServerEndpoint server)
+    {
+        if (ServerEndpoint.IsWebsiteProtocol(server.Protocol))
+        {
+            return string.IsNullOrWhiteSpace(server.WebsiteUrl)
+                ? (string.IsNullOrWhiteSpace(server.Host) ? "-" : server.Host)
+                : server.WebsiteUrl;
+        }
+
+        if (string.IsNullOrWhiteSpace(server.Host))
+        {
+            return "-";
+        }
+
+        return $"{server.Host}:{server.Port}";
+    }
+
+    private static string ServerProtocolLabel(ServerProtocol protocol)
+    {
+        return protocol == ServerProtocol.Website
+            ? "Website (Beta)"
+            : protocol.ToString().ToUpperInvariant();
+    }
+
     private static string ServerIconOptions(string selectedIconKey)
     {
         return string.Join("", ServerEndpoint.IconKeys.Select(iconKey =>
@@ -4510,6 +5284,7 @@ public sealed class HtmlViews
                 "cloud" => "Cloud",
                 "shield" => "Shield",
                 "home" => "Home",
+                "globe" => "Website",
                 _ => iconKey
             };
 
@@ -4540,9 +5315,28 @@ public sealed class HtmlViews
 
     public static string LanguageCookie => LanguageCookieName;
 
+    public static string ThemeCookie => ThemeCookieName;
+
     private static string NormalizeLanguageCode(string? value)
     {
         return string.Equals((value ?? "").Trim(), "de", StringComparison.OrdinalIgnoreCase) ? "de" : "en";
+    }
+
+    private static string NormalizeThemeCode(string? value)
+    {
+        var normalized = (value ?? "").Trim().ToLowerInvariant();
+        return normalized is "light" or "dark" or "system" ? normalized : "system";
+    }
+
+    public static string Theme(HttpContext context, MatgateUser? user = null)
+    {
+        if (user is not null)
+        {
+            return NormalizeThemeCode(user.PreferredTheme);
+        }
+
+        var requested = context.Request.Cookies[ThemeCookieName];
+        return NormalizeThemeCode(requested);
     }
 
     private static string T(HttpContext context, string key)
@@ -4560,6 +5354,16 @@ public sealed class HtmlViews
         return $$"""
             <option value="en"{{Selected(normalized == "en")}}>{{T(context, "English")}}</option>
             <option value="de"{{Selected(normalized == "de")}}>{{T(context, "German")}}</option>
+            """;
+    }
+
+    private static string ThemeOptions(HttpContext context, string selectedTheme)
+    {
+        var normalized = NormalizeThemeCode(selectedTheme);
+        return $$"""
+            <option value="system"{{Selected(normalized == "system")}}>{{T(context, "System")}}</option>
+            <option value="light"{{Selected(normalized == "light")}}>{{T(context, "Light")}}</option>
+            <option value="dark"{{Selected(normalized == "dark")}}>{{T(context, "Dark")}}</option>
             """;
     }
 
@@ -4598,6 +5402,9 @@ public sealed class HtmlViews
             "cloud" => """<path d="M17.5 19H8a5 5 0 1 1 1.5-9.8 6 6 0 0 1 11 3.8 3.5 3.5 0 0 1-3 6z"/>""",
             "shield" => """<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/>""",
             "users" => """<path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="9.5" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>""",
+            "arrow-left" => """<path d="M11 19 4 12l7-7"/><path d="M20 12H5"/>""",
+            "arrow-right" => """<path d="m13 5 7 7-7 7"/><path d="M4 12h15"/>""",
+            "external-link" => """<path d="M14 3h7v7"/><path d="M10 14 21 3"/><path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/>""",
             "logout" => """<path d="M10 17l5-5-5-5"/><path d="M15 12H3"/><path d="M21 3v18"/>""",
             "play" => """<path d="m8 5 11 7-11 7z"/>""",
             "x" => """<path d="M6 6l12 12"/><path d="M18 6 6 18"/>""",

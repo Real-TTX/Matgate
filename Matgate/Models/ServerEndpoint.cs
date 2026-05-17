@@ -19,7 +19,8 @@ public sealed class ServerEndpoint
         "database",
         "cloud",
         "shield",
-        "home"
+        "home",
+        "globe"
     ];
 
     private static readonly HashSet<string> AllowedIconKeys = new(IconKeys, StringComparer.OrdinalIgnoreCase);
@@ -43,6 +44,8 @@ public sealed class ServerEndpoint
     public string Domain { get; set; } = "";
 
     public string FileRootPath { get; set; } = "";
+
+    public string WebsiteUrl { get; set; } = "";
 
     public string KeyboardLayout { get; set; } = DefaultKeyboardLayout;
 
@@ -77,6 +80,11 @@ public sealed class ServerEndpoint
         return protocol is ServerProtocol.Sftp or ServerProtocol.Ftp or ServerProtocol.Smb;
     }
 
+    public static bool IsWebsiteProtocol(ServerProtocol protocol)
+    {
+        return protocol == ServerProtocol.Website;
+    }
+
     public static string DefaultIconKey(ServerProtocol protocol)
     {
         return protocol switch
@@ -86,8 +94,41 @@ public sealed class ServerEndpoint
             ServerProtocol.Sftp => "sftp",
             ServerProtocol.Ftp => "ftp",
             ServerProtocol.Smb => "smb",
+            ServerProtocol.Website => "globe",
             _ => "server"
         };
+    }
+
+    public static string NormalizeWebsiteUrl(string? value, string? fallback = "")
+    {
+        var cleaned = (value ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(cleaned))
+        {
+            cleaned = (fallback ?? "").Trim();
+        }
+
+        if (string.IsNullOrWhiteSpace(cleaned))
+        {
+            return "";
+        }
+
+        if (!cleaned.Contains("://", StringComparison.Ordinal))
+        {
+            cleaned = $"https://{cleaned}";
+        }
+
+        if (!Uri.TryCreate(cleaned, UriKind.Absolute, out var uri))
+        {
+            return "";
+        }
+
+        var builder = new UriBuilder(uri);
+        if (!builder.Path.EndsWith('/') && !Path.HasExtension(builder.Path))
+        {
+            builder.Path += "/";
+        }
+
+        return builder.Uri.ToString();
     }
 
     public static string NormalizeIconKey(string? iconKey)

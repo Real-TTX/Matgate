@@ -48,6 +48,15 @@ public static class EndpointMapping
         app.MapGet("/", HomeAsync).RequireAuthorization();
         app.MapGet("/forbidden", ForbiddenAsync).RequireAuthorization();
         app.MapGet("/connect/{id:guid}", ConnectAsync).RequireAuthorization();
+        app.MapGet("/website/{id:guid}", WebsiteAsync).RequireAuthorization();
+        app.MapGet("/website/{id:guid}/bootstrap.js", WebsiteBootstrapAsync).RequireAuthorization();
+        app.MapGet("/website/{id:guid}/{tabId:guid}/bootstrap.js", WebsiteBootstrapAsync).RequireAuthorization();
+        app.MapMethods("/website/{id:guid}/state", new[] { "GET", "POST" }, WebsiteStateAsync).RequireAuthorization();
+        app.MapMethods("/website/{id:guid}/{tabId:guid}/state", new[] { "GET", "POST" }, WebsiteStateAsync).RequireAuthorization();
+        app.MapMethods("/website/{id:guid}/proxy", new[] { "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS" }, WebsiteProxyAsync).RequireAuthorization();
+        app.MapMethods("/website/{id:guid}/proxy/{**path}", new[] { "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS" }, WebsiteProxyAsync).RequireAuthorization();
+        app.MapMethods("/website/{id:guid}/{tabId:guid}/proxy", new[] { "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS" }, WebsiteProxyAsync).RequireAuthorization();
+        app.MapMethods("/website/{id:guid}/{tabId:guid}/proxy/{**path}", new[] { "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS" }, WebsiteProxyAsync).RequireAuthorization();
         app.MapGet("/sessions", SessionsAsync).RequireAuthorization();
         app.MapGet("/account", AccountAsync).RequireAuthorization();
         app.MapGet("/about", AboutAsync).RequireAuthorization();
@@ -121,7 +130,7 @@ public static class EndpointMapping
                 {
                     await context.SignInAsync(
                         CookieAuthenticationDefaults.AuthenticationScheme,
-                        BuildPrincipal(updatedUser, csrf, selectedLanguage));
+                        BuildPrincipal(updatedUser, csrf, selectedLanguage, updatedUser.PreferredTheme));
                 }
             }
         }
@@ -157,7 +166,18 @@ public static class EndpointMapping
 
         await context.SignInAsync(
             CookieAuthenticationDefaults.AuthenticationScheme,
-            BuildPrincipal(user, hasher.GenerateSecret(24), user.PreferredLanguage));
+            BuildPrincipal(user, hasher.GenerateSecret(24), user.PreferredLanguage, user.PreferredTheme));
+
+        context.Response.Cookies.Append(
+            HtmlViews.ThemeCookie,
+            NormalizeTheme(user.PreferredTheme),
+            new CookieOptions
+            {
+                Expires = DateTimeOffset.UtcNow.AddYears(1),
+                HttpOnly = false,
+                SameSite = SameSiteMode.Lax,
+                Secure = context.Request.IsHttps
+            });
 
         return Results.Redirect("/");
     }
@@ -238,6 +258,85 @@ public static class EndpointMapping
         return Results.Redirect($"/?open={id}");
     }
 
+    private static async Task<IResult> WebsiteAsync(Guid id, HttpContext context, JsonDataStore store)
+    {
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            return Results.Redirect("/login");
+        }
+
+        var server = await store.FindServerByIdAsync(id, context.RequestAborted);
+        if (server is null || !server.IsEnabled || !CanAccessServer(user, server))
+        {
+            return Results.Redirect("/forbidden");
+        }
+
+        return Results.Redirect($"/?open={id}");
+    }
+
+    private static async Task<IResult> WebsiteBootstrapAsync(
+        Guid id,
+        Guid? tabId,
+        HttpContext context,
+        JsonDataStore store,
+        WebsiteProxyService proxy)
+    {
+        context.RequestServices.GetRequiredService<ILoggerFactory>()
+            .CreateLogger("Matgate.Web.EndpointMapping")
+            .LogDebug("Website bootstrap requested for {ServerId}", id);
+        var access = await RequireWebsiteServerAsync(id, context, store);
+        if (access.Result is not null)
+        {
+            return access.Result;
+        }
+
+        WebsiteProxyService.PreventCaching(context.Response);
+        return Results.Text(proxy.BuildBootstrapScript(context, access.Server!, tabId), "application/javascript");
+    }
+
+    private static async Task<IResult> WebsiteStateAsync(
+        Guid id,
+        Guid? tabId,
+        HttpContext context,
+        JsonDataStore store,
+        WebsiteProxyService proxy)
+    {
+        context.RequestServices.GetRequiredService<ILoggerFactory>()
+            .CreateLogger("Matgate.Web.EndpointMapping")
+            .LogDebug("Website state requested for {ServerId}", id);
+        var access = await RequireWebsiteServerAsync(id, context, store);
+        if (access.Result is not null)
+        {
+            await access.Result.ExecuteAsync(context);
+            return Results.Empty;
+        }
+
+        return await proxy.HandleWebsiteStateAsync(context, access.Server!, tabId, context.RequestAborted);
+    }
+
+    private static async Task<IResult> WebsiteProxyAsync(
+        Guid id,
+        Guid? tabId,
+        string? path,
+        HttpContext context,
+        JsonDataStore store,
+        WebsiteProxyService proxy)
+    {
+        context.RequestServices.GetRequiredService<ILoggerFactory>()
+            .CreateLogger("Matgate.Web.EndpointMapping")
+            .LogDebug("Website proxy requested for {ServerId} path {Path}", id, path ?? "");
+        var access = await RequireWebsiteServerAsync(id, context, store);
+        if (access.Result is not null)
+        {
+            await access.Result.ExecuteAsync(context);
+            return Results.Empty;
+        }
+
+        await proxy.HandleProxyAsync(context, access.Server!, tabId, path, context.RequestAborted);
+        return Results.Empty;
+    }
+
     private static async Task<IResult> SessionsAsync(HttpContext context, JsonDataStore store, HtmlViews views)
     {
         var open = context.Request.Query["open"].ToString();
@@ -284,7 +383,9 @@ public static class EndpointMapping
                 id = server.Id,
                 name = server.Name,
                 protocol = server.Protocol.ToString().ToUpperInvariant(),
-                target = $"{server.Host}:{server.Port}"
+                target = ServerEndpoint.IsWebsiteProtocol(server.Protocol)
+                    ? (string.IsNullOrWhiteSpace(server.WebsiteUrl) ? server.Host : server.WebsiteUrl)
+                    : $"{server.Host}:{server.Port}"
             },
             encryptedData = launch.EncryptedData,
             connectionName = launch.ConnectionName
@@ -968,6 +1069,7 @@ public static class EndpointMapping
                 CanManageServers = IsChecked(form, "canManageServers") || IsChecked(form, "isAdmin"),
                 CanCreateServers = IsChecked(form, "canCreateServers") || IsChecked(form, "isAdmin"),
                 PreferredLanguage = NormalizeLanguage(form["preferredLanguage"].ToString()),
+                PreferredTheme = NormalizeTheme(form["preferredTheme"].ToString()),
                 IsEnabled = true,
                 CreatedAt = now,
                 UpdatedAt = now
@@ -1059,6 +1161,7 @@ public static class EndpointMapping
             user.CanManageServers = IsChecked(form, "canManageServers") || user.IsAdmin;
             user.CanCreateServers = IsChecked(form, "canCreateServers") || user.IsAdmin;
             user.PreferredLanguage = NormalizeLanguage(form["preferredLanguage"].ToString());
+            user.PreferredTheme = NormalizeTheme(form["preferredTheme"].ToString());
             user.UpdatedAt = DateTimeOffset.UtcNow;
             if (user.Id == currentUser.Id)
             {
@@ -1082,8 +1185,19 @@ public static class EndpointMapping
             {
                 await context.SignInAsync(
                     CookieAuthenticationDefaults.AuthenticationScheme,
-                    BuildPrincipal(updatedSelfUser, csrf, updatedSelfUser.PreferredLanguage));
+                    BuildPrincipal(updatedSelfUser, csrf, updatedSelfUser.PreferredLanguage, updatedSelfUser.PreferredTheme));
             }
+
+            context.Response.Cookies.Append(
+                HtmlViews.ThemeCookie,
+                NormalizeTheme(updatedSelfUser.PreferredTheme),
+                new CookieOptions
+                {
+                    Expires = DateTimeOffset.UtcNow.AddYears(1),
+                    HttpOnly = false,
+                    SameSite = SameSiteMode.Lax,
+                    Secure = context.Request.IsHttps
+                });
         }
 
         await configWriter.SynchronizeAsync(context.RequestAborted);
@@ -1140,6 +1254,7 @@ public static class EndpointMapping
 
             current.DisplayName = Clean(form["displayName"].ToString(), current.DisplayName);
             current.PreferredLanguage = NormalizeLanguage(form["preferredLanguage"].ToString());
+            current.PreferredTheme = NormalizeTheme(form["preferredTheme"].ToString());
             current.UpdatedAt = DateTimeOffset.UtcNow;
             updatedUser = current;
         }, context.RequestAborted);
@@ -1151,8 +1266,19 @@ public static class EndpointMapping
             {
                 await context.SignInAsync(
                     CookieAuthenticationDefaults.AuthenticationScheme,
-                    BuildPrincipal(updatedUser, csrf, updatedUser.PreferredLanguage));
+                    BuildPrincipal(updatedUser, csrf, updatedUser.PreferredLanguage, updatedUser.PreferredTheme));
             }
+
+            context.Response.Cookies.Append(
+                HtmlViews.ThemeCookie,
+                NormalizeTheme(updatedUser.PreferredTheme),
+                new CookieOptions
+                {
+                    Expires = DateTimeOffset.UtcNow.AddYears(1),
+                    HttpOnly = false,
+                    SameSite = SameSiteMode.Lax,
+                    Secure = context.Request.IsHttps
+                });
         }
 
         return Results.Redirect("/account");
@@ -1339,13 +1465,18 @@ public static class EndpointMapping
         }
 
         var server = ReadServerForm(form, user, null);
-        if (string.IsNullOrWhiteSpace(server.Name) || string.IsNullOrWhiteSpace(server.Host))
+        var requiresWebsiteUrl = server.Protocol == ServerProtocol.Website;
+        var hasRequiredTarget = requiresWebsiteUrl
+            ? !string.IsNullOrWhiteSpace(server.WebsiteUrl)
+            : !string.IsNullOrWhiteSpace(server.Host);
+
+        if (string.IsNullOrWhiteSpace(server.Name) || !hasRequiredTarget)
         {
             return Results.Content(views.Message(
                 context,
                 user,
                 HtmlViews.Translate(context, "Invalid data"),
-                HtmlViews.Translate(context, "Name and host are required.")), "text/html");
+                HtmlViews.Translate(context, requiresWebsiteUrl ? "Name and website URL are required." : "Name and host are required.")), "text/html");
         }
 
         await store.UpdateServersAsync(servers => servers.Add(server), context.RequestAborted);
@@ -1409,6 +1540,19 @@ public static class EndpointMapping
             return Results.Redirect("/forbidden");
         }
 
+        var updated = ReadServerForm(form, user, currentServer);
+        var hasRequiredTarget = updated.Protocol == ServerProtocol.Website
+            ? !string.IsNullOrWhiteSpace(updated.WebsiteUrl)
+            : !string.IsNullOrWhiteSpace(updated.Host);
+        if (string.IsNullOrWhiteSpace(updated.Name) || !hasRequiredTarget)
+        {
+            return Results.Content(views.Message(
+                context,
+                user,
+                HtmlViews.Translate(context, "Invalid data"),
+                HtmlViews.Translate(context, updated.Protocol == ServerProtocol.Website ? "Name and website URL are required." : "Name and host are required.")), "text/html");
+        }
+
         await store.UpdateServersAsync(servers =>
         {
             var storedServer = servers.FirstOrDefault(server => server.Id == id);
@@ -1417,12 +1561,12 @@ public static class EndpointMapping
                 return;
             }
 
-            var updated = ReadServerForm(form, user, storedServer);
             storedServer.Name = updated.Name;
             storedServer.Protocol = updated.Protocol;
             storedServer.IconKey = updated.IconKey;
             storedServer.Host = updated.Host;
             storedServer.Port = updated.Port;
+            storedServer.WebsiteUrl = updated.WebsiteUrl;
             storedServer.UserName = updated.UserName;
             storedServer.Domain = updated.Domain;
             storedServer.FileRootPath = updated.FileRootPath;
@@ -1447,6 +1591,7 @@ public static class EndpointMapping
         HttpContext context,
         JsonDataStore store,
         GuacamoleConfigWriter configWriter,
+        WebsiteProxyService websiteProxy,
         HtmlViews views)
     {
         var user = await RequireServerManagerAsync(context, store);
@@ -1481,6 +1626,7 @@ public static class EndpointMapping
             }
         }, context.RequestAborted);
 
+        websiteProxy.ForgetServer(id);
         await configWriter.SynchronizeAsync(context.RequestAborted);
         return Results.Redirect("/admin/servers");
     }
@@ -1531,6 +1677,31 @@ public static class EndpointMapping
         return new FileServerAccess(server, null);
     }
 
+    private static async Task<FileServerAccess> RequireWebsiteServerAsync(
+        Guid id,
+        HttpContext context,
+        JsonDataStore store)
+    {
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            return new FileServerAccess(null, Results.Unauthorized());
+        }
+
+        var server = await store.FindServerByIdAsync(id, context.RequestAborted);
+        if (server is null || !server.IsEnabled || !CanAccessServer(user, server))
+        {
+            return new FileServerAccess(null, Results.NotFound(new { error = HtmlViews.Translate(context, "This server is not shared with you.") }));
+        }
+
+        if (!ServerEndpoint.IsWebsiteProtocol(server.Protocol))
+        {
+            return new FileServerAccess(null, Results.BadRequest(new { error = HtmlViews.Translate(context, "This server is not a website connection.") }));
+        }
+
+        return new FileServerAccess(server, null);
+    }
+
     private static async Task<MatgateUser?> CurrentUserAsync(HttpContext context, JsonDataStore store)
     {
         var idValue = context.User.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -1543,14 +1714,15 @@ public static class EndpointMapping
         return user is { IsEnabled: true } ? user : null;
     }
 
-    private static ClaimsPrincipal BuildPrincipal(MatgateUser user, string csrf, string preferredLanguage)
+    private static ClaimsPrincipal BuildPrincipal(MatgateUser user, string csrf, string preferredLanguage, string preferredTheme)
     {
         var claims = new List<Claim>
         {
             new(ClaimTypes.NameIdentifier, user.Id.ToString()),
             new(ClaimTypes.Name, user.UserName),
             new("csrf", csrf),
-            new("lang", NormalizeLanguage(preferredLanguage))
+            new("lang", NormalizeLanguage(preferredLanguage)),
+            new("theme", NormalizeTheme(preferredTheme))
         };
 
         if (user.IsAdmin)
@@ -1658,13 +1830,18 @@ public static class EndpointMapping
             ServerProtocol.Smb => 445,
             _ => 3389
         };
-        var port = int.TryParse(form["port"].ToString(), out var parsedPort) && parsedPort is >= 1 and <= 65535
-            ? parsedPort
-            : existing?.Port ?? defaultPort;
+        var port = protocol == ServerProtocol.Website
+            ? existing?.Port ?? 0
+            : int.TryParse(form["port"].ToString(), out var parsedPort) && parsedPort is >= 1 and <= 65535
+                ? parsedPort
+                : existing?.Port ?? defaultPort;
         var terminalFontSize = int.TryParse(form["terminalFontSize"].ToString(), out var parsedTerminalFontSize)
             ? parsedTerminalFontSize
             : existing?.TerminalFontSize ?? ServerEndpoint.DefaultTerminalFontSize;
         var now = DateTimeOffset.UtcNow;
+        var websiteUrl = protocol == ServerProtocol.Website
+            ? ServerEndpoint.NormalizeWebsiteUrl(form["websiteUrl"].ToString(), existing?.WebsiteUrl ?? existing?.Host ?? "")
+            : existing?.WebsiteUrl ?? "";
 
         return new ServerEndpoint
         {
@@ -1674,6 +1851,7 @@ public static class EndpointMapping
             IconKey = ServerEndpoint.NormalizeIconKey(form["iconKey"].ToString()),
             Host = Clean(form["host"].ToString(), existing?.Host ?? ""),
             Port = port,
+            WebsiteUrl = websiteUrl,
             UserName = Clean(form["targetUserName"].ToString(), ""),
             Password = form["targetPassword"].ToString(),
             Domain = Clean(form["domain"].ToString(), ""),
@@ -1705,6 +1883,12 @@ public static class EndpointMapping
     private static string NormalizeLanguage(string? language)
     {
         return string.Equals((language ?? "").Trim(), "de", StringComparison.OrdinalIgnoreCase) ? "de" : "en";
+    }
+
+    private static string NormalizeTheme(string? theme)
+    {
+        var normalized = (theme ?? "").Trim().ToLowerInvariant();
+        return normalized is "light" or "dark" or "system" ? normalized : "system";
     }
 
     private static string CleanKeyboardLayout(string? value, string fallback)

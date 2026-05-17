@@ -7,5 +7,6 @@ public enum ServerProtocol
     LegacyBrowser,
     Sftp,
     Ftp,
-    Smb
+    Smb,
+    Website
 }

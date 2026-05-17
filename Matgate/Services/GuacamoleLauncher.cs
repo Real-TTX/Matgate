@@ -23,6 +23,12 @@ public sealed class GuacamoleLauncher
     {
         cancellationToken.ThrowIfCancellationRequested();
 
+        if (ServerEndpoint.IsWebsiteProtocol(server.Protocol))
+        {
+            return Task.FromResult(GuacamoleLaunchResult.Failed(
+                "Websites are opened directly in Matgate."));
+        }
+
         if (!ServerEndpoint.IsGuacamoleProtocol(server.Protocol))
         {
             return Task.FromResult(GuacamoleLaunchResult.Failed(

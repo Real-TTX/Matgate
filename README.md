@@ -1,20 +1,22 @@
 # Matgate
 
-Matgate is a self-hosted gateway for your home network. It gives you one web UI and one login for remote desktop sessions, shell access, and file access.
+Matgate is a self-hosted gateway for your home network. It gives you one web UI and one login for remote desktop sessions, shell access, website proxying, and file access.
 
-It is designed to sit behind a reverse proxy such as Caddy and to run entirely in Docker. Matgate is not a Microsoft RD Gateway. For RDP and SSH it uses Apache Guacamole and `guacd` behind the scenes, while Matgate itself handles auth, permissions, tabs, file management, and local data storage.
+It is designed to sit behind a reverse proxy such as Caddy and to run entirely in Docker. For RDP and SSH it uses Apache Guacamole and `guacd` behind the scenes, while Matgate itself handles auth, permissions, tabs, file management, theme and language preferences, and local data storage.
 
 ## What Matgate gives you
 
 - Web-based RDP and SSH sessions
 - File gateway for SFTP, FTP, and SMB
+- Website proxy mode for browser-based admin interfaces
 - Upload, download, delete, move, copy, archive extraction, and media preview in the file manager
-- Multiple open connections as tabs
+- Multiple open connections as draggable tabs
 - Session restore in the web UI
 - Local users stored in JSON files
 - Global servers and user-owned servers
 - Admin roles and per-server access control
 - English and German UI
+- Theme follows system settings by default, with per-user override
 - Clipboard integration and a status bar for the active tab
 - Server icons with protocol defaults and per-server overrides
 - GitHub Actions build for the Docker image
@@ -28,12 +30,14 @@ It is designed to sit behind a reverse proxy such as Caddy and to run entirely i
 | SFTP | File access through the Matgate file gateway |
 | FTP | File access through the Matgate file gateway |
 | SMB | File access through the Matgate file gateway |
+| Website (Beta) | Reverse-proxied browser access to internal web UIs |
 
 ## How it works
 
 ```text
 Browser -> Matgate -> Guacamole / guacd -> RDP or SSH
 Browser -> Matgate -> File gateway backend -> SFTP / FTP / SMB
+Browser -> Matgate -> Website proxy -> Internal web UI
 ```
 
 Matgate keeps the UI, permissions, and session state in one place. The client only talks to Matgate, which then talks to the remote systems in your network.
@@ -144,6 +148,7 @@ Matgate is an actively evolving self-hosted project. The current focus is on:
 - user and server management
 - workspace polish
 - keeping the UI simple enough for everyday home-network use
+- making the website proxy mode more robust and integrated
 
 ## Contributing
 
@@ -151,4 +156,4 @@ Issues and pull requests are welcome. If you are opening a PR, please include th
 
 ## License
 
-A license has not been chosen yet in this repository. Add one before using the project for wider public distribution.
+Matgate is licensed under the MIT License. See [LICENSE](LICENSE).

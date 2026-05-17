@@ -2,7 +2,9 @@ using Matgate.Services;
 using Matgate.Web;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.DataProtection;
+using System.Text;
 
+Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 var builder = WebApplication.CreateBuilder(args);
 var configuredDataDirectory = Environment.GetEnvironmentVariable("MATGATE_DATA_DIR")
     ?? builder.Configuration["Matgate:DataDirectory"];
@@ -36,9 +38,11 @@ builder.Services.AddSingleton<GuacamoleConfigWriter>();
 builder.Services.AddSingleton<HtmlViews>();
 builder.Services.AddSingleton<GuacamoleLauncher>();
 builder.Services.AddSingleton<IFileGatewayService, FileGatewayService>();
+builder.Services.AddSingleton<WebsiteProxyService>();
 
 var app = builder.Build();
 
+app.UseWebSockets();
 app.UseAuthentication();
 app.UseAuthorization();
 
