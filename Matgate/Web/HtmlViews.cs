@@ -220,6 +220,7 @@ public sealed class HtmlViews
         ["This server is not shared with you."] = "Dieser Server ist nicht freigegeben.",
         ["The connection could not be started."] = "Die Verbindung konnte nicht gestartet werden.",
         ["No file selected."] = "Keine Datei ausgewaehlt.",
+        ["The uploaded file is too large."] = "Die hochgeladene Datei ist zu gross.",
         ["Folder name is missing."] = "Ordnername fehlt.",
         ["File name is missing."] = "Dateiname fehlt.",
         ["This server is not a file connection."] = "Dieser Server ist keine Dateiverbindung.",
@@ -227,7 +228,13 @@ public sealed class HtmlViews
         ["Open raw"] = "Rohdatei oeffnen",
         ["Back to Matgate"] = "Zurueck zu Matgate",
         ["No preview available"] = "Keine Vorschau verfuegbar",
-        ["File access failed"] = "Dateizugriff fehlgeschlagen"
+        ["File access failed"] = "Dateizugriff fehlgeschlagen",
+        ["Upload queue"] = "Upload-Warteschlange",
+        ["Drop files here to upload"] = "Dateien hier ablegen, um sie hochzuladen.",
+        ["Current folder"] = "Aktueller Ordner",
+        ["Clear finished"] = "Fertige loeschen",
+        ["No uploads in the queue."] = "Keine Uploads in der Warteschlange.",
+        ["Aborted"] = "Abgebrochen"
     };
 
     public string Login(HttpContext context, string? error = null)
@@ -1421,6 +1428,12 @@ public sealed class HtmlViews
             fileListLoadFailed = Language(context) == "de" ? "Dateiliste konnte nicht geladen werden." : "Could not load file list.",
             fileListUpdated = Language(context) == "de" ? "Dateiliste aktualisiert." : "File list updated.",
             fileAccessFailed = Language(context) == "de" ? "Dateizugriff fehlgeschlagen" : "File access failed",
+            uploadQueue = T(context, "Upload queue"),
+            dropFilesHere = T(context, "Drop files here to upload"),
+            currentFolder = T(context, "Current folder"),
+            clearFinished = T(context, "Clear finished"),
+            noUploadsInQueue = T(context, "No uploads in the queue."),
+            aborted = T(context, "Aborted"),
             error = Language(context) == "de" ? "Fehler" : "Error",
             isLoading = Language(context) == "de" ? "wird geladen" : "is loading",
             create = Language(context) == "de" ? "Anlegen" : "Create",
@@ -3133,11 +3146,24 @@ public sealed class HtmlViews
                                 )
                             ),
                             ToolbarGroup('file-toolbar-transfer toolbar-group--end',
+                                `<button type="button" class="toolbar-button toolbar-icon-button file-upload-queue-toggle" data-file-action="toggle-upload-queue" title="${escapeHtml(ui('uploadQueue'))}" aria-label="${escapeHtml(ui('uploadQueue'))}">${fileIcon('download')}<span class="file-upload-queue-badge hidden" data-file-upload-queue-badge></span></button>`,
                                 ToolbarUploadButton(ui('upload'), fileIcon('upload'), 'file-upload-button')
                             )
                         )}
+                        <div class="file-upload-queue-shell" data-file-upload-queue-shell hidden>
+                            <div class="file-upload-queue-head">
+                                <strong>${escapeHtml(ui('uploadQueue'))}</strong>
+                                <span class="muted" data-file-upload-queue-summary>${escapeHtml(ui('ready'))}</span>
+                                <button type="button" class="file-action-button file-upload-clear-button" data-file-action="clear-upload-finished" title="${escapeHtml(ui('clearFinished'))}">${fileIcon('trash')}<span>${escapeHtml(ui('clearFinished'))}</span></button>
+                            </div>
+                            <div class="file-upload-queue-list" data-file-upload-queue-list></div>
+                        </div>
                         <div class="file-message hidden"></div>
-                        <div class="file-table-wrap">
+                        <div class="file-table-wrap" data-file-drop-target>
+                            <div class="file-drop-overlay hidden" data-file-drop-overlay>
+                                <strong>${escapeHtml(ui('dropFilesHere'))}</strong>
+                                <span class="muted">${escapeHtml(ui('currentFolder'))}: <span data-file-drop-overlay-path>${escapeHtml(tab.filePath || '/')}</span></span>
+                            </div>
                             <table class="file-table">
                                 <thead>
                                     <tr><th class="file-select-heading" title="${escapeHtml(ui('selection'))}"></th><th>${escapeHtml(ui('name') || 'Name')}</th><th>${escapeHtml(ui('size'))}</th><th>${escapeHtml(ui('modified'))}</th><th class="file-actions-heading">${escapeHtml(ui('actions'))}</th></tr>
@@ -3153,11 +3179,26 @@ public sealed class HtmlViews
                         message: manager.querySelector('.file-message'),
                         tbody: manager.querySelector('tbody'),
                         uploadInput: manager.querySelector('.file-upload-input'),
+                        dropTarget: manager.querySelector('[data-file-drop-target]'),
+                        dropOverlay: manager.querySelector('[data-file-drop-overlay]'),
+                        dropzonePath: manager.querySelector('[data-file-drop-overlay-path]'),
+                        queueList: manager.querySelector('[data-file-upload-queue-list]'),
+                        queueSummary: manager.querySelector('[data-file-upload-queue-summary]'),
+                        queueShell: manager.querySelector('[data-file-upload-queue-shell]'),
+                        queueToggleButton: manager.querySelector('[data-file-action="toggle-upload-queue"]'),
+                        queueBadge: manager.querySelector('[data-file-upload-queue-badge]'),
                         createMenu: manager.querySelector('.file-create-menu'),
                         actionsMenu: manager.querySelector('.file-actions-menu'),
+                        clearFinishedButton: manager.querySelector('[data-file-action="clear-upload-finished"]'),
                         selectAllButton: null,
                         batchButtons: Array.from(manager.querySelectorAll('[data-file-action="zip"], [data-file-action="copy"], [data-file-action="move"], [data-file-action="delete-selected"]'))
                     };
+                    tab.fileUi.queueVisible = false;
+                    tab.uploadQueue = [];
+                    tab.uploadQueueRunning = false;
+                    tab.uploadQueueRenderPending = false;
+                    tab.uploadQueueRefreshPath = '';
+                    tab.uploadDragDepth = 0;
 
                     manager.querySelector('[data-file-action="refresh"]').addEventListener('click', () => {
                         loadFilePath(tab, tab.filePath || '/');
@@ -3208,25 +3249,58 @@ public sealed class HtmlViews
                     });
                     tab.fileUi.uploadInput.addEventListener('change', async () => {
                         const selectedFiles = Array.from(tab.fileUi.uploadInput.files || []);
-                        if (!selectedFiles.length) {
+                        enqueueFileUploads(tab, selectedFiles);
+                    });
+                    tab.fileUi.queueToggleButton.addEventListener('click', () => {
+                        tab.fileUi.queueVisible = !tab.fileUi.queueVisible;
+                        if (tab.fileUi.queueShell) {
+                            tab.fileUi.queueShell.hidden = !tab.fileUi.queueVisible;
+                        }
+                        tab.fileUi.queueToggleButton.setAttribute('aria-expanded', String(tab.fileUi.queueVisible));
+                        scheduleUploadQueueRender(tab);
+                    });
+                    tab.fileUi.clearFinishedButton.addEventListener('click', () => {
+                        clearFinishedUploadQueue(tab);
+                    });
+                    const dropTarget = tab.fileUi.dropTarget || manager;
+                    dropTarget.addEventListener('dragenter', event => {
+                        if (!hasFileDragPayload(event)) {
                             return;
                         }
 
-                        await runFileMutation(tab, async () => {
-                            for (const file of selectedFiles) {
-                                const formData = new FormData();
-                                formData.append('path', tab.filePath || '/');
-                                formData.append('file', file);
-                                const response = await fetch(`/api/files/${tab.serverId}/upload`, {
-                                    method: 'POST',
-                                    headers: { 'X-Matgate-Csrf': csrfToken },
-                                    body: formData
-                                });
-                                await ensureFileResponse(response, ui('uploadFailed'));
-                            }
+                        event.preventDefault();
+                        tab.uploadDragDepth += 1;
+                        setUploadDragState(tab, true);
+                    });
+                    dropTarget.addEventListener('dragover', event => {
+                        if (!hasFileDragPayload(event)) {
+                            return;
+                        }
 
-                            tab.fileUi.uploadInput.value = '';
-                        });
+                        event.preventDefault();
+                        event.dataTransfer.dropEffect = 'copy';
+                        setUploadDragState(tab, true);
+                    });
+                    dropTarget.addEventListener('dragleave', event => {
+                        if (!hasFileDragPayload(event)) {
+                            return;
+                        }
+
+                        event.preventDefault();
+                        tab.uploadDragDepth = Math.max(0, tab.uploadDragDepth - 1);
+                        if (tab.uploadDragDepth === 0) {
+                            setUploadDragState(tab, false);
+                        }
+                    });
+                    dropTarget.addEventListener('drop', event => {
+                        if (!hasFileDragPayload(event)) {
+                            return;
+                        }
+
+                        event.preventDefault();
+                        tab.uploadDragDepth = 0;
+                        setUploadDragState(tab, false);
+                        enqueueFileUploads(tab, Array.from(event.dataTransfer?.files || []));
                     });
                     manager.querySelector('[data-file-action="move"]').addEventListener('click', () => {
                         closeFileMenus(tab);
@@ -3245,6 +3319,8 @@ public sealed class HtmlViews
                         deleteSelectedEntries(tab);
                     });
                     tab.displayRoot.appendChild(manager);
+                    updateUploadDropzone(tab);
+                    scheduleUploadQueueRender(tab);
                     hideOverlay(tab);
                     loadFilePath(tab, tab.filePath);
                 }
@@ -3295,6 +3371,7 @@ public sealed class HtmlViews
                         tab.lastSyncAt = Date.now();
                         tab.lastMessage = ui('fileListUpdated');
                         tab.fileUi.pathInput.value = tab.filePath;
+                        updateUploadDropzone(tab);
                         tab.selectedFilePaths.clear();
                         renderFileEntries(tab, payload.entries || payload.Entries || []);
                         updateFileSelectionActions(tab);
@@ -3700,6 +3777,398 @@ public sealed class HtmlViews
                     tab.fileUi.message.classList.toggle('hidden', !message);
                     tab.fileUi.message.classList.toggle('error', Boolean(message) && kind === 'error');
                     updateStatusBar();
+                }
+
+                function updateUploadDropzone(tab) {
+                    if (!tab?.fileUi) {
+                        return;
+                    }
+
+                    if (tab.fileUi.dropzonePath) {
+                        tab.fileUi.dropzonePath.textContent = tab.filePath || '/';
+                    }
+                }
+
+                function setUploadDragState(tab, active) {
+                    if (!tab?.fileUi) {
+                        return;
+                    }
+
+                    tab.fileUi.root.classList.toggle('is-drop-active', Boolean(active));
+                    tab.fileUi.dropTarget?.classList.toggle('is-drop-active', Boolean(active));
+                    if (tab.fileUi.dropOverlay) {
+                        tab.fileUi.dropOverlay.hidden = !active;
+                        tab.fileUi.dropOverlay.classList.toggle('hidden', !active);
+                    }
+                }
+
+                function hasFileDragPayload(event) {
+                    const types = Array.from(event.dataTransfer?.types || []);
+                    return types.includes('Files');
+                }
+
+                function enqueueFileUploads(tab, files) {
+                    if (!tab?.fileUi) {
+                        return;
+                    }
+
+                    const incoming = Array.from(files || []).filter(file => file && file.size >= 0 && file.name);
+                    if (!incoming.length) {
+                        return;
+                    }
+
+                    const hasPendingUploads = (tab.uploadQueue || []).some(item => item.status === 'queued' || item.status === 'uploading');
+                    if (!hasPendingUploads) {
+                        tab.uploadQueueRefreshPath = tab.filePath || '/';
+                    }
+
+                    const targetPath = tab.filePath || '/';
+                    for (const file of incoming) {
+                        tab.uploadQueue.push({
+                            id: `upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+                            file,
+                            targetPath,
+                            status: 'queued',
+                            progress: 0,
+                            loaded: 0,
+                            total: file.size || 0,
+                            speed: 0,
+                            error: '',
+                            startedAt: null,
+                            completedAt: null,
+                            xhr: null
+                        });
+                    }
+
+                    tab.fileUi.uploadInput.value = '';
+                    tab.lastMessage = `${incoming.length} ${ui('upload')}`;
+                    setStatus(tab, uiText.working || 'Working');
+                    updateStatusBar();
+                    scheduleUploadQueueRender(tab);
+                    processUploadQueue(tab);
+                }
+
+                function clearFinishedUploadQueue(tab) {
+                    if (!tab?.uploadQueue) {
+                        return;
+                    }
+
+                    tab.uploadQueue = tab.uploadQueue.filter(item => item.status === 'queued' || item.status === 'uploading');
+                    if (!tab.uploadQueue.length) {
+                        tab.uploadQueueRefreshPath = '';
+                        tab.lastMessage = ui('ready');
+                        setStatus(tab, ui('ready'));
+                        updateStatusBar();
+                    }
+
+                    scheduleUploadQueueRender(tab);
+                }
+
+                function scheduleUploadQueueRender(tab) {
+                    if (!tab?.fileUi || tab.uploadQueueRenderPending) {
+                        return;
+                    }
+
+                    tab.uploadQueueRenderPending = true;
+                    window.requestAnimationFrame(() => {
+                        tab.uploadQueueRenderPending = false;
+                        renderUploadQueue(tab);
+                    });
+                }
+
+                function renderUploadQueue(tab) {
+                    if (!tab?.fileUi) {
+                        return;
+                    }
+
+                    const list = tab.fileUi.queueList;
+                    const summary = tab.fileUi.queueSummary;
+                    const shell = tab.fileUi.queueShell;
+                    const toggleButton = tab.fileUi.queueToggleButton;
+                    const badge = tab.fileUi.queueBadge;
+                    const items = tab.uploadQueue || [];
+                    if (shell) {
+                        shell.hidden = !tab.fileUi.queueVisible;
+                    }
+                    if (toggleButton) {
+                        toggleButton.setAttribute('aria-expanded', String(Boolean(tab.fileUi.queueVisible)));
+                        toggleButton.classList.toggle('has-items', items.length > 0);
+                    }
+                    if (badge) {
+                        badge.textContent = items.length > 0 ? String(items.length) : '';
+                        badge.hidden = items.length === 0;
+                        badge.classList.toggle('hidden', items.length === 0);
+                    }
+                    if (summary) {
+                        const counts = items.reduce((acc, item) => {
+                            acc.total += 1;
+                            acc[item.status] = (acc[item.status] || 0) + 1;
+                            return acc;
+                        }, { total: 0 });
+                        if (counts.total === 0) {
+                            summary.textContent = ui('ready');
+                        }
+                        else {
+                            const parts = [];
+                            if ((counts.uploading || 0) > 0) {
+                                parts.push(`${counts.uploading} ${uiText.running || 'Running'}`);
+                            }
+                            if ((counts.queued || 0) > 0) {
+                                parts.push(`${counts.queued} ${uiText.waiting || 'Waiting'}`);
+                            }
+                            if ((counts.done || 0) > 0) {
+                                parts.push(`${counts.done} ${uiText.complete || 'Complete'}`);
+                            }
+                            if ((counts.failed || 0) > 0) {
+                                parts.push(`${counts.failed} ${uiText.failed || 'Failed'}`);
+                            }
+                            summary.textContent = parts.join(' · ');
+                        }
+                    }
+
+                    if (!list) {
+                        return;
+                    }
+
+                    list.replaceChildren();
+                    if (!items.length) {
+                        const empty = document.createElement('div');
+                        empty.className = 'file-upload-queue-empty';
+                        empty.textContent = uiText.noUploadsInQueue || ui('ready');
+                        list.appendChild(empty);
+                        return;
+                    }
+
+                    for (const item of items) {
+                        const row = document.createElement('div');
+                        row.className = ['file-upload-queue-item', `is-${item.status}`].join(' ');
+
+                        const main = document.createElement('div');
+                        main.className = 'file-upload-queue-main';
+
+                        const title = document.createElement('div');
+                        title.className = 'file-upload-queue-title';
+                        title.textContent = item.file?.name || '';
+
+                        const meta = document.createElement('div');
+                        meta.className = 'file-upload-queue-meta';
+                        if (item.status === 'uploading') {
+                            const uploaded = Math.min(item.loaded || 0, item.total || item.loaded || 0);
+                            const total = item.total || item.file?.size || uploaded;
+                            const percent = total > 0 ? Math.max(0, Math.min(100, Math.round((uploaded / total) * 100))) : 0;
+                            const progressText = total > 0 ? `${formatFileSize(uploaded)} / ${formatFileSize(total)}` : formatFileSize(uploaded);
+                            const speedText = item.speed > 0 ? ` · ${formatUploadSpeed(item.speed)}` : '';
+                            const percentText = total > 0 ? ` · ${percent}%` : '';
+                            meta.textContent = `${item.targetPath || '/'} · ${progressText}${speedText}${percentText}`;
+                        }
+                        else if (item.status === 'done') {
+                            meta.textContent = `${item.targetPath || '/'} · ${formatFileSize(item.file?.size || item.total || 0)}`;
+                        }
+                        else if (item.status === 'failed') {
+                            meta.textContent = item.error || uiText.failed || 'Failed';
+                        }
+                        else {
+                            meta.textContent = item.targetPath || '/';
+                        }
+
+                        const progress = document.createElement('div');
+                        progress.className = 'file-upload-progress';
+                        progress.setAttribute('role', 'progressbar');
+                        progress.setAttribute('aria-valuemin', '0');
+                        progress.setAttribute('aria-valuemax', '100');
+                        progress.setAttribute('aria-valuenow', String(Math.max(0, Math.min(100, item.progress || 0))));
+                        const bar = document.createElement('div');
+                        bar.className = 'file-upload-progress-bar';
+                        bar.style.width = `${Math.max(0, Math.min(100, item.progress || 0))}%`;
+                        progress.appendChild(bar);
+
+                        main.append(title, meta, progress);
+
+                        const status = document.createElement('span');
+                        status.className = 'badge file-upload-queue-status';
+                        status.textContent = item.status === 'uploading'
+                            ? (uiText.running || 'Running')
+                            : item.status === 'done'
+                                ? (uiText.complete || 'Complete')
+                                : item.status === 'failed'
+                                    ? (uiText.failed || 'Failed')
+                                    : (uiText.waiting || 'Waiting');
+
+                        row.append(main, status);
+                        list.appendChild(row);
+                    }
+                }
+
+                function extractUploadError(xhr, fallback) {
+                    const text = (xhr.responseText || '').trim();
+                    if (!text) {
+                        return fallback;
+                    }
+
+                    try {
+                        const payload = JSON.parse(text);
+                        return payload.error || payload.Error || fallback;
+                    }
+                    catch {
+                        return text;
+                    }
+                }
+
+                function formatUploadSpeed(bytesPerSecond) {
+                    if (!bytesPerSecond || !Number.isFinite(bytesPerSecond) || bytesPerSecond <= 0) {
+                        return '';
+                    }
+
+                    return `${formatFileSize(bytesPerSecond)}/s`;
+                }
+
+                async function processUploadQueue(tab) {
+                    if (!tab?.fileUi || tab.uploadQueueRunning) {
+                        return;
+                    }
+
+                    tab.uploadQueueRunning = true;
+                    scheduleUploadQueueRender(tab);
+
+                    try {
+                        while (tabs.has(tab.id)) {
+                            const next = (tab.uploadQueue || []).find(item => item.status === 'queued');
+                            if (!next) {
+                                break;
+                            }
+
+                            try {
+                                await uploadQueuedFile(tab, next);
+                            }
+                            catch (error) {
+                                const message = error instanceof Error ? error.message : (uiText.uploadFailed || 'Upload failed.');
+                                next.status = 'failed';
+                                next.error = message;
+                                next.completedAt = Date.now();
+                                tab.lastError = message;
+                                tab.lastMessage = `${next.file?.name || ''}: ${message}`;
+                                setStatus(tab, uiText.error || 'Error');
+                                updateStatusBar();
+                                scheduleUploadQueueRender(tab);
+                            }
+                        }
+                    }
+                    finally {
+                        tab.uploadQueueRunning = false;
+                        setUploadDragState(tab, false);
+                        scheduleUploadQueueRender(tab);
+                        updateUploadDropzone(tab);
+
+                        const completed = (tab.uploadQueue || []).some(item => item.status === 'done');
+                        const targetPath = tab.uploadQueueRefreshPath || tab.filePath || '/';
+                        const stillOnTarget = (tab.filePath || '/') === targetPath;
+                        tab.uploadQueueRefreshPath = '';
+                        if (completed && stillOnTarget) {
+                            await loadFilePath(tab, tab.filePath || '/');
+                        }
+
+                        if (!(tab.uploadQueue || []).some(item => item.status === 'uploading' || item.status === 'queued')) {
+                            tab.lastMessage = completed
+                                ? ui('fileListUpdated')
+                                : (tab.lastMessage || ui('ready'));
+                            if (!(tab.uploadQueue || []).some(item => item.status === 'failed')) {
+                                setStatus(tab, ui('ready'));
+                            }
+                            updateStatusBar();
+                        }
+                    }
+                }
+
+                function uploadQueuedFile(tab, item) {
+                    return new Promise((resolve, reject) => {
+                        const xhr = new XMLHttpRequest();
+                        const formData = new FormData();
+                        const startedAt = performance.now();
+                        let sampleAt = startedAt;
+                        let sampleLoaded = 0;
+
+                        item.xhr = xhr;
+                        item.status = 'uploading';
+                        item.progress = 0;
+                        item.loaded = 0;
+                        item.total = item.file?.size || 0;
+                        item.speed = 0;
+                        item.error = '';
+                        item.startedAt = Date.now();
+                        tab.lastMessage = `${item.file?.name || ''} ${uiText.running || 'Running'}`;
+                        setStatus(tab, uiText.working || 'Working');
+                        updateStatusBar();
+                        scheduleUploadQueueRender(tab);
+
+                        formData.append('path', item.targetPath || tab.filePath || '/');
+                        formData.append('file', item.file, item.file.name);
+
+                        xhr.open('POST', `/api/files/${tab.serverId}/upload`);
+                        xhr.setRequestHeader('X-Matgate-Csrf', csrfToken);
+                        xhr.upload.addEventListener('progress', event => {
+                            const total = event.lengthComputable && event.total > 0
+                                ? event.total
+                                : (item.file?.size || event.total || 0);
+                            const loaded = event.lengthComputable
+                                ? event.loaded
+                                : Math.min(total || event.loaded || 0, event.loaded || 0);
+                            item.total = total || item.file?.size || loaded;
+                            item.loaded = loaded;
+                            item.progress = item.total > 0 ? Math.min(99, Math.round((item.loaded / item.total) * 100)) : 0;
+
+                            const now = performance.now();
+                            const elapsed = (now - sampleAt) / 1000;
+                            if (elapsed >= 0.2) {
+                                item.speed = Math.max(0, (item.loaded - sampleLoaded) / elapsed);
+                                sampleAt = now;
+                                sampleLoaded = item.loaded;
+                            }
+
+                            tab.lastMessage = `${item.file?.name || ''} ${formatFileSize(item.loaded)} / ${formatFileSize(item.total || item.loaded)}${item.speed > 0 ? ` · ${formatUploadSpeed(item.speed)}` : ''}`;
+                            scheduleUploadQueueRender(tab);
+                            updateStatusBar();
+                        });
+                        xhr.addEventListener('load', () => {
+                            item.completedAt = Date.now();
+                            item.xhr = null;
+                            if (xhr.status >= 200 && xhr.status < 300) {
+                                item.status = 'done';
+                                item.progress = 100;
+                                item.loaded = item.total || item.file?.size || item.loaded;
+                                item.speed = 0;
+                                scheduleUploadQueueRender(tab);
+                                resolve();
+                                return;
+                            }
+
+                            item.status = 'failed';
+                            item.error = extractUploadError(xhr, uiText.uploadFailed || 'Upload failed.');
+                            scheduleUploadQueueRender(tab);
+                            reject(new Error(item.error));
+                        });
+                        xhr.addEventListener('error', () => {
+                            item.completedAt = Date.now();
+                            item.status = 'failed';
+                            item.error = uiText.uploadFailed || 'Upload failed.';
+                            item.xhr = null;
+                            scheduleUploadQueueRender(tab);
+                            reject(new Error(item.error));
+                        });
+                        xhr.addEventListener('abort', () => {
+                            item.completedAt = Date.now();
+                            item.status = 'failed';
+                            item.error = uiText.aborted || 'Aborted';
+                            item.xhr = null;
+                            scheduleUploadQueueRender(tab);
+                            reject(new Error(item.error));
+                        });
+                        xhr.addEventListener('loadend', () => {
+                            item.xhr = null;
+                            scheduleUploadQueueRender(tab);
+                        });
+
+                        xhr.send(formData);
+                    });
                 }
 
                 function formatFileSize(value) {
@@ -5542,6 +6011,136 @@ public sealed class HtmlViews
                         height: 100%;
                         padding: 0;
                     }
+                    .file-upload-queue-toggle {
+                        position: relative;
+                    }
+                    .file-upload-queue-toggle.has-items {
+                        border-color: color-mix(in srgb, var(--accent) 40%, var(--line));
+                    }
+                    .file-upload-queue-badge {
+                        align-items: center;
+                        background: var(--accent);
+                        border: 1px solid var(--surface);
+                        border-radius: 999px;
+                        color: #fff;
+                        display: inline-flex;
+                        font-size: 10px;
+                        font-weight: 700;
+                        height: 16px;
+                        justify-content: center;
+                        min-width: 16px;
+                        padding: 0 4px;
+                        position: absolute;
+                        right: -5px;
+                        top: -5px;
+                        box-shadow: var(--shadow);
+                    }
+                    .file-upload-queue-badge.hidden {
+                        display: none;
+                    }
+                    .file-upload-queue-shell {
+                        background: var(--surface);
+                        border: 1px solid var(--line);
+                        border-radius: var(--radius);
+                        display: grid;
+                        gap: 8px;
+                        margin: 8px 8px 0;
+                        padding: 8px 10px;
+                    }
+                    .file-upload-queue-shell[hidden] {
+                        display: none;
+                    }
+                    .file-upload-queue-head {
+                        align-items: center;
+                        display: flex;
+                        flex-wrap: wrap;
+                        gap: 10px;
+                        justify-content: space-between;
+                    }
+                    .file-upload-queue-list {
+                        display: grid;
+                        gap: 6px;
+                        max-height: 220px;
+                        overflow: auto;
+                    }
+                    .file-upload-queue-empty {
+                        color: var(--muted);
+                        padding: 6px 0;
+                    }
+                    .file-upload-queue-item {
+                        background: var(--surface-2);
+                        border: 1px solid var(--line);
+                        border-radius: var(--radius);
+                        display: grid;
+                        gap: 6px;
+                        padding: 8px 10px;
+                    }
+                    .file-upload-queue-item.is-uploading {
+                        border-color: color-mix(in srgb, var(--accent) 34%, var(--line));
+                    }
+                    .file-upload-queue-item.is-done {
+                        border-color: color-mix(in srgb, var(--accent) 24%, var(--line));
+                    }
+                    .file-upload-queue-item.is-failed {
+                        border-color: color-mix(in srgb, var(--danger) 34%, var(--line));
+                    }
+                    .file-upload-queue-main {
+                        display: grid;
+                        gap: 2px;
+                        min-width: 0;
+                    }
+                    .file-upload-queue-title {
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        white-space: nowrap;
+                    }
+                    .file-upload-queue-meta {
+                        color: var(--muted);
+                        font-size: 12px;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        white-space: nowrap;
+                    }
+                    .file-upload-progress {
+                        background: var(--surface-3);
+                        border-radius: 999px;
+                        height: 4px;
+                        overflow: hidden;
+                        width: 100%;
+                    }
+                    .file-upload-progress-bar {
+                        background: var(--accent);
+                        border-radius: inherit;
+                        height: 100%;
+                        width: 0;
+                    }
+                    .file-upload-queue-status {
+                        justify-self: end;
+                    }
+                    .file-table-wrap {
+                        position: relative;
+                    }
+                    .file-drop-overlay {
+                        align-items: center;
+                        background: color-mix(in srgb, var(--surface) 84%, transparent);
+                        border: 1px dashed var(--accent);
+                        border-radius: var(--radius);
+                        bottom: 8px;
+                        display: flex;
+                        flex-direction: column;
+                        gap: 4px;
+                        justify-content: center;
+                        left: 8px;
+                        pointer-events: none;
+                        position: absolute;
+                        right: 8px;
+                        top: 8px;
+                        z-index: 6;
+                        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 28%, transparent);
+                    }
+                    .file-drop-overlay[hidden] {
+                        display: none;
+                    }
                     .file-toolbar {
                         align-items: center;
                         background: var(--surface);
@@ -6068,6 +6667,20 @@ public sealed class HtmlViews
                         .shell-page-panel {
                             position: relative;
                             width: 100%;
+                        }
+                        .file-upload-queue-shell {
+                            margin-inline: 8px;
+                        }
+                        .file-upload-queue-head {
+                            align-items: stretch;
+                            flex-direction: column;
+                        }
+                        .file-upload-queue-status {
+                            justify-self: start;
+                        }
+                        .file-upload-queue-badge {
+                            right: -4px;
+                            top: -4px;
                         }
                         .shell-tab,
                         nav a,
@@ -6629,11 +7242,14 @@ public sealed class HtmlViews
             "external-link" => """<path d="M14 3h7v7"/><path d="M10 14 21 3"/><path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/>""",
             "logout" => """<path d="M10 17l5-5-5-5"/><path d="M15 12H3"/><path d="M21 3v18"/>""",
             "play" => """<path d="m8 5 11 7-11 7z"/>""",
+            "menu" => """<path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/>""",
+            "list" => """<path d="M8 7h12"/><path d="M8 12h12"/><path d="M8 17h12"/><path d="M4 7h.01"/><path d="M4 12h.01"/><path d="M4 17h.01"/>""",
             "x" => """<path d="M6 6l12 12"/><path d="M18 6 6 18"/>""",
             "music" => """<path d="M9 18V5l10-2v13"/><circle cx="7" cy="18" r="3"/><circle cx="17" cy="16" r="3"/>""",
             "plus" => """<path d="M12 5v14"/><path d="M5 12h14"/>""",
             "save" => """<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/>""",
             "trash" => """<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 15H6L5 6"/>""",
+            "delete" => """<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 15H6L5 6"/>""",
             "key" => """<circle cx="7.5" cy="15.5" r="3.5"/><path d="M10 13 21 2"/><path d="m15 7 2 2"/><path d="m18 4 2 2"/>""",
             "folder" => """<path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>""",
             "folder-up" => """<path d="M3 7a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><path d="m9 14 3-3 3 3"/><path d="M12 17v-6"/>""",

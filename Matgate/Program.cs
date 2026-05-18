@@ -1,6 +1,7 @@
 using Matgate.Services;
 using Matgate.Web;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.DataProtection;
 using System.Text;
 
@@ -14,7 +15,20 @@ var dataDirectory = Path.GetFullPath(string.IsNullOrWhiteSpace(configuredDataDir
 var keyDirectory = Path.Combine(dataDirectory, "keys");
 Directory.CreateDirectory(keyDirectory);
 
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.Limits.MaxRequestBodySize = null;
+    options.Limits.MinRequestBodyDataRate = null;
+    options.Limits.RequestHeadersTimeout = TimeSpan.FromMinutes(2);
+    options.Limits.KeepAliveTimeout = TimeSpan.FromMinutes(15);
+});
+
 builder.Services
+    .Configure<FormOptions>(options =>
+    {
+        options.MultipartBodyLengthLimit = long.MaxValue;
+        options.BufferBody = false;
+    })
     .AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme)
     .AddCookie(options =>
     {

@@ -6,6 +6,7 @@ using Matgate.Models;
 using Matgate.Services;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.Primitives;
 
 namespace Matgate.Web;
@@ -668,13 +669,27 @@ public static class EndpointMapping
             return Results.BadRequest(new { error = HtmlViews.Translate(context, "Invalid request") });
         }
 
+        var bodySizeFeature = context.Features.Get<IHttpMaxRequestBodySizeFeature>();
+        if (bodySizeFeature is not null && !bodySizeFeature.IsReadOnly)
+        {
+            bodySizeFeature.MaxRequestBodySize = null;
+        }
+
         var access = await RequireFileServerAsync(id, context, store);
         if (access.Result is not null)
         {
             return access.Result;
         }
 
-        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        IFormCollection form;
+        try
+        {
+            form = await context.Request.ReadFormAsync(context.RequestAborted);
+        }
+        catch (BadHttpRequestException ex) when (ex.Message.Contains("Request body too large", StringComparison.OrdinalIgnoreCase))
+        {
+            return Results.BadRequest(new { error = HtmlViews.Translate(context, "The uploaded file is too large.") });
+        }
         var uploadedFiles = form.Files.GetFiles("file");
         if (uploadedFiles.Count == 0 || uploadedFiles.All(file => file.Length == 0))
         {

@@ -37,7 +37,7 @@ services:
       Guacamole__PublicBasePath: /guacamole
       Guacamole__DirectLaunch: "true"
     volumes:
-      - matgate_data:/data
+      - data:/data
     restart: unless-stopped
 
   guacd:
@@ -55,8 +55,8 @@ services:
       JSON_ENABLED: "true"
       JSON_SECRET_KEY: 0123456789abcdeffedcba9876543210
     volumes:
-      - matgate_data:/etc/guacamole
+      - data:/etc/guacamole
     restart: unless-stopped
 
 volumes:
-  matgate_data:
+  data:
