@@ -37,6 +37,7 @@ builder.Services.AddSingleton<JsonDataStore>();
 builder.Services.AddSingleton<GuacamoleConfigWriter>();
 builder.Services.AddSingleton<HtmlViews>();
 builder.Services.AddSingleton<GuacamoleLauncher>();
+builder.Services.AddSingleton<NetworkToolsService>();
 builder.Services.AddSingleton<IFileGatewayService, FileGatewayService>();
 builder.Services.AddSingleton<WebsiteProxyService>();
 

@@ -2,18 +2,20 @@
 
 Matgate is a self-hosted gateway for your home network. It gives you one web UI and one login for remote desktop sessions, shell access, website proxying, and file access.
 
-It is designed to sit behind a reverse proxy such as Caddy and to run entirely in Docker. For RDP and SSH it uses Apache Guacamole and `guacd` behind the scenes, while Matgate itself handles auth, permissions, tabs, file management, theme and language preferences, and local data storage.
+It is designed to sit behind a reverse proxy such as Caddy and to run entirely in Docker. For RDP, VNC, and SSH it uses Apache Guacamole and `guacd` behind the scenes, while Matgate itself handles auth, permissions, tabs, file management, theme and language preferences, and local data storage.
 
 ## What Matgate gives you
 
-- Web-based RDP and SSH sessions
+- Web-based RDP, VNC, and SSH sessions
 - File gateway for SFTP, FTP, and SMB
 - Website proxy mode for browser-based admin interfaces
 - Upload, download, delete, move, copy, archive extraction, and media preview in the file manager
+- Live network tools for ping, lookup, port checking, and streamed download tests
 - Multiple open connections as draggable tabs
 - Session restore in the web UI
 - Local users stored in JSON files
 - Global servers and user-owned servers
+- Server folders for grouping, plus per-user favorites
 - Admin roles and per-server access control
 - English and German UI
 - Theme follows system settings by default, with per-user override
@@ -26,6 +28,7 @@ It is designed to sit behind a reverse proxy such as Caddy and to run entirely i
 | Type | What it is for |
 | --- | --- |
 | RDP | Remote Windows desktops through Guacamole |
+| VNC | Remote desktop access through Guacamole |
 | SSH | Remote shell access through Guacamole |
 | SFTP | File access through the Matgate file gateway |
 | FTP | File access through the Matgate file gateway |
@@ -35,7 +38,7 @@ It is designed to sit behind a reverse proxy such as Caddy and to run entirely i
 ## How it works
 
 ```text
-Browser -> Matgate -> Guacamole / guacd -> RDP or SSH
+Browser -> Matgate -> Guacamole / guacd -> RDP, VNC or SSH
 Browser -> Matgate -> File gateway backend -> SFTP / FTP / SMB
 Browser -> Matgate -> Website proxy -> Internal web UI
 ```
@@ -46,11 +49,11 @@ Matgate keeps the UI, permissions, and session state in one place. The client on
 
 1. Install Docker and Docker Compose.
 2. Create an optional `.env` file in the repository root.
-3. Start the stack with Docker Compose.
+3. Start the local stack with Docker Compose. The default stack builds Matgate from `Matgate/Dockerfile` and does not need a separate `Caddyfile`.
 4. Open Matgate on port `8088`.
 
 ```powershell
-docker compose up --build
+docker compose up --build -d
 ```
 
 Matgate is available at:
@@ -59,6 +62,14 @@ Matgate is available at:
 http://localhost:8088
 ```
 
+For a shareable one-file setup with Caddy, Guacamole, and guacd, use:
+
+```powershell
+docker compose -f docker-compose-simple.yaml up -d
+```
+
+This stack already includes the reverse proxy and uses the relative `./data` folder, so your local users, servers, and Guacamole config stay where you expect them.
+
 > Important: if no admin credentials are set, Matgate creates `admin` / `change-me-now`. Change that before exposing the service anywhere beyond a trusted home network.
 
 ## Recommended environment variables
@@ -66,7 +77,6 @@ http://localhost:8088
 ```env
 MATGATE_ADMIN_USER=admin
 MATGATE_ADMIN_PASSWORD=change-me-now
-MATGATE_DATA_DIR=./data
 MATGATE_GUACAMOLE_JSON_SECRET_KEY=0123456789abcdeffedcba9876543210
 MATGATE_DNS_SERVER=10.10.0.1
 MATGATE_DNS_SEARCH=example.home
@@ -76,7 +86,7 @@ MATGATE_DNS_SEARCH=example.home
 | --- | --- |
 | `MATGATE_ADMIN_USER` | Initial admin username |
 | `MATGATE_ADMIN_PASSWORD` | Initial admin password |
-| `MATGATE_DATA_DIR` | Persistent data directory |
+| `MATGATE_DATA_DIR` | Persistent data directory inside the container |
 | `MATGATE_GUACAMOLE_JSON_SECRET_KEY` | 32 hex characters used for Guacamole JSON auth |
 | `MATGATE_DNS_SERVER` | DNS server used inside Docker containers |
 | `MATGATE_DNS_SEARCH` | DNS search domain used inside Docker containers |
@@ -86,15 +96,16 @@ The Compose stack provides sane defaults, but you should override secrets and DN
 
 ## Data and persistence
 
-Matgate stores all persistent data under the configured data directory. In the default compose setup that is `./data`.
+Matgate stores all persistent data under the configured data directory. In the default local compose setup that is the relative `./data` folder, mounted at `/data`.
 
 | Path | Purpose |
 | --- | --- |
-| `data/users.json` | Local users and permissions |
-| `data/servers.json` | Global servers and user-owned servers |
-| `data/guacamole/` | Guacamole runtime and sync data |
+| `/data/users.json` | Local users, permissions, and favorites |
+| `/data/servers.json` | Global servers, user-owned servers, and folders |
+| `data/guacamole.properties` | Guacamole runtime config |
+| `data/user-mapping.xml` | Guacamole user-to-connection mapping |
 
-Back up the whole data directory regularly. It contains the users and server definitions.
+Back up the whole volume regularly. It contains the users, server definitions, and Guacamole sync files.
 
 ## Permission model
 
@@ -125,7 +136,7 @@ Inside Docker, Matgate can be pointed at your home DNS server so hostnames like 
 
 ```powershell
 dotnet build Matgate.slnx
-docker compose up --build
+docker compose up --build -d
 ```
 
 The repository uses GitHub Actions to build and publish the Docker image on pushes and tags. The workflow also attaches a CI version suffix during image builds.

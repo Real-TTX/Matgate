@@ -26,6 +26,8 @@ public sealed class MatgateUser
 
     public bool IsEnabled { get; set; } = true;
 
+    public List<Guid> FavoriteServerIds { get; set; } = [];
+
     public List<Guid> ServerAccess { get; set; } = [];
 
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;

@@ -8,5 +8,6 @@ public enum ServerProtocol
     Sftp,
     Ftp,
     Smb,
-    Website
+    Website,
+    Vnc
 }

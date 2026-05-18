@@ -17,9 +17,18 @@ public sealed class HtmlViews
     {
         ["Home Network Gateway"] = "Heimnetz-Gateway",
         ["Home"] = "Home",
-        ["About"] = "Über",
-        ["About Matgate"] = "Über Matgate",
-        ["Local login for RDP, SSH, websites and file access in your home network."] = "Lokale Anmeldung fuer RDP-, SSH-, Website- und Dateizugriffe im Heimnetz.",
+        ["Tools"] = "Werkzeuge",
+        ["Network tools"] = "Netzwerkwerkzeuge",
+        ["Tool"] = "Werkzeug",
+        ["Select tool"] = "Werkzeug auswaehlen",
+        ["Reachability and latency check."] = "Erreichbarkeit und Latenz pruefen.",
+        ["Resolve hostnames and addresses."] = "Hostnamen und Adressen aufloesen.",
+        ["Test TCP ports live."] = "TCP-Ports live pruefen.",
+        ["Stream a file and watch transfer speed."] = "Eine Datei streamen und die Uebertragungsgeschwindigkeit sehen.",
+        ["About"] = "ÃƒÆ’Ã†â€™Ãƒâ€¦Ã¢â‚¬Å“ber",
+        ["About Matgate"] = "ÃƒÆ’Ã†â€™Ãƒâ€¦Ã¢â‚¬Å“ber Matgate",
+        ["Local login for RDP, VNC, SSH, websites and file access in your home network."] = "Lokale Anmeldung fuer RDP-, VNC-, SSH-, Website- und Dateizugriffe im Heimnetz.",
+        ["Live output streams below."] = "Die Ausgabe laeuft live unten ein.",
         ["Account"] = "Konto",
         ["Admin"] = "Admin",
         ["Version"] = "Version",
@@ -29,6 +38,7 @@ public sealed class HtmlViews
         ["Sign in"] = "Einloggen",
         ["Dashboard"] = "Dashboard",
         ["Connections"] = "Verbindungen",
+        ["Page"] = "Seite",
         ["Connect"] = "Verbinden",
         ["Open"] = "Oeffnen",
         ["No global servers yet. An administrator can create servers and grant access."] = "Noch keine globalen Server. Ein Administrator kann Server anlegen und dir Zugriff geben.",
@@ -99,13 +109,25 @@ public sealed class HtmlViews
         ["Servers"] = "Server",
         ["Create server"] = "Server anlegen",
         ["Existing servers"] = "Vorhandene Server",
+        ["Folder"] = "Ordner",
+        ["Folder name"] = "Ordnername",
+        ["Folder icon"] = "Ordner-Icon",
+        ["Default folder icon"] = "Standard-Ordner-Icon",
+        ["Unsorted"] = "Ohne Ordner",
+        ["Favorites"] = "Favoriten",
+        ["Favorite servers"] = "Favorisierte Server",
+        ["No favorite servers yet."] = "Noch keine Favoriten.",
+        ["Add to favorites"] = "Zu Favoriten hinzufuegen",
+        ["Remove from favorites"] = "Aus Favoriten entfernen",
+        ["Optional. Used for grouping in lists."] = "Optional. Wird zur Gruppierung in Listen verwendet.",
+        ["Favorites are stored per user."] = "Favoriten werden pro Benutzer gespeichert.",
         ["Type"] = "Typ",
         ["Target"] = "Ziel",
         ["Off"] = "Aus",
         ["Connection"] = "Verbindung",
         ["Clear saved target password"] = "Gespeichertes Ziel-Passwort entfernen",
         ["Delete server"] = "Server loeschen",
-        ["Domain"] = "Domäne",
+        ["Domain"] = "DomÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¤ne",
         ["Edit"] = "Bearbeiten",
         ["Name and host are required."] = "Name und Host sind erforderlich.",
         ["Name and website URL are required."] = "Name und Website-URL sind erforderlich.",
@@ -154,6 +176,29 @@ public sealed class HtmlViews
         ["Language"] = "Sprache",
         ["Website"] = "Website",
         ["Website (Beta)"] = "Website (Beta)",
+        ["Ping"] = "Ping",
+        ["Lookup"] = "Lookup",
+        ["Port check"] = "Portpruefung",
+        ["Count"] = "Anzahl",
+        ["Interval"] = "Intervall",
+        ["Timeout"] = "Zeitlimit",
+        ["Ports"] = "Ports",
+        ["URL"] = "URL",
+        ["Start"] = "Starten",
+        ["Output"] = "Ausgabe",
+        ["Running"] = "Laeuft",
+        ["Complete"] = "Fertig",
+        ["Failed"] = "Fehlgeschlagen",
+        ["Aborted"] = "Abgebrochen",
+        ["Downloaded"] = "Heruntergeladen",
+        ["Bytes"] = "Bytes",
+        ["Speed"] = "Geschwindigkeit",
+        ["Duration"] = "Dauer",
+        ["Canonical name"] = "Kanonischer Name",
+        ["Resolved addresses"] = "Aufgeloeste Adressen",
+        ["Status code"] = "Statuscode",
+        ["Content type"] = "Inhaltstyp",
+        ["Content length"] = "Inhaltslaenge",
         ["Open website"] = "Website oeffnen",
         ["Open in new tab"] = "In neuem Tab oeffnen",
         ["Website proxy"] = "Website-Proxy",
@@ -196,7 +241,7 @@ public sealed class HtmlViews
                 <div>
                     <p class="eyebrow">Matgate</p>
                     <h1>{{T(context, "Home Network Gateway")}}</h1>
-                    <p class="muted">{{T(context, "Local login for RDP, SSH, websites and file access in your home network.")}}</p>
+                    <p class="muted">{{T(context, "Local login for RDP, VNC, SSH, websites and file access in your home network.")}}</p>
                 </div>
                 <form method="post" action="/login" class="stack">
                     {{errorHtml}}
@@ -495,7 +540,7 @@ public sealed class HtmlViews
                 <div>
                     <p class="eyebrow">{{T(context, "Server")}}</p>
                     <h1>{{E(server.Name)}}</h1>
-                    <p class="muted">{{ServerScopeText(context, server, users)}}</p>
+                    <p class="muted">{{ServerScopeText(context, server, users)}}{{(string.IsNullOrWhiteSpace(server.FolderName) ? "" : $" ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· {ServerFolderBadge(context, server)}")}}</p>
                 </div>
                 <a class="button" href="/admin/servers">{{Icon("server")}}{{T(context, "Servers")}}</a>
             </section>
@@ -544,9 +589,25 @@ public sealed class HtmlViews
         return Layout(context, currentUser, T(context, "Create server"), body);
     }
 
-    public string Account(HttpContext context, MatgateUser user)
+    public string Account(HttpContext context, MatgateUser user, IReadOnlyList<ServerEndpoint> servers)
     {
         var displayName = string.IsNullOrWhiteSpace(user.DisplayName) ? user.UserName : user.DisplayName;
+        var favoriteServers = servers
+            .Where(server => IsFavoriteServer(user, server.Id))
+            .OrderBy(server => string.IsNullOrWhiteSpace(server.FolderName) ? 1 : 0)
+            .ThenBy(server => server.FolderName)
+            .ThenBy(server => server.Name)
+            .ToList();
+        var favoriteRows = favoriteServers.Count == 0
+            ? $"""<tr><td colspan="4" class="muted">{T(context, "No favorite servers yet.")}</td></tr>"""
+            : string.Join("", favoriteServers.Select(server => $$"""
+                <tr>
+                    <td><span class="server-name-cell">{{ServerIcon(server, "small")}}<span>{{E(server.Name)}}</span></span></td>
+                    <td>{{(string.IsNullOrWhiteSpace(server.FolderName) ? "<span class=\"muted\">-</span>" : ServerFolderBadge(context, server))}}</td>
+                    <td><span class="badge">{{E(ServerProtocolLabel(server.Protocol))}}</span></td>
+                    <td class="table-actions">{{FavoriteToggleForm(context, user, server, "/account")}}</td>
+                </tr>
+                """));
         var body = $$"""
             <section class="page-head">
                 <div>
@@ -575,6 +636,23 @@ public sealed class HtmlViews
                     <div class="actions"><button type="submit" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button></div>
                 </form>
             </section>
+            <section class="panel">
+                <h2>{{T(context, "Favorite servers")}}</h2>
+                <p class="muted">{{T(context, "Favorites are stored per user.")}}</p>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>{{T(context, "Name")}}</th>
+                                <th>{{T(context, "Folder")}}</th>
+                                <th>{{T(context, "Type")}}</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>{{favoriteRows}}</tbody>
+                    </table>
+                </div>
+            </section>
             """;
 
         return Layout(context, user, T(context, "Account"), body);
@@ -588,7 +666,272 @@ public sealed class HtmlViews
         return Layout(context, user, T(context, "About"), body, "viewer-main");
     }
 
-    private static string AboutBody(HttpContext context, string version)
+    public string Tools(HttpContext context, MatgateUser user)
+    {
+        var toolText = JsonSerializer.Serialize(new
+        {
+            ready = T(context, "Ready"),
+            running = T(context, "Running"),
+            complete = T(context, "Complete"),
+            failed = T(context, "Failed"),
+            aborted = T(context, "Aborted")
+        }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+
+        var body = $$"""
+            <section class="page-head">
+                <div>
+                    <p class="eyebrow">{{T(context, "Tools")}}</p>
+                    <h1>{{T(context, "Network tools")}}</h1>
+                    <p class="muted">{{T(context, "Live output streams below.")}}</p>
+                </div>
+            </section>
+            <section class="panel tool-panel">
+                <form class="tool-form" data-tools-form>
+                    {{Csrf(context)}}
+                    <div class="tool-select-row">
+                        <label class="tool-select-label">{{T(context, "Select tool")}}
+                            <select name="tool" data-tool-select>
+                                <option value="ping" data-endpoint="/api/tools/ping" data-title="{{A(T(context, "Ping"))}}" data-description="{{A(T(context, "Reachability and latency check."))}}" selected>{{T(context, "Ping")}}</option>
+                                <option value="lookup" data-endpoint="/api/tools/lookup" data-title="{{A(T(context, "Lookup"))}}" data-description="{{A(T(context, "Resolve hostnames and addresses."))}}">{{T(context, "Lookup")}}</option>
+                                <option value="port-check" data-endpoint="/api/tools/port-check" data-title="{{A(T(context, "Port check"))}}" data-description="{{A(T(context, "Test TCP ports live."))}}">{{T(context, "Port check")}}</option>
+                                <option value="download" data-endpoint="/api/tools/download" data-title="{{A(T(context, "Download"))}}" data-description="{{A(T(context, "Stream a file and watch transfer speed."))}}">{{T(context, "Download")}}</option>
+                            </select>
+                        </label>
+                        <span class="badge tool-status" data-tool-status>{{T(context, "Ready")}}</span>
+                    </div>
+                    <div class="tool-summary" aria-live="polite">
+                        <div class="tool-summary-icon-stack">
+                            <span class="tool-summary-icon" data-tool-icon="ping">{{Icon("refresh")}}</span>
+                            <span class="tool-summary-icon" data-tool-icon="lookup" hidden>{{Icon("globe")}}</span>
+                            <span class="tool-summary-icon" data-tool-icon="port-check" hidden>{{Icon("server")}}</span>
+                            <span class="tool-summary-icon" data-tool-icon="download" hidden>{{Icon("download")}}</span>
+                        </div>
+                        <div class="tool-summary-copy">
+                            <p class="eyebrow">{{T(context, "Tool")}}</p>
+                            <h2 data-tool-title>{{T(context, "Ping")}}</h2>
+                            <p class="muted" data-tool-description>{{T(context, "Reachability and latency check.")}}</p>
+                        </div>
+                    </div>
+                    <div class="tool-fields">
+                        <section class="tool-field-group" data-tool-fields="ping">
+                            <div class="form-grid tool-form-grid">
+                                <label>{{T(context, "Host or IP")}}
+                                    <input name="host" required placeholder="192.168.1.1">
+                                </label>
+                                <label>{{T(context, "Count")}}
+                                    <input name="count" type="number" min="1" max="30" value="4">
+                                </label>
+                                <label>{{T(context, "Interval")}} (ms)
+                                    <input name="intervalMs" type="number" min="0" max="60000" value="1000">
+                                </label>
+                                <label>{{T(context, "Timeout")}} (ms)
+                                    <input name="timeoutMs" type="number" min="100" max="60000" value="1000">
+                                </label>
+                            </div>
+                        </section>
+                        <section class="tool-field-group" data-tool-fields="lookup" hidden>
+                            <div class="form-grid tool-form-grid">
+                                <label>{{T(context, "Host or IP")}}
+                                    <input name="host" required placeholder="nas.local">
+                                </label>
+                            </div>
+                        </section>
+                        <section class="tool-field-group" data-tool-fields="port-check" hidden>
+                            <div class="form-grid tool-form-grid">
+                                <label>{{T(context, "Host or IP")}}
+                                    <input name="host" required placeholder="192.168.1.10">
+                                </label>
+                                <label>{{T(context, "Ports")}}
+                                    <input name="ports" required placeholder="80,443,3389">
+                                </label>
+                                <label>{{T(context, "Timeout")}} (ms)
+                                    <input name="timeoutMs" type="number" min="100" max="60000" value="1000">
+                                </label>
+                            </div>
+                        </section>
+                        <section class="tool-field-group" data-tool-fields="download" hidden>
+                            <div class="form-grid tool-form-grid">
+                                <label>{{T(context, "URL")}}
+                                    <input name="url" required placeholder="http://192.168.1.10/bigfile.iso">
+                                </label>
+                            </div>
+                        </section>
+                    </div>
+                    <div class="actions tool-actions">
+                        <button type="submit" class="primary">{{Icon("play")}}<span>{{T(context, "Start")}}</span></button>
+                    </div>
+                    <pre class="tool-output" data-tool-output>{{T(context, "Ready")}}</pre>
+                </form>
+            </section>
+            <script>
+                (() => {
+                    const toolText = {{toolText}};
+                    const form = document.querySelector('[data-tools-form]');
+                    if (!form) {
+                        return;
+                    }
+
+                    const select = form.querySelector('[data-tool-select]');
+                    const title = form.querySelector('[data-tool-title]');
+                    const description = form.querySelector('[data-tool-description]');
+                    const status = form.querySelector('[data-tool-status]');
+                    const output = form.querySelector('[data-tool-output]');
+                    const submitButton = form.querySelector('button[type="submit"]');
+                    const toolIcons = new Map(Array.from(form.querySelectorAll('[data-tool-icon]')).map(element => [element.getAttribute('data-tool-icon') || '', element]));
+                    const toolGroups = Array.from(form.querySelectorAll('[data-tool-fields]'));
+                    let activeController = null;
+                    let activeTool = 'ping';
+
+                    function setStatus(value) {
+                        if (status) {
+                            status.textContent = value;
+                        }
+                    }
+
+                    function currentOption() {
+                        if (!select || !select.selectedOptions || select.selectedOptions.length === 0) {
+                            return null;
+                        }
+
+                        return select.selectedOptions[0];
+                    }
+
+                    function syncTool() {
+                        const option = currentOption();
+                        const value = option?.value || 'ping';
+                        const endpoint = option?.dataset.endpoint || '/api/tools/ping';
+                        activeTool = value;
+                        form.dataset.toolEndpoint = endpoint;
+
+                        if (activeController) {
+                            activeController.abort();
+                            activeController = null;
+                        }
+
+                        if (title) {
+                            title.textContent = option?.dataset.title || option?.textContent?.trim() || '';
+                        }
+
+                        if (description) {
+                            description.textContent = option?.dataset.description || '';
+                        }
+
+                        if (output) {
+                            output.textContent = toolText.ready || 'Ready';
+                        }
+
+                        setStatus(toolText.ready || 'Ready');
+
+                        toolIcons.forEach((element, key) => {
+                            element.hidden = key !== value;
+                        });
+
+                        toolGroups.forEach(group => {
+                            const active = (group.getAttribute('data-tool-fields') || '') === value;
+                            group.hidden = !active;
+                            group.querySelectorAll('input, select, textarea').forEach(control => {
+                                control.disabled = !active;
+                            });
+                        });
+                    }
+
+                    async function streamResponse(response, outputElement) {
+                        const reader = response.body?.getReader();
+                        if (!reader) {
+                            outputElement.textContent = await response.text();
+                            return;
+                        }
+
+                        const decoder = new TextDecoder();
+                        outputElement.textContent = '';
+
+                        while (true) {
+                            const { value, done } = await reader.read();
+                            if (done) {
+                                break;
+                            }
+
+                            outputElement.textContent += decoder.decode(value, { stream: true });
+                            outputElement.scrollTop = outputElement.scrollHeight;
+                        }
+
+                        outputElement.textContent += decoder.decode();
+                        outputElement.scrollTop = outputElement.scrollHeight;
+                    }
+
+                    async function runTool() {
+                        const endpoint = form.dataset.toolEndpoint || '';
+                        if (!endpoint || !output || !submitButton) {
+                            return;
+                        }
+
+                        if (activeController) {
+                            activeController.abort();
+                        }
+
+                        const runToolValue = activeTool;
+                        const controller = new AbortController();
+                        activeController = controller;
+
+                        output.textContent = '';
+                        setStatus(toolText.running || 'Running');
+                        submitButton.disabled = true;
+
+                        try {
+                            const response = await fetch(endpoint, {
+                                method: 'POST',
+                                body: new FormData(form),
+                                signal: controller.signal,
+                                cache: 'no-store'
+                            });
+
+                            if (!response.ok) {
+                                const text = await response.text().catch(() => '');
+                                output.textContent = text || toolText.failed || 'Failed';
+                                setStatus(toolText.failed || 'Failed');
+                                return;
+                            }
+
+                            await streamResponse(response, output);
+                            setStatus(toolText.complete || 'Complete');
+                        }
+                        catch (error) {
+                            if (controller.signal.aborted) {
+                                if (runToolValue !== activeTool) {
+                                    return;
+                                }
+
+                                setStatus(toolText.aborted || 'Aborted');
+                                return;
+                            }
+
+                            output.textContent = error instanceof Error ? error.message : (toolText.failed || 'Failed');
+                            setStatus(toolText.failed || 'Failed');
+                        }
+                        finally {
+                            submitButton.disabled = false;
+                            if (activeController === controller) {
+                                activeController = null;
+                            }
+                        }
+                    }
+
+                    if (select) {
+                        select.addEventListener('change', syncTool);
+                    }
+
+                    form.addEventListener('submit', event => {
+                        event.preventDefault();
+                        runTool();
+                    });
+
+                    syncTool();
+                })();
+            </script>
+            """;
+
+        return Layout(context, user, T(context, "Tools"), body);
+    }    private static string AboutBody(HttpContext context, string version)
     {
         return $$"""
             <section class="about-page">
@@ -596,7 +939,7 @@ public sealed class HtmlViews
                     <div class="about-copy">
                         <p class="eyebrow">{{T(context, "About")}}</p>
                         <h1>{{T(context, "About Matgate")}}</h1>
-                        <p class="muted">{{T(context, "Local login for RDP, SSH, websites and file access in your home network.")}}</p>
+                        <p class="muted">{{T(context, "Local login for RDP, VNC, SSH, websites and file access in your home network.")}}</p>
                     </div>
                     <div class="about-brand">{{Logo()}}</div>
                 </div>
@@ -619,11 +962,12 @@ public sealed class HtmlViews
         IReadOnlyList<MatgateUser> users)
     {
         var rows = servers.Count == 0
-            ? $"""<tr><td colspan="5" class="muted">{E(emptyMessage)}</td></tr>"""
+            ? $"""<tr><td colspan="6" class="muted">{E(emptyMessage)}</td></tr>"""
             : string.Join("", servers.Select(server => $$"""
                 <tr>
                     <td><span class="server-name-cell">{{ServerIcon(server, "small")}}<a href="/admin/servers/{{server.Id}}">{{E(server.Name)}}</a></span></td>
                     <td>{{ServerScopeBadge(context, server, users)}}</td>
+                    <td>{{(string.IsNullOrWhiteSpace(server.FolderName) ? "<span class=\"muted\">-</span>" : ServerFolderBadge(context, server))}}</td>
                     <td><span class="badge">{{E(ServerProtocolLabel(server.Protocol))}}</span></td>
                     <td>{{E(ServerTargetValue(server))}}</td>
                     <td>{{(server.IsEnabled ? T(context, "Active") : T(context, "Off"))}}</td>
@@ -636,13 +980,205 @@ public sealed class HtmlViews
                     <h2>{{E(title)}}</h2>
                     <div class="table-wrap">
                         <table>
-                            <thead><tr><th>{{T(context, "Name")}}</th><th>{{T(context, "Scope")}}</th><th>{{T(context, "Type")}}</th><th>{{T(context, "Target")}}</th><th>{{T(context, "Status")}}</th></tr></thead>
+                            <thead><tr><th>{{T(context, "Name")}}</th><th>{{T(context, "Scope")}}</th><th>{{T(context, "Folder")}}</th><th>{{T(context, "Type")}}</th><th>{{T(context, "Target")}}</th><th>{{T(context, "Status")}}</th></tr></thead>
                             <tbody>{{rows}}</tbody>
                         </table>
                     </div>
                 </section>
+                </section>
+            """;
+    }
+
+    private static string ConnectionChoiceSections(
+        HttpContext context,
+        MatgateUser user,
+        IReadOnlyList<ServerEndpoint> servers,
+        bool includeEditButtons)
+    {
+        if (servers.Count == 0)
+        {
+            return $"""<div class="empty">{T(context, includeEditButtons ? "No own servers created yet." : "No shared connections.")}</div>""";
+        }
+
+        var returnUrl = $"{context.Request.Path}{context.Request.QueryString}";
+        var favoriteIds = user.FavoriteServerIds?.ToHashSet() ?? new HashSet<Guid>();
+        var favoriteServers = servers
+            .Where(server => favoriteIds.Contains(server.Id))
+            .OrderBy(server => string.IsNullOrWhiteSpace(server.FolderName) ? 1 : 0)
+            .ThenBy(server => server.FolderName)
+            .ThenBy(server => server.Name)
+            .ToList();
+        var remainingServers = servers
+            .Where(server => !favoriteIds.Contains(server.Id))
+            .ToList();
+
+        var sections = new List<string>();
+        if (favoriteServers.Count > 0)
+        {
+            sections.Add(ConnectionChoiceSection(
+                context,
+                user,
+                T(context, "Favorites"),
+                Icon("star"),
+                favoriteServers,
+                includeEditButtons,
+                returnUrl,
+                T(context, "Favorites")));
+        }
+
+        var folderGroups = remainingServers
+            .GroupBy(server => string.IsNullOrWhiteSpace(server.FolderName) ? "" : server.FolderName.Trim(), StringComparer.OrdinalIgnoreCase)
+            .OrderBy(group => string.IsNullOrWhiteSpace(group.Key) ? 1 : 0)
+            .ThenBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        if (folderGroups.Count == 1 && string.IsNullOrWhiteSpace(folderGroups[0].Key))
+        {
+            sections.Add(ConnectionChoiceSection(
+                context,
+                user,
+                T(context, "Folder"),
+                Icon("folder"),
+                folderGroups[0].ToList(),
+                includeEditButtons,
+                returnUrl,
+                T(context, "Unsorted")));
+        }
+        else
+        {
+            foreach (var group in folderGroups)
+            {
+                var groupTitle = string.IsNullOrWhiteSpace(group.Key)
+                    ? T(context, "Unsorted")
+                    : group.Key;
+                var groupIcon = string.IsNullOrWhiteSpace(group.Key)
+                    ? Icon("folder")
+                    : ServerFolderIcon(group.FirstOrDefault());
+
+                sections.Add(ConnectionChoiceSection(
+                    context,
+                    user,
+                    T(context, "Folder"),
+                    groupIcon,
+                    group.ToList(),
+                    includeEditButtons,
+                    returnUrl,
+                    groupTitle));
+            }
+        }
+
+        return string.Join("", sections);
+    }
+
+    private static string ConnectionChoiceSection(
+        HttpContext context,
+        MatgateUser user,
+        string eyebrow,
+        string iconHtml,
+        IReadOnlyList<ServerEndpoint> servers,
+        bool includeEditButtons,
+        string returnUrl,
+        string title)
+    {
+        var cards = string.Join("", servers.Select(server => ConnectionChoiceCard(context, user, server, includeEditButtons, returnUrl)));
+        return $$"""
+            <section class="connection-choice-section">
+                <div class="row split connection-choice-section-head">
+                    <div>
+                        <p class="eyebrow">{{E(eyebrow)}}</p>
+                        <h2>{{iconHtml}}<span>{{E(title)}}</span></h2>
+                    </div>
+                    <span class="badge">{{servers.Count}}</span>
+                </div>
+                <section class="connection-picker-grid">
+                    {{cards}}
+                </section>
             </section>
             """;
+    }
+
+    private static string ConnectionChoiceCard(
+        HttpContext context,
+        MatgateUser user,
+        ServerEndpoint server,
+        bool includeEditButtons,
+        string returnUrl)
+    {
+        var actions = new List<string>
+        {
+            $"""<button type="button" class="primary workspace-open-button" data-server-id="{server.Id}">{Icon("play")}{T(context, "Open")}</button>""",
+            FavoriteToggleForm(context, user, server, returnUrl)
+        };
+
+        if (includeEditButtons)
+        {
+            actions.Insert(1, $"""<a class="button" href="/admin/servers/{server.Id}">{Icon("edit")}{T(context, "Edit")}</a>""");
+        }
+
+        return $$"""
+            <article class="connection-choice">
+                <div>
+                    <div class="server-title">
+                        {{ServerIcon(server)}}
+                        <div class="connection-choice-copy">
+                            <span class="badge">{{E(ServerProtocolLabel(server.Protocol))}}</span>
+                            {{ServerFolderBadge(context, server)}}
+                            {{(server.OwnerUserId is null ? "" : ServerScopeBadge(context, server, currentUser: user))}}
+                            <h2>{{E(server.Name)}}</h2>
+                        </div>
+                    </div>
+                    <p class="target">{{E(ServerTargetValue(server))}}</p>
+                    <p class="muted">{{E(server.Notes)}}</p>
+                </div>
+                <div class="connection-choice-actions">
+                    {{string.Join("", actions)}}
+                </div>
+            </article>
+            """;
+    }
+
+    private static string FavoriteToggleForm(
+        HttpContext context,
+        MatgateUser user,
+        ServerEndpoint server,
+        string returnUrl)
+    {
+        var isFavorite = IsFavoriteServer(user, server.Id);
+        var label = isFavorite ? T(context, "Remove from favorites") : T(context, "Add to favorites");
+        return $$"""
+            <form method="post" action="/account/favorites/{{server.Id}}/toggle" class="favorite-toggle-form">
+                {{Csrf(context)}}
+                <input type="hidden" name="returnUrl" value="{{A(returnUrl)}}">
+                <button type="submit" class="favorite-toggle{{(isFavorite ? " active" : "")}}" title="{{A(label)}}" aria-label="{{A(label)}}">{{Icon("star")}}</button>
+            </form>
+            """;
+    }
+
+    private static string ServerFolderBadge(HttpContext context, ServerEndpoint server)
+    {
+        var folderName = Clean(server.FolderName, "");
+        if (string.IsNullOrWhiteSpace(folderName))
+        {
+            return "";
+        }
+
+        return $"""<span class="badge server-folder-badge">{ServerFolderIcon(server)}<span>{E(folderName)}</span></span>""";
+    }
+
+    private static string ServerFolderIcon(ServerEndpoint? server)
+    {
+        var iconKey = server is null ? "" : ServerEndpoint.NormalizeIconKey(server.FolderIconKey);
+        if (string.IsNullOrWhiteSpace(iconKey))
+        {
+            iconKey = "folder";
+        }
+
+        return Icon(iconKey);
+    }
+
+    private static bool IsFavoriteServer(MatgateUser user, Guid serverId)
+    {
+        return user.FavoriteServerIds?.Contains(serverId) == true;
     }
 
     public string Message(HttpContext context, MatgateUser? user, string title, string message)
@@ -815,6 +1351,12 @@ public sealed class HtmlViews
             check = Icon("check"),
             delete = Icon("trash")
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        var actionIcons = JsonSerializer.Serialize(new
+        {
+            fullscreen = Icon("maximize"),
+            clipboard = Icon("clipboard"),
+            disconnect = Icon("logout")
+        }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
         var websiteIcons = JsonSerializer.Serialize(new
         {
             back = Icon("arrow-left"),
@@ -826,8 +1368,13 @@ public sealed class HtmlViews
         var archiveExtensions = JsonSerializer.Serialize(FileArchiveFormats.SupportedExtensions, new JsonSerializerOptions(JsonSerializerDefaults.Web));
         var uiText = JsonSerializer.Serialize(new
         {
+            about = T(context, "About"),
             dashboard = T(context, "Home"),
             connections = T(context, "Connections"),
+            page = T(context, "Page"),
+            fullscreen = T(context, "Fullscreen"),
+            clipboard = T(context, "Clipboard"),
+            disconnect = T(context, "Disconnect"),
             username = T(context, "Username"),
             password = T(context, "Password"),
             noActiveTab = T(context, "No active tab"),
@@ -919,53 +1466,14 @@ public sealed class HtmlViews
             moveFailed = Language(context) == "de" ? "Verschieben fehlgeschlagen." : "Move failed.",
             viewStarted = Language(context) == "de" ? "Ansicht geoeffnet" : "View opened",
             close = T(context, "Close"),
-            disconnect = T(context, "Disconnect"),
             clipboardSent = Language(context) == "de" ? "Zwischenablage gesendet" : "Clipboard sent",
             clipboardReceived = Language(context) == "de" ? "Zwischenablage empfangen" : "Clipboard received",
             remoteClipboardReady = Language(context) == "de" ? "Remote-Zwischenablage bereit" : "Remote clipboard ready",
             connectionContinues = Language(context) == "de" ? "Verbindung wird fortgesetzt" : "Connection continues",
             credentialsSubmitted = Language(context) == "de" ? "Die Zugangsdaten wurden uebergeben." : "Credentials were submitted."
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
-        var connectionChoices = sharedServers.Count == 0
-            ? $"""<div class="empty">{T(context, "No shared connections.")}</div>"""
-            : string.Join("", sharedServers.Select(server => $$"""
-                <article class="connection-choice">
-                    <div>
-                        <div class="server-title">
-                            {{ServerIcon(server)}}
-                            <div>
-                                <span class="badge">{{E(ServerProtocolLabel(server.Protocol))}}</span>
-                                <h2>{{E(server.Name)}}</h2>
-                            </div>
-                        </div>
-                        <p class="target">{{E(ServerTargetValue(server))}}</p>
-                        <p class="muted">{{E(server.Notes)}}</p>
-                    </div>
-                    <button type="button" class="primary workspace-open-button" data-server-id="{{server.Id}}">{{Icon("play")}}{{T(context, "Open")}}</button>
-                </article>
-                """));
-        var ownConnectionChoices = ownServers.Count == 0
-            ? $"""<div class="empty">{T(context, "No own servers created yet.")}</div>"""
-            : string.Join("", ownServers.Select(server => $$"""
-                <article class="connection-choice">
-                    <div>
-                        <div class="server-title">
-                            {{ServerIcon(server)}}
-                            <div>
-                                <span class="badge">{{E(ServerProtocolLabel(server.Protocol))}}</span>
-                                {{ServerScopeBadge(context, server, currentUser: user)}}
-                                <h2>{{E(server.Name)}}</h2>
-                            </div>
-                        </div>
-                        <p class="target">{{E(ServerTargetValue(server))}}</p>
-                        <p class="muted">{{E(server.Notes)}}</p>
-                    </div>
-                    <div class="actions">
-                        <button type="button" class="primary workspace-open-button" data-server-id="{{server.Id}}">{{Icon("play")}}{{T(context, "Open")}}</button>
-                        <a class="button" href="/admin/servers/{{server.Id}}">{{Icon("edit")}}{{T(context, "Edit")}}</a>
-                    </div>
-                </article>
-                """));
+        var connectionChoices = ConnectionChoiceSections(context, user, sharedServers, false);
+        var ownConnectionChoices = ConnectionChoiceSections(context, user, ownServers, true);
         var ownServersSection = user.CanCreateServers
             ? $$"""
                 <section class="home-management">
@@ -976,18 +1484,21 @@ public sealed class HtmlViews
                         </div>
                         <a class="button primary" href="/admin/servers/new">{{Icon("plus")}}{{T(context, "Create own server")}}</a>
                     </div>
-                    <section class="connection-picker-grid">
-                        {{ownConnectionChoices}}
-                    </section>
+                    {{ownConnectionChoices}}
                 </section>
                 """
             : "";
         var body = $$"""
             <div id="matgate-shell" class="matgate-shell">
             <div class="shell-page-row">
-                <div id="shell-page-tabs" class="session-tabs shell-page-tabs" role="tablist"></div>
-                <div id="session-tabs" class="session-tabs shell-page-tabs" role="tablist"></div>
-                <button id="new-connection-tab" type="button" class="session-tab session-new-tab" role="tab" aria-label="{{A(T(context, "New connection"))}}">{{Icon("plus")}}</button>
+                <div id="session-tabs" class="session-tabs shell-page-tabs" role="tablist">
+                    <div id="new-connection-tab" class="session-tab session-tab--add" role="tab" data-tab-kind="add" aria-label="{{A(T(context, "New connection"))}}">
+                        <button type="button" class="session-tab-main">
+                            <span class="session-tab-title">{{Icon("plus")}}</span>
+                            <small class="session-tab-description">&nbsp;</small>
+                        </button>
+                    </div>
+                </div>
                 <div id="connection-tab-actions" class="tab-actions" aria-label="{{A(T(context, "Actions for the active tab"))}}"></div>
             </div>
             <div id="shell-page-panels" class="shell-page-panels">
@@ -999,9 +1510,7 @@ public sealed class HtmlViews
                                 <p class="eyebrow">{{T(context, "Home")}}</p>
                                 <h1>{{T(context, "New Connection")}}</h1>
                             </section>
-                            <section class="connection-picker-grid">
-                                {{connectionChoices}}
-                            </section>
+                            {{connectionChoices}}
                             {{ownServersSection}}
                         </div>
                     </div>
@@ -1054,6 +1563,7 @@ public sealed class HtmlViews
                 const csrfToken = {{csrfToken}};
                 const uiText = {{uiText}};
                 const fileIcons = {{fileIcons}};
+                const actionIcons = {{actionIcons}};
                 const websiteIcons = {{websiteIcons}};
                 const archiveExtensions = {{archiveExtensions}};
                 const homeView = document.getElementById('home-view');
@@ -1061,6 +1571,7 @@ public sealed class HtmlViews
                 const newConnectionTab = document.getElementById('new-connection-tab');
                 const newConnectionPanel = document.getElementById('new-connection-panel');
                 const deck = document.getElementById('session-deck');
+                const connectionTabActions = document.getElementById('connection-tab-actions');
                 const statusTitle = document.getElementById('status-title');
                 const statusTarget = document.getElementById('status-target');
                 const statusState = document.getElementById('status-state');
@@ -1068,9 +1579,6 @@ public sealed class HtmlViews
                 const statusTunnel = document.getElementById('status-tunnel');
                 const statusSync = document.getElementById('status-sync');
                 const statusMessage = document.getElementById('status-message');
-                const clipboardSendButton = document.getElementById('clipboard-send-button');
-                const fullscreenButton = document.getElementById('fullscreen-button');
-                const disconnectActiveButton = document.getElementById('disconnect-active-button');
                 const aboutInfoButton = document.getElementById('status-info-button');
                 const fileViewerDialog = document.getElementById('file-viewer-dialog');
                 const credentialDialog = document.getElementById('credential-dialog');
@@ -1079,16 +1587,18 @@ public sealed class HtmlViews
                 const clipboardDialog = document.getElementById('clipboard-dialog');
                 const clipboardText = document.getElementById('clipboard-text');
                 const clipboardClose = document.getElementById('clipboard-close');
-                const shellPageTabs = document.getElementById('shell-page-tabs');
                 const shellPagePanels = document.getElementById('shell-page-panels');
                 const tabs = new Map();
                 const workspaceStorageKey = 'matgate.workspace.tabs.v2';
                 const shellTabStorageKey = 'matgate.shell.tabs.v1';
+                const tabOrderStorageKey = 'matgate.tab.order.v1';
                 const shellTabs = new Map();
 
                 let activeTabId = null;
                 let activeShellTabId = '';
                 let draggedTabId = null;
+                let suppressTabClicks = false;
+                let transparentDragImage = null;
                 let credentialTab = null;
                 let resizeTimer = null;
                 let gatewayLatencyMs = null;
@@ -1099,7 +1609,7 @@ public sealed class HtmlViews
                         event.preventDefault();
                     }
 
-                    openShellTab('/about', ui('about'), aboutInfoButton?.innerHTML || '');
+                    openShellTab('/about', ui('About'), aboutInfoButton?.innerHTML || '');
                     return false;
                 };
                 if (aboutInfoButton) {
@@ -1246,7 +1756,7 @@ public sealed class HtmlViews
                                 title: tab.title,
                                 url: tab.url,
                                 iconHtml: tab.iconHtml || '',
-                                description: tab.description || ''
+                                description: shellTabDescription(tab)
                             })),
                             activeTabId: activeShellTabId
                         }));
@@ -1257,33 +1767,34 @@ public sealed class HtmlViews
                 }
 
                 function createShellTab(tab) {
-                    if (!shellPageTabs || !shellPagePanels || shellTabs.has(tab.id)) {
+                    if (!tabsRoot || !shellPagePanels || shellTabs.has(tab.id)) {
                         return shellTabs.get(tab.id) || null;
                     }
 
+                    const resolvedTitle = tab.url === '/about'
+                        ? (uiText.about || ui('About'))
+                        : tab.title;
+                    const resolvedTab = { ...tab, title: resolvedTitle };
+
                     const button = document.createElement('div');
-                    button.className = 'session-tab shell-page-tab';
-                    button.setAttribute('data-shell-tab-id', tab.id);
+                    button.className = 'session-tab session-tab--page';
+                    button.setAttribute('data-shell-tab-id', resolvedTab.id);
+                    button.setAttribute('data-tab-id', resolvedTab.id);
+                    button.setAttribute('data-tab-kind', 'page');
 
                     const main = document.createElement('button');
                     main.type = 'button';
-                    main.className = 'session-tab-main shell-tab-main';
+                    main.className = 'session-tab-main';
+                    main.draggable = true;
 
                     const title = document.createElement('span');
-                    title.className = 'session-tab-title shell-tab-title';
-                    title.innerHTML = `${tab.iconHtml || ''}<span>${escapeHtml(tab.title)}</span>`;
+                    title.className = 'session-tab-title';
+                    title.innerHTML = `${resolvedTab.iconHtml || ''}<span>${escapeHtml(resolvedTab.title)}</span>`;
 
                     const subtitle = document.createElement('small');
-                    subtitle.className = 'shell-tab-description';
-                    try {
-                        const parsedUrl = new URL(tab.url, window.location.origin);
-                        subtitle.textContent = tab.description || `${parsedUrl.pathname}${parsedUrl.search}${parsedUrl.hash}`;
-                    }
-                    catch {
-                        subtitle.textContent = tab.description || tab.url;
-                    }
+                    subtitle.className = 'session-tab-description';
+                    subtitle.textContent = shellTabDescription(resolvedTab);
                     main.append(title, subtitle);
-                    main.addEventListener('click', () => activateShellTab(tab.id));
 
                     const close = document.createElement('button');
                     close.type = 'button';
@@ -1292,31 +1803,58 @@ public sealed class HtmlViews
                     close.innerHTML = '&times;';
                     close.addEventListener('click', (event) => {
                         event.stopPropagation();
-                        closeShellTab(tab.id);
+                        closeShellTab(resolvedTab.id);
+                    });
+                    close.addEventListener('mousedown', event => {
+                        event.stopPropagation();
+                    });
+                    close.addEventListener('dragstart', event => {
+                        event.preventDefault();
+                        event.stopPropagation();
                     });
 
                     const panel = document.createElement('section');
                     panel.className = 'shell-page-panel hidden';
-                    panel.setAttribute('data-shell-panel-id', tab.id);
+                    panel.setAttribute('data-shell-panel-id', resolvedTab.id);
                     const iframe = document.createElement('iframe');
-                    iframe.title = tab.title;
-                    iframe.src = shellEmbeddedUrl(tab.url);
+                    iframe.title = resolvedTab.title;
+                    iframe.src = shellEmbeddedUrl(resolvedTab.url);
                     panel.appendChild(iframe);
 
                     button.append(main, close);
-                    button.addEventListener('click', event => {
-                        if (event.target instanceof Element && event.target.closest('.session-tab-close')) {
+                    main.addEventListener('click', event => {
+                        if (suppressTabClicks) {
+                            event.preventDefault();
                             return;
                         }
 
-                        activateShellTab(tab.id);
+                        activateShellTab(resolvedTab.id);
                     });
-                    shellPageTabs.appendChild(button);
+                    insertTabButton(button);
                     shellPagePanels.appendChild(panel);
+                    wireTabDrag(button, resolvedTab.id, main);
 
-                    const entry = { ...tab, button, panel, iframe };
-                    shellTabs.set(tab.id, entry);
+                    const entry = { ...resolvedTab, button, panel, iframe };
+                    shellTabs.set(resolvedTab.id, entry);
                     return entry;
+                }
+
+                function shellTabDescription(tab) {
+                    const fallback = uiText.page || 'Page';
+                    if (tab.url === '/tools') {
+                        return fallback;
+                    }
+
+                    const description = typeof tab.description === 'string' ? tab.description.trim() : '';
+                    if (!description) {
+                        return fallback;
+                    }
+
+                    if (description.startsWith('/') || description.includes('://') || /^[a-zA-Z]:[\\/]/.test(description)) {
+                        return fallback;
+                    }
+
+                    return description;
                 }
 
                 function activateShellTab(tabId) {
@@ -1338,6 +1876,8 @@ public sealed class HtmlViews
 
                     shellTabs.get(tabId)?.button.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 
+                    updateTabActions();
+                    saveTabOrder();
                     saveShellTabs();
                 }
 
@@ -1356,6 +1896,7 @@ public sealed class HtmlViews
                         activateNewConnectionTab();
                     }
 
+                    saveTabOrder();
                     saveShellTabs();
                 }
 
@@ -1377,7 +1918,7 @@ public sealed class HtmlViews
                 }
 
                 function restoreShellTabs() {
-                    if (!shellPageTabs || !shellPagePanels) {
+                    if (!tabsRoot || !shellPagePanels) {
                         return;
                     }
 
@@ -1437,7 +1978,14 @@ public sealed class HtmlViews
                         });
                     });
 
-                    newConnectionTab.addEventListener('click', activateNewConnectionTab);
+                    newConnectionTab.addEventListener('click', event => {
+                        if (suppressTabClicks) {
+                            event.preventDefault();
+                            return;
+                        }
+
+                        activateNewConnectionTab();
+                    });
 
                     window.addEventListener('popstate', () => {
                         showView('home', false);
@@ -1461,7 +2009,7 @@ public sealed class HtmlViews
                 }
 
                 function orderedSessionTabs() {
-                    return Array.from(tabsRoot.querySelectorAll('.session-tab[data-tab-id]'))
+                    return Array.from(tabsRoot.querySelectorAll('.session-tab[data-tab-id][data-tab-kind="connection"]'))
                         .map(tabButton => tabs.get(tabButton.getAttribute('data-tab-id') || ''))
                         .filter(Boolean);
                 }
@@ -1581,7 +2129,203 @@ public sealed class HtmlViews
                 }
 
                 function updateTabActions() {
+                    if (!connectionTabActions) {
+                        updateStatusBar();
+                        return;
+                    }
+
+                    connectionTabActions.replaceChildren();
+                    const tab = tabs.get(activeTabId);
+                    if (!tab) {
+                        updateStatusBar();
+                        return;
+                    }
+
+                    const fullscreenButton = createTabActionButton(
+                        actionIcons.fullscreen,
+                        uiText.fullscreen || 'Fullscreen',
+                        () => {
+                            const target = tab.panel || deck;
+                            if (!document.fullscreenElement) {
+                                target.requestFullscreen().then(scheduleResize).catch(() => {});
+                            }
+                            else {
+                                document.exitFullscreen().then(scheduleResize).catch(() => {});
+                            }
+                        },
+                        '',
+                        true);
+
+                    connectionTabActions.appendChild(fullscreenButton);
+
+                    if (tab.client && !tab.terminal) {
+                        const clipboardButton = createTabActionButton(
+                            actionIcons.clipboard,
+                            uiText.clipboard || 'Clipboard',
+                            async () => {
+                                try {
+                                    const text = await readBrowserClipboard();
+                                    if (!sendClipboardText(tab, text)) {
+                                        openClipboardDialog(tab.remoteClipboard || '');
+                                    }
+                                }
+                                catch {
+                                    openClipboardDialog(tab.remoteClipboard || '');
+                                }
+                            },
+                            '',
+                            true);
+                        connectionTabActions.appendChild(clipboardButton);
+                    }
+
+                    const disconnectButton = createTabActionButton(
+                        actionIcons.disconnect,
+                        uiText.disconnect || 'Disconnect',
+                        () => closeTab(tab.id),
+                        'danger');
+                    connectionTabActions.appendChild(disconnectButton);
                     updateStatusBar();
+                }
+
+                function createTabActionButton(iconHtml, label, onClick, className = '', iconOnly = false) {
+                    const button = document.createElement('button');
+                    button.type = 'button';
+                    button.className = ['tab-action-button', iconOnly ? 'icon-only' : '', className].filter(Boolean).join(' ');
+                    button.title = label;
+                    button.setAttribute('aria-label', label);
+                    button.innerHTML = iconOnly
+                        ? `${iconHtml || ''}`
+                        : `${iconHtml || ''}<span>${escapeHtml(label)}</span>`;
+                    button.addEventListener('click', onClick);
+                    return button;
+                }
+
+                function getTabEntry(tabId) {
+                    return tabs.get(tabId) || shellTabs.get(tabId) || null;
+                }
+
+                function insertTabButton(tabButton) {
+                    if (!tabsRoot || !tabButton) {
+                        return;
+                    }
+
+                    if (newConnectionTab && newConnectionTab.parentElement === tabsRoot) {
+                        tabsRoot.insertBefore(tabButton, newConnectionTab);
+                        return;
+                    }
+
+                    tabsRoot.appendChild(tabButton);
+                }
+
+                function saveTabOrder() {
+                    try {
+                        localStorage.setItem(tabOrderStorageKey, JSON.stringify({
+                            order: Array.from(tabsRoot.querySelectorAll('.session-tab[data-tab-id]'))
+                                .map(tabButton => tabButton.getAttribute('data-tab-id'))
+                                .filter(Boolean)
+                        }));
+                    }
+                    catch {
+                        // Ignore ordering failures.
+                    }
+                }
+
+                function restoreTabOrder() {
+                    if (!tabsRoot) {
+                        return;
+                    }
+
+                    try {
+                        const raw = localStorage.getItem(tabOrderStorageKey);
+                        if (!raw) {
+                            return;
+                        }
+
+                        const state = JSON.parse(raw);
+                        const order = Array.isArray(state.order) ? state.order : [];
+                        const anchor = newConnectionTab && newConnectionTab.parentElement === tabsRoot ? newConnectionTab : null;
+                        order.forEach(tabId => {
+                            const entry = getTabEntry(tabId);
+                            const tabButton = entry?.tabButton || entry?.button;
+                            if (tabButton && tabButton.parentElement === tabsRoot) {
+                                tabsRoot.insertBefore(tabButton, anchor);
+                            }
+                        });
+                    }
+                    catch {
+                        // Ignore ordering failures.
+                    }
+                }
+
+                function wireTabDrag(tabButton, tabId) {
+                    const dragHandle = tabButton.querySelector('.session-tab-main') || tabButton;
+                    dragHandle.draggable = true;
+                    dragHandle.addEventListener('dragstart', event => {
+                        draggedTabId = tabId;
+                        suppressTabClicks = true;
+                        tabButton.classList.add('dragging');
+                        try {
+                            event.dataTransfer.effectAllowed = 'move';
+                            event.dataTransfer.setData('text/plain', tabId);
+                            event.dataTransfer.setDragImage(getTransparentDragImage(), 0, 0);
+                        }
+                        catch {
+                            // Ignore drag data issues.
+                        }
+                    });
+                    dragHandle.addEventListener('dragend', () => {
+                        tabButton.classList.remove('dragging');
+                        draggedTabId = null;
+                        setTimeout(() => {
+                            suppressTabClicks = false;
+                        }, 0);
+                        saveTabOrder();
+                    });
+                    tabButton.addEventListener('dragover', event => {
+                        if (!draggedTabId || draggedTabId === tabId) {
+                            return;
+                        }
+
+                        event.preventDefault();
+                        const draggingTab = getTabEntry(draggedTabId);
+                        const draggingButton = draggingTab?.tabButton || draggingTab?.button;
+                        if (!draggingButton) {
+                            return;
+                        }
+
+                        const rect = tabButton.getBoundingClientRect();
+                        const insertBefore = event.clientX < rect.left + (rect.width / 2);
+                        const referenceNode = insertBefore ? tabButton : (tabButton.nextSibling || newConnectionTab);
+                        if (draggingButton !== referenceNode) {
+                            tabsRoot.insertBefore(draggingButton, referenceNode);
+                        }
+                    });
+                    tabButton.addEventListener('drop', event => {
+                        if (!draggedTabId) {
+                            return;
+                        }
+
+                        event.preventDefault();
+                        draggedTabId = null;
+                        saveTabOrder();
+                    });
+                }
+
+                function getTransparentDragImage() {
+                    if (transparentDragImage) {
+                        return transparentDragImage;
+                    }
+
+                    transparentDragImage = document.createElement('div');
+                    transparentDragImage.style.width = '1px';
+                    transparentDragImage.style.height = '1px';
+                    transparentDragImage.style.opacity = '0';
+                    transparentDragImage.style.position = 'fixed';
+                    transparentDragImage.style.pointerEvents = 'none';
+                    transparentDragImage.style.top = '-100px';
+                    transparentDragImage.style.left = '-100px';
+                    document.body.appendChild(transparentDragImage);
+                    return transparentDragImage;
                 }
 
                 function activateNewConnectionTab() {
@@ -1609,14 +2353,15 @@ public sealed class HtmlViews
                     const tabId = options.tabId || newTabId();
                     const isWebsite = isWebsiteProtocol(server.protocol);
                     const tabButton = document.createElement('div');
-                    tabButton.className = 'session-tab';
+                    tabButton.className = 'session-tab session-tab--connection';
                     tabButton.setAttribute('role', 'tab');
                     tabButton.setAttribute('data-tab-id', tabId);
-                    tabButton.draggable = true;
+                    tabButton.setAttribute('data-tab-kind', 'connection');
 
                     const tabMain = document.createElement('button');
                     tabMain.type = 'button';
                     tabMain.className = 'session-tab-main';
+                    tabMain.draggable = true;
                     const tabTitle = document.createElement('span');
                     tabTitle.className = 'session-tab-title';
                     tabTitle.innerHTML = `${server.iconHtml || ''}<span>${escapeHtml(server.name)}</span>`;
@@ -1632,60 +2377,29 @@ public sealed class HtmlViews
                     closeButton.className = 'session-tab-close';
                     closeButton.setAttribute('aria-label', 'Tab schliessen');
                     closeButton.innerHTML = '&times;';
+                    closeButton.addEventListener('mousedown', event => {
+                        event.stopPropagation();
+                    });
+                    closeButton.addEventListener('dragstart', event => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                    });
+                    closeButton.addEventListener('click', event => {
+                        event.stopPropagation();
+                        closeTab(tabId);
+                    });
 
                     tabButton.append(tabMain, closeButton);
-                    tabButton.addEventListener('click', event => {
-                        if (event.target instanceof Element && event.target.closest('.session-tab-close')) {
+                    tabMain.addEventListener('click', event => {
+                        if (suppressTabClicks) {
+                            event.preventDefault();
                             return;
                         }
 
-                        activateTab(tab.id);
+                        activateTab(tabId);
                     });
-                    tabsRoot.appendChild(tabButton);
-
-                    tabButton.addEventListener('dragstart', event => {
-                        draggedTabId = tab.id;
-                        tabButton.classList.add('dragging');
-                        try {
-                            event.dataTransfer.effectAllowed = 'move';
-                            event.dataTransfer.setData('text/plain', tab.id);
-                        }
-                        catch {
-                            // Ignore drag data issues.
-                        }
-                    });
-                    tabButton.addEventListener('dragend', () => {
-                        tabButton.classList.remove('dragging');
-                        draggedTabId = null;
-                        saveWorkspaceTabs();
-                    });
-                    tabButton.addEventListener('dragover', event => {
-                        if (!draggedTabId || draggedTabId === tabId) {
-                            return;
-                        }
-
-                        event.preventDefault();
-                        const draggingTab = tabs.get(draggedTabId);
-                        if (!draggingTab || !draggingTab.tabButton) {
-                            return;
-                        }
-
-                        const rect = tabButton.getBoundingClientRect();
-                        const insertBefore = event.clientX < rect.left + (rect.width / 2);
-                        const referenceNode = insertBefore ? tabButton : tabButton.nextSibling;
-                        if (draggingTab.tabButton !== referenceNode) {
-                            tabsRoot.insertBefore(draggingTab.tabButton, referenceNode);
-                        }
-                    });
-                    tabButton.addEventListener('drop', event => {
-                        if (!draggedTabId) {
-                            return;
-                        }
-
-                        event.preventDefault();
-                        draggedTabId = null;
-                        saveWorkspaceTabs();
-                    });
+                    insertTabButton(tabButton);
+                    wireTabDrag(tabButton, tabId);
 
                     const panel = document.createElement('div');
                     panel.className = 'connection-panel hidden';
@@ -1767,27 +2481,19 @@ public sealed class HtmlViews
                         const websiteShell = document.createElement('div');
                         websiteShell.className = 'website-shell';
                         websiteShell.innerHTML = `
-                            <div class="website-toolbar">
-                                <div class="website-toolbar-group">
-                                    <button type="button" class="website-tool-button" data-website-action="back" title="${escapeHtml(uiText.back || 'Back')}">
-                                        ${websiteIcons.back}<span>${escapeHtml(uiText.back || 'Back')}</span>
-                                    </button>
-                                    <button type="button" class="website-tool-button" data-website-action="forward" title="${escapeHtml(uiText.forward || 'Forward')}">
-                                        ${websiteIcons.forward}<span>${escapeHtml(uiText.forward || 'Forward')}</span>
-                                    </button>
-                                    <button type="button" class="website-tool-button" data-website-action="reload" title="${escapeHtml(uiText.refresh || 'Refresh')}">
-                                        ${websiteIcons.refresh}<span>${escapeHtml(uiText.refresh || 'Refresh')}</span>
-                                    </button>
-                                </div>
-                                <div class="website-toolbar-group website-toolbar-address">
-                                    <input class="website-address" type="text" readonly value="${escapeHtml(server.target || '')}" aria-label="${escapeHtml(uiText.website || 'Website')}">
-                                </div>
-                                <div class="website-toolbar-group">
-                                    <button type="button" class="website-tool-button" data-website-action="open" title="${escapeHtml(uiText.openInNewTab || 'Open in new tab')}">
-                                        ${websiteIcons.open}<span>${escapeHtml(uiText.openInNewTab || 'Open in new tab')}</span>
-                                    </button>
-                                </div>
-                            </div>
+                            ${Toolbar('website-toolbar',
+                                ToolbarGroup('website-toolbar-group',
+                                    ToolbarIconButton(uiText.back || 'Back', websiteIcons.back, 'website-tool-button', Attr('data-website-action', 'back') + Attr('title', uiText.back || 'Back')),
+                                    ToolbarIconButton(uiText.forward || 'Forward', websiteIcons.forward, 'website-tool-button', Attr('data-website-action', 'forward') + Attr('title', uiText.forward || 'Forward')),
+                                    ToolbarIconButton(uiText.refresh || 'Refresh', websiteIcons.refresh, 'website-tool-button', Attr('data-website-action', 'reload') + Attr('title', uiText.refresh || 'Refresh'))
+                                ),
+                                ToolbarGroup('website-toolbar-group website-toolbar-address toolbar-group--grow',
+                                    ToolbarInput('website-address', server.target || '', uiText.website || 'Website', true)
+                                ),
+                                ToolbarGroup('website-toolbar-group toolbar-group--end',
+                                    ToolbarButton(uiText.openInNewTab || 'Open in new tab', websiteIcons.open, 'website-tool-button', Attr('data-website-action', 'open') + Attr('title', uiText.openInNewTab || 'Open in new tab'))
+                                )
+                            )}
                             <iframe class="website-frame" title="${escapeHtml(server.name)}" allow="clipboard-read; clipboard-write; fullscreen"></iframe>`;
                         displayRoot.appendChild(websiteShell);
                         tab.websiteUi = {
@@ -1852,10 +2558,6 @@ public sealed class HtmlViews
                         });
                     }
 
-                    closeButton.addEventListener('click', event => {
-                        event.stopPropagation();
-                        closeTab(tab.id);
-                    });
                     reconnectButton.addEventListener('click', () => restartTab(tab));
                     closeOverlayButton.addEventListener('click', () => closeTab(tab.id));
                     panel.addEventListener('click', () => panel.focus());
@@ -1894,6 +2596,7 @@ public sealed class HtmlViews
                     activeTab.panel.focus();
                     activeTab.tabButton.scrollIntoView({ block: 'nearest', inline: 'nearest' });
                     updateTabActions();
+                    saveTabOrder();
                     saveWorkspaceTabs();
                 }
 
@@ -1932,6 +2635,7 @@ public sealed class HtmlViews
                     }
 
                     updateTabActions();
+                    saveTabOrder();
                     saveWorkspaceTabs();
                 }
 
@@ -1942,6 +2646,66 @@ public sealed class HtmlViews
                     }
 
                     return null;
+                }
+
+                function CssClasses(baseClass, className = '') {
+                    const extra = (className || '').toString().trim();
+                    return extra ? `${baseClass} ${extra}` : baseClass;
+                }
+
+                function Attr(name, value) {
+                    const text = value === null || value === undefined ? '' : value.toString();
+                    return text ? ` ${name}="${escapeHtml(text)}"` : '';
+                }
+
+                function BoolAttr(name, value) {
+                    return value ? ` ${name}` : '';
+                }
+
+                function Toolbar(className, ...groups) {
+                    return `<div class="${escapeHtml(CssClasses('toolbar', className))}">${groups.filter(Boolean).join('')}</div>`;
+                }
+
+                function ToolbarGroup(className, ...items) {
+                    return `<div class="${escapeHtml(CssClasses('toolbar-group', className))}">${items.filter(Boolean).join('')}</div>`;
+                }
+
+                function ToolbarButton(label, iconHtml, className = '', extraAttributes = '', disabled = false) {
+                    const attrs = `${extraAttributes ? ` ${extraAttributes.trim()}` : ''}${BoolAttr('disabled', disabled)}`;
+                    return `<button type="button" class="${escapeHtml(CssClasses('toolbar-button', className))}"${attrs}>${iconHtml || ''}<span>${escapeHtml(label || '')}</span></button>`;
+                }
+
+                function ToolbarIconButton(label, iconHtml, className = '', extraAttributes = '', disabled = false) {
+                    const attrs = `${Attr('aria-label', label)}${extraAttributes ? ` ${extraAttributes.trim()}` : ''}${BoolAttr('disabled', disabled)}`;
+                    return `<button type="button" class="${escapeHtml(CssClasses('toolbar-button toolbar-icon-button', className))}"${attrs}>${iconHtml || ''}</button>`;
+                }
+
+                function ToolbarInput(className, value, ariaLabel, readOnly = false, extraAttributes = '') {
+                    const attrs = `${Attr('aria-label', ariaLabel)}${Attr('value', value)}${BoolAttr('readonly', readOnly)}${extraAttributes ? ` ${extraAttributes.trim()}` : ''}`;
+                    return `<input type="text" class="${escapeHtml(CssClasses('toolbar-input', className))}"${attrs}>`;
+                }
+
+                function ToolbarMenu(className, summaryClassName, summaryLabel, summaryIconHtml, summaryAttributes = '', ...items) {
+                    const attrs = summaryAttributes ? ` ${summaryAttributes.trim()}` : '';
+                    const chevron = fileIcon('chevronDown');
+                    return `
+                        <details class="${escapeHtml(CssClasses('toolbar-menu', className))}">
+                            <summary class="${escapeHtml(CssClasses('toolbar-button toolbar-menu-trigger', summaryClassName))}"${attrs}>${summaryIconHtml || ''}<span>${escapeHtml(summaryLabel || '')}</span><span class="menu-caret">${chevron}</span></summary>
+                            <div class="toolbar-menu-panel file-menu-panel">${items.filter(Boolean).join('')}</div>
+                        </details>`;
+                }
+
+                function ToolbarMenuItem(label, iconHtml, className = '', extraAttributes = '', disabled = false) {
+                    return ToolbarButton(label, iconHtml, CssClasses('toolbar-menu-item', className), extraAttributes, disabled);
+                }
+
+                function ToolbarUploadButton(label, iconHtml, className = '', inputClassName = '', inputAttributes = '') {
+                    const attrs = inputAttributes ? ` multiple ${inputAttributes.trim()}` : ' multiple';
+                    return `
+                        <label class="${escapeHtml(CssClasses('toolbar-button toolbar-button--primary toolbar-upload-button', className))}" title="${escapeHtml(label || '')}">
+                            ${iconHtml || ''}<span>${escapeHtml(label || '')}</span>
+                            <input type="file" class="${escapeHtml(CssClasses('toolbar-upload-input file-upload-input', inputClassName))}"${attrs}>
+                        </label>`;
                 }
 
                 function saveWorkspaceTabs() {
@@ -2222,6 +2986,7 @@ public sealed class HtmlViews
                         const display = client.getDisplay();
                         tab.displayRoot.appendChild(display.getElement());
                         display.onresize = () => fitDisplay(tab);
+                        updateTabActions();
 
                         tunnel.onstatechange = state => {
                             tab.tunnelState = tunnelStateName(state);
@@ -2309,6 +3074,7 @@ public sealed class HtmlViews
                             GUAC_DPI: size.dpi.toString()
                         });
 
+                        setStatus(tab, ui('connecting'));
                         client.connect(parameters.toString());
                         tab.watchdog = window.setInterval(() => {
                             if (!tabs.has(tab.id) || tab.terminal) {
@@ -2341,52 +3107,35 @@ public sealed class HtmlViews
                     const manager = document.createElement('div');
                     manager.className = 'file-manager';
                     manager.innerHTML = `
-                        <div class="file-toolbar">
-                            <div class="file-toolbar-group file-toolbar-main">
-                                <button type="button" class="file-tool-button" data-file-action="refresh" title="${escapeHtml(ui('refresh'))}">
-                                    ${fileIcon('refresh')}<span>${escapeHtml(ui('refresh'))}</span>
-                                </button>
-                                <input class="file-path-input" aria-label="${escapeHtml(ui('path'))}" value="/">
-                                <details class="file-menu file-create-menu">
-                                    <summary class="file-tool-button file-menu-trigger" title="${escapeHtml(ui('create'))}">
-                                        ${fileIcon('plus')}<span>${escapeHtml(ui('create'))}</span><span class="menu-caret">${fileIcon('chevronDown')}</span>
-                                    </summary>
-                                    <div class="file-menu-panel">
-                                        <button type="button" class="file-action-button file-menu-item" data-file-action="create-directory" title="${escapeHtml(ui('directory'))}">
-                                            ${fileIcon('mkdir')}<span>${escapeHtml(ui('directory'))}</span>
-                                        </button>
-                                        <button type="button" class="file-action-button file-menu-item" data-file-action="create-file" title="${escapeHtml(ui('file'))}">
-                                            ${fileIcon('file')}<span>${escapeHtml(ui('file'))}</span>
-                                        </button>
-                                    </div>
-                                </details>
-                                <details class="file-menu file-actions-menu">
-                                    <summary class="file-tool-button file-menu-trigger" title="${escapeHtml(ui('actions'))}">
-                                        ${fileIcon('menu')}<span>${escapeHtml(ui('actions'))}</span><span class="menu-caret">${fileIcon('chevronDown')}</span>
-                                    </summary>
-                                    <div class="file-menu-panel">
-                                        <button type="button" class="file-action-button file-menu-item" data-file-action="move" disabled title="${escapeHtml(ui('move'))}">
-                                            ${fileIcon('move')}<span>${escapeHtml(ui('move'))}</span>
-                                        </button>
-                                        <button type="button" class="file-action-button file-menu-item" data-file-action="copy" disabled title="${escapeHtml(ui('copy'))}">
-                                            ${fileIcon('copy')}<span>${escapeHtml(ui('copy'))}</span>
-                                        </button>
-                                        <button type="button" class="file-action-button file-menu-item" data-file-action="zip" disabled title="${escapeHtml(ui('downloadZip'))}">
-                                            ${fileIcon('archive')}<span>${escapeHtml(ui('downloadZip'))}</span>
-                                        </button>
-                                        <button type="button" class="file-action-button danger file-menu-item" data-file-action="delete-selected" disabled title="${escapeHtml(ui('deleteSelected'))}">
-                                            ${fileIcon('delete')}<span>${escapeHtml(ui('delete'))}</span>
-                                        </button>
-                                    </div>
-                                </details>
-                            </div>
-                            <div class="file-toolbar-group file-toolbar-transfer">
-                                <label class="file-upload-button" title="${escapeHtml(ui('upload'))}">
-                                    ${fileIcon('upload')}<span>${escapeHtml(ui('upload'))}</span>
-                                    <input type="file" class="file-upload-input" multiple>
-                                </label>
-                            </div>
-                        </div>
+                        ${Toolbar('file-toolbar',
+                            ToolbarGroup('file-toolbar-main toolbar-group--grow',
+                                ToolbarIconButton(ui('refresh'), fileIcon('refresh'), 'file-tool-button', Attr('data-file-action', 'refresh') + Attr('title', ui('refresh'))),
+                                ToolbarInput('file-path-input', '/', ui('path')),
+                                ToolbarMenu(
+                                    'file-menu file-create-menu',
+                                    'file-tool-button file-menu-trigger',
+                                    ui('create'),
+                                    fileIcon('plus'),
+                                    Attr('title', ui('create')),
+                                    ToolbarMenuItem(ui('directory'), fileIcon('mkdir'), 'file-action-button file-menu-item', Attr('data-file-action', 'create-directory') + Attr('title', ui('directory'))),
+                                    ToolbarMenuItem(ui('file'), fileIcon('file'), 'file-action-button file-menu-item', Attr('data-file-action', 'create-file') + Attr('title', ui('file')))
+                                ),
+                                ToolbarMenu(
+                                    'file-menu file-actions-menu',
+                                    'file-tool-button file-menu-trigger',
+                                    ui('actions'),
+                                    fileIcon('menu'),
+                                    Attr('title', ui('actions')),
+                                    ToolbarMenuItem(ui('move'), fileIcon('move'), 'file-action-button file-menu-item', Attr('data-file-action', 'move') + Attr('title', ui('move')), true),
+                                    ToolbarMenuItem(ui('copy'), fileIcon('copy'), 'file-action-button file-menu-item', Attr('data-file-action', 'copy') + Attr('title', ui('copy')), true),
+                                    ToolbarMenuItem(ui('downloadZip'), fileIcon('archive'), 'file-action-button file-menu-item', Attr('data-file-action', 'zip') + Attr('title', ui('downloadZip')), true),
+                                    ToolbarMenuItem(ui('delete'), fileIcon('delete'), 'file-action-button danger file-menu-item', Attr('data-file-action', 'delete-selected') + Attr('title', ui('deleteSelected')), true)
+                                )
+                            ),
+                            ToolbarGroup('file-toolbar-transfer toolbar-group--end',
+                                ToolbarUploadButton(ui('upload'), fileIcon('upload'), 'file-upload-button')
+                            )
+                        )}
                         <div class="file-message hidden"></div>
                         <div class="file-table-wrap">
                             <table class="file-table">
@@ -2557,7 +3306,7 @@ public sealed class HtmlViews
                         const message = error instanceof Error ? error.message : ui('fileAccessFailed');
                         tab.lastError = message;
                         setStatus(tab, uiText.error || 'Error');
-                        setFileMessage(tab, message);
+                        setFileMessage(tab, message, 'error');
                         if (!tab.fileUi.tbody.children.length) {
                             setOverlay(tab, ui('fileAccessFailed'), message, true);
                         }
@@ -2920,7 +3669,7 @@ public sealed class HtmlViews
                         const message = error instanceof Error ? error.message : ui('actionFailed');
                         tab.lastError = message;
                         setStatus(tab, uiText.error || 'Error');
-                        setFileMessage(tab, message);
+                        setFileMessage(tab, message, 'error');
                         return false;
                     }
                 }
@@ -2942,13 +3691,14 @@ public sealed class HtmlViews
                     throw new Error(message);
                 }
 
-                function setFileMessage(tab, message) {
+                function setFileMessage(tab, message, kind = '') {
                     if (!tab.fileUi) {
                         return;
                     }
 
                     tab.fileUi.message.textContent = message;
                     tab.fileUi.message.classList.toggle('hidden', !message);
+                    tab.fileUi.message.classList.toggle('error', Boolean(message) && kind === 'error');
                     updateStatusBar();
                 }
 
@@ -2992,6 +3742,7 @@ public sealed class HtmlViews
                     window.clearInterval(tab.watchdog);
                     setStatus(tab, ui('disconnected'));
                     setOverlay(tab, headline, text, true);
+                    updateTabActions();
                 }
 
                 function promptForRequiredArguments(tab, names) {
@@ -3127,46 +3878,6 @@ public sealed class HtmlViews
                     return div.innerHTML;
                 }
 
-                if (disconnectActiveButton) {
-                    disconnectActiveButton.addEventListener('click', () => {
-                        if (activeTabId) {
-                            closeTab(activeTabId);
-                        }
-                    });
-                }
-
-                if (clipboardSendButton) {
-                    clipboardSendButton.addEventListener('click', async () => {
-                        const activeTab = tabs.get(activeTabId);
-                        if (!activeTab) {
-                            return;
-                        }
-
-                        try {
-                            const text = await readBrowserClipboard();
-                            if (!sendClipboardText(activeTab, text)) {
-                                openClipboardDialog(activeTab.remoteClipboard || '');
-                            }
-                        }
-                        catch {
-                            openClipboardDialog(activeTab.remoteClipboard || '');
-                        }
-                    });
-                }
-
-                if (fullscreenButton) {
-                    fullscreenButton.addEventListener('click', () => {
-                        const activeTab = tabs.get(activeTabId);
-                        const target = activeTab ? activeTab.panel : deck;
-                        if (!document.fullscreenElement) {
-                            target.requestFullscreen().then(scheduleResize).catch(() => {});
-                        }
-                        else {
-                            document.exitFullscreen().then(scheduleResize).catch(() => {});
-                        }
-                    });
-                }
-
                 credentialDialog.addEventListener('submit', event => {
                     event.preventDefault();
                     if (!credentialTab || !credentialTab.client) {
@@ -3234,6 +3945,9 @@ public sealed class HtmlViews
                 else {
                     activateNewConnectionTab();
                 }
+
+                restoreTabOrder();
+                saveTabOrder();
 
                 if (initialOpenServerId) {
                     history.replaceState({ view: 'home' }, '', '/');
@@ -3565,15 +4279,18 @@ public sealed class HtmlViews
         var canManageAdminArea = user is not null && (user.IsAdmin || user.CanManageServers);
         var serversActive = requestPath.StartsWith("/admin/servers", StringComparison.OrdinalIgnoreCase);
         var usersActive = requestPath.StartsWith("/admin/users", StringComparison.OrdinalIgnoreCase);
+        var toolsActive = requestPath.StartsWith("/tools", StringComparison.OrdinalIgnoreCase);
         var accountActive = requestPath.StartsWith("/account", StringComparison.OrdinalIgnoreCase);
         var serversClass = serversActive ? " active" : "";
         var usersClass = usersActive ? " active" : "";
+        var toolsClass = toolsActive ? " active" : "";
         var accountClass = accountActive ? " active" : "";
         var shellTabs = user is null ? "" : $$"""
             <nav class="shell-tabs" aria-label="Primary">
                 {{(canManageAdminArea ? $"""<a class="shell-tab{serversClass}" href="/admin/servers" data-shell-open-tab="1" data-shell-title="{A(T(context, "Servers"))}">{Icon("server")}<span>{T(context, "Servers")}</span></a>""" : "")}}
                 {{(user!.IsAdmin ? $"""<a class="shell-tab{usersClass}" href="/admin/users" data-shell-open-tab="1" data-shell-title="{A(T(context, "Users"))}">{Icon("users")}<span>{T(context, "Users")}</span></a>""" : "")}}
-                <a class="shell-tab{accountClass}" href="/account" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Account"))}}">{{Icon("user")}}<span class="account-name">{{E(displayName)}}</span></a>
+                <a class="shell-tab{{toolsClass}}" href="/tools" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Tools"))}}">{{Icon("wrench")}}<span>{{T(context, "Tools")}}</span></a>
+                <a class="shell-tab{{accountClass}}" href="/account" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Account"))}}">{{Icon("user")}}<span class="account-name">{{E(displayName)}}</span></a>
             </nav>
             """;
         var shellActions = user is null ? "" : $$"""
@@ -3605,12 +4322,17 @@ public sealed class HtmlViews
                         --surface: #ffffff;
                         --surface-2: #eef2ef;
                         --surface-3: #dfe7e3;
+                        --hover-bg: #f5f8f6;
+                        --hover-strong-bg: #eef4f1;
+                        --active-bg: #eef7f1;
                         --text: #1f2725;
                         --muted: #67706c;
                         --line: #dce2de;
                         --accent: #176b5b;
                         --accent-2: #2b5876;
                         --danger: #a63a3a;
+                        --primary-hover: #145d4f;
+                        --danger-hover: #923232;
                         --shadow: 0 10px 24px rgb(31 39 37 / 8%);
                         --shadow-strong: 0 12px 28px rgb(31 39 37 / 14%);
                     }
@@ -3621,12 +4343,17 @@ public sealed class HtmlViews
                         --surface: #171d1a;
                         --surface-2: #1d2421;
                         --surface-3: #232c28;
+                        --hover-bg: #202823;
+                        --hover-strong-bg: #26312c;
+                        --active-bg: #1f352f;
                         --text: #edf2ef;
                         --muted: #a0aca6;
                         --line: #2f3d37;
                         --accent: #5bc2a8;
                         --accent-2: #8cb8e0;
                         --danger: #d46f6f;
+                        --primary-hover: #4aa78f;
+                        --danger-hover: #bd5f5f;
                         --shadow: 0 10px 24px rgb(0 0 0 / 32%);
                         --shadow-strong: 0 12px 28px rgb(0 0 0 / 42%);
                     }
@@ -3639,12 +4366,17 @@ public sealed class HtmlViews
                             --surface: #171d1a;
                             --surface-2: #1d2421;
                             --surface-3: #232c28;
+                            --hover-bg: #202823;
+                            --hover-strong-bg: #26312c;
+                            --active-bg: #1f352f;
                             --text: #edf2ef;
                             --muted: #a0aca6;
                             --line: #2f3d37;
                             --accent: #5bc2a8;
                             --accent-2: #8cb8e0;
                             --danger: #d46f6f;
+                            --primary-hover: #4aa78f;
+                            --danger-hover: #bd5f5f;
                             --shadow: 0 10px 24px rgb(0 0 0 / 32%);
                             --shadow-strong: 0 12px 28px rgb(0 0 0 / 42%);
                         }
@@ -3766,21 +4498,41 @@ public sealed class HtmlViews
                     .shell-tab {
                         align-items: center;
                         background: transparent;
-                        border: 1px solid transparent;
+                        border: 0;
                         border-radius: 0;
-                        color: var(--text);
+                        color: var(--muted);
                         cursor: pointer;
                         display: inline-flex;
                         gap: 7px;
                         min-height: 28px;
-                        padding: 4px 8px;
+                        padding: 4px 7px;
                         text-decoration: none;
                         white-space: nowrap;
                     }
+                    .shell-tabs .shell-tab,
+                    .shell-tabs .shell-tab:link,
+                    .shell-tabs .shell-tab:visited,
+                    .shell-tabs .shell-tab:hover,
+                    .shell-tabs .shell-tab:focus,
+                    .shell-tabs .shell-tab:focus-visible,
+                    .shell-tabs .shell-tab.active,
+                    .shell-tabs .shell-tab.active:hover,
+                    .shell-tabs .shell-tab.active:focus,
+                    .shell-tabs .shell-tab.active:focus-visible {
+                        text-decoration: none !important;
+                        text-decoration-line: none !important;
+                    }
                     .shell-tab.active {
-                        background: var(--surface-2);
-                        border-color: var(--accent);
-                        box-shadow: inset 0 -2px 0 var(--accent);
+                        background: transparent;
+                        color: var(--muted);
+                        font-weight: inherit;
+                        box-shadow: none;
+                    }
+                    .shell-tabs .shell-tab.active,
+                    .shell-tabs .shell-tab.active:hover,
+                    .shell-tabs .shell-tab.active:focus,
+                    .shell-tabs .shell-tab.active:focus-visible {
+                        color: var(--muted);
                     }
                     .shell-tab-main {
                         background: transparent;
@@ -3792,10 +4544,12 @@ public sealed class HtmlViews
                         min-height: 40px;
                         min-width: 140px;
                         padding: 4px 9px;
+                        text-align: left;
                         width: 100%;
                     }
                     .shell-tab-title {
                         max-width: none;
+                        justify-content: flex-start;
                         width: 100%;
                     }
                     .shell-tab-description {
@@ -3819,7 +4573,7 @@ public sealed class HtmlViews
                     .shell-action {
                         align-items: center;
                         background: transparent;
-                        border: 1px solid transparent;
+                        border: 0;
                         border-radius: 0;
                         color: var(--muted);
                         cursor: pointer;
@@ -3834,10 +4588,10 @@ public sealed class HtmlViews
                     .shell-tab:focus-visible,
                     .shell-action:hover,
                     .shell-action:focus-visible {
-                        background: var(--surface-2);
-                        border-color: var(--line);
+                        background: transparent;
+                        color: var(--accent);
                     }
-                    nav a, .button, button {
+                    .button, button {
                         border: 1px solid var(--line);
                         border-radius: var(--radius);
                         background: var(--surface);
@@ -3871,6 +4625,14 @@ public sealed class HtmlViews
                         min-width: 0;
                         width: 100%;
                     }
+                    .menu-panel a:hover,
+                    .menu-panel a:focus-visible,
+                    .menu-panel button:hover,
+                    .menu-panel button:focus-visible {
+                        background: var(--hover-bg);
+                        border-color: var(--surface-3);
+                        color: var(--text);
+                    }
                     .account-trigger {
                         max-width: 260px;
                     }
@@ -3883,6 +4645,18 @@ public sealed class HtmlViews
                     button:disabled { cursor: not-allowed; opacity: .55; }
                     .primary { background: var(--accent); border-color: var(--accent); color: #ffffff; }
                     .danger { background: var(--danger); border-color: var(--danger); color: #ffffff; }
+                    .primary:hover,
+                    .primary:focus-visible {
+                        background: var(--primary-hover);
+                        border-color: var(--primary-hover);
+                        color: #ffffff;
+                    }
+                    .danger:hover,
+                    .danger:focus-visible {
+                        background: var(--danger-hover);
+                        border-color: var(--danger-hover);
+                        color: #ffffff;
+                    }
                     main { width: min(1180px, calc(100% - 24px)); margin: 22px auto 44px; }
                     main.shell-main {
                         display: flex;
@@ -3918,8 +4692,23 @@ public sealed class HtmlViews
                     .stack { display: grid; gap: 14px; }
                     .form-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); align-items: end; }
                     label { display: grid; gap: 6px; font-weight: 600; }
-                    .check { align-items: center; display: flex; gap: 8px; min-height: 34px; }
-                    input, select, textarea {
+                    .check {
+                        align-items: center;
+                        display: flex;
+                        gap: 8px;
+                        min-height: 30px;
+                        padding-top: 1px;
+                    }
+                    .check input[type="checkbox"],
+                    .check input[type="radio"] {
+                        flex: 0 0 auto;
+                        height: 16px;
+                        margin: 0;
+                        width: 16px;
+                    }
+                    input:not([type="checkbox"]):not([type="radio"]),
+                    select,
+                    textarea {
                         border: 1px solid var(--line);
                         border-radius: var(--radius);
                         font: inherit;
@@ -3927,8 +4716,130 @@ public sealed class HtmlViews
                         padding: 7px 9px;
                         width: 100%;
                     }
+                    input[type="checkbox"],
+                    input[type="radio"] {
+                        accent-color: var(--accent);
+                        border: 0;
+                        box-shadow: none;
+                        min-height: 0;
+                        padding: 0;
+                        width: auto;
+                    }
                     textarea { min-height: 76px; resize: vertical; }
                     .actions { align-items: end; display: flex; gap: 10px; }
+                    .tool-panel {
+                        display: grid;
+                        gap: 16px;
+                    }
+                    .tool-form {
+                        display: grid;
+                        gap: 16px;
+                    }
+                    .tool-select-row {
+                        align-items: end;
+                        display: flex;
+                        flex-wrap: wrap;
+                        gap: 12px;
+                        justify-content: space-between;
+                    }
+                    .tool-select-label {
+                        display: grid;
+                        gap: 6px;
+                        flex: 1 1 320px;
+                        min-width: min(100%, 320px);
+                    }
+                    .tool-select-label select {
+                        width: 100%;
+                    }
+                    .tool-summary {
+                        align-items: center;
+                        background: var(--surface-2);
+                        border: 1px solid var(--line);
+                        border-radius: var(--radius);
+                        display: flex;
+                        gap: 12px;
+                        padding: 12px;
+                    }
+                    .tool-summary-icon-stack {
+                        align-items: center;
+                        background: var(--surface);
+                        border: 1px solid var(--line);
+                        border-radius: var(--radius);
+                        color: var(--accent);
+                        display: inline-flex;
+                        flex: 0 0 auto;
+                        height: 44px;
+                        justify-content: center;
+                        width: 44px;
+                    }
+                    .tool-summary-icon {
+                        align-items: center;
+                        display: inline-flex;
+                        justify-content: center;
+                    }
+                    .tool-summary-icon[hidden] {
+                        display: none;
+                    }
+                    .tool-summary-icon .icon {
+                        height: 20px;
+                        width: 20px;
+                    }
+                    .tool-summary-copy {
+                        min-width: 0;
+                    }
+                    .tool-summary-copy .eyebrow {
+                        margin-bottom: 4px;
+                    }
+                    .tool-summary-copy h2 {
+                        margin: 0;
+                    }
+                    .tool-summary-copy p {
+                        margin: 4px 0 0;
+                    }
+                    .tool-fields {
+                        display: grid;
+                        gap: 14px;
+                    }
+                    .tool-field-group {
+                        display: grid;
+                        gap: 14px;
+                    }
+                    .tool-field-group[hidden] {
+                        display: none;
+                    }
+                    .tool-form-grid {
+                        align-items: start;
+                    }
+                    .tool-actions {
+                        justify-content: flex-end;
+                    }
+                    .tool-actions button {
+                        min-width: 132px;
+                    }
+                    .tool-output {
+                        background: var(--surface-2);
+                        border: 1px solid var(--line);
+                        border-radius: var(--radius);
+                        font-family: Consolas, ui-monospace, monospace;
+                        font-size: 12px;
+                        line-height: 1.45;
+                        margin: 0;
+                        min-height: 220px;
+                        overflow: auto;
+                        padding: 12px;
+                        white-space: pre-wrap;
+                    }
+                    @media (max-width: 720px) {
+                        .tool-select-row {
+                            align-items: stretch;
+                        }
+                        .tool-actions {
+                            justify-content: stretch;
+                        }
+                        .tool-actions button {
+                            width: 100%;
+                        }
+                    }
                     .server-form-footer {
                         align-items: center;
                         display: flex;
@@ -4053,7 +4964,7 @@ public sealed class HtmlViews
                         background: transparent;
                         display: flex;
                         flex: 0 1 auto;
-                        gap: 1px;
+                        gap: 0;
                         min-height: 40px;
                         min-width: 0;
                         overflow-x: auto;
@@ -4070,13 +4981,26 @@ public sealed class HtmlViews
                         padding: 3px clamp(8px, 2vw, 12px);
                     }
                     #connection-tab-actions {
-                        flex: 0 0 clamp(180px, 18vw, 240px);
-                        min-width: clamp(180px, 18vw, 240px);
+                        flex: 0 0 auto;
+                        min-width: 0;
                     }
                     .tab-actions button {
+                        align-items: center;
+                        display: inline-flex;
+                        gap: 6px;
                         min-height: 28px;
                         padding: 4px 9px;
                         white-space: nowrap;
+                    }
+                    .tab-action-button .icon {
+                        height: 15px;
+                        width: 15px;
+                    }
+                    .tab-action-button.icon-only {
+                        justify-content: center;
+                        min-width: 28px;
+                        padding: 0;
+                        width: 28px;
                     }
                     .session-tab {
                         align-items: stretch;
@@ -4089,37 +5013,59 @@ public sealed class HtmlViews
                     }
                     .session-tab.active { background: var(--surface); }
                     .session-tab.dragging { opacity: .65; }
-                    .session-new-tab {
-                        align-items: center;
-                        border: 0;
-                        border-radius: 0;
-                        border-right: 1px solid var(--line);
-                        color: var(--accent);
-                        font-size: 24px;
-                        font-weight: 800;
-                        justify-content: center;
-                        max-width: none;
-                        min-height: 40px;
-                        min-width: 44px;
-                        padding: 0 10px;
+                    .session-tab--page,
+                    .session-tab--connection {
+                        align-items: stretch;
                     }
-                    .session-tab-main {
+                    .session-tab--add {
+                        align-items: stretch;
+                        border-right: 0;
+                        color: var(--accent);
+                        flex: 0 0 auto;
+                        margin-left: auto;
+                        max-width: none;
+                        min-width: 0;
+                        padding: 0;
+                        width: auto;
+                    }
+                    .session-tab-main,
+                    .shell-tab-main {
                         background: transparent;
                         border: 0;
                         border-radius: 0;
                         display: grid;
                         gap: 0;
+                        align-content: center;
                         justify-items: start;
                         min-height: 40px;
-                        min-width: 150px;
                         padding: 4px 9px;
+                        text-align: left;
                         width: 100%;
+                    }
+                    .session-tab-main { min-width: 150px; }
+                    .shell-tab-main { min-width: 140px; }
+                    .session-tab--page .session-tab-main,
+                    .session-tab--connection .session-tab-main {
+                        min-width: 150px;
+                    }
+                    .session-tab--add .session-tab-main {
+                        align-items: center;
+                        display: flex;
+                        justify-content: center;
+                        min-width: 0;
+                        padding: 0 9px;
+                        width: 34px;
+                    }
+                    .session-tab--add .session-tab-title {
+                        justify-content: center;
+                        width: auto;
                     }
                     .session-tab-title {
                         align-items: center;
                         display: flex;
                         gap: 7px;
                         max-width: none;
+                        justify-content: flex-start;
                         min-width: 0;
                         width: 100%;
                     }
@@ -4128,9 +5074,18 @@ public sealed class HtmlViews
                         width: 15px;
                     }
                     .session-tab-title span {
-                        max-width: none;
+                        display: block;
+                        flex: 1 1 auto;
                         min-width: 0;
-                        width: 100%;
+                        max-width: none;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        white-space: nowrap;
+                    }
+                    .shell-tab-title span {
+                        display: block;
+                        flex: 1 1 auto;
+                        min-width: 0;
                         overflow: hidden;
                         text-overflow: ellipsis;
                         white-space: nowrap;
@@ -4146,10 +5101,21 @@ public sealed class HtmlViews
                         white-space: nowrap;
                         width: 100%;
                     }
+                    .session-tab--add .session-tab-description {
+                        color: transparent;
+                        display: none;
+                        min-width: 0;
+                        overflow: hidden;
+                        padding: 0;
+                        width: 0;
+                    }
                     .session-tab-close {
                         background: transparent;
                         border: 0;
                         border-radius: 0;
+                        align-items: center;
+                        display: flex;
+                        justify-content: center;
                         min-height: 40px;
                         padding: 0 8px;
                     }
@@ -4204,8 +5170,8 @@ public sealed class HtmlViews
                         width: 24px;
                     }
                     .status-info-button:hover {
-                        background: #eef4f1;
-                        border-color: #cfd8d3;
+                        background: var(--hover-strong-bg);
+                        border-color: var(--surface-3);
                         color: var(--accent);
                     }
                     .status-primary span, .status-metrics span {
@@ -4253,6 +5219,26 @@ public sealed class HtmlViews
                         gap: 12px;
                         grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
                     }
+                    .connection-choice-section {
+                        display: grid;
+                        gap: 10px;
+                    }
+                    .connection-choice-section + .connection-choice-section {
+                        margin-top: 18px;
+                    }
+                    .connection-choice-section-head {
+                        align-items: center;
+                    }
+                    .connection-choice-section-head h2 {
+                        align-items: center;
+                        display: flex;
+                        gap: 8px;
+                        margin: 6px 0 0;
+                    }
+                    .connection-choice-section-head h2 .icon {
+                        height: 16px;
+                        width: 16px;
+                    }
                     .connection-choice {
                         align-items: stretch;
                         background: var(--surface);
@@ -4266,15 +5252,66 @@ public sealed class HtmlViews
                     .connection-choice h2 {
                         margin: 8px 0 8px;
                     }
+                    .connection-choice-copy {
+                        display: grid;
+                        gap: 6px;
+                        min-width: 0;
+                    }
+                    .connection-choice-copy h2 {
+                        margin: 0;
+                    }
                     .connection-choice .target {
                         margin: 0;
                     }
                     .connection-choice .muted {
                         margin: 8px 0 0;
                     }
-                    .connection-choice button {
+                    .connection-choice-actions {
+                        align-items: flex-end;
+                        display: flex;
+                        flex-wrap: wrap;
+                        gap: 8px;
+                        justify-content: flex-end;
+                    }
+                    .connection-choice-actions button,
+                    .connection-choice-actions a {
                         align-self: end;
                         justify-content: center;
+                    }
+                    .favorite-toggle-form {
+                        display: inline-flex;
+                        margin: 0;
+                    }
+                    .favorite-toggle {
+                        align-items: center;
+                        display: inline-flex;
+                        justify-content: center;
+                        height: 32px;
+                        min-height: 32px;
+                        min-width: 32px;
+                        padding: 0;
+                        width: 32px;
+                    }
+                    .favorite-toggle.active {
+                        background: var(--surface-2);
+                        border-color: var(--accent);
+                        color: var(--accent);
+                    }
+                    .favorite-toggle .icon {
+                        height: 15px;
+                        width: 15px;
+                    }
+                    .server-folder-badge {
+                        align-items: center;
+                        display: inline-flex;
+                        gap: 6px;
+                    }
+                    .server-folder-badge .icon {
+                        height: 13px;
+                        width: 13px;
+                    }
+                    .table-actions {
+                        text-align: right;
                     }
                     .guac-stage {
                         background: #111614;
@@ -4304,6 +5341,145 @@ public sealed class HtmlViews
                         flex-direction: column;
                         height: 100%;
                         min-height: 0;
+                        width: 100%;
+                    }
+                    .toolbar,
+                    .website-toolbar,
+                    .file-toolbar {
+                        align-items: center;
+                        display: flex;
+                        flex-wrap: wrap;
+                        gap: 6px;
+                    }
+                    .toolbar-group,
+                    .website-toolbar-group,
+                    .file-toolbar-group {
+                        align-items: center;
+                        display: flex;
+                        flex-wrap: wrap;
+                        gap: 6px;
+                        min-width: 0;
+                    }
+                    .toolbar-group--grow,
+                    .website-toolbar-address,
+                    .file-toolbar-main {
+                        flex: 1 1 560px;
+                    }
+                    .toolbar-group--end,
+                    .file-toolbar-transfer {
+                        margin-left: auto;
+                        justify-content: flex-end;
+                    }
+                    .toolbar-button,
+                    .toolbar-menu-trigger,
+                    .toolbar-upload-button,
+                    .website-tool-button,
+                    .file-tool-button,
+                    .file-menu > summary,
+                    .file-upload-button {
+                        align-items: center;
+                        background: var(--surface);
+                        border: 1px solid var(--line);
+                        border-radius: var(--radius);
+                        color: var(--text);
+                        cursor: pointer;
+                        display: inline-flex;
+                        font: inherit;
+                        gap: 7px;
+                        justify-content: center;
+                        min-height: 32px;
+                        padding: 4px 8px;
+                        text-decoration: none;
+                    }
+                    .toolbar-button:hover,
+                    .toolbar-button:focus-visible,
+                    .toolbar-menu-trigger:hover,
+                    .toolbar-menu-trigger:focus-visible,
+                    .toolbar-upload-button:hover,
+                    .toolbar-upload-button:focus-visible,
+                    .website-tool-button:hover,
+                    .website-tool-button:focus-visible,
+                    .file-tool-button:hover,
+                    .file-tool-button:focus-visible,
+                    .file-menu[open] > summary,
+                    .file-menu > summary:hover,
+                    .file-menu > summary:focus-visible {
+                        background: var(--hover-bg);
+                        border-color: var(--surface-3);
+                        color: var(--text);
+                    }
+                    .toolbar-button .icon,
+                    .toolbar-menu-trigger .icon,
+                    .toolbar-upload-button .icon,
+                    .website-tool-button .icon,
+                    .file-tool-button .icon,
+                    .file-upload-button .icon {
+                        height: 15px;
+                        width: 15px;
+                    }
+                    .toolbar-icon-button {
+                        flex: 0 0 auto;
+                        min-width: 32px;
+                        padding: 0;
+                        width: 32px;
+                    }
+                    .toolbar-button--primary,
+                    .file-upload-button {
+                        background: var(--accent);
+                        border-color: var(--accent);
+                        color: #ffffff;
+                    }
+                    .toolbar-button--primary:hover,
+                    .toolbar-button--primary:focus-visible,
+                    .toolbar-upload-button:hover,
+                    .toolbar-upload-button:focus-visible,
+                    .file-upload-button:hover,
+                    .file-upload-button:focus-visible {
+                        background: var(--primary-hover);
+                        border-color: var(--primary-hover);
+                        color: #ffffff;
+                    }
+                    .toolbar-button--danger {
+                        background: var(--danger);
+                        border-color: var(--danger);
+                        color: #ffffff;
+                    }
+                    .toolbar-button--danger:hover,
+                    .toolbar-button--danger:focus-visible {
+                        background: var(--danger-hover);
+                        border-color: var(--danger-hover);
+                        color: #ffffff;
+                    }
+                    .toolbar-input,
+                    .website-address,
+                    .file-path-input {
+                        flex: 1 1 220px;
+                        font-family: Consolas, ui-monospace, monospace;
+                        min-height: 32px;
+                    }
+                    .toolbar-menu,
+                    .file-menu {
+                        position: relative;
+                    }
+                    .toolbar-menu-panel,
+                    .file-menu-panel {
+                        background: var(--surface);
+                        border: 1px solid var(--line);
+                        border-radius: var(--radius);
+                        box-shadow: var(--shadow-strong);
+                        display: grid;
+                        gap: 4px;
+                        min-width: 240px;
+                        padding: 6px;
+                        position: absolute;
+                        left: 0;
+                        top: calc(100% + 8px);
+                        z-index: 12;
+                    }
+                    .toolbar-menu-item,
+                    .file-menu-item {
+                        align-items: center;
+                        justify-content: flex-start;
                         width: 100%;
                     }
                     .website-toolbar {
@@ -4342,7 +5518,9 @@ public sealed class HtmlViews
                         padding: 4px 8px;
                     }
                     .website-tool-button:hover {
-                        background: #f5f8f6;
+                        background: var(--hover-bg);
+                        border-color: var(--surface-3);
+                        color: var(--text);
                     }
                     .website-frame {
                         border: 0;
@@ -4351,7 +5529,7 @@ public sealed class HtmlViews
                         width: 100%;
                     }
                     .file-display {
-                        background: var(--bg);
+                        background: var(--surface);
                         color: var(--text);
                         height: 100%;
                         overflow: hidden;
@@ -4360,24 +5538,27 @@ public sealed class HtmlViews
                     .file-manager {
                         display: flex;
                         flex-direction: column;
-                        gap: 8px;
+                        gap: 0;
                         height: 100%;
-                        padding: 8px;
+                        padding: 0;
                     }
                     .file-toolbar {
                         align-items: center;
+                        background: var(--surface);
+                        border-bottom: 1px solid var(--line);
                         display: flex;
                         flex-wrap: wrap;
-                        gap: 6px;
+                        gap: 8px;
+                        padding: 6px 8px;
                     }
                     .file-toolbar-group {
                         align-items: center;
                         display: flex;
                         flex-wrap: wrap;
-                        gap: 6px;
+                        gap: 8px;
                     }
                     .file-toolbar-main {
-                        flex: 1 1 560px;
+                        flex: 1 1 340px;
                     }
                     .file-toolbar-transfer {
                         margin-left: auto;
@@ -4428,7 +5609,9 @@ public sealed class HtmlViews
                     }
                     .file-menu[open] > summary,
                     .file-menu > summary:hover {
-                        background: #f5f8f6;
+                        background: var(--hover-bg);
+                        border-color: var(--surface-3);
+                        color: var(--text);
                     }
                     .file-menu-panel {
                         background: var(--surface);
@@ -4449,24 +5632,35 @@ public sealed class HtmlViews
                         justify-content: flex-start;
                         width: 100%;
                     }
+                    .toolbar-button.is-active,
                     .file-tool-button.is-active {
-                        background: #eef7f1;
+                        background: var(--active-bg);
                         border-color: var(--accent);
                         color: var(--accent-2);
                     }
                     .file-upload-input { display: none; }
                     .file-message {
-                        background: color-mix(in srgb, var(--accent) 12%, var(--surface));
-                        border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--line));
+                        align-items: center;
+                        background: var(--surface);
+                        border: 1px solid var(--line);
                         border-radius: var(--radius);
                         color: var(--text);
-                        padding: 8px 10px;
+                        display: flex;
+                        gap: 12px;
+                        margin: 8px 8px 0;
+                        min-height: 28px;
+                        padding: 3px 10px;
+                    }
+                    .file-message.error {
+                        border-color: color-mix(in srgb, var(--danger) 24%, var(--line));
+                        color: var(--danger);
                     }
                     .file-table-wrap {
                         background: var(--surface);
                         border: 1px solid var(--line);
                         border-radius: var(--radius);
                         flex: 1;
+                        margin: 8px;
                         min-height: 0;
                         overflow: auto;
                     }
@@ -4912,6 +6106,9 @@ public sealed class HtmlViews
                         .viewer-tab-row { align-items: stretch; flex-direction: column; }
                         .viewer-actions { flex-wrap: wrap; }
                         .viewer-actions > * { flex: 1; justify-content: center; }
+                        .tool-head { align-items: stretch; flex-direction: column; }
+                        .tool-actions { width: 100%; }
+                        .tool-actions > * { flex: 1; justify-content: center; }
                         .viewer-body { padding: 10px; }
                         .viewer-stage { min-height: 240px; }
                         .embedded-viewer { height: calc(100vh - 16px); width: calc(100vw - 16px); }
@@ -4929,7 +6126,7 @@ public sealed class HtmlViews
                 <script>
                     (() => {
                         const closeOpenMenus = (keepMenu) => {
-                            document.querySelectorAll('details.file-menu[open]').forEach((menu) => {
+                            document.querySelectorAll('details.toolbar-menu[open], details.file-menu[open]').forEach((menu) => {
                                 if (menu !== keepMenu) {
                                     menu.removeAttribute('open');
                                 }
@@ -4942,7 +6139,7 @@ public sealed class HtmlViews
                                 return;
                             }
 
-                            const keepMenu = target.closest('details.file-menu');
+                            const keepMenu = target.closest('details.toolbar-menu, details.file-menu');
                             closeOpenMenus(keepMenu);
                         });
 
@@ -4991,12 +6188,17 @@ public sealed class HtmlViews
     private static string ServerFields(HttpContext context, MatgateUser currentUser, ServerEndpoint? server = null)
     {
         var selectedRdp = Selected(server?.Protocol is null or ServerProtocol.Rdp or ServerProtocol.LegacyBrowser);
+        var selectedVnc = Selected(server?.Protocol == ServerProtocol.Vnc);
         var selectedSsh = Selected(server?.Protocol == ServerProtocol.Ssh);
         var selectedSftp = Selected(server?.Protocol == ServerProtocol.Sftp);
         var selectedFtp = Selected(server?.Protocol == ServerProtocol.Ftp);
         var selectedSmb = Selected(server?.Protocol == ServerProtocol.Smb);
         var selectedWebsite = Selected(server?.Protocol == ServerProtocol.Website);
         var iconKey = ServerEndpoint.NormalizeIconKey(server?.IconKey);
+        var folderName = Clean(server?.FolderName, "");
+        var folderIconKey = string.IsNullOrWhiteSpace(folderName)
+            ? ""
+            : ServerEndpoint.NormalizeIconKey(server?.FolderIconKey);
         var port = server?.Port.ToString() ?? "";
         var websiteUrl = string.IsNullOrWhiteSpace(server?.WebsiteUrl)
             ? (string.IsNullOrWhiteSpace(server?.Host) ? "" : server.Host)
@@ -5007,7 +6209,7 @@ public sealed class HtmlViews
         var terminalFontSize = ServerEndpoint.NormalizeTerminalFontSize(
             server?.TerminalFontSize ?? ServerEndpoint.DefaultTerminalFontSize);
         var passwordHelp = server is null ? "" : $"""<p class="muted">{T(context, "Leave password empty to keep it unchanged.")}</p>""";
-        var clearPassword = server is null ? "" : $"""<label class="check"><input type="checkbox" name="clearPassword"> {T(context, "Clear saved target password")}</label>""";
+        var clearPassword = server is null ? "" : $"""<label class="check" data-protocols="rdp,vnc,ssh,sftp,ftp,smb"><input type="checkbox" name="clearPassword"> {T(context, "Clear saved target password")}</label>""";
         var canManageGlobal = currentUser.IsAdmin || currentUser.CanManageServers;
         var canCreatePrivate = currentUser.IsAdmin || currentUser.CanCreateServers;
         var scopeValue = server?.OwnerUserId is not null ? "private" : "global";
@@ -5048,6 +6250,7 @@ public sealed class HtmlViews
                     <label>{{T(context, "Protocol")}}
                         <select name="protocol">
                             <option value="Rdp"{{selectedRdp}}>RDP</option>
+                            <option value="Vnc"{{selectedVnc}}>VNC</option>
                             <option value="Ssh"{{selectedSsh}}>SSH</option>
                             <option value="Sftp"{{selectedSftp}}>SFTP</option>
                             <option value="Ftp"{{selectedFtp}}>FTP</option>
@@ -5063,14 +6266,29 @@ public sealed class HtmlViews
                     </label>
                 </div>
             </section>
-            <section class="panel server-form-section" data-protocols="rdp,ssh,sftp,ftp,smb">
+            <section class="panel server-form-section">
+                <h2>{{T(context, "Folder")}}</h2>
+                <p class="muted">{{T(context, "Optional. Used for grouping in lists.")}}</p>
+                <div class="form-grid">
+                    <label>{{T(context, "Folder name")}}
+                        <input name="folderName" value="{{A(folderName)}}" placeholder="NAS, Work, Lab">
+                    </label>
+                    <label>{{T(context, "Folder icon")}}
+                        <select name="folderIconKey">
+                            <option value=""{{Selected(string.IsNullOrWhiteSpace(folderIconKey))}}>{{T(context, "Default folder icon")}}</option>
+                            {{ServerIconOptions(folderIconKey)}}
+                        </select>
+                    </label>
+                </div>
+            </section>
+            <section class="panel server-form-section" data-protocols="rdp,vnc,ssh,sftp,ftp,smb">
                 <h2>{{T(context, "Target")}}</h2>
                 <div class="form-grid">
                     <label>{{T(context, "Host or IP")}}
                         <input name="host" value="{{A(server?.Host)}}" placeholder="PC-Terminal / Host" required>
                     </label>
                     <label>Port
-                        <input name="port" type="number" min="1" max="65535" value="{{A(port)}}" placeholder="3389 / 22 / 21 / 445">
+                        <input name="port" type="number" min="1" max="65535" value="{{A(port)}}" placeholder="3389 / 5900 / 22 / 21 / 445">
                     </label>
                 </div>
             </section>
@@ -5083,13 +6301,13 @@ public sealed class HtmlViews
                     <label class="check"><input type="checkbox" name="ignoreCertificate"{{Checked(server?.IgnoreCertificate ?? true)}}> {{T(context, "Ignore certificate")}}</label>
                 </div>
             </section>
-            <section class="panel server-form-section" data-protocols="rdp,ssh,sftp,ftp,smb">
+            <section class="panel server-form-section" data-protocols="rdp,vnc,ssh,sftp,ftp,smb">
                 <h2>{{T(context, "Credentials")}}</h2>
                 <div class="form-grid">
-                    <label>{{T(context, "Target user")}}
+                    <label data-protocols="rdp,ssh,sftp,ftp,smb">{{T(context, "Target user")}}
                         <input name="targetUserName" value="{{A(server?.UserName)}}" autocomplete="off">
                     </label>
-                    <label>{{T(context, "Connection password")}}
+                    <label data-protocols="rdp,vnc,ssh,sftp,ftp,smb">{{T(context, "Connection password")}}
                         <input name="targetPassword" type="password" autocomplete="new-password">
                         {{passwordHelp}}
                     </label>
@@ -5209,7 +6427,7 @@ public sealed class HtmlViews
             labels.Add("""<span class="badge">CREATE</span>""");
         }
 
-        return labels.Count == 0 ? $"""<span class="muted">{T(context, "User")}</span>""" : string.Join(" ", labels);
+        return labels.Count == 0 ? $"""<span class="badge">{T(context, "User")}</span>""" : string.Join(" ", labels);
     }
 
     private static string ServerIcon(ServerEndpoint server, string size = "")
@@ -5272,6 +6490,7 @@ public sealed class HtmlViews
             var label = iconKey switch
             {
                 "rdp" => "RDP / Desktop",
+                "vnc" => "VNC / Desktop",
                 "ssh" => "SSH / Terminal",
                 "sftp" => "SFTP / Secure files",
                 "ftp" => "FTP / Transfer",
@@ -5388,10 +6607,12 @@ public sealed class HtmlViews
             "home" => """<path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/><path d="M9 21v-6h6v6"/>""",
             "workspace" => """<rect x="3" y="4" width="18" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 18v3"/><path d="m8 9 3 3-3 3"/><path d="M13 15h4"/>""",
             "server" => """<rect x="4" y="4" width="16" height="6" rx="2"/><rect x="4" y="14" width="16" height="6" rx="2"/><path d="M8 7h.01"/><path d="M8 17h.01"/>""",
+            "wrench" => """<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 0 0 5.4-5.4l-2 2-2.3-.6-.6-2.3z"/>""",
             "user" => """<circle cx="12" cy="8" r="4"/><path d="M4 21v-1a8 8 0 0 1 16 0v1"/>""",
             "chevron-down" => """<path d="m6 9 6 6 6-6"/>""",
             "info" => """<circle cx="12" cy="12" r="9"/><path d="M12 17v-6"/><path d="M12 8h.01"/>""",
             "rdp" => """<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/><path d="M8 8h3v3H8z"/><path d="M13 8h3v3h-3z"/><path d="M8 13h3v1H8z"/><path d="M13 13h3v1h-3z"/>""",
+            "vnc" => """<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>""",
             "ssh" => """<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3"/><path d="M12 15h5"/>""",
             "sftp" => """<path d="M3 8a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><rect x="9" y="12" width="6" height="5" rx="1"/><path d="M10.5 12v-1.5a1.5 1.5 0 0 1 3 0V12"/>""",
             "ftp" => """<path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/><path d="M7 9l5-5 5 5"/><path d="M12 4v12"/><path d="m8 13 4 4 4-4"/>""",
@@ -5401,6 +6622,7 @@ public sealed class HtmlViews
             "database" => """<ellipse cx="12" cy="5" rx="7" ry="3"/><path d="M5 5v14c0 1.7 3.1 3 7 3s7-1.3 7-3V5"/><path d="M5 12c0 1.7 3.1 3 7 3s7-1.3 7-3"/>""",
             "cloud" => """<path d="M17.5 19H8a5 5 0 1 1 1.5-9.8 6 6 0 0 1 11 3.8 3.5 3.5 0 0 1-3 6z"/>""",
             "shield" => """<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="m9 12 2 2 4-4"/>""",
+            "star" => """<path d="M12 3l2.9 5.9 6.5.9-4.7 4.6 1.1 6.5L12 17l-5.8 3.9 1.1-6.5-4.7-4.6 6.5-.9z"/>""",
             "users" => """<path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="9.5" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>""",
             "arrow-left" => """<path d="M11 19 4 12l7-7"/><path d="M20 12H5"/>""",
             "arrow-right" => """<path d="m13 5 7 7-7 7"/><path d="M4 12h15"/>""",
@@ -5464,6 +6686,85 @@ public sealed class HtmlViews
     private static string Checked(bool isChecked) => isChecked ? " checked" : "";
 
     private static string Selected(bool isSelected) => isSelected ? " selected" : "";
+
+    private static string CssClasses(string baseClass, string? className = null)
+    {
+        return string.IsNullOrWhiteSpace(className) ? baseClass : $"{baseClass} {className}";
+    }
+
+    private static string Attr(string name, string? value)
+    {
+        return string.IsNullOrWhiteSpace(value) ? "" : $" {name}=\"{A(value)}\"";
+    }
+
+    private static string BoolAttr(string name, bool value)
+    {
+        return value ? $" {name}" : "";
+    }
+
+    private static string Toolbar(string className, params string[] groups)
+    {
+        var content = string.Join("", groups.Where(group => !string.IsNullOrWhiteSpace(group)));
+        return $"""<div class="{A(CssClasses("toolbar", className))}">{content}</div>""";
+    }
+
+    private static string ToolbarGroup(string className, params string[] items)
+    {
+        var content = string.Join("", items.Where(item => !string.IsNullOrWhiteSpace(item)));
+        return $"""<div class="{A(CssClasses("toolbar-group", className))}">{content}</div>""";
+    }
+
+    private static string ToolbarButton(string label, string iconHtml, string className = "", string extraAttributes = "", bool disabled = false)
+    {
+        var attrs = string.Concat(
+            string.IsNullOrWhiteSpace(extraAttributes) ? "" : $" {extraAttributes.Trim()}",
+            BoolAttr("disabled", disabled));
+        return $"""<button type="button" class="{A(CssClasses("toolbar-button", className))}"{attrs}>{iconHtml}<span>{E(label)}</span></button>""";
+    }
+
+    private static string ToolbarInput(string className, string value, string ariaLabel, bool readOnly = false, string extraAttributes = "")
+    {
+        var attrs = string.Concat(
+            Attr("aria-label", ariaLabel),
+            Attr("value", value),
+            BoolAttr("readonly", readOnly),
+            string.IsNullOrWhiteSpace(extraAttributes) ? "" : $" {extraAttributes.Trim()}");
+        return $"""<input type="text" class="{A(CssClasses("toolbar-input", className))}"{attrs}>""";
+    }
+
+    private static string ToolbarMenu(string className, string summaryClassName, string summaryLabel, string summaryIconHtml, string summaryAttributes = "", params string[] items)
+    {
+        var content = string.Join("", items.Where(item => !string.IsNullOrWhiteSpace(item)));
+        var attrs = string.IsNullOrWhiteSpace(summaryAttributes) ? "" : $" {summaryAttributes.Trim()}";
+        return $"""
+            <details class="{A(CssClasses("toolbar-menu", className))}">
+                <summary class="{A(CssClasses("toolbar-button toolbar-menu-trigger", summaryClassName))}"{attrs}>{summaryIconHtml}<span>{E(summaryLabel)}</span><span class="menu-caret">{Icon("chevron-down")}</span></summary>
+                <div class="toolbar-menu-panel file-menu-panel">{content}</div>
+            </details>
+            """;
+    }
+
+    private static string ToolbarMenuItem(string label, string iconHtml, string className = "", string extraAttributes = "", bool disabled = false)
+    {
+        return ToolbarButton(label, iconHtml, CssClasses("toolbar-menu-item", className), extraAttributes, disabled);
+    }
+
+    private static string ToolbarUploadButton(string label, string iconHtml, string className = "", string inputClassName = "", string inputAttributes = "")
+    {
+        var inputAttrs = string.IsNullOrWhiteSpace(inputAttributes) ? " multiple" : $" multiple {inputAttributes.Trim()}";
+        return $"""
+            <label class="{A(CssClasses("toolbar-button toolbar-button--primary toolbar-upload-button", className))}" title="{A(label)}">
+                {iconHtml}<span>{E(label)}</span>
+                <input type="file" class="{A(CssClasses("toolbar-upload-input file-upload-input", inputClassName))}"{inputAttrs}>
+            </label>
+            """;
+    }
+
+    private static string Clean(string? value, string fallback)
+    {
+        var cleaned = (value ?? "").Trim();
+        return string.IsNullOrWhiteSpace(cleaned) ? fallback : cleaned;
+    }
 
     private static string E(object? value) => WebUtility.HtmlEncode(value?.ToString() ?? "");
 

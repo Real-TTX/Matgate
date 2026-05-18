@@ -8,6 +8,7 @@ public sealed class ServerEndpoint
     public static readonly IReadOnlyList<string> IconKeys =
     [
         "rdp",
+        "vnc",
         "ssh",
         "sftp",
         "ftp",
@@ -57,6 +58,10 @@ public sealed class ServerEndpoint
 
     public string Notes { get; set; } = "";
 
+    public string FolderName { get; set; } = "";
+
+    public string FolderIconKey { get; set; } = "";
+
     public Guid? OwnerUserId { get; set; }
 
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
@@ -72,7 +77,7 @@ public sealed class ServerEndpoint
 
     public static bool IsGuacamoleProtocol(ServerProtocol protocol)
     {
-        return protocol is ServerProtocol.Rdp or ServerProtocol.Ssh;
+        return protocol is ServerProtocol.Rdp or ServerProtocol.Ssh or ServerProtocol.Vnc;
     }
 
     public static bool IsFileProtocol(ServerProtocol protocol)
@@ -90,6 +95,7 @@ public sealed class ServerEndpoint
         return protocol switch
         {
             ServerProtocol.Rdp => "rdp",
+            ServerProtocol.Vnc => "vnc",
             ServerProtocol.Ssh => "ssh",
             ServerProtocol.Sftp => "sftp",
             ServerProtocol.Ftp => "ftp",

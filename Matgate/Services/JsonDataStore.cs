@@ -188,7 +188,9 @@ public sealed class JsonDataStore
             var users = await ReadListAsync<MatgateUser>(UsersPath, cancellationToken);
             foreach (var user in users)
             {
+                user.FavoriteServerIds ??= [];
                 user.ServerAccess.RemoveAll(legacyServerIds.Contains);
+                user.FavoriteServerIds.RemoveAll(legacyServerIds.Contains);
             }
 
             await WriteListAsync(UsersPath, users, cancellationToken);

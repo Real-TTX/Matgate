@@ -24,11 +24,11 @@ public sealed class GuacamoleConfigWriter
             .Where(server => server.IsEnabled && ServerEndpoint.IsGuacamoleProtocol(server.Protocol))
             .ToList();
 
-        var guacamoleHome = Path.Combine(_store.DataDirectory, "guacamole");
-        Directory.CreateDirectory(guacamoleHome);
+        var configHome = _store.DataDirectory;
+        Directory.CreateDirectory(configHome);
 
-        await WritePropertiesAsync(guacamoleHome, cancellationToken);
-        await WriteUserMappingAsync(guacamoleHome, users, enabledServers, cancellationToken);
+        await WritePropertiesAsync(configHome, cancellationToken);
+        await WriteUserMappingAsync(configHome, users, enabledServers, cancellationToken);
 
         _logger.LogInformation(
             "Synchronized Guacamole config with {UserCount} user(s) and {ServerCount} server(s).",
@@ -46,7 +46,7 @@ public sealed class GuacamoleConfigWriter
         return protocol.ToString().ToLowerInvariant();
     }
 
-    private async Task WritePropertiesAsync(string guacamoleHome, CancellationToken cancellationToken)
+    private async Task WritePropertiesAsync(string configHome, CancellationToken cancellationToken)
     {
         var guacdHost = _configuration["Guacamole:GuacdHost"]
             ?? Environment.GetEnvironmentVariable("GUACD_HOSTNAME")
@@ -62,11 +62,11 @@ public sealed class GuacamoleConfigWriter
             "enable-websocket: true",
             "");
 
-        await File.WriteAllTextAsync(Path.Combine(guacamoleHome, "guacamole.properties"), content, cancellationToken);
+        await File.WriteAllTextAsync(Path.Combine(configHome, "guacamole.properties"), content, cancellationToken);
     }
 
     private static async Task WriteUserMappingAsync(
-        string guacamoleHome,
+        string configHome,
         IReadOnlyList<MatgateUser> users,
         IReadOnlyList<ServerEndpoint> servers,
         CancellationToken cancellationToken)
@@ -96,7 +96,7 @@ public sealed class GuacamoleConfigWriter
         }
 
         var document = new XDocument(new XDeclaration("1.0", "utf-8", null), root);
-        await File.WriteAllTextAsync(Path.Combine(guacamoleHome, "user-mapping.xml"), document.ToString(), cancellationToken);
+        await File.WriteAllTextAsync(Path.Combine(configHome, "user-mapping.xml"), document.ToString(), cancellationToken);
     }
 
     private static XElement BuildConnection(ServerEndpoint server)
@@ -108,7 +108,8 @@ public sealed class GuacamoleConfigWriter
             Param("hostname", server.Host),
             Param("port", server.Port.ToString()));
 
-        if (!string.IsNullOrWhiteSpace(server.UserName))
+        if (server.Protocol is ServerProtocol.Rdp or ServerProtocol.Ssh
+            && !string.IsNullOrWhiteSpace(server.UserName))
         {
             connection.Add(Param("username", server.UserName));
         }
@@ -132,6 +133,11 @@ public sealed class GuacamoleConfigWriter
                 : server.KeyboardLayout.Trim()));
             connection.Add(Param("resize-method", "reconnect"));
             connection.Add(Param("enable-wallpaper", "false"));
+        }
+        else if (server.Protocol == ServerProtocol.Vnc)
+        {
+            // Standard outbound VNC connections only need the shared target
+            // password and the common hostname / port parameters above.
         }
         else if (server.Protocol == ServerProtocol.Ssh)
         {

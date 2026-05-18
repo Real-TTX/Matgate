@@ -46,7 +46,8 @@ public sealed class GuacamoleLauncher
         }
 
         var connectionName = GuacamoleConfigWriter.ConnectionName(server);
-        var payload = BuildJsonPayload(user, server, connectionName);
+        var sessionId = $"{server.Id:N}-{Guid.NewGuid():N}";
+        var payload = BuildJsonPayload(user, server, connectionName, sessionId);
         var encryptedData = EncryptAndSign(payload, key);
         var publicBasePath = _configuration["Guacamole:PublicBasePath"] ?? "/guacamole";
         var directLaunch = _configuration.GetValue("Guacamole:DirectLaunch", true);
@@ -58,7 +59,7 @@ public sealed class GuacamoleLauncher
         return Task.FromResult(GuacamoleLaunchResult.Ok(url, encryptedData, connectionName));
     }
 
-    private string BuildJsonPayload(MatgateUser user, ServerEndpoint server, string connectionName)
+    private string BuildJsonPayload(MatgateUser user, ServerEndpoint server, string connectionName, string sessionId)
     {
         var ttlMinutes = Math.Clamp(_configuration.GetValue("Guacamole:LaunchTtlMinutes", 2), 1, 30);
         var parameters = new Dictionary<string, string>
@@ -67,7 +68,8 @@ public sealed class GuacamoleLauncher
             ["port"] = server.Port.ToString()
         };
 
-        if (!string.IsNullOrWhiteSpace(server.UserName))
+        if (server.Protocol is ServerProtocol.Rdp or ServerProtocol.Ssh
+            && !string.IsNullOrWhiteSpace(server.UserName))
         {
             parameters["username"] = server.UserName;
         }
@@ -92,6 +94,12 @@ public sealed class GuacamoleLauncher
             parameters["resize-method"] = "reconnect";
             parameters["enable-wallpaper"] = "false";
         }
+        else if (server.Protocol == ServerProtocol.Vnc)
+        {
+            // Guacamole's VNC support uses the same shared password field and
+            // does not need any extra protocol-specific parameters for the
+            // standard outbound connection case.
+        }
         else if (server.Protocol == ServerProtocol.Ssh)
         {
             parameters["font-name"] = "monospace";
@@ -106,7 +114,7 @@ public sealed class GuacamoleLauncher
             {
                 [connectionName] = new
                 {
-                    id = server.Id.ToString("N"),
+                    id = sessionId,
                     protocol = GuacamoleConfigWriter.ProtocolName(server.Protocol),
                     parameters
                 }

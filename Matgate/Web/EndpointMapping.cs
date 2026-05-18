@@ -58,9 +58,15 @@ public static class EndpointMapping
         app.MapMethods("/website/{id:guid}/{tabId:guid}/proxy", new[] { "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS" }, WebsiteProxyAsync).RequireAuthorization();
         app.MapMethods("/website/{id:guid}/{tabId:guid}/proxy/{**path}", new[] { "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS" }, WebsiteProxyAsync).RequireAuthorization();
         app.MapGet("/sessions", SessionsAsync).RequireAuthorization();
+        app.MapGet("/tools", ToolsAsync).RequireAuthorization();
         app.MapGet("/account", AccountAsync).RequireAuthorization();
         app.MapGet("/about", AboutAsync).RequireAuthorization();
         app.MapPost("/account", UpdateAccountAsync).RequireAuthorization();
+        app.MapPost("/account/favorites/{id:guid}/toggle", ToggleFavoriteServerAsync).RequireAuthorization();
+        app.MapPost("/api/tools/ping", ToolsPingAsync).RequireAuthorization();
+        app.MapPost("/api/tools/lookup", ToolsLookupAsync).RequireAuthorization();
+        app.MapPost("/api/tools/port-check", ToolsPortCheckAsync).RequireAuthorization();
+        app.MapPost("/api/tools/download", ToolsDownloadAsync).RequireAuthorization();
         app.MapPost("/api/connections/{id:guid}/launch", LaunchConnectionAsync).RequireAuthorization();
         app.MapGet("/files/{id:guid}/view", FileViewerAsync).RequireAuthorization();
         app.MapGet("/api/files/{id:guid}/list", ListFilesAsync).RequireAuthorization();
@@ -210,7 +216,9 @@ public static class EndpointMapping
         var allServers = await store.GetServersAsync(context.RequestAborted);
         var servers = allServers
             .Where(server => server.IsEnabled && CanAccessServer(user, server))
-            .OrderBy(server => server.Name)
+            .OrderBy(server => server.OwnerUserId is null ? 0 : 1)
+            .ThenBy(server => server.FolderName)
+            .ThenBy(server => server.Name)
             .ToList();
 
         Guid? openServerId = null;
@@ -1212,7 +1220,10 @@ public static class EndpointMapping
             return Results.Redirect("/login");
         }
 
-        return Results.Content(views.Account(context, user), "text/html");
+        var servers = (await store.GetServersAsync(context.RequestAborted))
+            .Where(server => server.IsEnabled && CanAccessServer(user, server))
+            .ToList();
+        return Results.Content(views.Account(context, user, servers), "text/html");
     }
 
     private static async Task<IResult> AboutAsync(HttpContext context, JsonDataStore store, HtmlViews views)
@@ -1224,6 +1235,124 @@ public static class EndpointMapping
         }
 
         return Results.Content(views.About(context, user), "text/html");
+    }
+
+    private static async Task<IResult> ToolsAsync(HttpContext context, JsonDataStore store, HtmlViews views)
+    {
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            return Results.Redirect("/login");
+        }
+
+        return Results.Content(views.Tools(context, user), "text/html");
+    }
+
+    private static async Task ToolsPingAsync(
+        HttpContext context,
+        JsonDataStore store,
+        NetworkToolsService tools)
+    {
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            await context.Response.WriteAsync("Unauthorized", context.RequestAborted);
+            return;
+        }
+
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        if (!ValidateCsrf(context, form))
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            await context.Response.WriteAsync("Invalid request", context.RequestAborted);
+            return;
+        }
+
+        await tools.PingAsync(
+            context,
+            form["host"].ToString(),
+            ParseInt(form, "count", 4),
+            ParseInt(form, "timeoutMs", 1000),
+            ParseInt(form, "intervalMs", 1000),
+            context.RequestAborted);
+    }
+
+    private static async Task ToolsLookupAsync(
+        HttpContext context,
+        JsonDataStore store,
+        NetworkToolsService tools)
+    {
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            await context.Response.WriteAsync("Unauthorized", context.RequestAborted);
+            return;
+        }
+
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        if (!ValidateCsrf(context, form))
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            await context.Response.WriteAsync("Invalid request", context.RequestAborted);
+            return;
+        }
+
+        await tools.LookupAsync(context, form["host"].ToString(), context.RequestAborted);
+    }
+
+    private static async Task ToolsPortCheckAsync(
+        HttpContext context,
+        JsonDataStore store,
+        NetworkToolsService tools)
+    {
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            await context.Response.WriteAsync("Unauthorized", context.RequestAborted);
+            return;
+        }
+
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        if (!ValidateCsrf(context, form))
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            await context.Response.WriteAsync("Invalid request", context.RequestAborted);
+            return;
+        }
+
+        await tools.PortCheckAsync(
+            context,
+            form["host"].ToString(),
+            form["ports"].ToString(),
+            ParseInt(form, "timeoutMs", 1000),
+            context.RequestAborted);
+    }
+
+    private static async Task ToolsDownloadAsync(
+        HttpContext context,
+        JsonDataStore store,
+        NetworkToolsService tools)
+    {
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            await context.Response.WriteAsync("Unauthorized", context.RequestAborted);
+            return;
+        }
+
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        if (!ValidateCsrf(context, form))
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            await context.Response.WriteAsync("Invalid request", context.RequestAborted);
+            return;
+        }
+
+        await tools.DownloadAsync(context, form["url"].ToString(), context.RequestAborted);
     }
 
     private static async Task<IResult> UpdateAccountAsync(
@@ -1282,6 +1411,54 @@ public static class EndpointMapping
         }
 
         return Results.Redirect("/account");
+    }
+
+    private static async Task<IResult> ToggleFavoriteServerAsync(
+        Guid id,
+        HttpContext context,
+        JsonDataStore store,
+        HtmlViews views)
+    {
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            return Results.Redirect("/login");
+        }
+
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        if (!ValidateCsrf(context, form))
+        {
+            return BadRequest(context, user, views);
+        }
+
+        var server = await store.FindServerByIdAsync(id, context.RequestAborted);
+        if (server is null || !server.IsEnabled || !CanAccessServer(user, server))
+        {
+            return Results.Redirect(NormalizeReturnUrl(form["returnUrl"].ToString()));
+        }
+
+        await store.UpdateUsersAsync(users =>
+        {
+            var current = users.FirstOrDefault(candidate => candidate.Id == user.Id);
+            if (current is null)
+            {
+                return;
+            }
+
+            current.FavoriteServerIds ??= [];
+            if (current.FavoriteServerIds.Contains(id))
+            {
+                current.FavoriteServerIds.RemoveAll(favoriteId => favoriteId == id);
+            }
+            else
+            {
+                current.FavoriteServerIds.Add(id);
+            }
+
+            current.UpdatedAt = DateTimeOffset.UtcNow;
+        }, context.RequestAborted);
+
+        return Results.Redirect(NormalizeReturnUrl(form["returnUrl"].ToString()));
     }
 
     private static async Task<IResult> UpdateUserAccessAsync(
@@ -1426,7 +1603,9 @@ public static class EndpointMapping
 
         var servers = (await store.GetServersAsync(context.RequestAborted))
             .Where(server => CanEditServer(user, server))
-            .OrderBy(server => server.Name)
+            .OrderBy(server => server.OwnerUserId is null ? 0 : 1)
+            .ThenBy(server => server.FolderName)
+            .ThenBy(server => server.Name)
             .ToList();
         var users = await store.GetUsersAsync(context.RequestAborted);
 
@@ -1564,6 +1743,8 @@ public static class EndpointMapping
             storedServer.Name = updated.Name;
             storedServer.Protocol = updated.Protocol;
             storedServer.IconKey = updated.IconKey;
+            storedServer.FolderName = updated.FolderName;
+            storedServer.FolderIconKey = updated.FolderIconKey;
             storedServer.Host = updated.Host;
             storedServer.Port = updated.Port;
             storedServer.WebsiteUrl = updated.WebsiteUrl;
@@ -1622,7 +1803,9 @@ public static class EndpointMapping
         {
             foreach (var editedUser in users)
             {
+                editedUser.FavoriteServerIds ??= [];
                 editedUser.ServerAccess.Remove(id);
+                editedUser.FavoriteServerIds.RemoveAll(favoriteId => favoriteId == id);
             }
         }, context.RequestAborted);
 
@@ -1825,6 +2008,7 @@ public static class EndpointMapping
         var defaultPort = protocol switch
         {
             ServerProtocol.Ssh => 22,
+            ServerProtocol.Vnc => 5900,
             ServerProtocol.Sftp => 22,
             ServerProtocol.Ftp => 21,
             ServerProtocol.Smb => 445,
@@ -1849,6 +2033,10 @@ public static class EndpointMapping
             Name = Clean(form["name"].ToString(), existing?.Name ?? ""),
             Protocol = protocol,
             IconKey = ServerEndpoint.NormalizeIconKey(form["iconKey"].ToString()),
+            FolderName = Clean(form["folderName"].ToString(), ""),
+            FolderIconKey = string.IsNullOrWhiteSpace(Clean(form["folderName"].ToString(), ""))
+                ? ""
+                : ServerEndpoint.NormalizeIconKey(form["folderIconKey"].ToString()),
             Host = Clean(form["host"].ToString(), existing?.Host ?? ""),
             Port = port,
             WebsiteUrl = websiteUrl,
@@ -1880,6 +2068,11 @@ public static class EndpointMapping
         return string.IsNullOrWhiteSpace(cleaned) ? fallback : cleaned;
     }
 
+    private static int ParseInt(IFormCollection form, string key, int fallback)
+    {
+        return int.TryParse(form[key].ToString(), out var value) ? value : fallback;
+    }
+
     private static string NormalizeLanguage(string? language)
     {
         return string.Equals((language ?? "").Trim(), "de", StringComparison.OrdinalIgnoreCase) ? "de" : "en";
@@ -1889,6 +2082,19 @@ public static class EndpointMapping
     {
         var normalized = (theme ?? "").Trim().ToLowerInvariant();
         return normalized is "light" or "dark" or "system" ? normalized : "system";
+    }
+
+    private static string NormalizeReturnUrl(string? value)
+    {
+        var cleaned = (value ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(cleaned)
+            || !cleaned.StartsWith("/", StringComparison.Ordinal)
+            || cleaned.StartsWith("//", StringComparison.Ordinal))
+        {
+            return "/";
+        }
+
+        return cleaned;
     }
 
     private static string CleanKeyboardLayout(string? value, string fallback)

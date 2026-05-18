@@ -1,4 +1,4 @@
-name: matgate
+name: matgate-simple
 
 x-home-dns: &home-dns
   dns:
@@ -7,7 +7,7 @@ x-home-dns: &home-dns
     - ${MATGATE_DNS_SEARCH:-Schmoldt.local}
 
 services:
-  edge:
+  caddy:
     <<: *home-dns
     image: caddy:2
     depends_on:
@@ -34,11 +34,8 @@ services:
 
   matgate:
     <<: *home-dns
-    build:
-      context: .
-      dockerfile: Matgate/Dockerfile
-      args:
-        MATGATE_VERSION_SUFFIX: ${MATGATE_VERSION_SUFFIX:-}
+    image: ghcr.io/real-ttx/matgate:latest
+    pull_policy: always
     environment:
       ASPNETCORE_URLS: http://+:8080
       MATGATE_DATA_DIR: /data
@@ -48,7 +45,9 @@ services:
       Guacamole__PublicBasePath: /guacamole
       Guacamole__DirectLaunch: "true"
     volumes:
-      - ./data:/data
+      - type: volume
+        source: data
+        target: /data
     restart: unless-stopped
 
   guacd:
@@ -61,11 +60,18 @@ services:
     image: guacamole/guacamole:1.6.0
     depends_on:
       - guacd
+      - matgate
     environment:
       GUACD_HOSTNAME: guacd
       GUACD_PORT: "4822"
       JSON_ENABLED: "true"
       JSON_SECRET_KEY: ${MATGATE_GUACAMOLE_JSON_SECRET_KEY:-0123456789abcdeffedcba9876543210}
     volumes:
-      - ./data:/etc/guacamole
+      - type: volume
+        source: data
+        target: /etc/guacamole
     restart: unless-stopped
+
+volumes:
+  data:
+    name: data
