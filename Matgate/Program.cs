@@ -34,7 +34,7 @@ builder.Services
     {
         options.Cookie.Name = "Matgate.Auth";
         options.Cookie.HttpOnly = true;
-        options.Cookie.SameSite = SameSiteMode.Strict;
+        options.Cookie.SameSite = SameSiteMode.Lax;
         options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
         options.ExpireTimeSpan = TimeSpan.FromHours(10);
         options.SlidingExpiration = true;

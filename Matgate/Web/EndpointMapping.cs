@@ -39,8 +39,9 @@ public static class EndpointMapping
 
         app.MapGet("/login", (HttpContext context, HtmlViews views) =>
         {
+            var returnUrl = NormalizeReturnUrl(context.Request.Query["returnUrl"].ToString());
             return context.User.Identity?.IsAuthenticated == true
-                ? Results.Redirect("/")
+                ? Results.Redirect(returnUrl)
                 : Results.Content(views.Login(context), "text/html");
         });
 
@@ -175,6 +176,7 @@ public static class EndpointMapping
             CookieAuthenticationDefaults.AuthenticationScheme,
             BuildPrincipal(user, hasher.GenerateSecret(24), user.PreferredLanguage, user.PreferredTheme));
 
+        var returnUrl = NormalizeReturnUrl(form["returnUrl"].ToString());
         context.Response.Cookies.Append(
             HtmlViews.ThemeCookie,
             NormalizeTheme(user.PreferredTheme),
@@ -186,7 +188,7 @@ public static class EndpointMapping
                 Secure = context.Request.IsHttps
             });
 
-        return Results.Redirect("/");
+        return Results.Redirect(returnUrl);
     }
 
     private static async Task<IResult> SignOutAsync(HttpContext context, JsonDataStore store, HtmlViews views)
@@ -1109,7 +1111,7 @@ public static class EndpointMapping
         }
 
         await configWriter.SynchronizeAsync(context.RequestAborted);
-        return Results.Redirect("/admin/users");
+        return Results.Redirect(EmbedAwareRedirect(context, "/admin/users"));
     }
 
     private static async Task<IResult> UserDetailAsync(
@@ -1224,7 +1226,7 @@ public static class EndpointMapping
         }
 
         await configWriter.SynchronizeAsync(context.RequestAborted);
-        return Results.Redirect($"/admin/users/{id}");
+        return Results.Redirect(EmbedAwareRedirect(context, $"/admin/users/{id}"));
     }
 
     private static async Task<IResult> AccountAsync(HttpContext context, JsonDataStore store, HtmlViews views)
@@ -1425,7 +1427,7 @@ public static class EndpointMapping
                 });
         }
 
-        return Results.Redirect("/account");
+        return Results.Redirect(EmbedAwareRedirect(context, "/account"));
     }
 
     private static async Task<IResult> ToggleFavoriteServerAsync(
@@ -1449,7 +1451,7 @@ public static class EndpointMapping
         var server = await store.FindServerByIdAsync(id, context.RequestAborted);
         if (server is null || !server.IsEnabled || !CanAccessServer(user, server))
         {
-            return Results.Redirect(NormalizeReturnUrl(form["returnUrl"].ToString()));
+            return Results.Redirect(EmbedAwareRedirect(context, NormalizeReturnUrl(form["returnUrl"].ToString())));
         }
 
         await store.UpdateUsersAsync(users =>
@@ -1473,7 +1475,7 @@ public static class EndpointMapping
             current.UpdatedAt = DateTimeOffset.UtcNow;
         }, context.RequestAborted);
 
-        return Results.Redirect(NormalizeReturnUrl(form["returnUrl"].ToString()));
+        return Results.Redirect(EmbedAwareRedirect(context, NormalizeReturnUrl(form["returnUrl"].ToString())));
     }
 
     private static async Task<IResult> UpdateUserAccessAsync(
@@ -1521,7 +1523,7 @@ public static class EndpointMapping
         }, context.RequestAborted);
 
         await configWriter.SynchronizeAsync(context.RequestAborted);
-        return Results.Redirect($"/admin/users/{id}");
+        return Results.Redirect(EmbedAwareRedirect(context, $"/admin/users/{id}"));
     }
 
     private static async Task<IResult> ResetUserPasswordAsync(
@@ -1568,7 +1570,7 @@ public static class EndpointMapping
         }, context.RequestAborted);
 
         await configWriter.SynchronizeAsync(context.RequestAborted);
-        return Results.Redirect($"/admin/users/{id}");
+        return Results.Redirect(EmbedAwareRedirect(context, $"/admin/users/{id}"));
     }
 
     private static async Task<IResult> DeleteUserAsync(
@@ -1605,7 +1607,7 @@ public static class EndpointMapping
         }, context.RequestAborted);
 
         await configWriter.SynchronizeAsync(context.RequestAborted);
-        return Results.Redirect("/admin/users");
+        return Results.Redirect(EmbedAwareRedirect(context, "/admin/users"));
     }
 
     private static async Task<IResult> ServersAsync(HttpContext context, JsonDataStore store, HtmlViews views)
@@ -1675,7 +1677,7 @@ public static class EndpointMapping
 
         await store.UpdateServersAsync(servers => servers.Add(server), context.RequestAborted);
         await configWriter.SynchronizeAsync(context.RequestAborted);
-        return Results.Redirect("/admin/servers");
+        return Results.Redirect(EmbedAwareRedirect(context, "/admin/servers"));
     }
 
     private static async Task<IResult> ServerDetailAsync(
@@ -1779,7 +1781,7 @@ public static class EndpointMapping
         }, context.RequestAborted);
 
         await configWriter.SynchronizeAsync(context.RequestAborted);
-        return Results.Redirect($"/admin/servers/{id}");
+        return Results.Redirect(EmbedAwareRedirect(context, $"/admin/servers/{id}"));
     }
 
     private static async Task<IResult> DeleteServerAsync(
@@ -1826,7 +1828,7 @@ public static class EndpointMapping
 
         websiteProxy.ForgetServer(id);
         await configWriter.SynchronizeAsync(context.RequestAborted);
-        return Results.Redirect("/admin/servers");
+        return Results.Redirect(EmbedAwareRedirect(context, "/admin/servers"));
     }
 
     private static async Task<MatgateUser?> RequireUserAsync(HttpContext context, JsonDataStore store)
@@ -2110,6 +2112,31 @@ public static class EndpointMapping
         }
 
         return cleaned;
+    }
+
+    private static string EmbedAwareRedirect(HttpContext context, string url)
+    {
+        if (!IsTruthyQuery(context.Request.Query["embed"]) || string.IsNullOrWhiteSpace(url))
+        {
+            return url;
+        }
+
+        if (url.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+            || url.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
+            || url.StartsWith("//", StringComparison.Ordinal))
+        {
+            return url;
+        }
+
+        if (url.Contains("embed=", StringComparison.OrdinalIgnoreCase))
+        {
+            return url;
+        }
+
+        var hashIndex = url.IndexOf('#');
+        var path = hashIndex >= 0 ? url[..hashIndex] : url;
+        var fragment = hashIndex >= 0 ? url[hashIndex..] : "";
+        return $"{path}{(path.Contains('?') ? '&' : '?')}embed=1{fragment}";
     }
 
     private static string CleanKeyboardLayout(string? value, string fallback)

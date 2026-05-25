@@ -239,6 +239,10 @@ public sealed class HtmlViews
 
     public string Login(HttpContext context, string? error = null)
     {
+        var returnUrl = context.Request.Query["returnUrl"].ToString();
+        var returnUrlField = string.IsNullOrWhiteSpace(returnUrl)
+            ? ""
+            : $"""<input type="hidden" name="returnUrl" value="{A(returnUrl)}">""";
         var errorHtml = string.IsNullOrWhiteSpace(error)
             ? ""
             : $"""<div class="notice error">{E(error)}</div>""";
@@ -251,6 +255,7 @@ public sealed class HtmlViews
                     <p class="muted">{{T(context, "Local login for RDP, VNC, SSH, websites and file access in your home network.")}}</p>
                 </div>
                 <form method="post" action="/login" class="stack">
+                    {{returnUrlField}}
                     {{errorHtml}}
                     <label>{{T(context, "Username")}}
                         <input name="username" autocomplete="username" required autofocus>
@@ -1617,6 +1622,11 @@ public sealed class HtmlViews
                 let gatewayLatencyMs = null;
                 let fileViewerLoadToken = 0;
 
+                document.documentElement.style.overscrollBehavior = 'none';
+                document.documentElement.style.overflow = 'hidden';
+                document.body.style.overscrollBehavior = 'none';
+                document.body.style.overflow = 'hidden';
+
                 window.MatgateOpenAboutTab = (event) => {
                     if (event) {
                         event.preventDefault();
@@ -2417,6 +2427,11 @@ public sealed class HtmlViews
                     const panel = document.createElement('div');
                     panel.className = 'connection-panel hidden';
                     panel.tabIndex = 0;
+                    panel.addEventListener('keydown', event => {
+                        if (shouldSuppressBrowserScroll(event)) {
+                            event.preventDefault();
+                        }
+                    }, true);
 
                     const displayRoot = document.createElement('div');
                     displayRoot.className = isWebsite ? 'website-display' : 'guac-display';
@@ -2907,6 +2922,29 @@ public sealed class HtmlViews
 
                     const message = status.message || fallback;
                     return status.code ? `${message} (${status.code})` : message;
+                }
+
+                function shouldSuppressBrowserScroll(event) {
+                    if (!event || event.defaultPrevented || event.altKey || event.ctrlKey || event.metaKey) {
+                        return false;
+                    }
+
+                    switch (event.key) {
+                        case ' ':
+                        case 'Spacebar':
+                        case 'Space':
+                        case 'PageUp':
+                        case 'PageDown':
+                        case 'ArrowUp':
+                        case 'ArrowDown':
+                        case 'ArrowLeft':
+                        case 'ArrowRight':
+                        case 'Home':
+                        case 'End':
+                            return true;
+                        default:
+                            return false;
+                    }
                 }
 
                 function updateStatusBar() {
@@ -6745,6 +6783,57 @@ public sealed class HtmlViews
                                 }
                             });
                         };
+
+                        const embeddedPage = document.documentElement.dataset.embedded === '1';
+                        const rewriteEmbeddedUrl = (value) => {
+                            const raw = (value || '').trim();
+                            if (!raw || raw.startsWith('#') || /^(?:javascript:|mailto:|tel:|data:|blob:)/i.test(raw)) {
+                                return value;
+                            }
+
+                            try {
+                                const url = new URL(raw, window.location.href);
+                                if (url.origin !== window.location.origin) {
+                                    return value;
+                                }
+
+                                url.searchParams.set('embed', '1');
+                                return `${url.pathname}${url.search}${url.hash}`;
+                            }
+                            catch {
+                                return value;
+                            }
+                        };
+
+                        const rewriteEmbeddedNavigation = (root) => {
+                            if (!embeddedPage || !root || typeof root.querySelectorAll !== 'function') {
+                                return;
+                            }
+
+                            root.querySelectorAll('a[href], form[action]').forEach((element) => {
+                                if (element instanceof HTMLAnchorElement) {
+                                    const href = element.getAttribute('href') || '';
+                                    const next = rewriteEmbeddedUrl(href);
+                                    if (next !== href) {
+                                        element.setAttribute('href', next);
+                                    }
+                                }
+                                else if (element instanceof HTMLFormElement) {
+                                    const action = element.getAttribute('action') || '';
+                                    const next = rewriteEmbeddedUrl(action);
+                                    if (next !== action) {
+                                        element.setAttribute('action', next);
+                                    }
+                                }
+                            });
+                        };
+
+                        rewriteEmbeddedNavigation(document);
+
+                        if (embeddedPage && typeof MutationObserver !== 'undefined') {
+                            const observer = new MutationObserver(() => rewriteEmbeddedNavigation(document));
+                            observer.observe(document.documentElement, { childList: true, subtree: true });
+                        }
 
                         document.addEventListener('click', (event) => {
                             const target = event.target instanceof Element ? event.target : null;
