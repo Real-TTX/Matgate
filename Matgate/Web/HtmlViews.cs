@@ -1622,10 +1622,25 @@ public sealed class HtmlViews
                 let gatewayLatencyMs = null;
                 let fileViewerLoadToken = 0;
 
-                document.documentElement.style.overscrollBehavior = 'none';
-                document.documentElement.style.overflow = 'hidden';
-                document.body.style.overscrollBehavior = 'none';
-                document.body.style.overflow = 'hidden';
+                const shellLayout = document.body.dataset.shellLayout === '1';
+                const updateViewportHeight = () => {
+                    document.documentElement.style.setProperty('--matgate-viewport-height', `${window.innerHeight}px`);
+                    if (shellLayout) {
+                        document.documentElement.style.overscrollBehavior = 'none';
+                        document.documentElement.style.overflow = 'hidden';
+                        document.body.style.overscrollBehavior = 'none';
+                        document.body.style.overflow = 'hidden';
+                    }
+                    else {
+                        document.documentElement.style.overscrollBehavior = '';
+                        document.documentElement.style.overflow = '';
+                        document.body.style.overscrollBehavior = '';
+                        document.body.style.overflow = '';
+                    }
+                };
+                updateViewportHeight();
+                window.addEventListener('resize', updateViewportHeight, { passive: true });
+                window.addEventListener('orientationchange', updateViewportHeight);
 
                 window.MatgateOpenAboutTab = (event) => {
                     if (event) {
@@ -4788,6 +4803,9 @@ public sealed class HtmlViews
         var usersActive = requestPath.StartsWith("/admin/users", StringComparison.OrdinalIgnoreCase);
         var toolsActive = requestPath.StartsWith("/tools", StringComparison.OrdinalIgnoreCase);
         var accountActive = requestPath.StartsWith("/account", StringComparison.OrdinalIgnoreCase);
+        var shellLayout = string.Equals(mainClass, "shell-main", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(mainClass, "session-main", StringComparison.OrdinalIgnoreCase)
+            || string.Equals(mainClass, "viewer-main", StringComparison.OrdinalIgnoreCase);
         var serversClass = serversActive ? " active" : "";
         var usersClass = usersActive ? " active" : "";
         var toolsClass = toolsActive ? " active" : "";
@@ -4809,13 +4827,28 @@ public sealed class HtmlViews
             </div>
             """;
         var navigation = user is null ? "" : shellTabs + shellActions;
+        var pwaEnabled = user is not null
+            && !string.Equals(context.Request.Query["embed"].ToString(), "1", StringComparison.OrdinalIgnoreCase);
+        var pwaHeadMarkup = pwaEnabled
+            ? """<meta name="application-name" content="Matgate"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Matgate"><link rel="manifest" href="/manifest.webmanifest"><link rel="apple-touch-icon" href="/pwa-icon.svg">"""
+            : "";
+        var pwaRegistrationScript = pwaEnabled
+            ? """
+                if ('serviceWorker' in navigator) {
+                    window.addEventListener('load', () => {
+                        navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {});
+                    });
+                }
+                """
+            : "";
         return $$"""
             <!doctype html>
-            <html lang="{{language}}" data-theme="{{theme}}" data-embedded="{{(string.Equals(context.Request.Query["embed"].ToString(), "1", StringComparison.OrdinalIgnoreCase) ? "1" : "0")}}">
+            <html lang="{{language}}" data-theme="{{theme}}" data-embedded="{{(string.Equals(context.Request.Query["embed"].ToString(), "1", StringComparison.OrdinalIgnoreCase) ? "1" : "0")}}" data-shell-layout="{{(shellLayout ? "1" : "0")}}">
             <head>
                 <meta charset="utf-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1">
+                <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
                 <meta name="theme-color" content="#176b5b">
+                {{pwaHeadMarkup}}
                 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
                 <link rel="shortcut icon" href="/favicon.ico">
                 <title>{{E(title)}} - Matgate</title>
@@ -4895,6 +4928,22 @@ public sealed class HtmlViews
                         color: var(--text);
                         font-family: Segoe UI, system-ui, -apple-system, sans-serif;
                         line-height: 1.5;
+                    }
+                    html[data-shell-layout="1"] {
+                        height: var(--matgate-viewport-height, 100vh);
+                        overflow: hidden;
+                    }
+                    body[data-shell-layout="1"] {
+                        display: flex;
+                        flex-direction: column;
+                        height: var(--matgate-viewport-height, 100vh);
+                        overflow: hidden;
+                        overscroll-behavior: none;
+                    }
+                    body[data-shell-layout="1"] > main {
+                        flex: 1 1 auto;
+                        min-height: 0;
+                        width: 100%;
                     }
                     html[data-embedded="1"] header {
                         display: none;
@@ -5169,11 +5218,24 @@ public sealed class HtmlViews
                         display: flex;
                         flex-direction: column;
                         gap: 0;
-                        height: calc(100vh - 54px);
+                        flex: 1 1 auto;
+                        min-height: 0;
                         margin: 0;
                         width: 100%;
                     }
-                    main.session-main { width: 100%; height: calc(100vh - 54px); margin: 0; }
+                    main.session-main {
+                        display: flex;
+                        flex-direction: column;
+                        flex: 1 1 auto;
+                        min-height: 0;
+                        margin: 0;
+                        width: 100%;
+                    }
+                    body[data-shell-layout="1"] main.viewer-main {
+                        margin: 0;
+                        padding: 0;
+                        width: 100%;
+                    }
                     h1, h2 { line-height: 1.15; margin: 0; }
                     h1 { font-size: clamp(30px, 4vw, 52px); }
                     h2 { font-size: 20px; margin-bottom: 18px; }
@@ -5414,7 +5476,7 @@ public sealed class HtmlViews
                         display: flex;
                         flex-direction: column;
                         height: 100%;
-                        min-height: calc(100vh - 54px);
+                        min-height: 0;
                         overflow: hidden;
                         position: relative;
                         width: 100%;
@@ -6426,13 +6488,19 @@ public sealed class HtmlViews
                         text-align: center;
                     }
                     main.viewer-main {
-                        min-height: calc(100vh - 54px);
+                        display: flex;
+                        flex-direction: column;
+                        flex: 1 1 auto;
+                        min-height: 0;
+                        margin: 0;
                         padding: 0;
+                        width: 100%;
                     }
                     .file-viewer-page {
                         display: flex;
                         flex-direction: column;
-                        min-height: calc(100vh - 54px);
+                        flex: 1 1 auto;
+                        min-height: 0;
                         padding: 0;
                     }
                     .viewer-tab-row {
@@ -6507,12 +6575,12 @@ public sealed class HtmlViews
                     }
                     .video-stage video {
                         background: #000000;
-                        max-height: calc(100vh - 220px);
+                        max-height: calc(var(--matgate-viewport-height, 100vh) - 220px);
                         max-width: 100%;
                         width: 100%;
                     }
                     .image-stage img {
-                        max-height: calc(100vh - 220px);
+                        max-height: calc(var(--matgate-viewport-height, 100vh) - 220px);
                         max-width: 100%;
                         object-fit: contain;
                     }
@@ -6522,7 +6590,7 @@ public sealed class HtmlViews
                     }
                     .document-stage iframe {
                         border: 0;
-                        height: calc(100vh - 190px);
+                        height: calc(var(--matgate-viewport-height, 100vh) - 190px);
                         width: 100%;
                     }
                     .empty-viewer {
@@ -6725,7 +6793,7 @@ public sealed class HtmlViews
                         nav button,
                         .button,
                         .shell-action { justify-content: center; }
-                        main.session-main { height: auto; min-height: calc(100vh - 54px); }
+                        main.session-main { height: auto; min-height: 0; }
                         .session-bar { align-items: stretch; flex-direction: column; }
                         .session-actions > * { flex: 1; justify-content: center; }
                         .session-tab-row { flex-direction: column; }
@@ -6737,7 +6805,7 @@ public sealed class HtmlViews
                             margin-left: 0;
                         }
                         .tab-actions > * { flex: 1; justify-content: center; }
-                        .session-deck { min-height: 60vh; }
+                        .session-deck { min-height: 0; }
                         .session-statusbar { align-items: stretch; flex-direction: column; }
                         .status-primary, .status-secondary { flex-wrap: wrap; }
                         .status-secondary { margin-left: 0; width: 100%; justify-content: space-between; }
@@ -6762,13 +6830,13 @@ public sealed class HtmlViews
                         .tool-actions > * { flex: 1; justify-content: center; }
                         .viewer-body { padding: 10px; }
                         .viewer-stage { min-height: 240px; }
-                        .embedded-viewer { height: calc(100vh - 16px); width: calc(100vw - 16px); }
+                        .embedded-viewer { height: calc(var(--matgate-viewport-height, 100vh) - 16px); width: calc(100vw - 16px); }
                         .matgate-dialog,
                         .file-viewer-dialog { width: calc(100vw - 16px); }
                     }
                 </style>
             </head>
-            <body>
+            <body data-shell-layout="{{(shellLayout ? "1" : "0")}}">
                 <header>
                     <a class="brand" href="/">{{Logo()}}</a>
                     {{navigation}}
@@ -6850,6 +6918,8 @@ public sealed class HtmlViews
                                 closeOpenMenus(null);
                             }
                         });
+
+                        {{pwaRegistrationScript}}
 
                         window.MatgateCloseFileViewer = (event, source) => {
                             const element = source instanceof Element

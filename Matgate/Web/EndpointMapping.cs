@@ -24,8 +24,58 @@ public static class EndpointMapping
           <rect width="64" height="64" rx="14" fill="url(#g)"/>
           <path d="M19 23c0-7 5-12 13-12s13 5 13 12v18h-7V23c0-3.8-2.2-6-6-6s-6 2.2-6 6v18h-7z" fill="#fff" opacity=".9"/>
           <path d="M18 40h28v8H18z" fill="#fff"/>
-          <path d="M26 40h12v4H26z" fill="#176b5b"/>
+        <path d="M26 40h12v4H26z" fill="#176b5b"/>
         </svg>
+        """;
+
+    private const string PwaManifestJson = """
+        {
+          "name": "Matgate",
+          "short_name": "Matgate",
+          "description": "Gateway for your home network",
+          "id": "/",
+          "start_url": "/",
+          "scope": "/",
+          "display": "standalone",
+          "display_override": ["standalone"],
+          "orientation": "any",
+          "theme_color": "#176b5b",
+          "background_color": "#f4f6f4",
+          "icons": [
+            {
+              "src": "/favicon.svg",
+              "sizes": "any",
+              "type": "image/svg+xml",
+              "purpose": "any maskable"
+            }
+          ]
+        }
+        """;
+
+    private const string ServiceWorkerJs = """
+        const CACHE_NAME = 'matgate-pwa-v1';
+
+        self.addEventListener('install', event => {
+          self.skipWaiting();
+        });
+
+        self.addEventListener('activate', event => {
+          event.waitUntil(self.clients.claim());
+        });
+
+        self.addEventListener('fetch', event => {
+          const request = event.request;
+          if (request.method !== 'GET') {
+            return;
+          }
+
+          const url = new URL(request.url);
+          if (url.origin !== self.location.origin) {
+            return;
+          }
+
+          event.respondWith(fetch(request));
+        });
         """;
 
     public static void MapMatgateEndpoints(this WebApplication app)
@@ -33,6 +83,19 @@ public static class EndpointMapping
         app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
         app.MapMethods("/favicon.svg", new[] { "GET", "HEAD" }, () => Results.Text(FaviconSvg, "image/svg+xml"));
         app.MapMethods("/favicon.ico", new[] { "GET", "HEAD" }, () => Results.Text(FaviconSvg, "image/svg+xml"));
+        app.MapMethods("/pwa-icon.svg", new[] { "GET", "HEAD" }, () => Results.Text(FaviconSvg, "image/svg+xml"));
+        app.MapMethods("/manifest.webmanifest", new[] { "GET", "HEAD" }, (HttpContext context) =>
+        {
+            context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
+            context.Response.Headers.Pragma = "no-cache";
+            return Results.Text(PwaManifestJson, "application/manifest+json");
+        });
+        app.MapMethods("/sw.js", new[] { "GET", "HEAD" }, (HttpContext context) =>
+        {
+            context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
+            context.Response.Headers.Pragma = "no-cache";
+            return Results.Text(ServiceWorkerJs, "application/javascript");
+        });
         app.MapGet("/api/ping", () => Results.Ok(new { serverTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() }))
             .RequireAuthorization();
         app.MapGet("/language/{language}", SetLanguage);
