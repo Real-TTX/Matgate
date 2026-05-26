@@ -5497,7 +5497,7 @@ public sealed class HtmlViews
                         align-items: center;
                         justify-content: space-between;
                         gap: 16px;
-                        padding: 6px clamp(12px, 3vw, 24px);
+                        padding: calc(6px + env(safe-area-inset-top)) calc(clamp(12px, 3vw, 24px) + env(safe-area-inset-right)) 6px calc(clamp(12px, 3vw, 24px) + env(safe-area-inset-left));
                         position: sticky;
                         top: 0;
                         z-index: 5;
