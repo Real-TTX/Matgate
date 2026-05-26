@@ -24,6 +24,8 @@ public sealed class MatgateUser
 
     public string PreferredTheme { get; set; } = "system";
 
+    public bool RememberLoginByDefault { get; set; } = true;
+
     public bool IsEnabled { get; set; } = true;
 
     public List<Guid> FavoriteServerIds { get; set; } = [];

@@ -1,5 +1,7 @@
-using System.IO.Compression;
+using System.Buffers.Binary;
 using System.Security.Claims;
+using System.IO.Compression;
+using System.Text;
 using SharpCompress.Common;
 using SharpCompress.Readers;
 using Matgate.Models;
@@ -36,16 +38,22 @@ public static class EndpointMapping
           "id": "/",
           "start_url": "/",
           "scope": "/",
-          "display": "standalone",
-          "display_override": ["standalone"],
+          "display": "fullscreen",
+          "display_override": ["fullscreen", "standalone", "minimal-ui"],
           "orientation": "any",
           "theme_color": "#176b5b",
           "background_color": "#f4f6f4",
           "icons": [
             {
-              "src": "/favicon.svg",
-              "sizes": "any",
-              "type": "image/svg+xml",
+              "src": "/icon-192.png",
+              "sizes": "192x192",
+              "type": "image/png",
+              "purpose": "any maskable"
+            },
+            {
+              "src": "/icon-512.png",
+              "sizes": "512x512",
+              "type": "image/png",
               "purpose": "any maskable"
             }
           ]
@@ -78,12 +86,171 @@ public static class EndpointMapping
         });
         """;
 
+    private static readonly uint[] PngCrcTable = CreatePngCrcTable();
+    private static readonly byte[] PngSignature = [137, 80, 78, 71, 13, 10, 26, 10];
+    private static readonly byte[] PwaIcon180 = CreatePwaIconPng(180);
+    private static readonly byte[] PwaIcon192 = CreatePwaIconPng(192);
+    private static readonly byte[] PwaIcon512 = CreatePwaIconPng(512);
+
+    private static byte[] CreatePwaIconPng(int size)
+    {
+        var pixels = new byte[size * size * 4];
+        for (var y = 0; y < size; y++)
+        {
+            var ny = size <= 1 ? 0d : (double)y / (size - 1);
+            for (var x = 0; x < size; x++)
+            {
+                var nx = size <= 1 ? 0d : (double)x / (size - 1);
+                var t = Math.Clamp((nx * 0.66) + (ny * 0.34), 0d, 1d);
+                var r = Lerp(0x17, 0x2b, t);
+                var g = Lerp(0x6b, 0x58, t);
+                var b = Lerp(0x5b, 0x76, t);
+                var dx = nx - 0.42;
+                var dy = ny - 0.30;
+                var glow = Math.Max(0d, 1d - Math.Sqrt((dx * dx) + (dy * dy)) * 1.85) * 18d;
+                SetPixel(pixels, size, x, y, ClampToByte(r + glow), ClampToByte(g + glow), ClampToByte(b + glow), 255);
+            }
+        }
+
+        FillRect(pixels, size, (int)(size * 0.21), (int)(size * 0.20), (int)(size * 0.79), (int)(size * 0.30), 246, 250, 248, 255);
+        FillRect(pixels, size, (int)(size * 0.23), (int)(size * 0.20), (int)(size * 0.34), (int)(size * 0.74), 246, 250, 248, 255);
+        FillRect(pixels, size, (int)(size * 0.66), (int)(size * 0.20), (int)(size * 0.77), (int)(size * 0.74), 246, 250, 248, 255);
+        FillRect(pixels, size, (int)(size * 0.19), (int)(size * 0.72), (int)(size * 0.81), (int)(size * 0.82), 246, 250, 248, 255);
+        FillRect(pixels, size, (int)(size * 0.44), (int)(size * 0.35), (int)(size * 0.56), (int)(size * 0.72), 231, 238, 235, 255);
+        FillRect(pixels, size, (int)(size * 0.41), (int)(size * 0.52), (int)(size * 0.59), (int)(size * 0.60), 246, 250, 248, 255);
+
+        return EncodePng(size, size, pixels);
+    }
+
+    private static byte[] EncodePng(int width, int height, byte[] rgba)
+    {
+        var stride = width * 4;
+        var raw = new byte[height * (stride + 1)];
+        for (var y = 0; y < height; y++)
+        {
+            raw[y * (stride + 1)] = 0;
+            Buffer.BlockCopy(rgba, y * stride, raw, (y * (stride + 1)) + 1, stride);
+        }
+
+        using var compressed = new MemoryStream();
+        using (var zlib = new ZLibStream(compressed, CompressionLevel.SmallestSize, leaveOpen: true))
+        {
+            zlib.Write(raw, 0, raw.Length);
+        }
+
+        using var png = new MemoryStream();
+        png.Write(PngSignature);
+
+        Span<byte> header = stackalloc byte[13];
+        BinaryPrimitives.WriteInt32BigEndian(header[..4], width);
+        BinaryPrimitives.WriteInt32BigEndian(header.Slice(4, 4), height);
+        header[8] = 8;
+        header[9] = 6;
+        header[10] = 0;
+        header[11] = 0;
+        header[12] = 0;
+        WritePngChunk(png, "IHDR", header);
+        WritePngChunk(png, "IDAT", compressed.ToArray());
+        WritePngChunk(png, "IEND", ReadOnlySpan<byte>.Empty);
+        return png.ToArray();
+    }
+
+    private static void WritePngChunk(Stream stream, string type, ReadOnlySpan<byte> data)
+    {
+        Span<byte> lengthBytes = stackalloc byte[4];
+        BinaryPrimitives.WriteUInt32BigEndian(lengthBytes, (uint)data.Length);
+        stream.Write(lengthBytes);
+
+        var typeBytes = Encoding.ASCII.GetBytes(type);
+        stream.Write(typeBytes);
+        if (!data.IsEmpty)
+        {
+            stream.Write(data);
+        }
+
+        var crc = ComputePngCrc(typeBytes, data);
+        BinaryPrimitives.WriteUInt32BigEndian(lengthBytes, crc);
+        stream.Write(lengthBytes);
+    }
+
+    private static uint ComputePngCrc(ReadOnlySpan<byte> typeBytes, ReadOnlySpan<byte> data)
+    {
+        var crc = 0xFFFFFFFFu;
+        foreach (var value in typeBytes)
+        {
+            crc = PngCrcTable[(int)((crc ^ value) & 0xFF)] ^ (crc >> 8);
+        }
+
+        foreach (var value in data)
+        {
+            crc = PngCrcTable[(int)((crc ^ value) & 0xFF)] ^ (crc >> 8);
+        }
+
+        return ~crc;
+    }
+
+    private static uint[] CreatePngCrcTable()
+    {
+        var table = new uint[256];
+        for (var index = 0; index < table.Length; index++)
+        {
+            var crc = (uint)index;
+            for (var bit = 0; bit < 8; bit++)
+            {
+                crc = (crc & 1) == 1 ? 0xEDB88320u ^ (crc >> 1) : crc >> 1;
+            }
+
+            table[index] = crc;
+        }
+
+        return table;
+    }
+
+    private static void FillRect(byte[] pixels, int size, int left, int top, int right, int bottom, byte r, byte g, byte b, byte a)
+    {
+        var minX = Math.Clamp(left, 0, size);
+        var minY = Math.Clamp(top, 0, size);
+        var maxX = Math.Clamp(right, 0, size);
+        var maxY = Math.Clamp(bottom, 0, size);
+
+        for (var y = minY; y < maxY; y++)
+        {
+            for (var x = minX; x < maxX; x++)
+            {
+                SetPixel(pixels, size, x, y, r, g, b, a);
+            }
+        }
+    }
+
+    private static void SetPixel(byte[] pixels, int size, int x, int y, byte r, byte g, byte b, byte a)
+    {
+        var index = ((y * size) + x) * 4;
+        pixels[index] = r;
+        pixels[index + 1] = g;
+        pixels[index + 2] = b;
+        pixels[index + 3] = a;
+    }
+
+    private static byte ClampToByte(double value)
+    {
+        return (byte)Math.Clamp((int)Math.Round(value), 0, 255);
+    }
+
+    private static double Lerp(byte start, byte end, double t)
+    {
+        return start + ((end - start) * Math.Clamp(t, 0d, 1d));
+    }
+
     public static void MapMatgateEndpoints(this WebApplication app)
     {
         app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
         app.MapMethods("/favicon.svg", new[] { "GET", "HEAD" }, () => Results.Text(FaviconSvg, "image/svg+xml"));
         app.MapMethods("/favicon.ico", new[] { "GET", "HEAD" }, () => Results.Text(FaviconSvg, "image/svg+xml"));
         app.MapMethods("/pwa-icon.svg", new[] { "GET", "HEAD" }, () => Results.Text(FaviconSvg, "image/svg+xml"));
+        app.MapMethods("/icon-180.png", new[] { "GET", "HEAD" }, () => Results.File(PwaIcon180, "image/png"));
+        app.MapMethods("/icon-192.png", new[] { "GET", "HEAD" }, () => Results.File(PwaIcon192, "image/png"));
+        app.MapMethods("/icon-512.png", new[] { "GET", "HEAD" }, () => Results.File(PwaIcon512, "image/png"));
+        app.MapMethods("/apple-touch-icon.png", new[] { "GET", "HEAD" }, () => Results.File(PwaIcon180, "image/png"));
         app.MapMethods("/manifest.webmanifest", new[] { "GET", "HEAD" }, (HttpContext context) =>
         {
             context.Response.Headers.CacheControl = "no-cache, no-store, must-revalidate";
@@ -199,9 +366,11 @@ public static class EndpointMapping
                 var csrf = context.User.FindFirstValue("csrf") ?? "";
                 if (!string.IsNullOrWhiteSpace(csrf))
                 {
+                    var persistent = ShouldPersistAuthentication(context);
                     await context.SignInAsync(
                         CookieAuthenticationDefaults.AuthenticationScheme,
-                        BuildPrincipal(updatedUser, csrf, selectedLanguage, updatedUser.PreferredTheme));
+                        BuildPrincipal(updatedUser, csrf, selectedLanguage, updatedUser.PreferredTheme, persistent),
+                        BuildAuthProperties(persistent));
                 }
             }
         }
@@ -235,11 +404,14 @@ public static class EndpointMapping
                 "text/html");
         }
 
+        var rememberLogin = IsChecked(form, "rememberLogin");
         await context.SignInAsync(
             CookieAuthenticationDefaults.AuthenticationScheme,
-            BuildPrincipal(user, hasher.GenerateSecret(24), user.PreferredLanguage, user.PreferredTheme));
+            BuildPrincipal(user, hasher.GenerateSecret(24), user.PreferredLanguage, user.PreferredTheme, rememberLogin),
+            BuildAuthProperties(rememberLogin));
 
         var returnUrl = NormalizeReturnUrl(form["returnUrl"].ToString());
+        AppendRememberLoginCookie(context, rememberLogin);
         context.Response.Cookies.Append(
             HtmlViews.ThemeCookie,
             NormalizeTheme(user.PreferredTheme),
@@ -1158,6 +1330,7 @@ public static class EndpointMapping
                 CanCreateServers = IsChecked(form, "canCreateServers") || IsChecked(form, "isAdmin"),
                 PreferredLanguage = NormalizeLanguage(form["preferredLanguage"].ToString()),
                 PreferredTheme = NormalizeTheme(form["preferredTheme"].ToString()),
+                RememberLoginByDefault = IsChecked(form, "rememberLoginByDefault"),
                 IsEnabled = true,
                 CreatedAt = now,
                 UpdatedAt = now
@@ -1250,6 +1423,7 @@ public static class EndpointMapping
             user.CanCreateServers = IsChecked(form, "canCreateServers") || user.IsAdmin;
             user.PreferredLanguage = NormalizeLanguage(form["preferredLanguage"].ToString());
             user.PreferredTheme = NormalizeTheme(form["preferredTheme"].ToString());
+            user.RememberLoginByDefault = IsChecked(form, "rememberLoginByDefault");
             user.UpdatedAt = DateTimeOffset.UtcNow;
             if (user.Id == currentUser.Id)
             {
@@ -1273,9 +1447,11 @@ public static class EndpointMapping
             {
                 await context.SignInAsync(
                     CookieAuthenticationDefaults.AuthenticationScheme,
-                    BuildPrincipal(updatedSelfUser, csrf, updatedSelfUser.PreferredLanguage, updatedSelfUser.PreferredTheme));
+                    BuildPrincipal(updatedSelfUser, csrf, updatedSelfUser.PreferredLanguage, updatedSelfUser.PreferredTheme, updatedSelfUser.RememberLoginByDefault),
+                    BuildAuthProperties(updatedSelfUser.RememberLoginByDefault));
             }
 
+            AppendRememberLoginCookie(context, updatedSelfUser.RememberLoginByDefault);
             context.Response.Cookies.Append(
                 HtmlViews.ThemeCookie,
                 NormalizeTheme(updatedSelfUser.PreferredTheme),
@@ -1464,6 +1640,7 @@ public static class EndpointMapping
             current.DisplayName = Clean(form["displayName"].ToString(), current.DisplayName);
             current.PreferredLanguage = NormalizeLanguage(form["preferredLanguage"].ToString());
             current.PreferredTheme = NormalizeTheme(form["preferredTheme"].ToString());
+            current.RememberLoginByDefault = IsChecked(form, "rememberLoginByDefault");
             current.UpdatedAt = DateTimeOffset.UtcNow;
             updatedUser = current;
         }, context.RequestAborted);
@@ -1475,9 +1652,11 @@ public static class EndpointMapping
             {
                 await context.SignInAsync(
                     CookieAuthenticationDefaults.AuthenticationScheme,
-                    BuildPrincipal(updatedUser, csrf, updatedUser.PreferredLanguage, updatedUser.PreferredTheme));
+                    BuildPrincipal(updatedUser, csrf, updatedUser.PreferredLanguage, updatedUser.PreferredTheme, updatedUser.RememberLoginByDefault),
+                    BuildAuthProperties(updatedUser.RememberLoginByDefault));
             }
 
+            AppendRememberLoginCookie(context, updatedUser.RememberLoginByDefault);
             context.Response.Cookies.Append(
                 HtmlViews.ThemeCookie,
                 NormalizeTheme(updatedUser.PreferredTheme),
@@ -1977,7 +2156,7 @@ public static class EndpointMapping
         return user is { IsEnabled: true } ? user : null;
     }
 
-    private static ClaimsPrincipal BuildPrincipal(MatgateUser user, string csrf, string preferredLanguage, string preferredTheme)
+    private static ClaimsPrincipal BuildPrincipal(MatgateUser user, string csrf, string preferredLanguage, string preferredTheme, bool persistent)
     {
         var claims = new List<Claim>
         {
@@ -1985,7 +2164,8 @@ public static class EndpointMapping
             new(ClaimTypes.Name, user.UserName),
             new("csrf", csrf),
             new("lang", NormalizeLanguage(preferredLanguage)),
-            new("theme", NormalizeTheme(preferredTheme))
+            new("theme", NormalizeTheme(preferredTheme)),
+            new("persistent", persistent ? "1" : "0")
         };
 
         if (user.IsAdmin)
@@ -1994,6 +2174,51 @@ public static class EndpointMapping
         }
 
         return new ClaimsPrincipal(new ClaimsIdentity(claims, CookieAuthenticationDefaults.AuthenticationScheme));
+    }
+
+    private static AuthenticationProperties BuildAuthProperties(bool persistent)
+    {
+        return new AuthenticationProperties
+        {
+            AllowRefresh = true,
+            IsPersistent = persistent,
+            ExpiresUtc = persistent ? DateTimeOffset.UtcNow.AddDays(30) : null
+        };
+    }
+
+    private static void AppendRememberLoginCookie(HttpContext context, bool remember)
+    {
+        context.Response.Cookies.Append(
+            HtmlViews.RememberLoginCookie,
+            remember ? "1" : "0",
+            new CookieOptions
+            {
+                Expires = DateTimeOffset.UtcNow.AddYears(1),
+                HttpOnly = false,
+                SameSite = SameSiteMode.Lax,
+                Secure = context.Request.IsHttps
+            });
+    }
+
+    private static bool ShouldPersistAuthentication(HttpContext context)
+    {
+        var persistentClaim = context.User.FindFirstValue("persistent");
+        if (persistentClaim == "1")
+        {
+            return true;
+        }
+
+        if (persistentClaim == "0")
+        {
+            return false;
+        }
+
+        if (context.Request.Cookies.TryGetValue(HtmlViews.RememberLoginCookie, out var rememberCookie))
+        {
+            return string.Equals(rememberCookie, "1", StringComparison.OrdinalIgnoreCase);
+        }
+
+        return false;
     }
 
     private static bool CanAccessServer(MatgateUser user, ServerEndpoint server)

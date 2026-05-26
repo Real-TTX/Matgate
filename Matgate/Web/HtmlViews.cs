@@ -12,6 +12,7 @@ public sealed class HtmlViews
 {
     private const string LanguageCookieName = "Matgate.Language";
     private const string ThemeCookieName = "Matgate.Theme";
+    private const string RememberLoginCookieName = "Matgate.RememberLogin";
 
     private static readonly IReadOnlyDictionary<string, string> GermanText = new Dictionary<string, string>
     {
@@ -26,9 +27,14 @@ public sealed class HtmlViews
         ["Test TCP ports live."] = "TCP-Ports live pruefen.",
         ["Stream a file and watch transfer speed."] = "Eine Datei streamen und die Uebertragungsgeschwindigkeit sehen.",
         ["About"] = "ÃƒÆ’Ã†â€™Ãƒâ€¦Ã¢â‚¬Å“ber",
-        ["About Matgate"] = "ÃƒÆ’Ã†â€™Ãƒâ€¦Ã¢â‚¬Å“ber Matgate",
+        ["About Matgate"] = "Matgate",
         ["Local login for RDP, VNC, SSH, websites and file access in your home network."] = "Lokale Anmeldung fuer RDP-, VNC-, SSH-, Website- und Dateizugriffe im Heimnetz.",
         ["Live output streams below."] = "Die Ausgabe laeuft live unten ein.",
+        ["Folder view"] = "Ordneransicht",
+        ["Server view"] = "Serveransicht",
+        ["Folders"] = "Ordner",
+        ["No connections yet."] = "Noch keine Verbindungen vorhanden.",
+        ["No servers in this group."] = "Keine Server in dieser Gruppe.",
         ["Account"] = "Konto",
         ["Admin"] = "Admin",
         ["Version"] = "Version",
@@ -36,6 +42,8 @@ public sealed class HtmlViews
         ["Username"] = "Benutzername",
         ["Password"] = "Passwort",
         ["Sign in"] = "Einloggen",
+        ["Stay signed in on this device"] = "Auf diesem Geraet angemeldet bleiben",
+        ["Stay signed in by default"] = "Standardmaessig angemeldet bleiben",
         ["Dashboard"] = "Dashboard",
         ["Connections"] = "Verbindungen",
         ["Page"] = "Seite",
@@ -156,6 +164,7 @@ public sealed class HtmlViews
         ["Send clipboard"] = "Zwischenablage senden",
         ["Text"] = "Text",
         ["Send to active tab"] = "An aktiven Tab senden",
+        ["Paste to active tab"] = "In aktiven Tab einfuegen",
         ["Close"] = "Schliessen",
         ["Server"] = "Server",
         ["Server icon"] = "Server-Icon",
@@ -243,6 +252,8 @@ public sealed class HtmlViews
         var returnUrlField = string.IsNullOrWhiteSpace(returnUrl)
             ? ""
             : $"""<input type="hidden" name="returnUrl" value="{A(returnUrl)}">""";
+        var rememberLoginChecked = !context.Request.Cookies.TryGetValue(RememberLoginCookieName, out var rememberLoginCookie)
+            || !string.Equals(rememberLoginCookie, "0", StringComparison.OrdinalIgnoreCase);
         var errorHtml = string.IsNullOrWhiteSpace(error)
             ? ""
             : $"""<div class="notice error">{E(error)}</div>""";
@@ -263,6 +274,7 @@ public sealed class HtmlViews
                     <label>{{T(context, "Password")}}
                         <input name="password" type="password" autocomplete="current-password" required>
                     </label>
+                    <label class="check"><input type="checkbox" name="rememberLogin"{{Checked(rememberLoginChecked)}}> {{T(context, "Stay signed in on this device")}}</label>
                     <button type="submit" class="primary">{{Icon("key")}}{{T(context, "Sign in")}}</button>
                 </form>
             </section>
@@ -377,6 +389,7 @@ public sealed class HtmlViews
                             {{ThemeOptions(context, "system")}}
                         </select>
                     </label>
+                    <label class="check"><input type="checkbox" name="rememberLoginByDefault"{{Checked(true)}}> {{T(context, "Stay signed in by default")}}</label>
                 </div>
             </section>
                 <section class="panel">
@@ -455,6 +468,7 @@ public sealed class HtmlViews
                             </select>
                         </label>
                         <label class="check"><input type="checkbox" name="isEnabled"{{Checked(editedUser.IsEnabled)}}> {{T(context, "Enabled")}}</label>
+                        <label class="check"><input type="checkbox" name="rememberLoginByDefault"{{Checked(editedUser.RememberLoginByDefault)}}> {{T(context, "Stay signed in by default")}}</label>
                     </div>
                 </section>
                 <section class="panel">
@@ -626,7 +640,6 @@ public sealed class HtmlViews
                     <p class="eyebrow">{{T(context, "Account")}}</p>
                     <h1>{{E(displayName)}}</h1>
                 </div>
-                <a class="button" href="/">{{Icon("home")}}{{T(context, "Home")}}</a>
             </section>
             <section class="panel">
                 <h2>{{T(context, "Profile")}}</h2>
@@ -645,6 +658,7 @@ public sealed class HtmlViews
                             {{ThemeOptions(context, user.PreferredTheme)}}
                         </select>
                     </label>
+                    <label class="check"><input type="checkbox" name="rememberLoginByDefault"{{Checked(user.RememberLoginByDefault)}}> {{T(context, "Stay signed in by default")}}</label>
                     <div class="actions"><button type="submit" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button></div>
                 </form>
             </section>
@@ -665,6 +679,12 @@ public sealed class HtmlViews
                     </table>
                 </div>
             </section>
+            <div class="actions">
+                <form method="post" action="/logout" class="inline">
+                    {{Csrf(context)}}
+                    <button type="submit" class="danger">{{Icon("logout")}}{{T(context, "Logout")}}</button>
+                </form>
+            </div>
             """;
 
         return Layout(context, user, T(context, "Account"), body);
@@ -694,7 +714,6 @@ public sealed class HtmlViews
                 <div>
                     <p class="eyebrow">{{T(context, "Tools")}}</p>
                     <h1>{{T(context, "Network tools")}}</h1>
-                    <p class="muted">{{T(context, "Live output streams below.")}}</p>
                 </div>
             </section>
             <section class="panel tool-panel">
@@ -943,24 +962,38 @@ public sealed class HtmlViews
             """;
 
         return Layout(context, user, T(context, "Tools"), body);
-    }    private static string AboutBody(HttpContext context, string version)
+    }
+
+    private static string AboutBody(HttpContext context, string version)
     {
+        var buildTag = BuildTagLabel();
+        var buildTime = BuildTimestampLabel();
+        var buildBadge = string.IsNullOrWhiteSpace(buildTag)
+            ? ""
+            : $$"""<span class="badge">{{E(buildTag)}}</span>""";
+        var buildTimeLine = string.IsNullOrWhiteSpace(buildTime)
+            ? ""
+            : $$"""<p class="about-build muted">Build: {{E(buildTime)}}</p>""";
+        var copyrightYear = DateTimeOffset.Now.Year;
+
         return $$"""
             <section class="about-page">
                 <div class="page-head about-head">
                     <div class="about-copy">
                         <p class="eyebrow">{{T(context, "About")}}</p>
-                        <h1>{{T(context, "About Matgate")}}</h1>
-                        <p class="muted">{{T(context, "Local login for RDP, VNC, SSH, websites and file access in your home network.")}}</p>
+                        <h1>Matgate</h1>
                     </div>
-                    <div class="about-brand">{{Logo()}}</div>
                 </div>
                 <section class="panel about-card">
-                    <div class="row split about-meta">
-                        <strong>MATGATE {{E(version)}}</strong>
-                        <span class="badge">MIT</span>
+                    <div class="about-card-brand">{{Logo()}}</div>
+                    <div class="about-meta">
+                        <div class="about-version">
+                            <strong>MATGATE {{E(version)}}</strong>
+                        </div>
+                        {{buildTimeLine}}
+                        <div class="about-badges">{{buildBadge}}</div>
                     </div>
-                    <p class="muted">{{T(context, "Matgate keeps browser-based sessions, file access and admin pages in one place.")}}</p>
+                    <p class="about-copyright muted">&copy; {{copyrightYear}} Matthias Schmoldt</p>
                 </section>
             </section>
             """;
@@ -1009,77 +1042,324 @@ public sealed class HtmlViews
     {
         if (servers.Count == 0)
         {
-            return $"""<div class="empty">{T(context, includeEditButtons ? "No own servers created yet." : "No shared connections.")}</div>""";
+            var createButton = user.CanCreateServers
+                ? $"""<a class="button primary" href="/admin/servers/new">{Icon("plus")}{T(context, "Create own server")}</a>"""
+                : "";
+            return $$"""
+                <section class="connection-browser-empty">
+                    <div>
+                        <p class="eyebrow">{{T(context, "Home")}}</p>
+                        <h1>{{T(context, "New Connection")}}</h1>
+                        <p class="muted">{{T(context, "No connections yet.")}}</p>
+                    </div>
+                    {{createButton}}
+                </section>
+                """;
         }
 
         var returnUrl = $"{context.Request.Path}{context.Request.QueryString}";
+        var browserModes = new[]
+        {
+            ConnectionChoiceBrowserMode(context, user, servers, includeEditButtons, returnUrl, ConnectionBrowseMode.Folder),
+            ConnectionChoiceBrowserMode(context, user, servers, includeEditButtons, returnUrl, ConnectionBrowseMode.Host)
+        };
+        var headerCreateButton = user.CanCreateServers
+            ? $"""<a class="button primary" href="/admin/servers/new">{Icon("plus")}{T(context, "Create own server")}</a>"""
+            : "";
+
+        return $$"""
+            <section class="connection-browser" data-home-browser="1">
+                <section class="connection-picker-head connection-browser-head">
+                    <div>
+                        <p class="eyebrow">{{T(context, "Home")}}</p>
+                        <h1>{{T(context, "New Connection")}}</h1>
+                    </div>
+                    <div class="connection-browser-head-actions">
+                        <div class="connection-browser-mode-switch" role="tablist" aria-label="{{A(T(context, "Connections"))}}">
+                            <button type="button" class="connection-browser-mode-button active" data-home-mode-switch="folder">{{Icon("folder")}}<span>{{T(context, "Folder view")}}</span></button>
+                            <button type="button" class="connection-browser-mode-button" data-home-mode-switch="host">{{Icon("server")}}<span>{{T(context, "Server view")}}</span></button>
+                        </div>
+                        {{headerCreateButton}}
+                    </div>
+                </section>
+                <div class="connection-browser-modes">
+                    {{browserModes[0]}}
+                    {{browserModes[1]}}
+                </div>
+            </section>
+            """;
+    }
+
+    private enum ConnectionBrowseMode
+    {
+        Folder,
+        Host
+    }
+
+    private sealed record ConnectionBrowserGroup(
+        string Key,
+        string Title,
+        string Eyebrow,
+        string IconHtml,
+        IReadOnlyList<ServerEndpoint> Servers,
+        string EmptyMessage,
+        bool ShowCreateAction);
+
+    private static string ConnectionChoiceBrowserMode(
+        HttpContext context,
+        MatgateUser user,
+        IReadOnlyList<ServerEndpoint> servers,
+        bool includeEditButtons,
+        string returnUrl,
+        ConnectionBrowseMode mode)
+    {
         var favoriteIds = user.FavoriteServerIds?.ToHashSet() ?? new HashSet<Guid>();
-        var favoriteServers = servers
+        var favorites = servers
             .Where(server => favoriteIds.Contains(server.Id))
-            .OrderBy(server => string.IsNullOrWhiteSpace(server.FolderName) ? 1 : 0)
-            .ThenBy(server => server.FolderName)
+            .OrderBy(ConnectionChoiceSortGroup)
             .ThenBy(server => server.Name)
             .ToList();
-        var remainingServers = servers
-            .Where(server => !favoriteIds.Contains(server.Id))
+        var sharedServers = servers
+            .Where(server => server.OwnerUserId is null)
+            .OrderBy(ConnectionChoiceSortGroup)
+            .ThenBy(server => server.Name)
+            .ToList();
+        var ownServers = servers
+            .Where(server => server.OwnerUserId == user.Id)
+            .OrderBy(ConnectionChoiceSortGroup)
+            .ThenBy(server => server.Name)
             .ToList();
 
-        var sections = new List<string>();
-        if (favoriteServers.Count > 0)
+        var groups = new List<ConnectionBrowserGroup>();
+        if (favorites.Count > 0)
         {
-            sections.Add(ConnectionChoiceSection(
-                context,
-                user,
+            groups.Add(new ConnectionBrowserGroup(
+                "favorites",
+                T(context, "Favorites"),
                 T(context, "Favorites"),
                 Icon("star"),
-                favoriteServers,
-                includeEditButtons,
-                returnUrl,
-                T(context, "Favorites")));
+                favorites,
+                T(context, "No favorite servers yet."),
+                false));
         }
 
-        var folderGroups = remainingServers
-            .GroupBy(server => string.IsNullOrWhiteSpace(server.FolderName) ? "" : server.FolderName.Trim(), StringComparer.OrdinalIgnoreCase)
-            .OrderBy(group => string.IsNullOrWhiteSpace(group.Key) ? 1 : 0)
-            .ThenBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        if (folderGroups.Count == 1 && string.IsNullOrWhiteSpace(folderGroups[0].Key))
-        {
-            sections.Add(ConnectionChoiceSection(
+        var primaryGroups = mode == ConnectionBrowseMode.Host
+            ? BuildConnectionBrowserGroups(
                 context,
-                user,
-                T(context, "Folder"),
-                Icon("folder"),
-                folderGroups[0].ToList(),
-                includeEditButtons,
-                returnUrl,
-                T(context, "Unsorted")));
-        }
-        else
+                servers,
+                mode,
+                "host",
+                T(context, "No servers in this group."),
+                false)
+            : BuildConnectionBrowserGroups(
+                context,
+                sharedServers,
+                mode,
+                "shared",
+                T(context, "No servers in this group."),
+                false);
+
+        var ownGroups = mode == ConnectionBrowseMode.Folder
+            ? BuildConnectionBrowserGroups(
+                context,
+                ownServers,
+                mode,
+                "own",
+                T(context, "No own servers created yet."),
+                user.CanCreateServers)
+            : new List<ConnectionBrowserGroup>();
+
+        groups.AddRange(primaryGroups);
+        groups.AddRange(ownGroups);
+
+        if (groups.Count == 0)
         {
-            foreach (var group in folderGroups)
-            {
-                var groupTitle = string.IsNullOrWhiteSpace(group.Key)
-                    ? T(context, "Unsorted")
-                    : group.Key;
-                var groupIcon = string.IsNullOrWhiteSpace(group.Key)
-                    ? Icon("folder")
-                    : ServerFolderIcon(group.FirstOrDefault());
-
-                sections.Add(ConnectionChoiceSection(
-                    context,
-                    user,
-                    T(context, "Folder"),
-                    groupIcon,
-                    group.ToList(),
-                    includeEditButtons,
-                    returnUrl,
-                    groupTitle));
-            }
+            return "";
         }
 
-        return string.Join("", sections);
+        var defaultGroupKey = groups[0].Key;
+        var navSections = new List<string>();
+        if (favorites.Count > 0)
+        {
+            navSections.Add(ConnectionBrowserNavSection(T(context, "Favorites"), groups.Where(group => group.Key == "favorites").ToList(), defaultGroupKey));
+        }
+
+        if (primaryGroups.Count > 0)
+        {
+            navSections.Add(ConnectionBrowserNavSection(mode == ConnectionBrowseMode.Folder ? T(context, "Folders") : T(context, "Servers"), primaryGroups, defaultGroupKey));
+        }
+
+        if (ownGroups.Count > 0)
+        {
+            navSections.Add(ConnectionBrowserNavSection(T(context, "Own servers"), ownGroups, defaultGroupKey));
+        }
+
+        var panels = string.Join("", groups.Select((group, index) => ConnectionBrowserGroupSection(context, user, group, includeEditButtons, returnUrl, index == 0)));
+
+        return $$"""
+            <section class="home-browser-mode{{(mode == ConnectionBrowseMode.Folder ? " active" : " hidden")}}" data-home-mode-panel="{{A(mode.ToString().ToLowerInvariant())}}" data-home-default-group="{{A(defaultGroupKey)}}">
+                <div class="home-browser-layout">
+                    <aside class="home-browser-sidebar">
+                        {{string.Join("", navSections)}}
+                    </aside>
+                    <div class="home-browser-content">
+                        {{panels}}
+                    </div>
+                </div>
+            </section>
+            """;
+    }
+
+    private static List<ConnectionBrowserGroup> BuildConnectionBrowserGroups(
+        HttpContext context,
+        IReadOnlyList<ServerEndpoint> servers,
+        ConnectionBrowseMode mode,
+        string sectionKey,
+        string emptyMessage,
+        bool allowCreateAction)
+    {
+        var groups = new List<ConnectionBrowserGroup>();
+        if (servers.Count == 0)
+        {
+            if (allowCreateAction)
+            {
+                groups.Add(new ConnectionBrowserGroup(
+                    $"{sectionKey}:{mode.ToString().ToLowerInvariant()}:empty",
+                    T(context, "Unsorted"),
+                    mode == ConnectionBrowseMode.Folder ? T(context, "Folder") : T(context, "Server"),
+                    mode == ConnectionBrowseMode.Folder ? Icon("folder") : Icon("server"),
+                    Array.Empty<ServerEndpoint>(),
+                    emptyMessage,
+                    true));
+            }
+
+            return groups;
+        }
+
+        var groupedServers = mode == ConnectionBrowseMode.Folder
+            ? servers.GroupBy(server => string.IsNullOrWhiteSpace(server.FolderName) ? "" : server.FolderName.Trim(), StringComparer.OrdinalIgnoreCase)
+            : servers.GroupBy(ConnectionBrowserHostGroupKey, StringComparer.OrdinalIgnoreCase);
+
+        foreach (var group in groupedServers
+                     .OrderBy(group => string.IsNullOrWhiteSpace(group.Key) ? 1 : 0)
+                     .ThenBy(group => group.Key, StringComparer.OrdinalIgnoreCase))
+        {
+            var keyPart = string.IsNullOrWhiteSpace(group.Key) ? "unsorted" : group.Key.Trim();
+            var title = string.IsNullOrWhiteSpace(group.Key) ? T(context, "Unsorted") : group.Key.Trim();
+            groups.Add(new ConnectionBrowserGroup(
+                $"{sectionKey}:{mode.ToString().ToLowerInvariant()}:{keyPart}",
+                title,
+                mode == ConnectionBrowseMode.Folder ? T(context, "Folder") : T(context, "Server"),
+                mode == ConnectionBrowseMode.Folder ? ServerFolderIcon(group.FirstOrDefault()) : Icon("server"),
+                group.ToList(),
+                emptyMessage,
+                false));
+        }
+
+        return groups;
+    }
+
+    private static string ConnectionBrowserNavSection(
+        string heading,
+        IReadOnlyList<ConnectionBrowserGroup> groups,
+        string defaultGroupKey)
+    {
+        if (groups.Count == 0)
+        {
+            return "";
+        }
+
+        return $$"""
+            <section class="home-browser-nav-section">
+                <p class="home-browser-nav-heading">{{E(heading)}}</p>
+                <div class="home-browser-nav-list">
+                    {{string.Join("", groups.Select(group => ConnectionBrowserNavItem(group, group.Key == defaultGroupKey)))}}
+                </div>
+            </section>
+            """;
+    }
+
+    private static string ConnectionBrowserNavItem(ConnectionBrowserGroup group, bool active)
+    {
+        return $$"""
+            <button type="button" class="home-browser-nav-item{{(active ? " active" : "")}}" data-home-group="{{A(group.Key)}}">
+                <span class="home-browser-nav-icon">{{group.IconHtml}}</span>
+                <span class="home-browser-nav-copy">
+                    <span class="home-browser-nav-title">{{E(group.Title)}}</span>
+                </span>
+                <span class="badge">{{group.Servers.Count}}</span>
+            </button>
+            """;
+    }
+
+    private static string ConnectionBrowserGroupSection(
+        HttpContext context,
+        MatgateUser user,
+        ConnectionBrowserGroup group,
+        bool includeEditButtons,
+        string returnUrl,
+        bool active)
+    {
+        var cards = group.Servers.Count == 0
+            ? ""
+            : string.Join("", group.Servers.Select(server => ConnectionChoiceCard(context, user, server, includeEditButtons, returnUrl)));
+        var emptyState = group.Servers.Count == 0
+            ? $$"""
+                <div class="empty connection-browser-empty-state">
+                    <div>
+                        <p class="eyebrow">{{E(group.Eyebrow)}}</p>
+                        <h3>{{E(group.Title)}}</h3>
+                        <p class="muted">{{E(group.EmptyMessage)}}</p>
+                    </div>
+                    {{(group.ShowCreateAction ? $"""<a class="button primary" href="/admin/servers/new">{Icon("plus")}{T(context, "Create own server")}</a>""" : "")}}
+                </div>
+                """
+            : $"""<section class="connection-picker-grid home-browser-grid">{cards}</section>""";
+
+        return $$"""
+            <section class="home-browser-section{{(active ? " active" : "")}}" data-home-group-panel="{{A(group.Key)}}">
+                <div class="connection-choice-section-head home-browser-section-head">
+                    <div>
+                        <p class="eyebrow">{{E(group.Eyebrow)}}</p>
+                        <h2>{{group.IconHtml}}<span>{{E(group.Title)}}</span></h2>
+                    </div>
+                    <span class="badge">{{group.Servers.Count}}</span>
+                </div>
+                {{emptyState}}
+            </section>
+            """;
+    }
+
+    private static string ConnectionChoiceSortGroup(ServerEndpoint server)
+    {
+        var folder = string.IsNullOrWhiteSpace(server.FolderName) ? "" : server.FolderName.Trim().ToLowerInvariant();
+        return $"{(string.IsNullOrWhiteSpace(folder) ? "1" : "0")}|{folder}|{server.Name.ToLowerInvariant()}";
+    }
+
+    private static string ConnectionBrowserHostGroupKey(ServerEndpoint server)
+    {
+        if (ServerEndpoint.IsWebsiteProtocol(server.Protocol))
+        {
+            var normalized = ServerEndpoint.NormalizeWebsiteUrl(server.WebsiteUrl, server.Host);
+            if (Uri.TryCreate(normalized, UriKind.Absolute, out var uri))
+            {
+                return uri.Host.Trim();
+            }
+
+            if (!string.IsNullOrWhiteSpace(server.Host))
+            {
+                return server.Host.Trim();
+            }
+
+            return "";
+        }
+
+        if (string.IsNullOrWhiteSpace(server.Host))
+        {
+            return "";
+        }
+
+        return server.Host.Trim();
     }
 
     private static string ConnectionChoiceSection(
@@ -1116,31 +1396,34 @@ public sealed class HtmlViews
         bool includeEditButtons,
         string returnUrl)
     {
+        var canEdit = includeEditButtons && server.OwnerUserId == user.Id;
         var actions = new List<string>
         {
-            $"""<button type="button" class="primary workspace-open-button" data-server-id="{server.Id}">{Icon("play")}{T(context, "Open")}</button>""",
-            FavoriteToggleForm(context, user, server, returnUrl)
+            $"""<button type="button" class="primary workspace-open-button connection-choice-open" data-server-id="{server.Id}">{Icon("play")}{T(context, server.Protocol == ServerProtocol.Website ? "Open" : "Connect")}</button>"""
         };
 
-        if (includeEditButtons)
+        if (canEdit)
         {
-            actions.Insert(1, $"""<a class="button" href="/admin/servers/{server.Id}">{Icon("edit")}{T(context, "Edit")}</a>""");
+            actions.Add($"""<a class="button connection-choice-edit" href="/admin/servers/{server.Id}">{Icon("edit")}{T(context, "Edit")}</a>""");
         }
 
         return $$"""
             <article class="connection-choice">
-                <div>
-                    <div class="server-title">
+                {{FavoriteToggleForm(context, user, server, returnUrl)}}
+                <div class="connection-choice-body">
+                    <div class="server-title connection-choice-title">
                         {{ServerIcon(server)}}
                         <div class="connection-choice-copy">
-                            <span class="badge">{{E(ServerProtocolLabel(server.Protocol))}}</span>
-                            {{ServerFolderBadge(context, server)}}
-                            {{(server.OwnerUserId is null ? "" : ServerScopeBadge(context, server, currentUser: user))}}
-                            <h2>{{E(server.Name)}}</h2>
+                            <div class="connection-choice-badges">
+                                <span class="badge">{{E(ServerProtocolLabel(server.Protocol))}}</span>
+                                {{ServerFolderBadge(context, server)}}
+                                {{(server.OwnerUserId is null ? "" : ServerScopeBadge(context, server, currentUser: user))}}
+                            </div>
+                            <h3>{{E(server.Name)}}</h3>
+                            <p class="target">{{E(ServerTargetValue(server))}}</p>
                         </div>
                     </div>
-                    <p class="target">{{E(ServerTargetValue(server))}}</p>
-                    <p class="muted">{{E(server.Notes)}}</p>
+                    {{(string.IsNullOrWhiteSpace(server.Notes) ? "" : $"""<p class="muted connection-choice-notes">{E(server.Notes)}</p>""")}}
                 </div>
                 <div class="connection-choice-actions">
                     {{string.Join("", actions)}}
@@ -1329,8 +1612,6 @@ public sealed class HtmlViews
         IReadOnlyList<ServerEndpoint> servers,
         Guid? openServerId)
     {
-        var sharedServers = servers.Where(server => server.OwnerUserId is null).OrderBy(server => server.Name).ToList();
-        var ownServers = servers.Where(server => server.OwnerUserId == user.Id).OrderBy(server => server.Name).ToList();
         var availableServers = JsonSerializer.Serialize(servers.Select(server => new
         {
             id = server.Id.ToString(),
@@ -1386,6 +1667,7 @@ public sealed class HtmlViews
             page = T(context, "Page"),
             fullscreen = T(context, "Fullscreen"),
             clipboard = T(context, "Clipboard"),
+            pasteToActiveTab = Language(context) == "de" ? "In aktiven Tab einfuegen" : "Paste to active tab",
             disconnect = T(context, "Disconnect"),
             username = T(context, "Username"),
             password = T(context, "Password"),
@@ -1490,22 +1772,7 @@ public sealed class HtmlViews
             connectionContinues = Language(context) == "de" ? "Verbindung wird fortgesetzt" : "Connection continues",
             credentialsSubmitted = Language(context) == "de" ? "Die Zugangsdaten wurden uebergeben." : "Credentials were submitted."
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
-        var connectionChoices = ConnectionChoiceSections(context, user, sharedServers, false);
-        var ownConnectionChoices = ConnectionChoiceSections(context, user, ownServers, true);
-        var ownServersSection = user.CanCreateServers
-            ? $$"""
-                <section class="home-management">
-                    <div class="row split">
-                        <div>
-                            <p class="eyebrow">{{T(context, "Own servers")}}</p>
-                            <h2>{{T(context, "Own servers")}}</h2>
-                        </div>
-                        <a class="button primary" href="/admin/servers/new">{{Icon("plus")}}{{T(context, "Create own server")}}</a>
-                    </div>
-                    {{ownConnectionChoices}}
-                </section>
-                """
-            : "";
+        var connectionChoices = ConnectionChoiceSections(context, user, servers, true);
         var body = $$"""
             <div id="matgate-shell" class="matgate-shell">
             <div class="shell-page-row">
@@ -1524,12 +1791,7 @@ public sealed class HtmlViews
                 <div id="session-deck" class="session-deck">
                     <div id="new-connection-panel" class="connection-picker-panel">
                         <div class="connection-picker-inner">
-                            <section class="connection-picker-head">
-                                <p class="eyebrow">{{T(context, "Home")}}</p>
-                                <h1>{{T(context, "New Connection")}}</h1>
-                            </section>
                             {{connectionChoices}}
-                            {{ownServersSection}}
                         </div>
                     </div>
                 </div>
@@ -1611,6 +1873,8 @@ public sealed class HtmlViews
                 const shellTabStorageKey = 'matgate.shell.tabs.v1';
                 const tabOrderStorageKey = 'matgate.tab.order.v1';
                 const shellTabs = new Map();
+                const homeBrowser = document.querySelector('[data-home-browser]');
+                const homeBrowserStateKey = 'matgate.home.browser.v1';
 
                 let activeTabId = null;
                 let activeShellTabId = '';
@@ -1621,6 +1885,13 @@ public sealed class HtmlViews
                 let resizeTimer = null;
                 let gatewayLatencyMs = null;
                 let fileViewerLoadToken = 0;
+                let homeBrowserState = {
+                    mode: 'folder',
+                    groups: {
+                        folder: '',
+                        host: ''
+                    }
+                };
 
                 const shellLayout = document.body.dataset.shellLayout === '1';
                 const updateViewportHeight = () => {
@@ -1773,6 +2044,145 @@ public sealed class HtmlViews
                     if (shellPagePanels) {
                         shellPagePanels.classList.toggle('hidden', false);
                     }
+                }
+
+                function homeBrowserDefaultState() {
+                    return {
+                        mode: 'folder',
+                        groups: {
+                            folder: '',
+                            host: ''
+                        }
+                    };
+                }
+
+                function loadHomeBrowserState() {
+                    try {
+                        const raw = localStorage.getItem(homeBrowserStateKey);
+                        if (!raw) {
+                            return homeBrowserDefaultState();
+                        }
+
+                        const parsed = JSON.parse(raw);
+                        return {
+                            mode: parsed?.mode === 'host' ? 'host' : 'folder',
+                            groups: {
+                                folder: typeof parsed?.groups?.folder === 'string' ? parsed.groups.folder : '',
+                                host: typeof parsed?.groups?.host === 'string' ? parsed.groups.host : ''
+                            }
+                        };
+                    }
+                    catch {
+                        return homeBrowserDefaultState();
+                    }
+                }
+
+                function saveHomeBrowserState() {
+                    try {
+                        localStorage.setItem(homeBrowserStateKey, JSON.stringify(homeBrowserState));
+                    }
+                    catch {
+                        // Ignore storage failures.
+                    }
+                }
+
+                function getHomeBrowserModePanels() {
+                    return homeBrowser ? Array.from(homeBrowser.querySelectorAll('[data-home-mode-panel]')) : [];
+                }
+
+                function getHomeBrowserModeButtons() {
+                    return homeBrowser ? Array.from(homeBrowser.querySelectorAll('[data-home-mode-switch]')) : [];
+                }
+
+                function findHomeBrowserModePanel(mode) {
+                    return getHomeBrowserModePanels().find(panel => panel.dataset.homeModePanel === mode) || null;
+                }
+
+                function getHomeBrowserGroupButtons(panel) {
+                    return panel ? Array.from(panel.querySelectorAll('[data-home-group]')) : [];
+                }
+
+                function getHomeBrowserGroupPanels(panel) {
+                    return panel ? Array.from(panel.querySelectorAll('[data-home-group-panel]')) : [];
+                }
+
+                function setHomeBrowserGroup(mode, groupKey, persist = true) {
+                    if (!homeBrowser) {
+                        return;
+                    }
+
+                    const resolvedMode = mode === 'host' ? 'host' : 'folder';
+                    const panel = findHomeBrowserModePanel(resolvedMode);
+                    if (!panel) {
+                        return;
+                    }
+
+                    const buttons = getHomeBrowserGroupButtons(panel);
+                    const panels = getHomeBrowserGroupPanels(panel);
+                    const resolvedKey = buttons.some(button => button.dataset.homeGroup === groupKey)
+                        ? groupKey
+                        : (panel.dataset.homeDefaultGroup || buttons[0]?.dataset.homeGroup || '');
+
+                    buttons.forEach(button => button.classList.toggle('active', button.dataset.homeGroup === resolvedKey));
+                    panels.forEach(section => section.classList.toggle('hidden', section.dataset.homeGroupPanel !== resolvedKey));
+
+                    if (!homeBrowserState.groups) {
+                        homeBrowserState.groups = {
+                            folder: '',
+                            host: ''
+                        };
+                    }
+
+                    homeBrowserState.groups[resolvedMode] = resolvedKey;
+                    if (persist) {
+                        saveHomeBrowserState();
+                    }
+                }
+
+                function setHomeBrowserMode(mode, persist = true) {
+                    if (!homeBrowser) {
+                        return;
+                    }
+
+                    const resolvedMode = mode === 'host' ? 'host' : 'folder';
+                    homeBrowserState.mode = resolvedMode;
+
+                    getHomeBrowserModeButtons().forEach(button => button.classList.toggle('active', button.dataset.homeModeSwitch === resolvedMode));
+                    getHomeBrowserModePanels().forEach(panel => panel.classList.toggle('hidden', panel.dataset.homeModePanel !== resolvedMode));
+                    setHomeBrowserGroup(resolvedMode, homeBrowserState.groups?.[resolvedMode] || '', false);
+
+                    if (persist) {
+                        saveHomeBrowserState();
+                    }
+                }
+
+                function wireHomeBrowser() {
+                    if (!homeBrowser) {
+                        return;
+                    }
+
+                    getHomeBrowserModeButtons().forEach(button => {
+                        button.addEventListener('click', () => {
+                            setHomeBrowserMode(button.dataset.homeModeSwitch || 'folder');
+                        });
+                    });
+
+                    getHomeBrowserModePanels().forEach(panel => {
+                        getHomeBrowserGroupButtons(panel).forEach(button => {
+                            button.addEventListener('click', () => {
+                                setHomeBrowserGroup(panel.dataset.homeModePanel || 'folder', button.dataset.homeGroup || '');
+                            });
+                        });
+                    });
+                }
+
+                function restoreHomeBrowser() {
+                    if (!homeBrowser) {
+                        return;
+                    }
+
+                    homeBrowserState = loadHomeBrowserState();
+                    setHomeBrowserMode(homeBrowserState.mode, false);
                 }
 
                 function shellEmbeddedUrl(url) {
@@ -2166,6 +2576,78 @@ public sealed class HtmlViews
                     tab.overlay.classList.add('hidden');
                 }
 
+                function isFullscreenActive() {
+                    return Boolean(document.fullscreenElement
+                        || document.webkitFullscreenElement
+                        || document.mozFullScreenElement
+                        || document.msFullscreenElement);
+                }
+
+                function requestFullscreen(element) {
+                    if (!element) {
+                        return Promise.reject(new Error('Fullscreen unavailable'));
+                    }
+
+                    const method = element.requestFullscreen
+                        || element.webkitRequestFullscreen
+                        || element.webkitEnterFullscreen
+                        || element.mozRequestFullScreen
+                        || element.msRequestFullscreen;
+
+                    if (!method) {
+                        return Promise.reject(new Error('Fullscreen unavailable'));
+                    }
+
+                    try {
+                        const result = method.call(element);
+                        return result && typeof result.then === 'function' ? result : Promise.resolve();
+                    }
+                    catch (error) {
+                        return Promise.reject(error);
+                    }
+                }
+
+                function exitFullscreen() {
+                    const method = document.exitFullscreen
+                        || document.webkitExitFullscreen
+                        || document.webkitCancelFullScreen
+                        || document.mozCancelFullScreen
+                        || document.msExitFullscreen;
+
+                    if (!method) {
+                        return Promise.resolve();
+                    }
+
+                    try {
+                        const result = method.call(document);
+                        return result && typeof result.then === 'function' ? result : Promise.resolve();
+                    }
+                    catch (error) {
+                        return Promise.reject(error);
+                    }
+                }
+
+                async function toggleFullscreen(element) {
+                    if (isFullscreenActive()) {
+                        await exitFullscreen();
+                        return;
+                    }
+
+                    const candidates = [element, document.documentElement, document.body].filter(Boolean);
+                    let lastError = null;
+                    for (const candidate of candidates) {
+                        try {
+                            await requestFullscreen(candidate);
+                            return;
+                        }
+                        catch (error) {
+                            lastError = error;
+                        }
+                    }
+
+                    throw lastError || new Error('Fullscreen unavailable');
+                }
+
                 function updateTabActions() {
                     if (!connectionTabActions) {
                         updateStatusBar();
@@ -2182,13 +2664,13 @@ public sealed class HtmlViews
                     const fullscreenButton = createTabActionButton(
                         actionIcons.fullscreen,
                         uiText.fullscreen || 'Fullscreen',
-                        () => {
-                            const target = tab.panel || deck;
-                            if (!document.fullscreenElement) {
-                                target.requestFullscreen().then(scheduleResize).catch(() => {});
+                        async () => {
+                            try {
+                                await toggleFullscreen(tab.panel || deck);
+                                scheduleResize();
                             }
-                            else {
-                                document.exitFullscreen().then(scheduleResize).catch(() => {});
+                            catch {
+                                // Ignore fullscreen failures on browsers with partial support.
                             }
                         },
                         '',
@@ -2199,16 +2681,15 @@ public sealed class HtmlViews
                     if (tab.client && !tab.terminal) {
                         const clipboardButton = createTabActionButton(
                             actionIcons.clipboard,
-                            uiText.clipboard || 'Clipboard',
+                            uiText.pasteToActiveTab || uiText.clipboard || 'Paste to active tab',
                             async () => {
+                                openClipboardDialog(tab.remoteClipboard || '');
                                 try {
                                     const text = await readBrowserClipboard();
-                                    if (!sendClipboardText(tab, text)) {
-                                        openClipboardDialog(tab.remoteClipboard || '');
-                                    }
+                                    clipboardText.value = text;
                                 }
                                 catch {
-                                    openClipboardDialog(tab.remoteClipboard || '');
+                                    // Keep the dialog open with the prefilled remote clipboard or manual input.
                                 }
                             },
                             '',
@@ -4440,6 +4921,8 @@ public sealed class HtmlViews
                 wireShellNavigation();
                 activateNewConnectionTab();
                 showView('home', false);
+                wireHomeBrowser();
+                restoreHomeBrowser();
                 restoreShellTabs();
                 measureGatewayLatency();
                 window.setInterval(measureGatewayLatency, 5000);
@@ -4756,18 +5239,86 @@ public sealed class HtmlViews
                         client.connect(parameters.toString());
                         window.addEventListener('resize', scheduleResize);
                     }
-                    catch (error) {
-                        finish('Verbindung fehlgeschlagen', error instanceof Error ? error.message : 'Die Verbindung konnte nicht gestartet werden.');
+                catch (error) {
+                    finish('Verbindung fehlgeschlagen', error instanceof Error ? error.message : 'Die Verbindung konnte nicht gestartet werden.');
+                }
+            }
+
+            function isFullscreenActive() {
+                return Boolean(document.fullscreenElement
+                    || document.webkitFullscreenElement
+                    || document.mozFullScreenElement
+                    || document.msFullscreenElement);
+            }
+
+            function requestFullscreen(element) {
+                if (!element) {
+                    return Promise.reject(new Error('Fullscreen unavailable'));
+                }
+
+                const method = element.requestFullscreen
+                    || element.webkitRequestFullscreen
+                    || element.webkitEnterFullscreen
+                    || element.mozRequestFullScreen
+                    || element.msRequestFullscreen;
+
+                if (!method) {
+                    return Promise.reject(new Error('Fullscreen unavailable'));
+                }
+
+                try {
+                    const result = method.call(element);
+                    return result && typeof result.then === 'function' ? result : Promise.resolve();
+                }
+                catch (error) {
+                    return Promise.reject(error);
+                }
+            }
+
+            function exitFullscreen() {
+                const method = document.exitFullscreen
+                    || document.webkitExitFullscreen
+                    || document.webkitCancelFullScreen
+                    || document.mozCancelFullScreen
+                    || document.msExitFullscreen;
+
+                if (!method) {
+                    return Promise.resolve();
+                }
+
+                try {
+                    const result = method.call(document);
+                    return result && typeof result.then === 'function' ? result : Promise.resolve();
+                }
+                catch (error) {
+                    return Promise.reject(error);
+                }
+            }
+
+                async function toggleFullscreen(element) {
+                    if (isFullscreenActive()) {
+                        await exitFullscreen();
+                        return;
                     }
+
+                    const candidates = [element, document.documentElement, document.body].filter(Boolean);
+                    let lastError = null;
+                    for (const candidate of candidates) {
+                        try {
+                            await requestFullscreen(candidate);
+                            return;
+                        }
+                        catch (error) {
+                            lastError = error;
+                        }
+                    }
+
+                    throw lastError || new Error('Fullscreen unavailable');
                 }
 
                 fullscreenButton.addEventListener('click', () => {
-                    if (!document.fullscreenElement) {
-                        stage.requestFullscreen().then(scheduleResize).catch(() => {});
-                    }
-                    else {
-                        document.exitFullscreen().then(scheduleResize).catch(() => {});
-                    }
+                    const action = toggleFullscreen(stage);
+                    action.then(scheduleResize).catch(() => {});
                 });
 
                 disconnectButton.addEventListener('click', () => {
@@ -4818,19 +5369,10 @@ public sealed class HtmlViews
                 <a class="shell-tab{{accountClass}}" href="/account" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Account"))}}">{{Icon("user")}}<span class="account-name">{{E(displayName)}}</span></a>
             </nav>
             """;
-        var shellActions = user is null ? "" : $$"""
-            <div class="shell-actions">
-                <form method="post" action="/logout" class="inline">
-                    {{Csrf(context)}}
-                    <button type="submit" class="shell-action">{{Icon("logout")}}<span>{{T(context, "Logout")}}</span></button>
-                </form>
-            </div>
-            """;
-        var navigation = user is null ? "" : shellTabs + shellActions;
-        var pwaEnabled = user is not null
-            && !string.Equals(context.Request.Query["embed"].ToString(), "1", StringComparison.OrdinalIgnoreCase);
+        var navigation = user is null ? "" : shellTabs;
+        var pwaEnabled = !string.Equals(context.Request.Query["embed"].ToString(), "1", StringComparison.OrdinalIgnoreCase);
         var pwaHeadMarkup = pwaEnabled
-            ? """<meta name="application-name" content="Matgate"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-title" content="Matgate"><link rel="manifest" href="/manifest.webmanifest"><link rel="apple-touch-icon" href="/pwa-icon.svg">"""
+            ? """<meta name="application-name" content="Matgate"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="Matgate"><link rel="manifest" href="/manifest.webmanifest"><link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png"><link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">"""
             : "";
         var pwaRegistrationScript = pwaEnabled
             ? """
@@ -5879,6 +6421,316 @@ public sealed class HtmlViews
                         height: 13px;
                         width: 13px;
                     }
+                    .connection-picker-panel {
+                        overflow-x: hidden;
+                        overflow-y: auto;
+                        -webkit-overflow-scrolling: touch;
+                    }
+                    .connection-picker-inner {
+                        display: flex;
+                        flex-direction: column;
+                        height: auto;
+                        max-width: 1440px;
+                        min-height: 100%;
+                        width: 100%;
+                    }
+                    .connection-picker-head {
+                        margin-bottom: 0;
+                    }
+                    .connection-browser-empty {
+                        align-items: flex-start;
+                        display: flex;
+                        gap: 16px;
+                        justify-content: space-between;
+                        width: 100%;
+                    }
+                    .connection-browser-empty .muted {
+                        max-width: 58ch;
+                    }
+                    .connection-browser {
+                        display: flex;
+                        flex: 1;
+                        flex-direction: column;
+                        gap: 14px;
+                        min-height: 0;
+                    }
+                    .connection-browser-head {
+                        align-items: flex-start;
+                        display: flex;
+                        gap: 12px;
+                        justify-content: space-between;
+                    }
+                    .connection-browser-head h1 {
+                        font-size: 28px;
+                        margin: 4px 0 0;
+                    }
+                    .connection-browser-head-actions {
+                        align-items: center;
+                        display: flex;
+                        flex-wrap: wrap;
+                        gap: 8px;
+                        justify-content: flex-end;
+                        margin-left: auto;
+                    }
+                    .connection-browser-mode-switch {
+                        align-items: stretch;
+                        background: var(--surface);
+                        border: 1px solid var(--line);
+                        border-radius: calc(var(--radius) + 2px);
+                        display: inline-flex;
+                        overflow: hidden;
+                    }
+                    .connection-browser-mode-button {
+                        align-items: center;
+                        background: transparent;
+                        border: 0;
+                        border-right: 1px solid var(--line);
+                        color: var(--text);
+                        display: inline-flex;
+                        gap: 8px;
+                        min-height: 32px;
+                        padding: 6px 10px;
+                    }
+                    .connection-browser-mode-button:last-child {
+                        border-right: 0;
+                    }
+                    .connection-browser-mode-button.active {
+                        background: var(--surface-2);
+                        color: var(--accent);
+                    }
+                    .connection-browser-mode-button .icon {
+                        height: 15px;
+                        width: 15px;
+                    }
+                    .connection-browser-modes {
+                        flex: 1;
+                        min-height: 0;
+                    }
+                    .home-browser-mode {
+                        display: flex;
+                        flex-direction: column;
+                        flex: 1;
+                        min-height: 0;
+                    }
+                    .home-browser-layout {
+                        display: grid;
+                        gap: 14px;
+                        grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+                        flex: 1;
+                        min-height: 0;
+                    }
+                    .home-browser-sidebar {
+                        background: var(--surface);
+                        border: 1px solid var(--line);
+                        border-radius: var(--radius);
+                        display: flex;
+                        flex-direction: column;
+                        gap: 14px;
+                        min-height: 0;
+                        padding: 12px;
+                    }
+                    .home-browser-nav-section {
+                        display: grid;
+                        gap: 8px;
+                    }
+                    .home-browser-nav-heading {
+                        color: var(--muted);
+                        font-size: 11px;
+                        font-weight: 700;
+                        letter-spacing: 0;
+                        margin: 0;
+                        text-transform: uppercase;
+                    }
+                    .home-browser-nav-list {
+                        display: grid;
+                        gap: 6px;
+                    }
+                    .home-browser-nav-item {
+                        align-items: center;
+                        background: transparent;
+                        border: 1px solid transparent;
+                        border-radius: calc(var(--radius) + 1px);
+                        display: flex;
+                        gap: 10px;
+                        min-height: 42px;
+                        padding: 8px 10px;
+                        text-align: left;
+                        width: 100%;
+                    }
+                    .home-browser-nav-item:hover {
+                        background: var(--hover-strong-bg);
+                        border-color: var(--line);
+                    }
+                    .home-browser-nav-item.active {
+                        background: var(--surface-2);
+                        border-color: var(--accent);
+                        color: var(--accent);
+                    }
+                    .home-browser-nav-icon {
+                        align-items: center;
+                        background: var(--surface-2);
+                        border: 1px solid var(--line);
+                        border-radius: 10px;
+                        color: var(--text);
+                        display: inline-flex;
+                        flex: 0 0 auto;
+                        height: 28px;
+                        justify-content: center;
+                        width: 28px;
+                    }
+                    .home-browser-nav-item.active .home-browser-nav-icon {
+                        background: var(--surface);
+                        border-color: var(--accent);
+                        color: var(--accent);
+                    }
+                    .home-browser-nav-icon .icon {
+                        height: 15px;
+                        width: 15px;
+                    }
+                    .home-browser-nav-copy {
+                        display: grid;
+                        flex: 1 1 auto;
+                        min-width: 0;
+                    }
+                    .home-browser-nav-title {
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        white-space: nowrap;
+                    }
+                    .home-browser-nav-item .badge {
+                        flex: 0 0 auto;
+                    }
+                    .home-browser-content {
+                        display: flex;
+                        flex-direction: column;
+                        gap: 14px;
+                        min-height: 0;
+                        min-width: 0;
+                        padding-right: 4px;
+                    }
+                    .home-browser-section {
+                        display: flex;
+                        flex-direction: column;
+                        gap: 12px;
+                        min-height: 0;
+                    }
+                    .home-browser-section.hidden {
+                        display: none;
+                    }
+                    .home-browser-section-head {
+                        align-items: center;
+                    }
+                    .home-browser-section-head h2 {
+                        align-items: center;
+                        display: flex;
+                        gap: 8px;
+                        margin: 6px 0 0;
+                    }
+                    .home-browser-section-head h2 .icon {
+                        height: 16px;
+                        width: 16px;
+                    }
+                    .home-browser-grid {
+                        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+                    }
+                    .connection-browser-empty-state {
+                        align-items: flex-start;
+                        background: var(--surface);
+                        border: 1px dashed var(--line);
+                        border-radius: var(--radius);
+                        display: flex;
+                        gap: 16px;
+                        justify-content: space-between;
+                        padding: 16px;
+                    }
+                    .connection-browser-empty-state .muted {
+                        max-width: 58ch;
+                    }
+                    .connection-choice {
+                        align-items: stretch;
+                        background: var(--surface);
+                        border: 1px solid var(--line);
+                        border-radius: var(--radius);
+                        display: flex;
+                        flex-direction: column;
+                        gap: 12px;
+                        min-height: 190px;
+                        padding: 14px 46px 14px 14px;
+                        position: relative;
+                    }
+                    .connection-choice-body {
+                        display: grid;
+                        gap: 12px;
+                        min-width: 0;
+                    }
+                    .connection-choice-title {
+                        align-items: flex-start;
+                    }
+                    .connection-choice-copy {
+                        display: grid;
+                        gap: 4px;
+                        min-width: 0;
+                    }
+                    .connection-choice-badges {
+                        display: flex;
+                        flex-wrap: wrap;
+                        gap: 6px;
+                    }
+                    .connection-choice-copy h3 {
+                        margin: 0;
+                        font-size: 18px;
+                        line-height: 1.2;
+                    }
+                    .connection-choice-copy .target {
+                        margin: 0;
+                    }
+                    .connection-choice-notes {
+                        margin: 0;
+                    }
+                    .favorite-toggle-form {
+                        display: inline-flex;
+                        margin: 0;
+                        position: absolute;
+                        right: 10px;
+                        top: 10px;
+                        z-index: 1;
+                    }
+                    .favorite-toggle {
+                        align-items: center;
+                        display: inline-flex;
+                        justify-content: center;
+                        height: 32px;
+                        min-height: 32px;
+                        min-width: 32px;
+                        padding: 0;
+                        width: 32px;
+                    }
+                    .favorite-toggle.active {
+                        background: var(--surface-2);
+                        border-color: var(--accent);
+                        color: var(--accent);
+                    }
+                    .favorite-toggle .icon {
+                        height: 15px;
+                        width: 15px;
+                    }
+                    .connection-choice-actions {
+                        align-items: stretch;
+                        display: flex;
+                        gap: 8px;
+                        margin-top: auto;
+                    }
+                    .connection-choice-actions button,
+                    .connection-choice-actions a {
+                        align-self: stretch;
+                        justify-content: center;
+                    }
+                    .connection-choice-open {
+                        flex: 1 1 auto;
+                    }
+                    .connection-choice-edit {
+                        flex: 0 0 auto;
+                    }
                     .table-actions {
                         text-align: right;
                     }
@@ -5888,6 +6740,9 @@ public sealed class HtmlViews
                         min-height: 0;
                         overflow: hidden;
                         position: relative;
+                        -webkit-touch-callout: none;
+                        -webkit-user-select: none;
+                        user-select: none;
                     }
                     .guac-display {
                         align-items: center;
@@ -5896,8 +6751,16 @@ public sealed class HtmlViews
                         justify-content: center;
                         overflow: hidden;
                         width: 100%;
+                        -webkit-touch-callout: none;
+                        -webkit-user-select: none;
+                        user-select: none;
                     }
                     .guac-display > div { transform-origin: center center; }
+                    .guac-stage input,
+                    .guac-stage textarea {
+                        -webkit-user-select: text;
+                        user-select: text;
+                    }
                     .website-display {
                         background: var(--bg);
                         color: var(--text);
@@ -6664,10 +7527,6 @@ public sealed class HtmlViews
                     .about-head {
                         margin-bottom: 0;
                     }
-                    .about-brand {
-                        align-items: center;
-                        display: inline-flex;
-                    }
                     .about-copy {
                         display: flex;
                         flex-direction: column;
@@ -6682,9 +7541,50 @@ public sealed class HtmlViews
                         display: grid;
                         gap: 10px;
                         max-width: 760px;
+                        justify-items: start;
+                    }
+                    .about-card-brand {
+                        align-items: center;
+                        display: inline-flex;
+                        gap: 12px;
+                        justify-self: start;
+                        margin-bottom: 2px;
+                    }
+                    .about-card-brand .brand-mark {
+                        height: 38px;
+                        width: 38px;
+                    }
+                    .about-card-brand .brand-gate {
+                        left: 10px;
+                        top: 8px;
+                    }
+                    .about-card-brand .brand-core {
+                        font-size: 18px;
+                        top: 4px;
+                    }
+                    .about-card-brand .brand-word {
+                        font-size: 20px;
                     }
                     .about-meta {
+                        display: grid;
+                        gap: 6px;
+                        justify-items: start;
+                    }
+                    .about-build {
+                        margin: 0;
+                    }
+                    .about-version {
+                        min-width: 0;
+                    }
+                    .about-badges {
                         align-items: center;
+                        display: inline-flex;
+                        flex-wrap: wrap;
+                        gap: 8px;
+                        justify-content: flex-start;
+                    }
+                    .about-copyright {
+                        margin: 0;
                     }
                     .file-viewer-dialog-content {
                         width: 100%;
@@ -6714,6 +7614,9 @@ public sealed class HtmlViews
                         padding: 24px;
                         position: absolute;
                         z-index: 3;
+                        -webkit-touch-callout: none;
+                        -webkit-user-select: none;
+                        user-select: none;
                     }
                     .connection-overlay.hidden, .hidden { display: none; }
                     .connection-dialog {
@@ -6828,6 +7731,46 @@ public sealed class HtmlViews
                         .tool-head { align-items: stretch; flex-direction: column; }
                         .tool-actions { width: 100%; }
                         .tool-actions > * { flex: 1; justify-content: center; }
+                        .connection-browser-head,
+                        .connection-browser-head-actions,
+                        .connection-browser-empty {
+                            align-items: stretch;
+                            flex-direction: column;
+                        }
+                        .connection-browser-head-actions {
+                            width: 100%;
+                        }
+                        .connection-browser-mode-switch {
+                            width: 100%;
+                        }
+                        .connection-browser-mode-button {
+                            flex: 1;
+                            justify-content: center;
+                        }
+                        .home-browser-layout {
+                            grid-template-columns: 1fr;
+                        }
+                        .home-browser-sidebar {
+                            max-height: 240px;
+                            overflow: auto;
+                        }
+                        .home-browser-content {
+                            overflow: visible;
+                            padding-right: 0;
+                        }
+                        .connection-browser-empty-state {
+                            flex-direction: column;
+                        }
+                        .connection-choice-actions {
+                            flex-direction: column;
+                        }
+                        .connection-choice-actions > * {
+                            width: 100%;
+                        }
+                        .favorite-toggle-form {
+                            right: 8px;
+                            top: 8px;
+                        }
                         .viewer-body { padding: 10px; }
                         .viewer-stage { min-height: 240px; }
                         .embedded-viewer { height: calc(var(--matgate-viewport-height, 100vh) - 16px); width: calc(100vw - 16px); }
@@ -6838,7 +7781,7 @@ public sealed class HtmlViews
             </head>
             <body data-shell-layout="{{(shellLayout ? "1" : "0")}}">
                 <header>
-                    <a class="brand" href="/">{{Logo()}}</a>
+                    <a class="brand" href="/sessions" title="{{A(T(context, "New connection"))}}" aria-label="{{A(T(context, "New connection"))}}">{{Logo()}}</a>
                     {{navigation}}
                 </header>
                 <main class="{{A(mainClass)}}">{{body}}</main>
@@ -7199,7 +8142,7 @@ public sealed class HtmlViews
             labels.Add("""<span class="badge">CREATE</span>""");
         }
 
-        return labels.Count == 0 ? $"""<span class="badge">{T(context, "User")}</span>""" : string.Join(" ", labels);
+        return labels.Count == 0 ? """<span class="badge">USER</span>""" : string.Join(" ", labels);
     }
 
     private static string ServerIcon(ServerEndpoint server, string size = "")
@@ -7308,6 +8251,8 @@ public sealed class HtmlViews
 
     public static string ThemeCookie => ThemeCookieName;
 
+    public static string RememberLoginCookie => RememberLoginCookieName;
+
     private static string NormalizeLanguageCode(string? value)
     {
         return string.Equals((value ?? "").Trim(), "de", StringComparison.OrdinalIgnoreCase) ? "de" : "en";
@@ -7370,6 +8315,50 @@ public sealed class HtmlViews
 
         var version = assembly.GetName().Version;
         return version is null ? "dev" : version.ToString(3);
+    }
+
+    private static string BuildTagLabel()
+    {
+        var explicitTag = NormalizeBuildTag(Environment.GetEnvironmentVariable("MATGATE_BUILD_TAG"));
+        if (!string.IsNullOrWhiteSpace(explicitTag))
+        {
+            return explicitTag;
+        }
+
+        var environment = (Environment.GetEnvironmentVariable("ASPNETCORE_ENVIRONMENT") ?? Environment.GetEnvironmentVariable("DOTNET_ENVIRONMENT") ?? "").Trim();
+        return string.Equals(environment, "Development", StringComparison.OrdinalIgnoreCase) ? "local" : "";
+    }
+
+    private static string BuildTimestampLabel()
+    {
+        var timestamp = Environment.GetEnvironmentVariable("MATGATE_BUILD_TIME");
+        if (string.IsNullOrWhiteSpace(timestamp))
+        {
+            var path = Path.Combine(AppContext.BaseDirectory, "matgate-build-time.txt");
+            if (File.Exists(path))
+            {
+                timestamp = File.ReadAllText(path);
+            }
+        }
+
+        var normalized = (timestamp ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(normalized))
+        {
+            return "";
+        }
+
+        if (DateTimeOffset.TryParse(normalized, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var parsed))
+        {
+            return parsed.ToUniversalTime().ToString("yyyy-MM-dd HH:mm 'UTC'", CultureInfo.InvariantCulture);
+        }
+
+        return normalized;
+    }
+
+    private static string NormalizeBuildTag(string? tag)
+    {
+        var normalized = (tag ?? "").Trim().ToLowerInvariant();
+        return normalized is "github" or "local" ? normalized : "";
     }
 
     private static string Icon(string name)
@@ -7545,3 +8534,4 @@ public sealed class HtmlViews
 
     private static string A(object? value) => WebUtility.HtmlEncode(value?.ToString() ?? "");
 }
+
