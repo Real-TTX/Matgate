@@ -53,6 +53,7 @@ builder.Services.AddSingleton<HtmlViews>();
 builder.Services.AddSingleton<GuacamoleLauncher>();
 builder.Services.AddSingleton<NetworkToolsService>();
 builder.Services.AddSingleton<IFileGatewayService, FileGatewayService>();
+builder.Services.AddSingleton<WorkspaceService>();
 builder.Services.AddSingleton<WebsiteProxyService>();
 
 var app = builder.Build();
@@ -65,6 +66,7 @@ var hasher = app.Services.GetRequiredService<PasswordHasher>();
 var store = app.Services.GetRequiredService<JsonDataStore>();
 await store.EnsureSeedAdminAsync(hasher, app.Logger, app.Lifetime.ApplicationStopping);
 await store.EnsureGuacamoleSecretsAsync(hasher, app.Lifetime.ApplicationStopping);
+await store.EnsureWorkspacePublicAccessDefaultsAsync(TimeSpan.FromHours(24), app.Lifetime.ApplicationStopping);
 await store.RemoveLegacyGatewayServersAsync(app.Lifetime.ApplicationStopping);
 await app.Services.GetRequiredService<GuacamoleConfigWriter>()
     .SynchronizeAsync(app.Lifetime.ApplicationStopping);

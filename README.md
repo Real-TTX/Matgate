@@ -10,6 +10,7 @@ It is designed to sit behind a reverse proxy such as Caddy and to run entirely i
 - File gateway for SFTP, FTP, and SMB
 - Website proxy mode for browser-based admin interfaces
 - Upload, download, delete, move, copy, archive extraction, and media preview in the file manager
+- Shareable Workspaces with public links, password protection, shared text, and file exchange
 - Live network tools for ping, lookup, port checking, and streamed download tests
 - Multiple open connections as draggable tabs
 - Session restore in the web UI
@@ -22,6 +23,7 @@ It is designed to sit behind a reverse proxy such as Caddy and to run entirely i
 - Clipboard integration and a status bar for the active tab
 - Server icons with protocol defaults and per-server overrides
 - GitHub Actions build for the Docker image
+- Installable PWA mode with desktop and home-screen app icons
 
 ## Supported connection types
 
@@ -62,15 +64,29 @@ Matgate is available at:
 http://localhost:8088
 ```
 
-For a shareable one-file setup with Caddy, Guacamole, and guacd, use:
+For a shareable stack, use one of:
 
 ```powershell
 docker compose -f docker-compose-simple.yaml up -d
 ```
 
-This stack already includes the reverse proxy and uses the relative `./data` folder, so your local users, servers, and Guacamole config stay where you expect them.
+```powershell
+docker compose -f docker-compose-dockhand.yaml up -d
+```
+
+Both stacks include the reverse proxy and use a relative data folder, so your users, servers, and Guacamole config stay where you expect them.
 
 > Important: if no admin credentials are set, Matgate creates `admin` / `change-me-now`. Change that before exposing the service anywhere beyond a trusted home network.
+
+## PWA / App mode
+
+Matgate ships with a web app manifest, service worker, and app icons. On supported browsers you can install it to the desktop or home screen and launch it in a standalone app window.
+
+- On iPhone and iPad, use Safari's "Add to Home Screen"
+- On desktop browsers, use the install action from the browser menu
+- In installed mode, Matgate behaves much more like a normal app and keeps the browser chrome out of the way
+
+If you are behind HTTPS or using `localhost`, the install experience is usually best.
 
 ## Recommended environment variables
 
@@ -80,6 +96,7 @@ MATGATE_ADMIN_PASSWORD=change-me-now
 MATGATE_GUACAMOLE_JSON_SECRET_KEY=0123456789abcdeffedcba9876543210
 MATGATE_DNS_SERVER=10.10.0.1
 MATGATE_DNS_SEARCH=example.home
+MATGATE_WORKSPACE_ROOT=/data/workspaces
 ```
 
 | Variable | Purpose |
@@ -90,6 +107,7 @@ MATGATE_DNS_SEARCH=example.home
 | `MATGATE_GUACAMOLE_JSON_SECRET_KEY` | 32 hex characters used for Guacamole JSON auth |
 | `MATGATE_DNS_SERVER` | DNS server used inside Docker containers |
 | `MATGATE_DNS_SEARCH` | DNS search domain used inside Docker containers |
+| `MATGATE_WORKSPACE_ROOT` | Default filesystem root for workspace folders |
 
 `MATGATE_GUACAMOLE_JSON_SECRET_KEY` must be exactly 32 hex characters. Use your own random value.
 The Compose stack provides sane defaults, but you should override secrets and DNS settings for real use.
@@ -102,6 +120,7 @@ Matgate stores all persistent data under the configured data directory. In the d
 | --- | --- |
 | `/data/users.json` | Local users, permissions, and favorites |
 | `/data/servers.json` | Global servers, user-owned servers, and folders |
+| `/data/workspaces.json` | Workspace definitions and share settings |
 | `data/guacamole.properties` | Guacamole runtime config |
 | `data/user-mapping.xml` | Guacamole user-to-connection mapping |
 
@@ -147,6 +166,8 @@ The repository uses GitHub Actions to build and publish the Docker image on push
 | --- | --- |
 | `Matgate/` | ASP.NET Core application |
 | `docker-compose.yml` | Full local stack with Caddy, Matgate, Guacamole, and guacd |
+| `docker-compose-simple.yaml` | Shareable local stack with Caddy, Matgate, Guacamole, and guacd |
+| `docker-compose-dockhand.yaml` | Copy/paste stack for Dockhand-based deployments |
 | `Matgate/Dockerfile` | Application container image |
 | `.github/workflows/` | CI and Docker image build workflow |
 

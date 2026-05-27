@@ -19,19 +19,29 @@ public sealed class JsonDataStore
 
         var configured = Environment.GetEnvironmentVariable("MATGATE_DATA_DIR")
             ?? configuration["Matgate:DataDirectory"];
+        var configuredWorkspaceRoot = Environment.GetEnvironmentVariable("MATGATE_WORKSPACE_ROOT")
+            ?? configuration["Matgate:WorkspaceRoot"];
 
         DataDirectory = Path.GetFullPath(string.IsNullOrWhiteSpace(configured)
             ? Path.Combine(environment.ContentRootPath, "data")
             : configured);
+        WorkspaceRootDirectory = Path.GetFullPath(string.IsNullOrWhiteSpace(configuredWorkspaceRoot)
+            ? Path.Combine(DataDirectory, "workspaces")
+            : configuredWorkspaceRoot);
 
         Directory.CreateDirectory(DataDirectory);
+        Directory.CreateDirectory(WorkspaceRootDirectory);
     }
 
     public string DataDirectory { get; }
 
+    public string WorkspaceRootDirectory { get; }
+
     private string UsersPath => Path.Combine(DataDirectory, "users.json");
 
     private string ServersPath => Path.Combine(DataDirectory, "servers.json");
+
+    private string WorkspacesPath => Path.Combine(DataDirectory, "workspaces.json");
 
     public async Task<IReadOnlyList<MatgateUser>> GetUsersAsync(CancellationToken cancellationToken = default)
     {
@@ -59,6 +69,46 @@ public sealed class JsonDataStore
         }
     }
 
+    public async Task<IReadOnlyList<WorkspaceDefinition>> GetWorkspacesAsync(CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            return await ReadListAsync<WorkspaceDefinition>(WorkspacesPath, cancellationToken);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task EnsureWorkspacePublicAccessDefaultsAsync(TimeSpan defaultDuration, CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var workspaces = await ReadListAsync<WorkspaceDefinition>(WorkspacesPath, cancellationToken);
+            var now = DateTimeOffset.UtcNow;
+            var changed = false;
+
+            foreach (var workspace in workspaces.Where(workspace => workspace.PublicAccessExpiresAt is null))
+            {
+                workspace.PublicAccessExpiresAt = now.Add(defaultDuration);
+                workspace.UpdatedAt = now;
+                changed = true;
+            }
+
+            if (changed)
+            {
+                await WriteListAsync(WorkspacesPath, workspaces, cancellationToken);
+            }
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     public async Task<MatgateUser?> FindUserByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
         return (await GetUsersAsync(cancellationToken)).FirstOrDefault(user => user.Id == id);
@@ -74,6 +124,11 @@ public sealed class JsonDataStore
     public async Task<ServerEndpoint?> FindServerByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
         return (await GetServersAsync(cancellationToken)).FirstOrDefault(server => server.Id == id);
+    }
+
+    public async Task<WorkspaceDefinition?> FindWorkspaceByIdAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        return (await GetWorkspacesAsync(cancellationToken)).FirstOrDefault(workspace => workspace.Id == id);
     }
 
     public async Task UpdateUsersAsync(Action<List<MatgateUser>> update, CancellationToken cancellationToken = default)
@@ -99,6 +154,21 @@ public sealed class JsonDataStore
             var servers = await ReadListAsync<ServerEndpoint>(ServersPath, cancellationToken);
             update(servers);
             await WriteListAsync(ServersPath, servers, cancellationToken);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task UpdateWorkspacesAsync(Action<List<WorkspaceDefinition>> update, CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var workspaces = await ReadListAsync<WorkspaceDefinition>(WorkspacesPath, cancellationToken);
+            update(workspaces);
+            await WriteListAsync(WorkspacesPath, workspaces, cancellationToken);
         }
         finally
         {

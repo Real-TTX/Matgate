@@ -1,4 +1,4 @@
-using System.Net;
+﻿using System.Net;
 using System.Security.Claims;
 using System.Globalization;
 using System.Reflection;
@@ -17,6 +17,56 @@ public sealed class HtmlViews
     private static readonly IReadOnlyDictionary<string, string> GermanText = new Dictionary<string, string>
     {
         ["Home Network Gateway"] = "Heimnetz-Gateway",
+        ["Workspaces"] = "Workspaces",
+        ["Workspace"] = "Workspace",
+        ["Info"] = "Info",
+        ["Create workspace"] = "Workspace anlegen",
+        ["New workspace"] = "Neuer Workspace",
+        ["Shared text"] = "Gemeinsamer Text",
+        ["Workspace content"] = "Workspace-Inhalt",
+        ["Text"] = "Text",
+        ["Log"] = "Log",
+        ["Valid until"] = "Gueltig bis",
+        ["No expiry set"] = "Kein Ablauf festgelegt",
+        ["Expired"] = "Abgelaufen",
+        ["Workspace visibility"] = "Workspace-Sichtbarkeit",
+        ["Show all"] = "Alle anzeigen",
+        ["No active workspaces."] = "Keine aktiven Workspaces.",
+        ["No activity yet."] = "Noch keine Aktivitaet.",
+        ["Time"] = "Zeit",
+        ["Actor"] = "Akteur",
+        ["Action"] = "Aktion",
+        ["Path"] = "Pfad",
+        ["Details"] = "Details",
+        ["Open sessions"] = "Offene Sitzungen",
+        ["Public URL"] = "Oeffentliche URL",
+        ["Root path"] = "Stammordner",
+        ["Shared note file"] = "Gemeinsame Notizdatei",
+        ["Allow uploads"] = "Uploads erlauben",
+        ["Allow text exchange"] = "Textaustausch erlauben",
+        ["Access password"] = "Zugriffs-Passwort",
+        ["Clear password"] = "Passwort entfernen",
+        ["Enter password"] = "Passwort eingeben",
+        ["Unlock"] = "Freigeben",
+        ["Personal"] = "Persoenlich",
+        ["Shared"] = "Gemeinsam",
+        ["Files"] = "Dateien",
+        ["Settings"] = "Einstellungen",
+        ["Delete workspace"] = "Workspace loeschen",
+        ["Public access validity (hours)"] = "Oeffentliche Gueltigkeit (Stunden)",
+        ["External access is available for this duration."] = "Externer Zugriff ist fuer diese Dauer verfuegbar.",
+        ["This external workspace access has expired."] = "Dieser externe Workspace-Zugriff ist abgelaufen.",
+        ["Please contact the owner or open the admin view if you manage this workspace."] = "Bitte kontaktiere den Besitzer oder oeffne die Admin-Ansicht, wenn du diesen Workspace verwaltest.",
+        ["+24h"] = "+24h",
+        ["+7d"] = "+7d",
+        ["No workspaces yet."] = "Noch keine Workspaces vorhanden.",
+        ["Select a workspace to see files, text and log."] = "Waehle einen Workspace aus, um Dateien, Text und Log zu sehen.",
+        ["Shared folders, text and open sessions in one place."] = "Gemeinsame Ordner, Text und offene Sitzungen an einem Ort.",
+        ["A workspace is a shared folder with a public link and shared text."] = "Ein Workspace ist ein geteilter Ordner mit oeffentlichem Link und gemeinsamem Text.",
+        ["Top level"] = "Oberste Ebene",
+        ["Uploads are disabled for this workspace."] = "Uploads sind fuer diesen Workspace deaktiviert.",
+        ["Text exchange is disabled for this workspace."] = "Der Textaustausch ist fuer diesen Workspace deaktiviert.",
+        ["No sessions yet."] = "Noch keine Sitzungen vorhanden.",
         ["Home"] = "Home",
         ["Tools"] = "Werkzeuge",
         ["Network tools"] = "Netzwerkwerkzeuge",
@@ -26,7 +76,7 @@ public sealed class HtmlViews
         ["Resolve hostnames and addresses."] = "Hostnamen und Adressen aufloesen.",
         ["Test TCP ports live."] = "TCP-Ports live pruefen.",
         ["Stream a file and watch transfer speed."] = "Eine Datei streamen und die Uebertragungsgeschwindigkeit sehen.",
-        ["About"] = "ÃƒÆ’Ã†â€™Ãƒâ€¦Ã¢â‚¬Å“ber",
+        ["About"] = "ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â¦ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œber",
         ["About Matgate"] = "Matgate",
         ["Local login for RDP, VNC, SSH, websites and file access in your home network."] = "Lokale Anmeldung fuer RDP-, VNC-, SSH-, Website- und Dateizugriffe im Heimnetz.",
         ["Live output streams below."] = "Die Ausgabe laeuft live unten ein.",
@@ -42,8 +92,6 @@ public sealed class HtmlViews
         ["Username"] = "Benutzername",
         ["Password"] = "Passwort",
         ["Sign in"] = "Einloggen",
-        ["Stay signed in on this device"] = "Auf diesem Geraet angemeldet bleiben",
-        ["Stay signed in by default"] = "Standardmaessig angemeldet bleiben",
         ["Dashboard"] = "Dashboard",
         ["Connections"] = "Verbindungen",
         ["Page"] = "Seite",
@@ -135,7 +183,7 @@ public sealed class HtmlViews
         ["Connection"] = "Verbindung",
         ["Clear saved target password"] = "Gespeichertes Ziel-Passwort entfernen",
         ["Delete server"] = "Server loeschen",
-        ["Domain"] = "DomÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¤ne",
+        ["Domain"] = "DomÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¤ne",
         ["Edit"] = "Bearbeiten",
         ["Name and host are required."] = "Name und Host sind erforderlich.",
         ["Name and website URL are required."] = "Name und Website-URL sind erforderlich.",
@@ -150,6 +198,8 @@ public sealed class HtmlViews
         ["New connection"] = "Neue Verbindung",
         ["Actions for the active tab"] = "Aktionen fuer den aktiven Tab",
         ["Clipboard"] = "Zwischenablage",
+        ["Copy to clipboard"] = "In Zwischenablage kopieren",
+        ["Copy URL to clipboard"] = "URL in Zwischenablage kopieren",
         ["Unzip"] = "Entpacken",
         ["Fullscreen"] = "Vollbild",
         ["Disconnect"] = "Trennen",
@@ -252,8 +302,6 @@ public sealed class HtmlViews
         var returnUrlField = string.IsNullOrWhiteSpace(returnUrl)
             ? ""
             : $"""<input type="hidden" name="returnUrl" value="{A(returnUrl)}">""";
-        var rememberLoginChecked = !context.Request.Cookies.TryGetValue(RememberLoginCookieName, out var rememberLoginCookie)
-            || !string.Equals(rememberLoginCookie, "0", StringComparison.OrdinalIgnoreCase);
         var errorHtml = string.IsNullOrWhiteSpace(error)
             ? ""
             : $"""<div class="notice error">{E(error)}</div>""";
@@ -274,7 +322,6 @@ public sealed class HtmlViews
                     <label>{{T(context, "Password")}}
                         <input name="password" type="password" autocomplete="current-password" required>
                     </label>
-                    <label class="check"><input type="checkbox" name="rememberLogin"{{Checked(rememberLoginChecked)}}> {{T(context, "Stay signed in on this device")}}</label>
                     <button type="submit" class="primary">{{Icon("key")}}{{T(context, "Sign in")}}</button>
                 </form>
             </section>
@@ -389,7 +436,6 @@ public sealed class HtmlViews
                             {{ThemeOptions(context, "system")}}
                         </select>
                     </label>
-                    <label class="check"><input type="checkbox" name="rememberLoginByDefault"{{Checked(true)}}> {{T(context, "Stay signed in by default")}}</label>
                 </div>
             </section>
                 <section class="panel">
@@ -468,7 +514,6 @@ public sealed class HtmlViews
                             </select>
                         </label>
                         <label class="check"><input type="checkbox" name="isEnabled"{{Checked(editedUser.IsEnabled)}}> {{T(context, "Enabled")}}</label>
-                        <label class="check"><input type="checkbox" name="rememberLoginByDefault"{{Checked(editedUser.RememberLoginByDefault)}}> {{T(context, "Stay signed in by default")}}</label>
                     </div>
                 </section>
                 <section class="panel">
@@ -566,7 +611,7 @@ public sealed class HtmlViews
                 <div>
                     <p class="eyebrow">{{T(context, "Server")}}</p>
                     <h1>{{E(server.Name)}}</h1>
-                    <p class="muted">{{ServerScopeText(context, server, users)}}{{(string.IsNullOrWhiteSpace(server.FolderName) ? "" : $" ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· {ServerFolderBadge(context, server)}")}}</p>
+                    <p class="muted">{{ServerScopeText(context, server, users)}}{{(string.IsNullOrWhiteSpace(server.FolderName) ? "" : $" ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· {ServerFolderBadge(context, server)}")}}</p>
                 </div>
                 <a class="button" href="/admin/servers">{{Icon("server")}}{{T(context, "Servers")}}</a>
             </section>
@@ -658,7 +703,6 @@ public sealed class HtmlViews
                             {{ThemeOptions(context, user.PreferredTheme)}}
                         </select>
                     </label>
-                    <label class="check"><input type="checkbox" name="rememberLoginByDefault"{{Checked(user.RememberLoginByDefault)}}> {{T(context, "Stay signed in by default")}}</label>
                     <div class="actions"><button type="submit" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button></div>
                 </form>
             </section>
@@ -688,6 +732,318 @@ public sealed class HtmlViews
             """;
 
         return Layout(context, user, T(context, "Account"), body);
+    }
+
+    public string WorkspaceCreate(HttpContext context, MatgateUser currentUser, string defaultRootPath)
+    {
+        var body = $$"""
+            <section class="page-head">
+                <div>
+                    <p class="eyebrow">{{T(context, "Workspaces")}}</p>
+                    <h1>{{T(context, "Create workspace")}}</h1>
+                    <p class="muted">{{T(context, "A workspace is a shared folder with a public link and shared text.")}}</p>
+                </div>
+                <a class="button" href="/workspaces">{{Icon("folder")}}{{T(context, "Workspaces")}}</a>
+            </section>
+            <form method="post" action="/workspaces" class="stack">
+                {{Csrf(context)}}
+                <section class="panel">
+                    <h2>{{T(context, "Workspace")}}</h2>
+                    {{WorkspaceSettingsFields(context, null, defaultRootPath, true)}}
+                </section>
+                <div class="actions">
+                    <button type="submit" class="primary">{{Icon("plus")}}{{T(context, "Create workspace")}}</button>
+                </div>
+            </form>
+            """;
+
+        return Layout(context, currentUser, T(context, "Create workspace"), body);
+    }
+
+    public string Workspaces(
+        HttpContext context,
+        MatgateUser currentUser,
+        IReadOnlyList<WorkspaceDefinition> workspaces,
+        WorkspaceDefinition? selectedWorkspace,
+        FileGatewayListResult? listing,
+        string sharedText,
+        IReadOnlyList<WorkspacePresenceSnapshot> sessions,
+        IReadOnlyList<WorkspaceActivityEntry> activityEntries,
+        bool canEditSelected,
+        string publicUrl,
+        string defaultRootPath,
+        string? pageTitleOverride = null)
+    {
+        var selectedWorkspaceTab = selectedWorkspace is null
+            ? "files"
+            : WorkspaceSelectedTab(context, selectedWorkspace.AllowTextExchange);
+        var workspaceItems = workspaces.Count == 0
+            ? $"""<div class="empty">{T(context, "No workspaces yet.")}</div>"""
+            : string.Join("", workspaces.OrderBy(workspace => workspace.Name).Select(workspace =>
+            {
+                var active = selectedWorkspace?.Id == workspace.Id ? " active" : "";
+                var scope = workspace.IsPrivate ? T(context, "Personal") : T(context, "Shared");
+                return $$"""
+                    <a class="workspace-list-item{{active}}" href="/workspaces/{{workspace.Id}}" data-shell-open-tab="1" data-shell-title="{{A(workspace.Name)}}" data-shell-description="">
+                        <span class="workspace-list-item-main">
+                            <span class="workspace-list-item-title">{{Icon(workspace.IsPrivate ? "user" : "folder")}}<span>{{E(workspace.Name)}}</span></span>
+                            <small>{{E(workspace.Description)}}</small>
+                        </span>
+                        <span class="badge">{{scope}}</span>
+                    </a>
+                    """;
+            }));
+
+        var selectedPanel = selectedWorkspace is null
+            ? $"""<section class="panel"><div class="empty">{T(context, "Select a workspace to see files, text and log.")}</div></section>"""
+            : $$"""
+                <section class="panel">
+                    <div class="row split workspace-summary">
+                        <div>
+                            <p class="eyebrow">{{T(context, "Workspace")}}</p>
+                            <h2>{{E(selectedWorkspace.Name)}}</h2>
+                            <p class="muted">{{E(selectedWorkspace.Description)}}</p>
+                            {{WorkspacePublicUrlLine(context, publicUrl)}}
+                            <p class="muted"><strong>{{T(context, "Root path")}}:</strong> <code>{{E(string.IsNullOrWhiteSpace(selectedWorkspace.RootPath) ? defaultRootPath : selectedWorkspace.RootPath)}}</code></p>
+                        </div>
+                        <div class="stack workspace-summary-badges">
+                            <span class="badge">{{(selectedWorkspace.IsPrivate ? T(context, "Personal") : T(context, "Shared"))}}</span>
+                            <span class="badge">{{(selectedWorkspace.AllowUploads ? T(context, "Allow uploads") : T(context, "Uploads disabled"))}}</span>
+                            <span class="badge">{{(selectedWorkspace.AllowTextExchange ? T(context, "Allow text exchange") : T(context, "Text disabled"))}}</span>
+                        </div>
+                    </div>
+                </section>
+                {{(canEditSelected ? WorkspaceSettingsPanel(context, selectedWorkspace, defaultRootPath) : "")}}
+                <section class="workspace-tab-shell panel" data-workspace-tab-root="1" data-workspace-tab-key="{{A(selectedWorkspace.Id.ToString("N"))}}" data-workspace-default-tab="files">
+                    <div class="workspace-tab-strip" role="tablist" aria-label="{{A(T(context, "Workspace content"))}}">
+                        {{(selectedWorkspace.AllowTextExchange ? $"""<a class="workspace-tab-button{(selectedWorkspaceTab == "text" ? " active" : "")}" href="{A(WorkspaceTabUrl($"/workspaces/{selectedWorkspace.Id}", "text", listing?.Path ?? "/"))}" data-workspace-tab="text" role="tab" aria-selected="{A(selectedWorkspaceTab == "text" ? "true" : "false")}">{Icon("edit")}{T(context, "Text")}</a>""" : "")}}
+                        <a class="workspace-tab-button{{(selectedWorkspaceTab == "files" ? " active" : "")}}" href="{{A(WorkspaceTabUrl($"/workspaces/{selectedWorkspace.Id}", "files", listing?.Path ?? "/"))}}" data-workspace-tab="files" role="tab" aria-selected="{{A(selectedWorkspaceTab == "files" ? "true" : "false")}}">{{Icon("folder")}}{{T(context, "Files")}}</a>
+                        <a class="workspace-tab-button{{(selectedWorkspaceTab == "log" ? " active" : "")}}" href="{{A(WorkspaceTabUrl($"/workspaces/{selectedWorkspace.Id}", "log", listing?.Path ?? "/"))}}" data-workspace-tab="log" role="tab" aria-selected="{{A(selectedWorkspaceTab == "log" ? "true" : "false")}}">{{Icon("list")}}{{T(context, "Log")}}</a>
+                    </div>
+                    <div class="workspace-tab-panels">
+                        {{(selectedWorkspace.AllowTextExchange ? $$"""
+                        <div class="workspace-tab-panel{{(selectedWorkspaceTab == "text" ? "" : " hidden")}}" data-workspace-panel="text">
+                            {{WorkspaceTextPanel(context, selectedWorkspace, sharedText, canEditSelected || selectedWorkspace.AllowTextExchange, $"/workspaces/{selectedWorkspace.Id}", false, listing?.Path ?? "/")}}
+                        </div>
+                        """ : "")}}
+                        <div class="workspace-tab-panel{{(selectedWorkspaceTab == "files" ? "" : " hidden")}}" data-workspace-panel="files">
+                            {{WorkspaceFilesPanel(context, selectedWorkspace, listing, canEditSelected, selectedWorkspace.AllowUploads, $"/workspaces/{selectedWorkspace.Id}")}}
+                        </div>
+                        <div class="workspace-tab-panel{{(selectedWorkspaceTab == "log" ? "" : " hidden")}}" data-workspace-panel="log">
+                            {{WorkspaceActivityPanel(context, activityEntries)}}
+                        </div>
+                    </div>
+                </section>
+                {{(canEditSelected ? WorkspaceSessionsPanel(context, sessions) : "")}}
+                {{(canEditSelected ? WorkspaceDangerPanel(context, selectedWorkspace, "/workspaces") : "")}}
+                """;
+
+        var body = $$"""
+            <section class="page-head">
+                <div>
+                    <p class="eyebrow">{{T(context, "Workspaces")}}</p>
+                    <h1>{{T(context, "Workspaces")}}</h1>
+                    <p class="muted">{{T(context, "Shared folders, text and open sessions in one place.")}}</p>
+                </div>
+                <a class="button primary" href="/workspaces/new">{{Icon("plus")}}{{T(context, "Create workspace")}}</a>
+            </section>
+            <section class="workspace-browser-layout">
+                <aside class="workspace-browser-sidebar panel">
+                    <h2>{{T(context, "Workspaces")}}</h2>
+                    <div class="workspace-list">
+                        {{workspaceItems}}
+                    </div>
+                </aside>
+                <div class="workspace-browser-content stack">
+                    {{selectedPanel}}
+                </div>
+            </section>
+            """;
+
+        return Layout(context, currentUser, string.IsNullOrWhiteSpace(pageTitleOverride) ? T(context, "Workspaces") : pageTitleOverride!, body);
+    }
+
+    public string WorkspaceDetail(
+        HttpContext context,
+        MatgateUser currentUser,
+        WorkspaceDefinition workspace,
+        FileGatewayListResult? listing,
+        string sharedText,
+        IReadOnlyList<WorkspacePresenceSnapshot> sessions,
+        IReadOnlyList<WorkspaceActivityEntry> activityEntries,
+        bool canEditSelected,
+        string publicUrl,
+        string defaultRootPath)
+    {
+        var selectedTab = WorkspaceSelectedTab(context, workspace.AllowTextExchange, includeInfo: true, includeSettings: canEditSelected);
+        var currentPath = listing?.Path ?? "/";
+        var body = $$"""
+            <section class="workspace-tab-shell panel" data-workspace-tab-root="1" data-workspace-tab-key="{{A(workspace.Id.ToString("N"))}}" data-workspace-default-tab="{{A(workspace.AllowTextExchange ? "text" : "files")}}">
+                <div class="workspace-tab-strip" role="tablist" aria-label="{{A(T(context, "Workspace content"))}}">
+                    {{(workspace.AllowTextExchange ? $"""<a class="workspace-tab-button{(selectedTab == "text" ? " active" : "")}" href="{A(WorkspaceTabUrl($"/workspaces/{workspace.Id}", "text", currentPath))}" data-workspace-tab="text" role="tab" aria-selected="{A(selectedTab == "text" ? "true" : "false")}">{Icon("edit")}{T(context, "Text")}</a>""" : "")}}
+                    <a class="workspace-tab-button{{(selectedTab == "files" ? " active" : "")}}" href="{{A(WorkspaceTabUrl($"/workspaces/{workspace.Id}", "files", currentPath))}}" data-workspace-tab="files" role="tab" aria-selected="{{A(selectedTab == "files" ? "true" : "false")}}">{{Icon("folder")}}{{T(context, "Files")}}</a>
+                    <a class="workspace-tab-button{{(selectedTab == "info" ? " active" : "")}}" href="{{A(WorkspaceTabUrl($"/workspaces/{workspace.Id}", "info", currentPath))}}" data-workspace-tab="info" role="tab" aria-selected="{{A(selectedTab == "info" ? "true" : "false")}}">{{Icon("info")}}{{T(context, "Info")}}</a>
+                    {{(canEditSelected ? $"""<a class="workspace-tab-button{(selectedTab == "settings" ? " active" : "")}" href="{A(WorkspaceTabUrl($"/workspaces/{workspace.Id}", "settings", currentPath))}" data-workspace-tab="settings" role="tab" aria-selected="{A(selectedTab == "settings" ? "true" : "false")}">{Icon("settings")}{T(context, "Settings")}</a>""" : "")}}
+                    <a class="workspace-tab-button{{(selectedTab == "log" ? " active" : "")}}" href="{{A(WorkspaceTabUrl($"/workspaces/{workspace.Id}", "log", currentPath))}}" data-workspace-tab="log" role="tab" aria-selected="{{A(selectedTab == "log" ? "true" : "false")}}">{{Icon("list")}}{{T(context, "Log")}}</a>
+                </div>
+                <div class="workspace-tab-panels">
+                    {{(workspace.AllowTextExchange ? $$"""
+                    <div class="workspace-tab-panel{{(selectedTab == "text" ? "" : " hidden")}}" data-workspace-panel="text">
+                        {{WorkspaceTextPanel(context, workspace, sharedText, canEditSelected || workspace.AllowTextExchange, $"/workspaces/{workspace.Id}", false, currentPath)}}
+                    </div>
+                    """ : "")}}
+                    <div class="workspace-tab-panel{{(selectedTab == "files" ? "" : " hidden")}}" data-workspace-panel="files">
+                        {{WorkspaceFilesPanel(context, workspace, listing, canEditSelected, workspace.AllowUploads, $"/workspaces/{workspace.Id}")}}
+                    </div>
+                    <div class="workspace-tab-panel{{(selectedTab == "info" ? "" : " hidden")}}" data-workspace-panel="info">
+                        <div class="stack">
+                            <section class="panel stack workspace-info-panel">
+                                <div class="row split workspace-summary">
+                                    <div>
+                                        <p class="eyebrow">{{T(context, "Info")}}</p>
+                                        <h2>{{E(workspace.Name)}}</h2>
+                                        <p class="muted">{{E(workspace.Description)}}</p>
+                                        {{WorkspacePublicUrlLine(context, publicUrl)}}
+                                        <p class="muted"><strong>{{T(context, "Valid until")}}:</strong> {{E(WorkspacePublicAccessExpiresText(context, workspace))}}</p>
+                                        <p class="muted"><strong>{{T(context, "Root path")}}:</strong> <code>{{E(string.IsNullOrWhiteSpace(workspace.RootPath) ? defaultRootPath : workspace.RootPath)}}</code></p>
+                                    </div>
+                                    <div class="stack workspace-summary-badges">
+                                        <span class="badge">{{(WorkspaceIsPublicAccessActive(workspace) ? T(context, "Active") : T(context, "Expired"))}}</span>
+                                        <span class="badge">{{(workspace.AllowUploads ? T(context, "Allow uploads") : T(context, "Uploads disabled"))}}</span>
+                                        <span class="badge">{{(workspace.AllowTextExchange ? T(context, "Allow text exchange") : T(context, "Text disabled"))}}</span>
+                                    </div>
+                                </div>
+                                <div class="actions workspace-info-actions">
+                                    <form method="post" action="/workspaces/{{workspace.Id}}/extend" class="inline">
+                                        {{Csrf(context)}}
+                                        <button type="submit" name="hours" value="24" class="button">{{Icon("clock")}}{{T(context, "+24h")}}</button>
+                                        <button type="submit" name="hours" value="168" class="button">{{Icon("calendar")}}{{T(context, "+7d")}}</button>
+                                    </form>
+                                </div>
+                            </section>
+                        </div>
+                    </div>
+                    {{(canEditSelected ? $$"""
+                    <div class="workspace-tab-panel{{(selectedTab == "settings" ? "" : " hidden")}}" data-workspace-panel="settings">
+                        <div class="stack">
+                            {{WorkspaceSettingsPanel(context, workspace, defaultRootPath)}}
+                            {{WorkspaceSessionsPanel(context, sessions)}}
+                            {{WorkspaceDangerPanel(context, workspace, "/workspaces")}}
+                        </div>
+                    </div>
+                    """ : "")}}
+                    <div class="workspace-tab-panel{{(selectedTab == "log" ? "" : " hidden")}}" data-workspace-panel="log">
+                        {{WorkspaceActivityPanel(context, activityEntries)}}
+                    </div>
+                </div>
+            </section>
+            """;
+
+        return Layout(context, currentUser, workspace.Name, body, "workspace-detail-main");
+    }
+
+    public string WorkspaceExpired(HttpContext context, WorkspaceDefinition workspace, string publicUrl)
+    {
+        var body = $$"""
+            <section class="page-head">
+                <div>
+                    <p class="eyebrow">{{T(context, "Workspace")}}</p>
+                    <h1>{{E(workspace.Name)}}</h1>
+                    <p class="muted">{{T(context, "This external workspace access has expired.")}}</p>
+                    {{WorkspacePublicUrlLine(context, publicUrl)}}
+                </div>
+            </section>
+            <section class="panel">
+                <h2>{{T(context, "Expired")}}</h2>
+                <p class="muted">{{T(context, "Please contact the owner or open the admin view if you manage this workspace.")}}</p>
+            </section>
+            """;
+
+        return Layout(context, null, workspace.Name, body, "workspace-public-main");
+    }
+
+    public string WorkspacePublic(
+        HttpContext context,
+        WorkspaceDefinition workspace,
+        FileGatewayListResult? listing,
+        string sharedText,
+        IReadOnlyList<WorkspacePresenceSnapshot> sessions,
+        string publicUrl,
+        bool passwordRequired,
+        IReadOnlyList<WorkspaceActivityEntry> activityEntries,
+        string? passwordError = null)
+    {
+        if (passwordRequired)
+        {
+            return WorkspacePassword(context, workspace, publicUrl, passwordError);
+        }
+
+        var selectedTab = WorkspaceSelectedTab(context, workspace.AllowTextExchange);
+        var body = $$"""
+            <section class="page-head">
+                <div>
+                    <p class="eyebrow">{{T(context, "Workspace")}}</p>
+                    <h1>{{E(workspace.Name)}}</h1>
+                    <p class="muted">{{E(workspace.Description)}}</p>
+                    {{WorkspacePublicUrlLine(context, publicUrl)}}
+                </div>
+            </section>
+            <section class="workspace-tab-shell panel" data-workspace-tab-root="1" data-workspace-tab-key="{{A(workspace.Id.ToString("N"))}}" data-workspace-default-tab="{{A(workspace.AllowTextExchange ? "text" : "files")}}">
+                <div class="workspace-tab-strip" role="tablist" aria-label="{{A(T(context, "Workspace content"))}}">
+                    {{(workspace.AllowTextExchange ? $"""<a class="workspace-tab-button{(selectedTab == "text" ? " active" : "")}" href="{A(WorkspaceTabUrl($"/workspace/{workspace.Id}", "text", listing?.Path ?? "/"))}" data-workspace-tab="text" role="tab" aria-selected="{A(selectedTab == "text" ? "true" : "false")}">{Icon("edit")}{T(context, "Text")}</a>""" : "")}}
+                    <a class="workspace-tab-button{{(selectedTab == "files" ? " active" : "")}}" href="{{A(WorkspaceTabUrl($"/workspace/{workspace.Id}", "files", listing?.Path ?? "/"))}}" data-workspace-tab="files" role="tab" aria-selected="{{A(selectedTab == "files" ? "true" : "false")}}">{{Icon("folder")}}{{T(context, "Files")}}</a>
+                    <a class="workspace-tab-button{{(selectedTab == "log" ? " active" : "")}}" href="{{A(WorkspaceTabUrl($"/workspace/{workspace.Id}", "log", listing?.Path ?? "/"))}}" data-workspace-tab="log" role="tab" aria-selected="{{A(selectedTab == "log" ? "true" : "false")}}">{{Icon("list")}}{{T(context, "Log")}}</a>
+                </div>
+                <div class="workspace-tab-panels">
+                    {{(workspace.AllowTextExchange ? $$"""
+                    <div class="workspace-tab-panel{{(selectedTab == "text" ? "" : " hidden")}}" data-workspace-panel="text">
+                        {{WorkspaceTextPanel(context, workspace, sharedText, workspace.AllowTextExchange, $"/workspace/{workspace.Id}", true, listing?.Path ?? "/")}}
+                    </div>
+                    """ : "")}}
+                    <div class="workspace-tab-panel{{(selectedTab == "files" ? "" : " hidden")}}" data-workspace-panel="files">
+                        {{WorkspaceFilesPanel(context, workspace, listing, false, workspace.AllowUploads, $"/workspace/{workspace.Id}")}}
+                    </div>
+                    <div class="workspace-tab-panel{{(selectedTab == "log" ? "" : " hidden")}}" data-workspace-panel="log">
+                        {{WorkspaceActivityPanel(context, activityEntries)}}
+                    </div>
+                </div>
+            </section>
+            """;
+
+        return Layout(context, null, workspace.Name, body, "workspace-public-main");
+    }
+
+    public string WorkspacePassword(
+        HttpContext context,
+        WorkspaceDefinition workspace,
+        string publicUrl,
+        string? error = null)
+    {
+        var body = $$"""
+            <section class="page-head">
+                <div>
+                    <p class="eyebrow">{{T(context, "Workspace")}}</p>
+                    <h1>{{E(workspace.Name)}}</h1>
+                    <p class="muted">{{E(workspace.Description)}}</p>
+                    {{WorkspacePublicUrlLine(context, publicUrl)}}
+                </div>
+            </section>
+            <section class="panel">
+                <h2>{{T(context, "Enter password")}}</h2>
+                {{(string.IsNullOrWhiteSpace(error) ? "" : $"<p class=\"error\">{E(error)}</p>")}}
+                <form method="post" action="/workspace/{{workspace.Id}}/unlock" class="stack">
+                    {{Csrf(context)}}
+                    <label>{{T(context, "Password")}}
+                        <input name="password" type="password" autocomplete="current-password" required>
+                    </label>
+                    <div class="actions">
+                        <button type="submit" class="primary">{{Icon("key")}}{{T(context, "Unlock")}}</button>
+                    </div>
+                </form>
+            </section>
+            """;
+
+        return Layout(context, null, workspace.Name, body, "workspace-public-main");
     }
 
     public string About(HttpContext context, MatgateUser user)
@@ -999,6 +1355,457 @@ public sealed class HtmlViews
             """;
     }
 
+    private static string WorkspaceSettingsFields(
+        HttpContext context,
+        WorkspaceDefinition? workspace,
+        string defaultRootPath,
+        bool createMode)
+    {
+        var name = workspace?.Name ?? "";
+        var description = workspace?.Description ?? "";
+        var rootPath = workspace?.RootPath ?? "";
+        var noteFile = workspace?.SharedNoteFileName ?? "shared-note.md";
+        var allowUploads = workspace?.AllowUploads ?? true;
+        var allowText = workspace?.AllowTextExchange ?? true;
+        var isEnabled = workspace?.IsEnabled ?? true;
+        var publicAccessHours = WorkspacePublicAccessHours(workspace);
+        var publicAccessField = $$"""<label>{{T(context, "Public access validity (hours)")}}<input name="publicAccessHours" type="number" min="1" step="1" value="{{A(publicAccessHours.ToString())}}"><small class="muted">{{T(context, "External access is available for this duration.")}}</small></label>""";
+
+        return $$"""
+            <div class="form-grid">
+                <label>{{T(context, "Name")}}
+                    <input name="name" value="{{A(name)}}" required maxlength="120">
+                </label>
+                <label>{{T(context, "Description")}}
+                    <textarea name="description" rows="3">{{E(description)}}</textarea>
+                </label>
+                <label>{{T(context, "Root path")}}
+                    <input name="rootPath" value="{{A(rootPath)}}" placeholder="{{A(defaultRootPath)}}">
+                </label>
+                <label>{{T(context, "Shared note file")}}
+                    <input name="sharedNoteFileName" value="{{A(noteFile)}}" placeholder="shared-note.md">
+                </label>
+                <label>{{T(context, "Access password")}}
+                    <input name="password" type="password" autocomplete="new-password">
+                    <small class="muted">{{T(context, "Leave password empty to keep it unchanged.")}}</small>
+                </label>
+                {{(createMode ? publicAccessField : "")}}
+                {{(createMode ? "" : $"""<label class=\"check\"><input type=\"checkbox\" name=\"clearPassword\"> {T(context, "Clear password")}</label>""")}}
+                <label class="check"><input type="checkbox" name="allowUploads"{{Checked(allowUploads)}}> {{T(context, "Allow uploads")}}</label>
+                <label class="check"><input type="checkbox" name="allowTextExchange"{{Checked(allowText)}}> {{T(context, "Allow text exchange")}}</label>
+                <label class="check"><input type="checkbox" name="isEnabled"{{Checked(isEnabled)}}> {{T(context, "Enabled")}}</label>
+            </div>
+            """;
+    }
+
+    private static string WorkspaceSettingsPanel(HttpContext context, WorkspaceDefinition workspace, string defaultRootPath)
+    {
+        return $$"""
+            <section class="panel">
+                <h2>{{T(context, "Settings")}}</h2>
+                <form method="post" action="/workspaces/{{workspace.Id}}/update" class="stack">
+                    {{Csrf(context)}}
+                    <input type="hidden" name="tab" value="settings">
+                    {{WorkspaceSettingsFields(context, workspace, defaultRootPath, false)}}
+                    <div class="actions">
+                        <button type="submit" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button>
+                    </div>
+                </form>
+            </section>
+            """;
+    }
+
+    private static string WorkspaceFilesPanel(
+        HttpContext context,
+        WorkspaceDefinition workspace,
+        FileGatewayListResult? listing,
+        bool canDelete,
+        bool canUpload,
+        string baseUrl)
+    {
+        var currentPath = listing?.Path ?? "/";
+        var parentPath = listing?.ParentPath ?? "/";
+        var refreshUrl = $"{baseUrl}?path={Uri.EscapeDataString(currentPath)}";
+        var hasEntries = listing is not null && listing.Entries.Count > 0;
+        var parentDisabled = string.Equals(currentPath, parentPath, StringComparison.Ordinal);
+        var parentRow = parentDisabled
+            ? $$"""
+                <tr class="parent-directory is-root-directory">
+                    <td class="file-select-cell"></td>
+                    <td>
+                        <button type="button" class="file-name-button" disabled title="{{A(currentPath)}}">
+                            {{Icon("folder-up")}}<span>..</span>
+                        </button>
+                    </td>
+                    <td>-</td>
+                    <td>-</td>
+                    <td class="file-actions-cell"></td>
+                </tr>
+                """
+            : $$"""
+                <tr class="parent-directory">
+                    <td class="file-select-cell"></td>
+                    <td>
+                        <a class="file-name-button" href="{{A(WorkspaceUrlWithPath(baseUrl, parentPath))}}" title="{{A(parentPath)}}">
+                            {{Icon("folder-up")}}<span>..</span>
+                        </a>
+                    </td>
+                    <td>-</td>
+                    <td>-</td>
+                    <td class="file-actions-cell">
+                        <a class="file-action-button" href="{{A(WorkspaceUrlWithPath(baseUrl, parentPath))}}">
+                            {{Icon("folder-up")}}<span>{{T(context, "Open")}}</span>
+                        </a>
+                    </td>
+                </tr>
+                """;
+        var rows = !hasEntries
+            ? $"""<tr><td colspan="5" class="file-empty">{T(context, "This folder is empty.")}</td></tr>"""
+            : string.Join("", listing!.Entries.Select(entry =>
+            {
+                var entryPath = WorkspaceUrlWithPath(baseUrl, entry.Path);
+                var downloadUrl = $"{baseUrl}/download?path={Uri.EscapeDataString(entry.Path)}";
+                var nameCell = entry.IsDirectory
+                    ? $$"""<a class="file-name-button" href="{{A(entryPath)}}">{{Icon("folder")}}<span>{{E(entry.Name)}}</span></a>"""
+                    : $$"""<a class="file-name-button" href="{{A(downloadUrl)}}">{{Icon("file")}}<span>{{E(entry.Name)}}</span></a>""";
+                var actionCell = entry.IsDirectory
+                    ? $$"""<a class="file-action-button" href="{{A(entryPath)}}">{{Icon("folder")}}<span>{{T(context, "Open")}}</span></a>"""
+                    : $$"""<a class="file-action-button" href="{{A(downloadUrl)}}">{{Icon("download")}}<span>{{T(context, "Download")}}</span></a>""";
+                var deleteCell = canDelete
+                    ? $$"""
+                        <form method="post" action="{{A($"{baseUrl}/delete-entry")}}" class="inline">
+                            {{Csrf(context)}}
+                            <input type="hidden" name="path" value="{{A(entry.Path)}}">
+                            <button type="submit" class="file-action-button danger">{{Icon("trash")}}<span>{{T(context, "Delete")}}</span></button>
+                        </form>
+                        """
+                    : "";
+
+                return $$"""
+                    <tr class="{{(entry.IsDirectory ? "is-directory" : "is-file")}}">
+                        <td class="file-select-cell"></td>
+                        <td>{{nameCell}}</td>
+                        <td>{{(entry.Size is null ? "-" : $"{entry.Size:N0}")}}</td>
+                        <td>{{(entry.ModifiedAt is null ? "-" : entry.ModifiedAt.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm"))}}</td>
+                        <td class="file-actions-cell file-row-actions">{{actionCell}}{{deleteCell}}</td>
+                    </tr>
+                    """;
+            }));
+
+        var createMenu = ToolbarMenu(
+            "file-menu file-create-menu",
+            "file-tool-button file-menu-trigger",
+            T(context, "Create"),
+            Icon("plus"),
+            Attr("title", T(context, "Create")),
+            $$"""
+                <form method="post" action="{{A($"{baseUrl}/mkdir")}}" class="workspace-menu-form">
+                    {{Csrf(context)}}
+                    <input type="hidden" name="path" value="{{A(currentPath)}}">
+                    <label class="workspace-menu-field">
+                        <span>{{T(context, "Directory")}}</span>
+                        <input type="text" class="toolbar-input workspace-menu-input" name="name" placeholder="{{A(T(context, "Name"))}}" required>
+                    </label>
+                    <button type="submit" class="toolbar-button toolbar-button--primary">{{Icon("folder-plus")}}<span>{{T(context, "Create folder")}}</span></button>
+                </form>
+                """,
+            $$"""
+                <form method="post" action="{{A($"{baseUrl}/create-file")}}" class="workspace-menu-form">
+                    {{Csrf(context)}}
+                    <input type="hidden" name="path" value="{{A(currentPath)}}">
+                    <label class="workspace-menu-field">
+                        <span>{{T(context, "File")}}</span>
+                        <input type="text" class="toolbar-input workspace-menu-input" name="name" placeholder="{{A(T(context, "Name"))}}" required>
+                    </label>
+                    <button type="submit" class="toolbar-button toolbar-button--primary">{{Icon("file")}}<span>{{T(context, "Create file")}}</span></button>
+                </form>
+                """
+        );
+
+        var uploadForm = canUpload
+            ? $$"""
+                <form method="post" action="{{A($"{baseUrl}/upload")}}" enctype="multipart/form-data" class="workspace-upload-form">
+                    {{Csrf(context)}}
+                    <input type="hidden" name="path" value="{{A(currentPath)}}">
+                    {{ToolbarUploadButton(T(context, "Upload"), Icon("upload"), "file-upload-button", "", "onchange=\"this.form.submit()\"")}}
+                </form>
+                """
+            : "";
+
+        return $$"""
+            <section class="file-manager workspace-file-manager">
+                <div class="file-toolbar">
+                    <div class="toolbar-group file-toolbar-group file-toolbar-main">
+                        <a class="toolbar-button toolbar-icon-button" href="{{A(refreshUrl)}}" title="{{A(T(context, "Refresh"))}}" aria-label="{{A(T(context, "Refresh"))}}">
+                            {{Icon("refresh")}}
+                        </a>
+                        <form method="get" action="{{A(baseUrl)}}" class="workspace-path-form">
+                            {{ToolbarInput("file-path-input", currentPath, T(context, "Path"))}}
+                            <button type="submit" class="toolbar-button">{{Icon("folder")}}<span>{{T(context, "Open")}}</span></button>
+                        </form>
+                        {{createMenu}}
+                    </div>
+                    <div class="toolbar-group file-toolbar-group file-toolbar-transfer">
+                        {{uploadForm}}
+                    </div>
+                </div>
+                <div class="file-message hidden"></div>
+                <div class="file-table-wrap" data-file-drop-target>
+                    <div class="file-drop-overlay hidden" data-file-drop-overlay>
+                        <strong>{{T(context, "Drop files here")}}</strong>
+                        <span class="muted">{{T(context, "Current folder")}}: <span data-file-drop-overlay-path>{{E(currentPath)}}</span></span>
+                    </div>
+                    <table class="file-table">
+                        <thead>
+                            <tr>
+                                <th class="file-select-heading"></th>
+                                <th>{{T(context, "Name")}}</th>
+                                <th>{{T(context, "Size")}}</th>
+                                <th>{{T(context, "Modified")}}</th>
+                                <th class="file-actions-heading">{{T(context, "Actions")}}</th>
+                            </tr>
+                        </thead>
+                        <tbody>{{parentRow}}{{rows}}</tbody>
+                    </table>
+                </div>
+            </section>
+            """;
+    }
+
+    private static string WorkspaceTextPanel(
+        HttpContext context,
+        WorkspaceDefinition workspace,
+        string sharedText,
+        bool canEditText,
+        string baseUrl,
+        bool isPublic,
+        string currentPath)
+    {
+        if (!workspace.AllowTextExchange)
+        {
+            return "";
+        }
+
+        var readonlyAttr = canEditText ? "" : " readonly";
+        var autoSaveLabel = Language(context) == "de" ? "Auto speichern nach 10 s" : "Auto save after 10s";
+        var savingLabel = Language(context) == "de" ? "Speichert..." : "Saving...";
+        var savedLabel = Language(context) == "de" ? "Gespeichert" : "Saved";
+        var readyLabel = T(context, "Ready");
+        var dirtyLabel = Language(context) == "de" ? "Ungespeicherte Aenderungen" : "Unsaved changes";
+        var failedLabel = Language(context) == "de" ? "Speichern fehlgeschlagen." : "Save failed.";
+        var saveButton = canEditText
+            ? $$"""
+                <div class="actions workspace-text-actions">
+                    <button type="submit" class="primary workspace-text-save-button" data-workspace-text-save>{{Icon("save")}}{{T(context, "Save")}}</button>
+                    <label class="workspace-auto-save">
+                        <input type="checkbox" name="autoSave" checked data-workspace-text-auto-save>
+                        <span>{{E(autoSaveLabel)}}</span>
+                    </label>
+                </div>
+                <p class="muted workspace-text-status" data-workspace-text-status>{{E(readyLabel)}}</p>
+                """
+            : "";
+
+        return $$"""
+            <section class="panel">
+                <h2>{{T(context, "Shared text")}}</h2>
+                <form method="post" action="{{A($"{baseUrl}/note")}}" class="stack workspace-text-form" data-workspace-text-form="1" data-workspace-saving-label="{{A(savingLabel)}}" data-workspace-saved-label="{{A(savedLabel)}}" data-workspace-ready-label="{{A(readyLabel)}}" data-workspace-dirty-label="{{A(dirtyLabel)}}" data-workspace-failed-label="{{A(failedLabel)}}">
+                    {{Csrf(context)}}
+                    <input type="hidden" name="tab" value="text">
+                    <input type="hidden" name="path" value="{{A(currentPath)}}">
+                    <textarea name="text" rows="10"{{readonlyAttr}}>{{E(sharedText)}}</textarea>
+                    {{saveButton}}
+                </form>
+            </section>
+            """;
+    }
+
+    private static string WorkspaceActivityPanel(HttpContext context, IReadOnlyList<WorkspaceActivityEntry> activityEntries)
+    {
+        var rows = activityEntries.Count == 0
+            ? $"""<tr><td colspan="5" class="muted">{T(context, "No activity yet.")}</td></tr>"""
+            : string.Join("", activityEntries.Select(entry => $$"""
+                <tr>
+                    <td>{{E(entry.Timestamp.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"))}}</td>
+                    <td><span class="badge">{{E(entry.Mode)}}</span> {{E(entry.Actor)}}</td>
+                    <td>{{E(entry.Action)}}</td>
+                    <td><code>{{E(entry.Path)}}</code></td>
+                    <td>{{E(entry.Details)}}</td>
+                </tr>
+                """));
+
+        return $$"""
+            <section class="panel">
+                <div class="row split">
+                    <div>
+                        <h2>{{T(context, "Log")}}</h2>
+                    </div>
+                </div>
+                <div class="table-wrap workspace-activity-table-wrap">
+                    <table class="workspace-activity-table">
+                        <thead>
+                            <tr>
+                                <th>{{T(context, "Time")}}</th>
+                                <th>{{T(context, "Actor")}}</th>
+                                <th>{{T(context, "Action")}}</th>
+                                <th>{{T(context, "Path")}}</th>
+                                <th>{{T(context, "Details")}}</th>
+                            </tr>
+                        </thead>
+                        <tbody>{{rows}}</tbody>
+                    </table>
+                </div>
+            </section>
+            """;
+    }
+
+    private static string WorkspacePublicUrlLine(HttpContext context, string publicUrl)
+    {
+        var copyLabel = T(context, "Copy to clipboard");
+        return $$"""
+            <div class="workspace-url-line muted" data-workspace-public-url="{{A(publicUrl)}}">
+                <strong>{{T(context, "Public URL")}}:</strong>
+                <code>{{E(publicUrl)}}</code>
+                <button
+                    type="button"
+                    class="toolbar-button toolbar-icon-button workspace-url-copy"
+                    title="{{A(copyLabel)}}"
+                    aria-label="{{A(copyLabel)}}"
+                    onclick='window.MatgateCopyText({{JsonSerializer.Serialize(publicUrl)}}); return false;'>
+                    {{Icon("clipboard")}}
+                </button>
+            </div>
+            """;
+    }
+
+    private static string WorkspaceTabUrl(string baseUrl, string tabName, string? path)
+    {
+        var url = $"{baseUrl}?tab={Uri.EscapeDataString(tabName)}";
+        if (!string.IsNullOrWhiteSpace(path))
+        {
+            url += $"&path={Uri.EscapeDataString(path)}";
+        }
+
+        return url;
+    }
+
+    private static string WorkspaceSelectedTab(HttpContext context, bool allowTextExchange, bool includeInfo = false, bool includeSettings = false)
+    {
+        var requested = Clean(context.Request.Query["tab"].ToString(), "").ToLowerInvariant();
+        return requested switch
+        {
+            "text" when allowTextExchange => "text",
+            "files" => "files",
+            "info" when includeInfo => "info",
+            "settings" when includeSettings => "settings",
+            "log" => "log",
+            _ => allowTextExchange ? "text" : "files"
+        };
+    }
+
+    private static bool WorkspaceIsPublicAccessActive(WorkspaceDefinition workspace)
+    {
+        return workspace.PublicAccessExpiresAt is null || workspace.PublicAccessExpiresAt > DateTimeOffset.UtcNow;
+    }
+
+    private static string WorkspacePublicAccessExpiresText(HttpContext context, WorkspaceDefinition workspace)
+    {
+        if (workspace.PublicAccessExpiresAt is null)
+        {
+            return T(context, "No expiry set");
+        }
+
+        return workspace.PublicAccessExpiresAt.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm");
+    }
+
+    private static string WorkspaceValidityLabel(HttpContext context, WorkspaceDefinition workspace)
+    {
+        var remaining = workspace.PublicAccessExpiresAt.HasValue
+            ? workspace.PublicAccessExpiresAt.Value - DateTimeOffset.UtcNow
+            : TimeSpan.FromHours(24);
+
+        if (remaining <= TimeSpan.Zero)
+        {
+            return T(context, "Expired");
+        }
+
+        if (remaining.TotalDays >= 1)
+        {
+            return $"{(int)Math.Ceiling(remaining.TotalDays)}d";
+        }
+
+        if (remaining.TotalHours >= 1)
+        {
+            return $"{(int)Math.Ceiling(remaining.TotalHours)}h";
+        }
+
+        return $"{Math.Max(1, (int)Math.Ceiling(remaining.TotalMinutes))}m";
+    }
+
+    private static int WorkspacePublicAccessHours(WorkspaceDefinition? workspace)
+    {
+        if (workspace?.PublicAccessExpiresAt is { } expiresAt)
+        {
+            var remaining = expiresAt - DateTimeOffset.UtcNow;
+            if (remaining > TimeSpan.Zero)
+            {
+                return Math.Clamp((int)Math.Ceiling(remaining.TotalHours), 1, 24 * 365 * 10);
+            }
+        }
+
+        return 24;
+    }
+
+    private static string WorkspaceSessionsPanel(HttpContext context, IReadOnlyList<WorkspacePresenceSnapshot> sessions)
+    {
+        var rows = sessions.Count == 0
+            ? $"""<tr><td colspan="3" class="muted">{T(context, "No sessions yet.")}</td></tr>"""
+            : string.Join("", sessions.Select(session => $$"""
+                <tr>
+                    <td>{{E(session.DisplayName)}}</td>
+                    <td><span class="badge">{{E(session.Mode)}}</span></td>
+                    <td>{{E(session.LastSeenAt.ToLocalTime().ToString("yyyy-MM-dd HH:mm"))}}</td>
+                </tr>
+                """));
+
+        return $$"""
+            <section class="panel">
+                <h2>{{T(context, "Open sessions")}}</h2>
+                <div class="table-wrap">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>{{T(context, "Name")}}</th>
+                                <th>{{T(context, "Type")}}</th>
+                                <th>{{T(context, "Modified")}}</th>
+                            </tr>
+                        </thead>
+                        <tbody>{{rows}}</tbody>
+                    </table>
+                </div>
+            </section>
+            """;
+    }
+
+    private static string WorkspaceDangerPanel(HttpContext context, WorkspaceDefinition workspace, string baseRoute)
+    {
+        return $$"""
+            <section class="panel danger-zone">
+                <h2>{{T(context, "Remove")}}</h2>
+                <form method="post" action="{{A($"{baseRoute}/{workspace.Id}/delete")}}">
+                    {{Csrf(context)}}
+                    <button type="submit" class="danger">{{Icon("trash")}}{{T(context, "Delete workspace")}}</button>
+                </form>
+            </section>
+            """;
+    }
+
+    private static string WorkspaceUrlWithPath(string baseUrl, string path)
+    {
+        var separator = baseUrl.Contains('?', StringComparison.Ordinal) ? "&" : "?";
+        return $"{baseUrl}{separator}path={Uri.EscapeDataString(path)}";
+    }
+
     private static string ManagedServersSection(
         HttpContext context,
         string title,
@@ -1038,8 +1845,10 @@ public sealed class HtmlViews
         HttpContext context,
         MatgateUser user,
         IReadOnlyList<ServerEndpoint> servers,
+        IReadOnlyList<WorkspaceDefinition> workspaces,
         bool includeEditButtons)
     {
+        var workspaceSection = WorkspaceBrowserNavSection(context, workspaces);
         if (servers.Count == 0)
         {
             var createButton = user.CanCreateServers
@@ -1047,12 +1856,21 @@ public sealed class HtmlViews
                 : "";
             return $$"""
                 <section class="connection-browser-empty">
-                    <div>
-                        <p class="eyebrow">{{T(context, "Home")}}</p>
-                        <h1>{{T(context, "New Connection")}}</h1>
-                        <p class="muted">{{T(context, "No connections yet.")}}</p>
+                    <div class="home-browser-layout">
+                        <aside class="home-browser-sidebar">
+                            {{workspaceSection}}
+                        </aside>
+                        <div class="home-browser-content">
+                            <section class="connection-browser-empty">
+                                <div>
+                                    <p class="eyebrow">{{T(context, "Home")}}</p>
+                                    <h1>{{T(context, "New Connection")}}</h1>
+                                    <p class="muted">{{T(context, "No connections yet.")}}</p>
+                                </div>
+                                {{createButton}}
+                            </section>
+                        </div>
                     </div>
-                    {{createButton}}
                 </section>
                 """;
         }
@@ -1060,8 +1878,8 @@ public sealed class HtmlViews
         var returnUrl = $"{context.Request.Path}{context.Request.QueryString}";
         var browserModes = new[]
         {
-            ConnectionChoiceBrowserMode(context, user, servers, includeEditButtons, returnUrl, ConnectionBrowseMode.Folder),
-            ConnectionChoiceBrowserMode(context, user, servers, includeEditButtons, returnUrl, ConnectionBrowseMode.Host)
+            ConnectionChoiceBrowserMode(context, user, servers, workspaces, includeEditButtons, returnUrl, ConnectionBrowseMode.Folder),
+            ConnectionChoiceBrowserMode(context, user, servers, workspaces, includeEditButtons, returnUrl, ConnectionBrowseMode.Host)
         };
         var headerCreateButton = user.CanCreateServers
             ? $"""<a class="button primary" href="/admin/servers/new">{Icon("plus")}{T(context, "Create own server")}</a>"""
@@ -1109,6 +1927,7 @@ public sealed class HtmlViews
         HttpContext context,
         MatgateUser user,
         IReadOnlyList<ServerEndpoint> servers,
+        IReadOnlyList<WorkspaceDefinition> workspaces,
         bool includeEditButtons,
         string returnUrl,
         ConnectionBrowseMode mode)
@@ -1129,6 +1948,7 @@ public sealed class HtmlViews
             .OrderBy(ConnectionChoiceSortGroup)
             .ThenBy(server => server.Name)
             .ToList();
+        var workspaceSection = WorkspaceBrowserNavSection(context, workspaces);
 
         var groups = new List<ConnectionBrowserGroup>();
         if (favorites.Count > 0)
@@ -1192,6 +2012,11 @@ public sealed class HtmlViews
         if (ownGroups.Count > 0)
         {
             navSections.Add(ConnectionBrowserNavSection(T(context, "Own servers"), ownGroups, defaultGroupKey));
+        }
+
+        if (!string.IsNullOrWhiteSpace(workspaceSection))
+        {
+            navSections.Add(workspaceSection);
         }
 
         var panels = string.Join("", groups.Select((group, index) => ConnectionBrowserGroupSection(context, user, group, includeEditButtons, returnUrl, index == 0)));
@@ -1289,6 +2114,62 @@ public sealed class HtmlViews
                 </span>
                 <span class="badge">{{group.Servers.Count}}</span>
             </button>
+            """;
+    }
+
+    private static string WorkspaceBrowserNavSection(HttpContext context, IReadOnlyList<WorkspaceDefinition> workspaces)
+    {
+        var ordered = workspaces
+            .OrderByDescending(WorkspaceIsPublicAccessActive)
+            .ThenBy(workspace => workspace.Name)
+            .ToList();
+        var activeWorkspaces = ordered
+            .Where(WorkspaceIsPublicAccessActive)
+            .ToList();
+
+        var workspaceItems = string.Join("", activeWorkspaces.Select(workspace =>
+        {
+            var subtitle = T(context, "Workspace");
+            var validity = WorkspaceValidityLabel(context, workspace);
+
+            return $$"""
+                <a class="home-browser-nav-item workspace-home-nav-item" href="/workspaces/{{workspace.Id}}" data-shell-open-tab="1" data-shell-title="{{A(workspace.Name)}}" data-shell-description="" data-home-workspace-item="1" data-home-workspace-active="{{A(WorkspaceIsPublicAccessActive(workspace) ? "1" : "0")}}">
+                    <span class="home-browser-nav-icon">{{Icon("briefcase")}}</span>
+                    <span class="home-browser-nav-copy">
+                        <span class="home-browser-nav-title">{{E(workspace.Name)}}</span>
+                        <small>{{E(subtitle)}}{{(string.IsNullOrWhiteSpace(workspace.Description) ? "" : $" - {E(workspace.Description)}")}}</small>
+                    </span>
+                    <span class="badge" title="{{A(WorkspacePublicAccessExpiresText(context, workspace))}}">{{E(validity)}}</span>
+                </a>
+                """;
+        }));
+
+        return $$"""
+            <section class="home-browser-nav-section" data-home-workspaces="1" data-home-workspace-empty-active="{{A(T(context, "No active workspaces."))}}" data-home-workspace-empty-all="{{A(T(context, "No workspaces yet."))}}">
+                <div class="row split home-browser-nav-section-head">
+                    <p class="home-browser-nav-heading">{{T(context, "Workspaces")}}</p>
+                </div>
+                <div class="home-browser-nav-list">
+                    {{workspaceItems}}
+                </div>
+                <div class="home-browser-nav-footer">
+                    <a class="home-browser-nav-item workspace-home-nav-item workspace-home-action-item" href="/workspaces" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Workspaces"))}}" data-shell-description="{{A(T(context, "Show all"))}}">
+                        <span class="home-browser-nav-icon">{{Icon("list")}}</span>
+                        <span class="home-browser-nav-copy">
+                            <span class="home-browser-nav-title">{{T(context, "Workspaces")}}</span>
+                            <small>{{T(context, "Show all")}}</small>
+                        </span>
+                    </a>
+                    <a class="home-browser-nav-item workspace-home-nav-item workspace-home-action-item workspace-home-create-item" href="/workspaces/new" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Create workspace"))}}" data-shell-description="{{A(T(context, "New workspace"))}}">
+                        <span class="home-browser-nav-icon">{{Icon("plus")}}</span>
+                        <span class="home-browser-nav-copy">
+                            <span class="home-browser-nav-title">{{T(context, "Create workspace")}}</span>
+                            <small>{{T(context, "New workspace")}}</small>
+                        </span>
+                    </a>
+                </div>
+                <div class="empty hidden" data-home-workspace-empty></div>
+            </section>
             """;
     }
 
@@ -1610,6 +2491,7 @@ public sealed class HtmlViews
         HttpContext context,
         MatgateUser user,
         IReadOnlyList<ServerEndpoint> servers,
+        IReadOnlyList<WorkspaceDefinition> workspaces,
         Guid? openServerId)
     {
         var availableServers = JsonSerializer.Serialize(servers.Select(server => new
@@ -1647,6 +2529,7 @@ public sealed class HtmlViews
         var actionIcons = JsonSerializer.Serialize(new
         {
             fullscreen = Icon("maximize"),
+            copy = Icon("copy"),
             clipboard = Icon("clipboard"),
             disconnect = Icon("logout")
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
@@ -1664,9 +2547,12 @@ public sealed class HtmlViews
             about = T(context, "About"),
             dashboard = T(context, "Home"),
             connections = T(context, "Connections"),
+            workspace = T(context, "Workspace"),
             page = T(context, "Page"),
             fullscreen = T(context, "Fullscreen"),
             clipboard = T(context, "Clipboard"),
+            copyToClipboard = T(context, "Copy to clipboard"),
+            copyUrlToClipboard = T(context, "Copy URL to clipboard"),
             pasteToActiveTab = Language(context) == "de" ? "In aktiven Tab einfuegen" : "Paste to active tab",
             disconnect = T(context, "Disconnect"),
             username = T(context, "Username"),
@@ -1772,7 +2658,7 @@ public sealed class HtmlViews
             connectionContinues = Language(context) == "de" ? "Verbindung wird fortgesetzt" : "Connection continues",
             credentialsSubmitted = Language(context) == "de" ? "Die Zugangsdaten wurden uebergeben." : "Credentials were submitted."
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
-        var connectionChoices = ConnectionChoiceSections(context, user, servers, true);
+        var connectionChoices = ConnectionChoiceSections(context, user, servers, workspaces, true);
         var body = $$"""
             <div id="matgate-shell" class="matgate-shell">
             <div class="shell-page-row">
@@ -1784,7 +2670,7 @@ public sealed class HtmlViews
                         </button>
                     </div>
                 </div>
-                <div id="connection-tab-actions" class="tab-actions" aria-label="{{A(T(context, "Actions for the active tab"))}}"></div>
+            <div id="connection-tab-actions" class="tab-actions" aria-label="{{A(T(context, "Actions for the active tab"))}}"></div>
             </div>
             <div id="shell-page-panels" class="shell-page-panels">
             <section id="home-view" class="app-view session-page multi-session-page active">
@@ -1887,6 +2773,7 @@ public sealed class HtmlViews
                 let fileViewerLoadToken = 0;
                 let homeBrowserState = {
                     mode: 'folder',
+                    workspaceFilter: 'active',
                     groups: {
                         folder: '',
                         host: ''
@@ -2049,6 +2936,7 @@ public sealed class HtmlViews
                 function homeBrowserDefaultState() {
                     return {
                         mode: 'folder',
+                        workspaceFilter: 'active',
                         groups: {
                             folder: '',
                             host: ''
@@ -2066,6 +2954,7 @@ public sealed class HtmlViews
                         const parsed = JSON.parse(raw);
                         return {
                             mode: parsed?.mode === 'host' ? 'host' : 'folder',
+                            workspaceFilter: parsed?.workspaceFilter === 'all' ? 'all' : 'active',
                             groups: {
                                 folder: typeof parsed?.groups?.folder === 'string' ? parsed.groups.folder : '',
                                 host: typeof parsed?.groups?.host === 'string' ? parsed.groups.host : ''
@@ -2104,6 +2993,56 @@ public sealed class HtmlViews
 
                 function getHomeBrowserGroupPanels(panel) {
                     return panel ? Array.from(panel.querySelectorAll('[data-home-group-panel]')) : [];
+                }
+
+                function getHomeBrowserWorkspaceRoot() {
+                    return homeBrowser ? homeBrowser.querySelector('[data-home-workspaces="1"]') : null;
+                }
+
+                function getHomeBrowserWorkspaceButtons() {
+                    const root = getHomeBrowserWorkspaceRoot();
+                    return root ? Array.from(root.querySelectorAll('[data-home-workspace-filter]')) : [];
+                }
+
+                function setHomeBrowserWorkspaceFilter(filter, persist = true) {
+                    if (!homeBrowser) {
+                        return;
+                    }
+
+                    const resolvedFilter = filter === 'all' ? 'all' : 'active';
+                    homeBrowserState.workspaceFilter = resolvedFilter;
+
+                    getHomeBrowserWorkspaceButtons().forEach(button => {
+                        button.classList.toggle('active', button.dataset.homeWorkspaceFilter === resolvedFilter);
+                    });
+
+                    const root = getHomeBrowserWorkspaceRoot();
+                    if (root) {
+                        const items = Array.from(root.querySelectorAll('[data-home-workspace-item="1"]'));
+                        const showAll = resolvedFilter === 'all';
+                        let visibleCount = 0;
+                        items.forEach(item => {
+                            const isActive = item.dataset.homeWorkspaceActive === '1';
+                            const visible = showAll || isActive;
+                            item.classList.toggle('hidden', !visible);
+                            if (visible) {
+                                visibleCount += 1;
+                            }
+                        });
+
+                        const empty = root.querySelector('[data-home-workspace-empty]');
+                        if (empty) {
+                            const label = showAll
+                                ? root.getAttribute('data-home-workspace-empty-all') || uiText.noWorkspacesYet || 'No workspaces yet.'
+                                : root.getAttribute('data-home-workspace-empty-active') || uiText.noActiveWorkspaces || 'No active workspaces.';
+                            empty.textContent = label;
+                            empty.classList.toggle('hidden', visibleCount > 0);
+                        }
+                    }
+
+                    if (persist) {
+                        saveHomeBrowserState();
+                    }
                 }
 
                 function setHomeBrowserGroup(mode, groupKey, persist = true) {
@@ -2167,6 +3106,12 @@ public sealed class HtmlViews
                         });
                     });
 
+                    getHomeBrowserWorkspaceButtons().forEach(button => {
+                        button.addEventListener('click', () => {
+                            setHomeBrowserWorkspaceFilter(button.dataset.homeWorkspaceFilter || 'active');
+                        });
+                    });
+
                     getHomeBrowserModePanels().forEach(panel => {
                         getHomeBrowserGroupButtons(panel).forEach(button => {
                             button.addEventListener('click', () => {
@@ -2183,6 +3128,7 @@ public sealed class HtmlViews
 
                     homeBrowserState = loadHomeBrowserState();
                     setHomeBrowserMode(homeBrowserState.mode, false);
+                    setHomeBrowserWorkspaceFilter(homeBrowserState.workspaceFilter, false);
                 }
 
                 function shellEmbeddedUrl(url) {
@@ -2241,7 +3187,10 @@ public sealed class HtmlViews
 
                     const subtitle = document.createElement('small');
                     subtitle.className = 'session-tab-description';
-                    subtitle.textContent = shellTabDescription(resolvedTab);
+                    const resolvedDescription = shellTabDescription(resolvedTab);
+                    subtitle.textContent = resolvedDescription;
+                    subtitle.hidden = !resolvedDescription;
+                    button.classList.toggle('session-tab--compact', !resolvedDescription);
                     main.append(title, subtitle);
 
                     const close = document.createElement('button');
@@ -2270,6 +3219,22 @@ public sealed class HtmlViews
                     panel.appendChild(iframe);
 
                     button.append(main, close);
+                    const entry = { ...resolvedTab, button, panel, iframe, publicUrl: '' };
+                    iframe.addEventListener('load', () => {
+                        try {
+                            const marker = iframe.contentDocument?.querySelector('[data-workspace-public-url]');
+                            const publicUrl = marker?.getAttribute('data-workspace-public-url') || '';
+                            if (publicUrl) {
+                                entry.publicUrl = publicUrl;
+                                if (activeShellTabId === entry.id) {
+                                    updateTabActions();
+                                }
+                            }
+                        }
+                        catch {
+                            // Ignore cross-document lookup failures.
+                        }
+                    });
                     main.addEventListener('click', event => {
                         if (suppressTabClicks) {
                             event.preventDefault();
@@ -2282,13 +3247,15 @@ public sealed class HtmlViews
                     shellPagePanels.appendChild(panel);
                     wireTabDrag(button, resolvedTab.id, main);
 
-                    const entry = { ...resolvedTab, button, panel, iframe };
                     shellTabs.set(resolvedTab.id, entry);
                     return entry;
                 }
 
                 function shellTabDescription(tab) {
                     const fallback = uiText.page || 'Page';
+                    if (tab.url.startsWith('/workspaces') || tab.url.startsWith('/workspace/') || tab.url.startsWith('/w/')) {
+                        return uiText.workspace || 'Workspace';
+                    }
                     if (tab.url === '/tools') {
                         return fallback;
                     }
@@ -2354,6 +3321,11 @@ public sealed class HtmlViews
                         return;
                     }
 
+                    if ((!tabsRoot || !shellPagePanels) && window.top && window.top !== window && typeof window.top.MatgateOpenShellTab === 'function') {
+                        window.top.MatgateOpenShellTab(url, title, iconHtml, description);
+                        return;
+                    }
+
                     const existing = Array.from(shellTabs.values()).find(tab => tab.url === url);
                     if (existing) {
                         activateShellTab(existing.id);
@@ -2364,6 +3336,8 @@ public sealed class HtmlViews
                     createShellTab({ id, url, title, iconHtml, description });
                     activateShellTab(id);
                 }
+
+                window.MatgateOpenShellTab = openShellTab;
 
                 function restoreShellTabs() {
                     if (!tabsRoot || !shellPagePanels) {
@@ -2437,6 +3411,286 @@ public sealed class HtmlViews
 
                     window.addEventListener('popstate', () => {
                         showView('home', false);
+                    });
+                }
+
+                function wireWorkspaceTabs() {
+                    document.querySelectorAll('[data-workspace-tab-root="1"]').forEach(root => {
+                        const buttons = Array.from(root.querySelectorAll('[data-workspace-tab]'));
+                        const panels = Array.from(root.querySelectorAll('[data-workspace-panel]'));
+                        if (!buttons.length || !panels.length) {
+                            return;
+                        }
+
+                        const workspaceKey = root.getAttribute('data-workspace-tab-key') || window.location.pathname;
+                        const storageKey = `matgate.workspace.panel.${workspaceKey}`;
+                        const defaultTab = root.getAttribute('data-workspace-default-tab')
+                            || buttons[0].getAttribute('data-workspace-tab')
+                            || 'files';
+
+                        const activate = (tabName, persist = true) => {
+                            const selected = buttons.some(button => button.getAttribute('data-workspace-tab') === tabName)
+                                ? tabName
+                                : defaultTab;
+
+                            buttons.forEach(button => {
+                                button.classList.toggle('active', button.getAttribute('data-workspace-tab') === selected);
+                                button.setAttribute('aria-selected', button.getAttribute('data-workspace-tab') === selected ? 'true' : 'false');
+                            });
+
+                            panels.forEach(panel => {
+                                panel.classList.toggle('hidden', panel.getAttribute('data-workspace-panel') !== selected);
+                            });
+
+                            if (persist) {
+                                try {
+                                    localStorage.setItem(storageKey, selected);
+                                }
+                                catch {
+                                    // Ignore storage errors.
+                                }
+                            }
+                        };
+
+                        buttons.forEach(button => {
+                            button.addEventListener('click', () => {
+                                activate(button.getAttribute('data-workspace-tab') || defaultTab);
+                            });
+                        });
+
+                        let initialTab = defaultTab;
+                        try {
+                            const requested = new URL(window.location.href).searchParams.get('tab');
+                            if (requested) {
+                                initialTab = requested;
+                            }
+                            else {
+                                const stored = localStorage.getItem(storageKey);
+                                if (stored) {
+                                    initialTab = stored;
+                                }
+                            }
+                        }
+                        catch {
+                            // Ignore storage errors.
+                        }
+
+                        activate(initialTab, false);
+                    });
+                }
+
+                function wireWorkspaceTextForms() {
+                    document.querySelectorAll('form[data-workspace-text-form="1"]').forEach(form => {
+                        const textarea = form.querySelector('textarea[name="text"]');
+                        const saveButton = form.querySelector('[data-workspace-text-save]');
+                        const autoSaveInput = form.querySelector('[data-workspace-text-auto-save]');
+                        const status = form.querySelector('[data-workspace-text-status]');
+                        const tabRoot = form.closest('[data-workspace-tab-root="1"]');
+                        const logPanel = tabRoot?.querySelector('[data-workspace-panel="log"]') || null;
+                        const savingLabel = form.dataset.workspaceSavingLabel || 'Saving...';
+                        const savedLabel = form.dataset.workspaceSavedLabel || 'Saved';
+                        const readyLabel = form.dataset.workspaceReadyLabel || 'Ready';
+                        const dirtyLabel = form.dataset.workspaceDirtyLabel || 'Unsaved changes';
+                        const failedLabel = form.dataset.workspaceFailedLabel || 'Save failed.';
+                        const currentTab = form.querySelector('input[name="tab"]')?.value || 'text';
+                        const currentPath = form.querySelector('input[name="path"]')?.value || '/';
+                        let autoSaveTimer = null;
+                        let manualSubmitTimer = null;
+                        let saveInFlight = false;
+                        let manualSubmitPending = false;
+                        let lastSavedValue = textarea?.value || '';
+
+                        if (!textarea) {
+                            return;
+                        }
+
+                        const setStatus = (message) => {
+                            if (status) {
+                                status.textContent = message;
+                            }
+                        };
+
+                        const clearAutoSaveTimer = () => {
+                            if (autoSaveTimer) {
+                                window.clearTimeout(autoSaveTimer);
+                                autoSaveTimer = null;
+                            }
+                        };
+
+                        const clearManualSubmitTimer = () => {
+                            if (manualSubmitTimer) {
+                                window.clearTimeout(manualSubmitTimer);
+                                manualSubmitTimer = null;
+                            }
+                        };
+
+                        const refreshLogPanel = async () => {
+                            if (!logPanel) {
+                                return;
+                            }
+
+                            try {
+                                const url = new URL(window.location.href);
+                                url.searchParams.set('tab', 'log');
+                                url.searchParams.set('path', currentPath || '/');
+                                url.searchParams.set('embed', '1');
+                                const response = await fetch(url.toString(), { cache: 'no-store' });
+                                if (!response.ok) {
+                                    return;
+                                }
+
+                                const html = await response.text();
+                                const doc = new DOMParser().parseFromString(html, 'text/html');
+                                const nextPanel = doc.querySelector('[data-workspace-panel="log"]');
+                                if (nextPanel) {
+                                    logPanel.innerHTML = nextPanel.innerHTML;
+                                }
+                            }
+                            catch {
+                                // Ignore refresh failures.
+                            }
+                        };
+
+                        const saveWorkspaceText = async () => {
+                            if (saveInFlight) {
+                                return;
+                            }
+
+                            const snapshot = textarea.value;
+                            if (snapshot === lastSavedValue) {
+                                setStatus(readyLabel);
+                                clearAutoSaveTimer();
+                                return;
+                            }
+
+                            clearAutoSaveTimer();
+                            saveInFlight = true;
+                            form.dataset.workspaceSaving = '1';
+                            if (saveButton instanceof HTMLButtonElement) {
+                                saveButton.disabled = true;
+                            }
+                            setStatus(savingLabel);
+
+                            try {
+                                const response = await fetch(form.action, {
+                                    method: 'POST',
+                                    body: new FormData(form),
+                                    cache: 'no-store',
+                                    headers: {
+                                        'X-Requested-With': 'XMLHttpRequest'
+                                    }
+                                });
+
+                                if (!response.ok) {
+                                    const errorText = await response.text().catch(() => '');
+                                    throw new Error(errorText || failedLabel);
+                                }
+
+                                lastSavedValue = snapshot;
+                                if (textarea.value === snapshot) {
+                                    setStatus(savedLabel);
+                                }
+                                else {
+                                    setStatus(dirtyLabel);
+                                    scheduleAutoSave();
+                                }
+                                await refreshLogPanel();
+                            }
+                            catch (error) {
+                                setStatus(error instanceof Error && error.message ? error.message : failedLabel);
+                            }
+                            finally {
+                                saveInFlight = false;
+                                form.dataset.workspaceSaving = '0';
+                                if (saveButton instanceof HTMLButtonElement) {
+                                    saveButton.disabled = false;
+                                }
+                            }
+                        };
+
+                        const scheduleManualSubmit = (delay = 120) => {
+                            clearManualSubmitTimer();
+                            clearAutoSaveTimer();
+                            manualSubmitTimer = window.setTimeout(() => {
+                                manualSubmitTimer = null;
+                                manualSubmitPending = true;
+                                try {
+                                    if (typeof form.requestSubmit === 'function') {
+                                        if (saveButton instanceof HTMLButtonElement) {
+                                            form.requestSubmit(saveButton);
+                                        }
+                                        else {
+                                            form.requestSubmit();
+                                        }
+                                    }
+                                    else {
+                                        form.submit();
+                                    }
+                                }
+                                catch {
+                                    form.submit();
+                                }
+                            }, delay);
+                        };
+
+                        const scheduleAutoSave = () => {
+                            clearAutoSaveTimer();
+                            if (!autoSaveInput || !autoSaveInput.checked || textarea.value === lastSavedValue) {
+                                return;
+                            }
+
+                            autoSaveTimer = window.setTimeout(() => {
+                                autoSaveTimer = null;
+                                saveWorkspaceText();
+                            }, 10000);
+                        };
+
+                        textarea.addEventListener('input', () => {
+                            if (saveInFlight) {
+                                return;
+                            }
+
+                            if (textarea.value === lastSavedValue) {
+                                clearAutoSaveTimer();
+                                setStatus(readyLabel);
+                                return;
+                            }
+
+                            setStatus(dirtyLabel);
+                            scheduleAutoSave();
+                        });
+
+                        form.addEventListener('submit', event => {
+                            if (manualSubmitPending) {
+                                manualSubmitPending = false;
+                                clearAutoSaveTimer();
+                                setStatus(savingLabel);
+                                return;
+                            }
+
+                            event.preventDefault();
+                            setStatus(savingLabel);
+                            scheduleManualSubmit(120);
+                        });
+
+                        autoSaveInput?.addEventListener('change', () => {
+                            if (textarea.value === lastSavedValue) {
+                                clearAutoSaveTimer();
+                                setStatus(readyLabel);
+                                return;
+                            }
+
+                            if (autoSaveInput.checked) {
+                                setStatus(dirtyLabel);
+                                scheduleAutoSave();
+                            }
+                            else {
+                                clearAutoSaveTimer();
+                                setStatus(dirtyLabel);
+                            }
+                        });
+
+                        setStatus(readyLabel);
                     });
                 }
 
@@ -2655,54 +3909,89 @@ public sealed class HtmlViews
                     }
 
                     connectionTabActions.replaceChildren();
-                    const tab = tabs.get(activeTabId);
+                    const connectionTab = tabs.get(activeTabId);
+                    const shellTab = connectionTab ? null : shellTabs.get(activeShellTabId) || null;
+                    const tab = connectionTab || shellTab;
                     if (!tab) {
                         updateStatusBar();
                         return;
                     }
 
-                    const fullscreenButton = createTabActionButton(
-                        actionIcons.fullscreen,
-                        uiText.fullscreen || 'Fullscreen',
-                        async () => {
-                            try {
-                                await toggleFullscreen(tab.panel || deck);
-                                scheduleResize();
-                            }
-                            catch {
-                                // Ignore fullscreen failures on browsers with partial support.
-                            }
-                        },
-                        '',
-                        true);
-
-                    connectionTabActions.appendChild(fullscreenButton);
-
-                    if (tab.client && !tab.terminal) {
-                        const clipboardButton = createTabActionButton(
-                            actionIcons.clipboard,
-                            uiText.pasteToActiveTab || uiText.clipboard || 'Paste to active tab',
+                    if (connectionTab) {
+                        const fullscreenButton = createTabActionButton(
+                            actionIcons.fullscreen,
+                            uiText.fullscreen || 'Fullscreen',
                             async () => {
-                                openClipboardDialog(tab.remoteClipboard || '');
                                 try {
-                                    const text = await readBrowserClipboard();
-                                    clipboardText.value = text;
+                                    await toggleFullscreen(tab.panel || deck);
+                                    scheduleResize();
                                 }
                                 catch {
-                                    // Keep the dialog open with the prefilled remote clipboard or manual input.
+                                    // Ignore fullscreen failures on browsers with partial support.
                                 }
                             },
                             '',
                             true);
-                        connectionTabActions.appendChild(clipboardButton);
-                    }
 
-                    const disconnectButton = createTabActionButton(
-                        actionIcons.disconnect,
-                        uiText.disconnect || 'Disconnect',
-                        () => closeTab(tab.id),
-                        'danger');
-                    connectionTabActions.appendChild(disconnectButton);
+                        connectionTabActions.appendChild(fullscreenButton);
+
+                        if (tab.websiteUi) {
+                            const copyUrl = toShareableUrl(tab.displayUrl || tab.currentUrl || tab.target || '');
+                            if (copyUrl) {
+                                const copyUrlButton = createTabActionButton(
+                                    actionIcons.copy,
+                                    uiText.copyUrlToClipboard || 'Copy URL to clipboard',
+                                    async () => { await window.MatgateCopyText?.(copyUrl); },
+                                    '',
+                                    true);
+                                connectionTabActions.appendChild(copyUrlButton);
+                            }
+                        }
+
+                        if (tab.client && !tab.terminal) {
+                            const clipboardButton = createTabActionButton(
+                                actionIcons.clipboard,
+                                uiText.pasteToActiveTab || uiText.clipboard || 'Paste to active tab',
+                                async () => {
+                                    try {
+                                        const text = await readBrowserClipboard();
+                                        if (text && sendClipboardText(tab, text)) {
+                                            if (tab.id === activeTabId) {
+                                                clipboardText.value = text;
+                                            }
+                                            return;
+                                        }
+                                    }
+                                    catch {
+                                        // Fall through to the manual dialog below.
+                                    }
+
+                                    openClipboardDialog(tab.remoteClipboard || '');
+                                },
+                                '',
+                                true);
+                            connectionTabActions.appendChild(clipboardButton);
+                        }
+
+                        const disconnectButton = createTabActionButton(
+                            actionIcons.disconnect,
+                            uiText.disconnect || 'Disconnect',
+                            () => closeTab(tab.id),
+                            'danger');
+                        connectionTabActions.appendChild(disconnectButton);
+                    }
+                    else if (shellTab) {
+                        const copyUrl = getShellTabCopyUrl(shellTab);
+                        if (copyUrl) {
+                            const copyUrlButton = createTabActionButton(
+                                actionIcons.copy,
+                                uiText.copyUrlToClipboard || 'Copy URL to clipboard',
+                                async () => { await window.MatgateCopyText?.(copyUrl); },
+                                '',
+                                true);
+                            connectionTabActions.appendChild(copyUrlButton);
+                        }
+                    }
                     updateStatusBar();
                 }
 
@@ -4456,7 +5745,7 @@ public sealed class HtmlViews
                             if ((counts.failed || 0) > 0) {
                                 parts.push(`${counts.failed} ${uiText.failed || 'Failed'}`);
                             }
-                            summary.textContent = parts.join(' · ');
+                            summary.textContent = parts.join(' Â· ');
                         }
                     }
 
@@ -4491,12 +5780,12 @@ public sealed class HtmlViews
                             const total = item.total || item.file?.size || uploaded;
                             const percent = total > 0 ? Math.max(0, Math.min(100, Math.round((uploaded / total) * 100))) : 0;
                             const progressText = total > 0 ? `${formatFileSize(uploaded)} / ${formatFileSize(total)}` : formatFileSize(uploaded);
-                            const speedText = item.speed > 0 ? ` · ${formatUploadSpeed(item.speed)}` : '';
-                            const percentText = total > 0 ? ` · ${percent}%` : '';
-                            meta.textContent = `${item.targetPath || '/'} · ${progressText}${speedText}${percentText}`;
+                            const speedText = item.speed > 0 ? ` Â· ${formatUploadSpeed(item.speed)}` : '';
+                            const percentText = total > 0 ? ` Â· ${percent}%` : '';
+                            meta.textContent = `${item.targetPath || '/'} Â· ${progressText}${speedText}${percentText}`;
                         }
                         else if (item.status === 'done') {
-                            meta.textContent = `${item.targetPath || '/'} · ${formatFileSize(item.file?.size || item.total || 0)}`;
+                            meta.textContent = `${item.targetPath || '/'} Â· ${formatFileSize(item.file?.size || item.total || 0)}`;
                         }
                         else if (item.status === 'failed') {
                             meta.textContent = item.error || uiText.failed || 'Failed';
@@ -4658,7 +5947,7 @@ public sealed class HtmlViews
                                 sampleLoaded = item.loaded;
                             }
 
-                            tab.lastMessage = `${item.file?.name || ''} ${formatFileSize(item.loaded)} / ${formatFileSize(item.total || item.loaded)}${item.speed > 0 ? ` · ${formatUploadSpeed(item.speed)}` : ''}`;
+                            tab.lastMessage = `${item.file?.name || ''} ${formatFileSize(item.loaded)} / ${formatFileSize(item.total || item.loaded)}${item.speed > 0 ? ` Â· ${formatUploadSpeed(item.speed)}` : ''}`;
                             scheduleUploadQueueRender(tab);
                             updateStatusBar();
                         });
@@ -4839,6 +6128,79 @@ public sealed class HtmlViews
                     }
                 }
 
+                async function copyTextSilently(text) {
+                    const value = `${text ?? ''}`;
+                    if (!value) {
+                        return false;
+                    }
+
+                    if (await tryWriteBrowserClipboard(value)) {
+                        return true;
+                    }
+
+                    try {
+                        const textarea = document.createElement('textarea');
+                        textarea.value = value;
+                        textarea.setAttribute('readonly', 'readonly');
+                        textarea.style.position = 'fixed';
+                        textarea.style.top = '-1000px';
+                        textarea.style.left = '-1000px';
+                        textarea.style.opacity = '0';
+                        document.body.appendChild(textarea);
+                        textarea.focus();
+                        textarea.select();
+                        const copied = document.execCommand('copy');
+                        document.body.removeChild(textarea);
+                        return copied;
+                    }
+                    catch {
+                        return false;
+                    }
+                }
+
+                function toShareableUrl(url) {
+                    const value = `${url ?? ''}`.trim();
+                    if (!value) {
+                        return '';
+                    }
+
+                    try {
+                        return new URL(value, window.location.href).href;
+                    }
+                    catch {
+                        return value;
+                    }
+                }
+
+                function getWorkspaceShareUrlFromShellTab(tab) {
+                    try {
+                        const doc = tab?.iframe?.contentDocument || tab?.iframe?.contentWindow?.document || null;
+                        const marker = doc?.querySelector?.('[data-workspace-public-url]');
+                        const value = marker?.getAttribute?.('data-workspace-public-url') || marker?.textContent || '';
+                        return toShareableUrl(value);
+                    }
+                    catch {
+                        return '';
+                    }
+                }
+
+                function getShellTabCopyUrl(tab) {
+                    if (!tab) {
+                        return '';
+                    }
+
+                    const isWorkspaceTab = typeof tab.url === 'string'
+                        && (tab.url.startsWith('/workspaces')
+                            || tab.url.startsWith('/workspace/')
+                            || tab.url.startsWith('/w/'));
+
+                    if (isWorkspaceTab) {
+                        return toShareableUrl(tab.publicUrl || getWorkspaceShareUrlFromShellTab(tab));
+                    }
+
+                    return toShareableUrl(tab?.url || '');
+                }
+
                 async function readBrowserClipboard() {
                     if (!navigator.clipboard || !navigator.clipboard.readText) {
                         throw new Error('Clipboard API unavailable');
@@ -4846,6 +6208,10 @@ public sealed class HtmlViews
 
                     return await navigator.clipboard.readText();
                 }
+
+                window.MatgateCopyText = async (text) => {
+                    return await copyTextSilently(text);
+                };
 
                 function openClipboardDialog(prefill = '') {
                     clipboardText.value = prefill;
@@ -4903,7 +6269,22 @@ public sealed class HtmlViews
                 clipboardDialog.addEventListener('submit', event => {
                     event.preventDefault();
                     const activeTab = tabs.get(activeTabId);
-                    if (sendClipboardText(activeTab, clipboardText.value)) {
+                    if (activeTab && sendClipboardText(activeTab, clipboardText.value)) {
+                        closeClipboardDialog();
+                        activeTab.panel.focus();
+                    }
+                });
+
+                clipboardText.addEventListener('paste', event => {
+                    const pasted = event.clipboardData?.getData('text/plain') ?? '';
+                    if (!pasted) {
+                        return;
+                    }
+
+                    event.preventDefault();
+                    clipboardText.value = pasted;
+                    const activeTab = tabs.get(activeTabId);
+                    if (activeTab && sendClipboardText(activeTab, pasted)) {
                         closeClipboardDialog();
                         activeTab.panel.focus();
                     }
@@ -4919,6 +6300,8 @@ public sealed class HtmlViews
                 });
 
                 wireShellNavigation();
+                wireWorkspaceTabs();
+                wireWorkspaceTextForms();
                 activateNewConnectionTab();
                 showView('home', false);
                 wireHomeBrowser();
@@ -5350,6 +6733,9 @@ public sealed class HtmlViews
         var requestPath = context.Request.Path.Value ?? "/";
         var displayName = user is null ? "" : string.IsNullOrWhiteSpace(user.DisplayName) ? user.UserName : user.DisplayName;
         var canManageAdminArea = user is not null && (user.IsAdmin || user.CanManageServers);
+        var workspacesActive = requestPath.StartsWith("/workspaces", StringComparison.OrdinalIgnoreCase)
+            || requestPath.StartsWith("/workspace/", StringComparison.OrdinalIgnoreCase)
+            || requestPath.StartsWith("/w/", StringComparison.OrdinalIgnoreCase);
         var serversActive = requestPath.StartsWith("/admin/servers", StringComparison.OrdinalIgnoreCase);
         var usersActive = requestPath.StartsWith("/admin/users", StringComparison.OrdinalIgnoreCase);
         var toolsActive = requestPath.StartsWith("/tools", StringComparison.OrdinalIgnoreCase);
@@ -5357,12 +6743,14 @@ public sealed class HtmlViews
         var shellLayout = string.Equals(mainClass, "shell-main", StringComparison.OrdinalIgnoreCase)
             || string.Equals(mainClass, "session-main", StringComparison.OrdinalIgnoreCase)
             || string.Equals(mainClass, "viewer-main", StringComparison.OrdinalIgnoreCase);
+        var workspacesClass = workspacesActive ? " active" : "";
         var serversClass = serversActive ? " active" : "";
         var usersClass = usersActive ? " active" : "";
         var toolsClass = toolsActive ? " active" : "";
         var accountClass = accountActive ? " active" : "";
         var shellTabs = user is null ? "" : $$"""
             <nav class="shell-tabs" aria-label="Primary">
+                <a class="shell-tab{{workspacesClass}}" href="/workspaces" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Workspaces"))}}">{{Icon("briefcase")}}<span>{{T(context, "Workspaces")}}</span></a>
                 {{(canManageAdminArea ? $"""<a class="shell-tab{serversClass}" href="/admin/servers" data-shell-open-tab="1" data-shell-title="{A(T(context, "Servers"))}">{Icon("server")}<span>{T(context, "Servers")}</span></a>""" : "")}}
                 {{(user!.IsAdmin ? $"""<a class="shell-tab{usersClass}" href="/admin/users" data-shell-open-tab="1" data-shell-title="{A(T(context, "Users"))}">{Icon("users")}<span>{T(context, "Users")}</span></a>""" : "")}}
                 <a class="shell-tab{{toolsClass}}" href="/tools" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Tools"))}}">{{Icon("wrench")}}<span>{{T(context, "Tools")}}</span></a>
@@ -6159,6 +7547,12 @@ public sealed class HtmlViews
                     .session-tab--connection .session-tab-main {
                         min-width: 150px;
                     }
+                    .session-tab--compact .session-tab-main {
+                        min-height: 28px;
+                    }
+                    .session-tab--compact .session-tab-description {
+                        display: none;
+                    }
                     .session-tab--add .session-tab-main {
                         align-items: center;
                         display: flex;
@@ -6555,6 +7949,7 @@ public sealed class HtmlViews
                         min-height: 42px;
                         padding: 8px 10px;
                         text-align: left;
+                        text-decoration: none;
                         width: 100%;
                     }
                     .home-browser-nav-item:hover {
@@ -6592,10 +7987,37 @@ public sealed class HtmlViews
                         flex: 1 1 auto;
                         min-width: 0;
                     }
+                    .home-browser-nav-copy small {
+                        color: var(--muted);
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        white-space: nowrap;
+                    }
                     .home-browser-nav-title {
                         overflow: hidden;
                         text-overflow: ellipsis;
                         white-space: nowrap;
+                    }
+                    .workspace-home-nav-item {
+                        align-items: flex-start;
+                    }
+                    .home-browser-nav-footer {
+                        display: grid;
+                        gap: 8px;
+                        margin-top: 8px;
+                    }
+                    .workspace-home-action-item {
+                        align-items: center;
+                        background: var(--surface-2);
+                    }
+                    .workspace-home-action-item:hover {
+                        background: var(--hover-strong-bg);
+                    }
+                    .workspace-home-action-item .home-browser-nav-icon {
+                        background: var(--surface);
+                    }
+                    .workspace-home-create-item .home-browser-nav-icon {
+                        color: var(--accent);
                     }
                     .home-browser-nav-item .badge {
                         flex: 0 0 auto;
@@ -6607,6 +8029,211 @@ public sealed class HtmlViews
                         min-height: 0;
                         min-width: 0;
                         padding-right: 4px;
+                    }
+                    .workspace-browser-layout {
+                        display: grid;
+                        gap: 14px;
+                        grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+                    }
+                    .workspace-browser-sidebar {
+                        display: flex;
+                        flex-direction: column;
+                        gap: 12px;
+                        min-height: 0;
+                    }
+                    .workspace-list {
+                        display: grid;
+                        gap: 8px;
+                    }
+                    .workspace-list-item {
+                        align-items: center;
+                        background: transparent;
+                        border: 1px solid var(--line);
+                        border-radius: var(--radius);
+                        color: var(--text);
+                        display: flex;
+                        gap: 12px;
+                        justify-content: space-between;
+                        min-height: 48px;
+                        padding: 10px 12px;
+                        text-decoration: none;
+                    }
+                    .workspace-list-item:hover {
+                        background: var(--hover-strong-bg);
+                    }
+                    .workspace-list-item.active {
+                        background: var(--surface-2);
+                        border-color: var(--accent);
+                    }
+                    .workspace-list-item-main {
+                        display: grid;
+                        flex: 1 1 auto;
+                        gap: 4px;
+                        min-width: 0;
+                    }
+                    .workspace-list-item-title {
+                        align-items: center;
+                        display: inline-flex;
+                        gap: 8px;
+                        min-width: 0;
+                    }
+                    .workspace-list-item-title span {
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        white-space: nowrap;
+                    }
+                    .workspace-summary {
+                        align-items: flex-start;
+                    }
+                    .workspace-summary-badges {
+                        align-items: flex-end;
+                    }
+                    .workspace-tab-shell {
+                        display: grid;
+                        gap: 0;
+                        padding: 0;
+                    }
+                    .workspace-tab-strip {
+                        align-items: stretch;
+                        background: var(--surface-2);
+                        border-bottom: 1px solid var(--line);
+                        display: flex;
+                        flex-wrap: wrap;
+                        gap: 0;
+                    }
+                    .workspace-tab-button {
+                        align-items: center;
+                        background: transparent;
+                        border: 0;
+                        border-right: 1px solid var(--line);
+                        color: var(--text);
+                        display: inline-flex;
+                        gap: 8px;
+                        min-height: 36px;
+                        padding: 7px 12px;
+                    }
+                    .workspace-tab-button:last-child {
+                        border-right: 0;
+                    }
+                    .workspace-tab-button.active {
+                        background: var(--surface);
+                        color: var(--accent);
+                    }
+                    .workspace-tab-button .icon {
+                        height: 15px;
+                        width: 15px;
+                    }
+                    .workspace-tab-panels {
+                        display: grid;
+                        gap: 14px;
+                        padding-top: 14px;
+                    }
+                    .workspace-file-manager {
+                        height: auto;
+                        min-height: 0;
+                    }
+                    .workspace-file-manager .file-toolbar {
+                        align-items: center;
+                    }
+                    .workspace-path-form {
+                        align-items: center;
+                        display: flex;
+                        flex: 1 1 360px;
+                        gap: 8px;
+                        min-width: 0;
+                    }
+                    .workspace-path-form .toolbar-input {
+                        min-width: 0;
+                    }
+                    .workspace-menu-form {
+                        display: grid;
+                        gap: 8px;
+                        width: 100%;
+                    }
+                    .workspace-menu-field {
+                        display: grid;
+                        gap: 4px;
+                    }
+                    .workspace-menu-field span {
+                        color: var(--muted);
+                        font-size: 12px;
+                        font-weight: 600;
+                    }
+                    .workspace-menu-input {
+                        min-width: 0;
+                    }
+                    .workspace-upload-form {
+                        align-items: center;
+                        display: inline-flex;
+                        justify-content: flex-end;
+                        margin: 0;
+                    }
+                    .workspace-upload-form .toolbar-button {
+                        white-space: nowrap;
+                    }
+                    .workspace-file-manager .file-menu-panel {
+                        min-width: 320px;
+                    }
+                    .workspace-file-manager .file-table-wrap {
+                        flex: 0 0 auto;
+                        max-height: min(70vh, 760px);
+                    }
+                    .workspace-text-form {
+                        display: grid;
+                        gap: 12px;
+                    }
+                    .workspace-text-actions {
+                        align-items: center;
+                        flex-wrap: wrap;
+                    }
+                    .workspace-text-save-button {
+                        flex: 0 0 auto;
+                    }
+                    .workspace-auto-save {
+                        align-items: center;
+                        color: var(--muted);
+                        display: inline-flex;
+                        gap: 8px;
+                        min-height: 32px;
+                    }
+                    .workspace-auto-save input[type="checkbox"] {
+                        accent-color: var(--accent);
+                    }
+                    .workspace-text-status {
+                        margin: 0;
+                        min-height: 1.2em;
+                    }
+                    .workspace-tab-panel.hidden {
+                        display: none;
+                    }
+                    .workspace-activity-table-wrap {
+                        overflow-x: auto;
+                    }
+                    .workspace-activity-table {
+                        min-width: 760px;
+                    }
+                    .workspace-activity-table code {
+                        overflow-wrap: anywhere;
+                        word-break: break-word;
+                    }
+                    .workspace-url-line {
+                        align-items: center;
+                        display: flex;
+                        flex-wrap: wrap;
+                        gap: 8px;
+                        margin: 6px 0;
+                    }
+                    .workspace-url-line code {
+                        overflow-wrap: anywhere;
+                        word-break: break-word;
+                    }
+                    .workspace-url-copy {
+                        flex: 0 0 auto;
+                    }
+                    .workspace-browser-content {
+                        display: grid;
+                        gap: 14px;
+                        min-width: 0;
                     }
                     .home-browser-section {
                         display: flex;
@@ -6631,6 +8258,9 @@ public sealed class HtmlViews
                         width: 16px;
                     }
                     .home-browser-grid {
+                        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+                    }
+                    .workspace-home-grid {
                         grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
                     }
                     .connection-browser-empty-state {
@@ -6724,6 +8354,31 @@ public sealed class HtmlViews
                     .connection-choice-actions a {
                         align-self: stretch;
                         justify-content: center;
+                    }
+                    .workspace-choice {
+                        gap: 10px;
+                        min-height: 170px;
+                        padding-right: 14px;
+                        text-decoration: none;
+                    }
+                    .workspace-choice .connection-choice-copy h3 {
+                        font-size: 17px;
+                    }
+                    .workspace-choice-actions {
+                        align-items: center;
+                        margin-top: auto;
+                    }
+                    .workspace-choice-open {
+                        align-items: center;
+                        display: inline-flex;
+                        gap: 7px;
+                        justify-content: center;
+                        min-height: 32px;
+                        padding: 4px 8px;
+                    }
+                    .workspace-choice-open .icon {
+                        height: 14px;
+                        width: 14px;
                     }
                     .connection-choice-open {
                         flex: 1 1 auto;
@@ -7754,6 +9409,19 @@ public sealed class HtmlViews
                             max-height: 240px;
                             overflow: auto;
                         }
+                        .workspace-browser-layout {
+                            grid-template-columns: 1fr;
+                        }
+                        .workspace-browser-sidebar {
+                            max-height: 260px;
+                            overflow: auto;
+                        }
+                        .workspace-path-form {
+                            flex: 1 1 100%;
+                        }
+                        .workspace-upload-form {
+                            width: 100%;
+                        }
                         .home-browser-content {
                             overflow: visible;
                             padding-right: 0;
@@ -7840,6 +9508,40 @@ public sealed class HtmlViews
                         };
 
                         rewriteEmbeddedNavigation(document);
+
+                        if (embeddedPage) {
+                            document.addEventListener('click', (event) => {
+                                const target = event.target instanceof Element
+                                    ? event.target.closest('a[data-shell-open-tab="1"]')
+                                    : null;
+                                if (!(target instanceof HTMLAnchorElement)) {
+                                    return;
+                                }
+
+                                if (event.defaultPrevented || event.button !== 0 || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) {
+                                    return;
+                                }
+
+                                const opener = window.top && window.top !== window && typeof window.top.MatgateOpenShellTab === 'function'
+                                    ? window.top.MatgateOpenShellTab
+                                    : null;
+                                if (!opener) {
+                                    return;
+                                }
+
+                                const url = target.getAttribute('href') || '';
+                                if (!url) {
+                                    return;
+                                }
+
+                                event.preventDefault();
+                                opener(
+                                    url,
+                                    target.getAttribute('data-shell-title') || target.textContent.trim() || '',
+                                    target.querySelector('.icon')?.outerHTML || target.getAttribute('data-shell-icon-html') || '',
+                                    target.getAttribute('data-shell-description') || '');
+                            }, true);
+                        }
 
                         if (embeddedPage && typeof MutationObserver !== 'undefined') {
                             const observer = new MutationObserver(() => rewriteEmbeddedNavigation(document));
@@ -8534,4 +10236,5 @@ public sealed class HtmlViews
 
     private static string A(object? value) => WebUtility.HtmlEncode(value?.ToString() ?? "");
 }
+
 

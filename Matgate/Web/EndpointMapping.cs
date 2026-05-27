@@ -290,6 +290,36 @@ public static class EndpointMapping
         app.MapMethods("/website/{id:guid}/{tabId:guid}/proxy", new[] { "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS" }, WebsiteProxyAsync).RequireAuthorization();
         app.MapMethods("/website/{id:guid}/{tabId:guid}/proxy/{**path}", new[] { "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS" }, WebsiteProxyAsync).RequireAuthorization();
         app.MapGet("/sessions", SessionsAsync).RequireAuthorization();
+        app.MapGet("/workspaces", WorkspacesAsync).RequireAuthorization();
+        app.MapGet("/workspaces/new", NewWorkspaceAsync).RequireAuthorization();
+        app.MapPost("/workspaces", CreateWorkspaceAsync).RequireAuthorization();
+        app.MapGet("/workspaces/{id:guid}", WorkspaceDetailAsync).RequireAuthorization();
+        app.MapPost("/workspaces/{id:guid}/update", UpdateWorkspaceAsync).RequireAuthorization();
+        app.MapPost("/workspaces/{id:guid}/extend", WorkspaceExtendAsync).RequireAuthorization();
+        app.MapPost("/workspaces/{id:guid}/delete", DeleteWorkspaceAsync).RequireAuthorization();
+        app.MapPost("/workspaces/{id:guid}/upload", WorkspaceUploadAsync).RequireAuthorization();
+        app.MapGet("/workspaces/{id:guid}/download", WorkspaceDownloadAsync).RequireAuthorization();
+        app.MapPost("/workspaces/{id:guid}/mkdir", WorkspaceCreateDirectoryAsync).RequireAuthorization();
+        app.MapPost("/workspaces/{id:guid}/create-file", WorkspaceCreateFileAsync).RequireAuthorization();
+        app.MapPost("/workspaces/{id:guid}/delete-entry", WorkspaceDeleteEntryAsync).RequireAuthorization();
+        app.MapPost("/workspaces/{id:guid}/note", WorkspaceSaveNoteAsync).RequireAuthorization();
+        app.MapGet("/workspace/{id:guid}", WorkspacePublicAsync);
+        app.MapPost("/workspace/{id:guid}/unlock", WorkspaceUnlockAsync);
+        app.MapPost("/workspace/{id:guid}/upload", WorkspacePublicUploadAsync);
+        app.MapGet("/workspace/{id:guid}/download", WorkspacePublicDownloadAsync);
+        app.MapPost("/workspace/{id:guid}/mkdir", WorkspacePublicCreateDirectoryAsync);
+        app.MapPost("/workspace/{id:guid}/create-file", WorkspacePublicCreateFileAsync);
+        app.MapPost("/workspace/{id:guid}/delete-entry", WorkspacePublicDeleteEntryAsync);
+        app.MapPost("/workspace/{id:guid}/note", WorkspacePublicSaveNoteAsync);
+
+        app.MapGet("/w/{id:guid}", WorkspacePublicAsync);
+        app.MapPost("/w/{id:guid}/unlock", WorkspaceUnlockAsync);
+        app.MapPost("/w/{id:guid}/upload", WorkspacePublicUploadAsync);
+        app.MapGet("/w/{id:guid}/download", WorkspacePublicDownloadAsync);
+        app.MapPost("/w/{id:guid}/mkdir", WorkspacePublicCreateDirectoryAsync);
+        app.MapPost("/w/{id:guid}/create-file", WorkspacePublicCreateFileAsync);
+        app.MapPost("/w/{id:guid}/delete-entry", WorkspacePublicDeleteEntryAsync);
+        app.MapPost("/w/{id:guid}/note", WorkspacePublicSaveNoteAsync);
         app.MapGet("/tools", ToolsAsync).RequireAuthorization();
         app.MapGet("/account", AccountAsync).RequireAuthorization();
         app.MapGet("/about", AboutAsync).RequireAuthorization();
@@ -404,14 +434,13 @@ public static class EndpointMapping
                 "text/html");
         }
 
-        var rememberLogin = IsChecked(form, "rememberLogin");
         await context.SignInAsync(
             CookieAuthenticationDefaults.AuthenticationScheme,
-            BuildPrincipal(user, hasher.GenerateSecret(24), user.PreferredLanguage, user.PreferredTheme, rememberLogin),
-            BuildAuthProperties(rememberLogin));
+            BuildPrincipal(user, hasher.GenerateSecret(24), user.PreferredLanguage, user.PreferredTheme, true),
+            BuildAuthProperties(true));
 
         var returnUrl = NormalizeReturnUrl(form["returnUrl"].ToString());
-        AppendRememberLoginCookie(context, rememberLogin);
+        AppendRememberLoginCookie(context, true);
         context.Response.Cookies.Append(
             HtmlViews.ThemeCookie,
             NormalizeTheme(user.PreferredTheme),
@@ -443,7 +472,11 @@ public static class EndpointMapping
         return Results.Redirect("/login");
     }
 
-    private static async Task<IResult> HomeAsync(HttpContext context, JsonDataStore store, HtmlViews views)
+    private static async Task<IResult> HomeAsync(
+        HttpContext context,
+        JsonDataStore store,
+        HtmlViews views,
+        WorkspaceService workspaceService)
     {
         var user = await RequireUserAsync(context, store);
         if (user is null)
@@ -459,6 +492,9 @@ public static class EndpointMapping
             .ThenBy(server => server.Name)
             .ToList();
 
+        var allWorkspaces = await workspaceService.GetWorkspacesAsync(context.RequestAborted);
+        var visibleWorkspaces = VisibleWorkspacesForUser(user, allWorkspaces);
+
         Guid? openServerId = null;
         if (Guid.TryParse(context.Request.Query["open"], out var requestedOpen)
             && servers.Any(server => server.Id == requestedOpen))
@@ -467,8 +503,17 @@ public static class EndpointMapping
         }
 
         return Results.Content(
-            views.SessionsWorkspace(context, user, servers, openServerId),
+            views.SessionsWorkspace(context, user, servers, visibleWorkspaces, openServerId),
             "text/html");
+    }
+
+    private static IReadOnlyList<WorkspaceDefinition> VisibleWorkspacesForUser(
+        MatgateUser user,
+        IReadOnlyList<WorkspaceDefinition> workspaces)
+    {
+        return user.IsAdmin
+            ? workspaces.OrderBy(workspace => workspace.Name).ToList()
+            : workspaces.Where(workspace => workspace.OwnerUserId == user.Id).OrderBy(workspace => workspace.Name).ToList();
     }
 
     private static async Task<IResult> ForbiddenAsync(HttpContext context, JsonDataStore store, HtmlViews views)
@@ -589,6 +634,1008 @@ public static class EndpointMapping
         return string.IsNullOrWhiteSpace(open)
             ? Results.Redirect("/")
             : Results.Redirect($"/?open={Uri.EscapeDataString(open)}");
+    }
+
+    private static async Task<IResult> WorkspacesAsync(
+        HttpContext context,
+        JsonDataStore store,
+        HtmlViews views,
+        WorkspaceService workspaceService)
+    {
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            return Results.Redirect("/login");
+        }
+
+        var allWorkspaces = await workspaceService.GetWorkspacesAsync(context.RequestAborted);
+        var visibleWorkspaces = VisibleWorkspacesForUser(user, allWorkspaces);
+
+        var openIdValue = context.Request.Query["open"].ToString();
+        WorkspaceDefinition? selectedWorkspace = null;
+        if (Guid.TryParse(openIdValue, out var openId))
+        {
+            selectedWorkspace = visibleWorkspaces.FirstOrDefault(workspace => workspace.Id == openId);
+        }
+
+        selectedWorkspace ??= visibleWorkspaces.FirstOrDefault();
+
+        FileGatewayListResult? listing = null;
+        string sharedText = "";
+        IReadOnlyList<WorkspacePresenceSnapshot> sessions = [];
+        string publicUrl = "";
+        if (selectedWorkspace is not null)
+        {
+            var path = context.Request.Query["path"].ToString();
+            listing = await workspaceService.ListFilesAsync(selectedWorkspace, path, context.RequestAborted);
+            sharedText = await workspaceService.ReadSharedTextAsync(selectedWorkspace, context.RequestAborted);
+            sessions = workspaceService.GetPresenceSnapshot(selectedWorkspace.Id);
+            workspaceService.TouchPresence(selectedWorkspace, context, user, "Admin");
+            await workspaceService.RecordActivityAsync(
+                selectedWorkspace,
+                context,
+                user,
+                "Opened workspace",
+                path,
+                "",
+                "Admin",
+                context.RequestAborted);
+            var activityEntries = await workspaceService.GetActivityAsync(selectedWorkspace, 200, context.RequestAborted);
+            publicUrl = BuildWorkspacePublicUrl(context, selectedWorkspace.Id);
+            return Results.Content(
+                views.Workspaces(
+                    context,
+                    user,
+                    visibleWorkspaces,
+                    selectedWorkspace,
+                    listing,
+                    sharedText,
+                    sessions,
+                    activityEntries,
+                    selectedWorkspace is not null && (user.IsAdmin || selectedWorkspace.OwnerUserId == user.Id),
+                    publicUrl,
+                    store.WorkspaceRootDirectory),
+                "text/html");
+        }
+
+        return Results.Content(
+            views.Workspaces(
+                context,
+                user,
+                visibleWorkspaces,
+                selectedWorkspace,
+                listing,
+                sharedText,
+                sessions,
+                [],
+                false,
+                publicUrl,
+                store.WorkspaceRootDirectory),
+            "text/html");
+    }
+
+    private static async Task<IResult> NewWorkspaceAsync(
+        HttpContext context,
+        JsonDataStore store,
+        HtmlViews views,
+        WorkspaceService workspaceService)
+    {
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            return Results.Redirect("/login");
+        }
+
+        return Results.Content(
+            views.WorkspaceCreate(context, user, store.WorkspaceRootDirectory),
+            "text/html");
+    }
+
+    private static async Task<IResult> CreateWorkspaceAsync(
+        HttpContext context,
+        JsonDataStore store,
+        HtmlViews views,
+        WorkspaceService workspaceService)
+    {
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            return Results.Redirect("/login");
+        }
+
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        if (!ValidateCsrf(context, form))
+        {
+            return BadRequest(context, user, views);
+        }
+
+        var name = Clean(form["name"].ToString(), "");
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return Results.Content(views.Message(
+                context,
+                user,
+                HtmlViews.Translate(context, "Invalid request"),
+                HtmlViews.Translate(context, "A workspace needs a name.")), "text/html");
+        }
+
+        WorkspaceDefinition created = new()
+        {
+            Name = name,
+            Description = Clean(form["description"].ToString(), ""),
+            RootPath = Clean(form["rootPath"].ToString(), ""),
+            SharedNoteFileName = Clean(form["sharedNoteFileName"].ToString(), "shared-note.md"),
+            AllowUploads = IsChecked(form, "allowUploads"),
+            AllowTextExchange = IsChecked(form, "allowTextExchange"),
+            IsEnabled = IsChecked(form, "isEnabled"),
+            PublicAccessExpiresAt = DateTimeOffset.UtcNow.AddHours(ParseWorkspaceValidityHours(form, 24)),
+            OwnerUserId = user.Id
+        };
+
+        var password = form["password"].ToString();
+        if (!string.IsNullOrWhiteSpace(password))
+        {
+            workspaceService.SetAccessPassword(created, password);
+        }
+
+        await workspaceService.UpdateWorkspacesAsync(workspaces =>
+        {
+            workspaces.Add(created);
+        }, context.RequestAborted);
+
+        workspaceService.GetWorkspaceRoot(created);
+        await workspaceService.RecordActivityAsync(
+            created,
+            context,
+            user,
+            "Created workspace",
+            "/",
+            created.Description,
+            "Admin",
+            context.RequestAborted);
+        return Results.Redirect($"/workspaces/{created.Id}");
+    }
+
+    private static async Task<IResult> WorkspaceDetailAsync(
+        Guid id,
+        HttpContext context,
+        JsonDataStore store,
+        HtmlViews views,
+        WorkspaceService workspaceService)
+    {
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            return Results.Redirect("/login");
+        }
+
+        var access = await RequireWorkspaceAdminAsync(id, context, store, workspaceService);
+        if (access.Result is not null)
+        {
+            return access.Result;
+        }
+
+        var workspace = access.Workspace!;
+        var listing = await workspaceService.ListFilesAsync(workspace, context.Request.Query["path"].ToString(), context.RequestAborted);
+        var sharedText = await workspaceService.ReadSharedTextAsync(workspace, context.RequestAborted);
+        var sessions = workspaceService.GetPresenceSnapshot(workspace.Id);
+        workspaceService.TouchPresence(workspace, context, user, "Admin");
+        await workspaceService.RecordActivityAsync(
+            workspace,
+            context,
+            user,
+            "Opened workspace",
+            context.Request.Query["path"].ToString(),
+            "",
+            "Admin",
+            context.RequestAborted);
+        var activityEntries = await workspaceService.GetActivityAsync(workspace, 200, context.RequestAborted);
+
+        return Results.Content(
+            views.WorkspaceDetail(
+                context,
+                user,
+                workspace,
+                listing,
+                sharedText,
+                sessions,
+                activityEntries,
+                true,
+                BuildWorkspacePublicUrl(context, workspace.Id),
+                store.WorkspaceRootDirectory),
+            "text/html");
+    }
+
+    private static async Task<IResult> UpdateWorkspaceAsync(
+        Guid id,
+        HttpContext context,
+        JsonDataStore store,
+        HtmlViews views,
+        WorkspaceService workspaceService)
+    {
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            return Results.Redirect("/login");
+        }
+
+        var access = await RequireWorkspaceAdminAsync(id, context, store, workspaceService);
+        if (access.Result is not null)
+        {
+            return access.Result;
+        }
+
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        if (!ValidateCsrf(context, form))
+        {
+            return BadRequest(context, user, views);
+        }
+
+        var name = Clean(form["name"].ToString(), "");
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return Results.Content(views.Message(
+                context,
+                user,
+                HtmlViews.Translate(context, "Invalid request"),
+                HtmlViews.Translate(context, "A workspace needs a name.")), "text/html");
+        }
+
+        await workspaceService.UpdateWorkspacesAsync(workspaces =>
+        {
+            var stored = workspaces.FirstOrDefault(workspace => workspace.Id == id);
+            if (stored is null)
+            {
+                return;
+            }
+
+            stored.Name = name;
+            stored.Description = Clean(form["description"].ToString(), "");
+            stored.RootPath = Clean(form["rootPath"].ToString(), "");
+            stored.SharedNoteFileName = Clean(form["sharedNoteFileName"].ToString(), "shared-note.md");
+            stored.AllowUploads = IsChecked(form, "allowUploads");
+            stored.AllowTextExchange = IsChecked(form, "allowTextExchange");
+            stored.IsEnabled = IsChecked(form, "isEnabled");
+
+            if (IsChecked(form, "clearPassword"))
+            {
+                workspaceService.ClearAccessPassword(stored);
+            }
+            else
+            {
+                var password = form["password"].ToString();
+                if (!string.IsNullOrWhiteSpace(password))
+                {
+                    workspaceService.SetAccessPassword(stored, password);
+                }
+            }
+
+            stored.UpdatedAt = DateTimeOffset.UtcNow;
+        }, context.RequestAborted);
+
+        await workspaceService.RecordActivityAsync(
+            access.Workspace!,
+            context,
+            user,
+            "Updated workspace settings",
+            "/",
+            name,
+            "Admin",
+            context.RequestAborted);
+        return Results.Redirect($"/workspaces/{id}");
+    }
+
+    private static async Task<IResult> WorkspaceExtendAsync(
+        Guid id,
+        HttpContext context,
+        JsonDataStore store,
+        HtmlViews views,
+        WorkspaceService workspaceService)
+    {
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            return Results.Redirect("/login");
+        }
+
+        var access = await RequireWorkspaceAdminAsync(id, context, store, workspaceService);
+        if (access.Result is not null)
+        {
+            return access.Result;
+        }
+
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        if (!ValidateCsrf(context, form))
+        {
+            return BadRequest(context, user, views);
+        }
+
+        var hours = ParseWorkspaceValidityHours(form, 24);
+        await workspaceService.UpdateWorkspacesAsync(workspaces =>
+        {
+            var stored = workspaces.FirstOrDefault(workspace => workspace.Id == id);
+            if (stored is null)
+            {
+                return;
+            }
+
+            workspaceService.ExtendPublicAccess(stored, TimeSpan.FromHours(hours));
+            stored.UpdatedAt = DateTimeOffset.UtcNow;
+        }, context.RequestAborted);
+
+        await workspaceService.RecordActivityAsync(
+            access.Workspace!,
+            context,
+            user,
+            "Extended public access",
+            "/",
+            $"+{hours:N0} hours",
+            "Admin",
+            context.RequestAborted);
+        return Results.Redirect(WorkspaceTabRedirect(context, $"/workspaces/{id}", form, "settings"));
+    }
+
+    private static async Task<IResult> DeleteWorkspaceAsync(
+        Guid id,
+        HttpContext context,
+        JsonDataStore store,
+        HtmlViews views,
+        WorkspaceService workspaceService)
+    {
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            return Results.Redirect("/login");
+        }
+
+        var access = await RequireWorkspaceAdminAsync(id, context, store, workspaceService);
+        if (access.Result is not null)
+        {
+            return access.Result;
+        }
+
+        var workspace = access.Workspace!;
+        var rootPath = workspaceService.GetWorkspaceRoot(workspace);
+        await workspaceService.UpdateWorkspacesAsync(workspaces =>
+        {
+            workspaces.RemoveAll(candidate => candidate.Id == id);
+        }, context.RequestAborted);
+
+        var managedRoot = store.WorkspaceRootDirectory.EndsWith(Path.DirectorySeparatorChar)
+            ? store.WorkspaceRootDirectory
+            : store.WorkspaceRootDirectory + Path.DirectorySeparatorChar;
+        if ((string.Equals(rootPath, store.WorkspaceRootDirectory, StringComparison.OrdinalIgnoreCase)
+                || rootPath.StartsWith(managedRoot, StringComparison.OrdinalIgnoreCase))
+            && Directory.Exists(rootPath))
+        {
+            try
+            {
+                Directory.Delete(rootPath, recursive: true);
+            }
+            catch
+            {
+                // Ignore filesystem cleanup errors here; metadata removal already succeeded.
+            }
+        }
+
+        await workspaceService.RecordActivityAsync(
+            workspace,
+            context,
+            user,
+            "Deleted workspace",
+            "/",
+            rootPath,
+            "Admin",
+            context.RequestAborted);
+        return Results.Redirect("/workspaces");
+    }
+
+    private static async Task<IResult> WorkspaceUploadAsync(
+        Guid id,
+        HttpContext context,
+        JsonDataStore store,
+        HtmlViews views,
+        WorkspaceService workspaceService)
+    {
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            return Results.Redirect("/login");
+        }
+
+        var access = await RequireWorkspaceAdminAsync(id, context, store, workspaceService);
+        if (access.Result is not null)
+        {
+            return access.Result;
+        }
+
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        if (!ValidateCsrf(context, form))
+        {
+            return BadRequest(context, user, views);
+        }
+
+        var path = form["path"].ToString();
+        foreach (var file in form.Files)
+        {
+            if (file.Length <= 0)
+            {
+                continue;
+            }
+
+            await using var stream = file.OpenReadStream();
+            await workspaceService.UploadAsync(access.Workspace!, path, stream, file.FileName, context.RequestAborted);
+            await workspaceService.RecordActivityAsync(
+                access.Workspace!,
+                context,
+                user,
+                "Uploaded file",
+                string.IsNullOrWhiteSpace(path) || path == "/" ? $"/{file.FileName}" : $"{path.TrimEnd('/')}/{file.FileName}",
+                $"{file.Length:N0} bytes",
+                "Admin",
+                context.RequestAborted);
+        }
+
+        return Results.Redirect($"/workspaces/{id}?path={Uri.EscapeDataString(path)}");
+    }
+
+    private static async Task<IResult> WorkspaceDownloadAsync(
+        Guid id,
+        string? path,
+        HttpContext context,
+        JsonDataStore store,
+        WorkspaceService workspaceService)
+    {
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            return Results.Redirect("/login");
+        }
+
+        var access = await RequireWorkspaceAdminAsync(id, context, store, workspaceService);
+        if (access.Result is not null)
+        {
+            return access.Result;
+        }
+
+        try
+        {
+            var download = await workspaceService.DownloadAsync(access.Workspace!, path, context.RequestAborted);
+            await workspaceService.RecordActivityAsync(
+                access.Workspace!,
+                context,
+                user,
+                "Downloaded file",
+                path ?? "/",
+                download.FileName,
+                "Admin",
+                context.RequestAborted);
+            return Results.File(download.Content, download.ContentType, download.FileName);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or IOException or FileNotFoundException)
+        {
+            return Results.BadRequest(new { error = ex.Message });
+        }
+    }
+
+    private static async Task<IResult> WorkspaceCreateDirectoryAsync(
+        Guid id,
+        HttpContext context,
+        JsonDataStore store,
+        HtmlViews views,
+        WorkspaceService workspaceService)
+    {
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            return Results.Redirect("/login");
+        }
+
+        var access = await RequireWorkspaceAdminAsync(id, context, store, workspaceService);
+        if (access.Result is not null)
+        {
+            return access.Result;
+        }
+
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        if (!ValidateCsrf(context, form))
+        {
+            return BadRequest(context, user, views);
+        }
+
+        var path = form["path"].ToString();
+        var name = Clean(form["name"].ToString(), "");
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return Results.BadRequest(new { error = HtmlViews.Translate(context, "Invalid request") });
+        }
+
+        await workspaceService.CreateDirectoryAsync(access.Workspace!, path, name, context.RequestAborted);
+        await workspaceService.RecordActivityAsync(
+            access.Workspace!,
+            context,
+            user,
+            "Created folder",
+            string.IsNullOrWhiteSpace(path) || path == "/" ? $"/{name}" : $"{path.TrimEnd('/')}/{name}",
+            "",
+            "Admin",
+            context.RequestAborted);
+        return Results.Redirect($"/workspaces/{id}?path={Uri.EscapeDataString(path)}");
+    }
+
+    private static async Task<IResult> WorkspaceCreateFileAsync(
+        Guid id,
+        HttpContext context,
+        JsonDataStore store,
+        HtmlViews views,
+        WorkspaceService workspaceService)
+    {
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            return Results.Redirect("/login");
+        }
+
+        var access = await RequireWorkspaceAdminAsync(id, context, store, workspaceService);
+        if (access.Result is not null)
+        {
+            return access.Result;
+        }
+
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        if (!ValidateCsrf(context, form))
+        {
+            return BadRequest(context, user, views);
+        }
+
+        var path = form["path"].ToString();
+        var name = Clean(form["name"].ToString(), "");
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return Results.BadRequest(new { error = HtmlViews.Translate(context, "Invalid request") });
+        }
+
+        await workspaceService.CreateFileAsync(access.Workspace!, path, name, context.RequestAborted);
+        await workspaceService.RecordActivityAsync(
+            access.Workspace!,
+            context,
+            user,
+            "Created file",
+            string.IsNullOrWhiteSpace(path) || path == "/" ? $"/{name}" : $"{path.TrimEnd('/')}/{name}",
+            "",
+            "Admin",
+            context.RequestAborted);
+        return Results.Redirect($"/workspaces/{id}?path={Uri.EscapeDataString(path)}");
+    }
+
+    private static async Task<IResult> WorkspaceDeleteEntryAsync(
+        Guid id,
+        HttpContext context,
+        JsonDataStore store,
+        HtmlViews views,
+        WorkspaceService workspaceService)
+    {
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            return Results.Redirect("/login");
+        }
+
+        var access = await RequireWorkspaceAdminAsync(id, context, store, workspaceService);
+        if (access.Result is not null)
+        {
+            return access.Result;
+        }
+
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        if (!ValidateCsrf(context, form))
+        {
+            return BadRequest(context, user, views);
+        }
+
+        var path = form["path"].ToString();
+        await workspaceService.DeleteAsync(access.Workspace!, path, context.RequestAborted);
+        await workspaceService.RecordActivityAsync(
+            access.Workspace!,
+            context,
+            user,
+            "Deleted entry",
+            path,
+            "",
+            "Admin",
+            context.RequestAborted);
+        var redirectPath = string.IsNullOrWhiteSpace(path) ? "" : Uri.EscapeDataString(ParentVirtualPath(path));
+        return Results.Redirect($"/workspaces/{id}{(string.IsNullOrWhiteSpace(redirectPath) ? "" : $"?path={redirectPath}")}");
+    }
+
+    private static async Task<IResult> WorkspaceSaveNoteAsync(
+        Guid id,
+        HttpContext context,
+        JsonDataStore store,
+        HtmlViews views,
+        WorkspaceService workspaceService)
+    {
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            return Results.Redirect("/login");
+        }
+
+        var access = await RequireWorkspaceAdminAsync(id, context, store, workspaceService);
+        if (access.Result is not null)
+        {
+            return access.Result;
+        }
+
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        if (!ValidateCsrf(context, form))
+        {
+            return BadRequest(context, user, views);
+        }
+
+        var text = form["text"].ToString();
+        await workspaceService.WriteSharedTextAsync(access.Workspace!, text, context.RequestAborted);
+        await workspaceService.RecordActivityAsync(
+            access.Workspace!,
+            context,
+            user,
+            "Updated shared text",
+            "/shared-note",
+            $"{text.Length:N0} characters",
+            "Admin",
+            context.RequestAborted);
+        return Results.Redirect(WorkspaceTabRedirect(context, $"/workspaces/{id}", form, "text"));
+    }
+
+    private static async Task<IResult> WorkspacePublicAsync(
+        Guid id,
+        string? path,
+        HttpContext context,
+        JsonDataStore store,
+        HtmlViews views,
+        WorkspaceService workspaceService)
+    {
+        var access = await RequireWorkspacePublicAsync(id, context, store, workspaceService);
+        if (access.Result is not null)
+        {
+            return access.Result;
+        }
+
+        if (access.Expired)
+        {
+            return Results.Content(views.WorkspaceExpired(context, access.Workspace!, access.PublicUrl), "text/html");
+        }
+
+        if (access.PasswordRequired)
+        {
+            return Results.Content(views.WorkspacePassword(context, access.Workspace!, access.PublicUrl), "text/html");
+        }
+
+        var workspace = access.Workspace!;
+        var listing = await workspaceService.ListFilesAsync(workspace, path, context.RequestAborted);
+        var sharedText = await workspaceService.ReadSharedTextAsync(workspace, context.RequestAborted);
+        workspaceService.TouchPresence(workspace, context, access.User, "Public");
+        await workspaceService.RecordActivityAsync(
+            workspace,
+            context,
+            access.User,
+            "Opened workspace",
+            path,
+            "",
+            "Public",
+            context.RequestAborted);
+        var activityEntries = await workspaceService.GetActivityAsync(workspace, 200, context.RequestAborted);
+        return Results.Content(
+            views.WorkspacePublic(
+                context,
+                workspace,
+                listing,
+                sharedText,
+                workspaceService.GetPresenceSnapshot(workspace.Id),
+                access.PublicUrl,
+                false,
+                activityEntries),
+            "text/html");
+    }
+
+    private static async Task<IResult> WorkspaceUnlockAsync(
+        Guid id,
+        HttpContext context,
+        JsonDataStore store,
+        HtmlViews views,
+        WorkspaceService workspaceService)
+    {
+        var access = await RequireWorkspacePublicAsync(id, context, store, workspaceService);
+        if (access.Result is not null)
+        {
+            return access.Result;
+        }
+
+        if (access.Expired)
+        {
+            return Results.Content(views.WorkspaceExpired(context, access.Workspace!, access.PublicUrl), "text/html");
+        }
+
+        var workspace = access.Workspace!;
+        if (!workspaceService.HasAccessPassword(workspace))
+        {
+            return Results.Redirect($"/workspace/{id}");
+        }
+
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        var password = form["password"].ToString();
+        if (!workspaceService.VerifyAccessPassword(workspace, password))
+        {
+            return Results.Content(
+                views.WorkspacePassword(context, workspace, access.PublicUrl, HtmlViews.Translate(context, "Username or password is invalid.")),
+                "text/html");
+        }
+
+        workspaceService.IssueAccessGrant(context, workspace);
+        await workspaceService.RecordActivityAsync(
+            workspace,
+            context,
+            access.User,
+            "Unlocked workspace",
+            "/",
+            "Password accepted",
+            "Public",
+            context.RequestAborted);
+        return Results.Redirect($"/workspace/{id}");
+    }
+
+    private static async Task<IResult> WorkspacePublicUploadAsync(
+        Guid id,
+        HttpContext context,
+        JsonDataStore store,
+        HtmlViews views,
+        WorkspaceService workspaceService)
+    {
+        var access = await RequireWorkspacePublicAsync(id, context, store, workspaceService);
+        if (access.Result is not null)
+        {
+            return access.Result;
+        }
+
+        if (access.Expired)
+        {
+            return Results.Content(views.WorkspaceExpired(context, access.Workspace!, access.PublicUrl), "text/html");
+        }
+
+        if (access.PasswordRequired)
+        {
+            return Results.Content(views.WorkspacePassword(context, access.Workspace!, access.PublicUrl), "text/html");
+        }
+
+        var workspace = access.Workspace!;
+        if (!workspace.AllowUploads)
+        {
+            return Results.BadRequest(new { error = HtmlViews.Translate(context, "Uploads are disabled for this workspace.") });
+        }
+
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        var path = form["path"].ToString();
+        foreach (var file in form.Files)
+        {
+            if (file.Length <= 0)
+            {
+                continue;
+            }
+
+            await using var stream = file.OpenReadStream();
+            await workspaceService.UploadAsync(workspace, path, stream, file.FileName, context.RequestAborted);
+            await workspaceService.RecordActivityAsync(
+                workspace,
+                context,
+                access.User,
+                "Uploaded file",
+                string.IsNullOrWhiteSpace(path) || path == "/" ? $"/{file.FileName}" : $"{path.TrimEnd('/')}/{file.FileName}",
+                $"{file.Length:N0} bytes",
+                "Public",
+                context.RequestAborted);
+        }
+
+        return Results.Redirect($"/workspace/{id}?path={Uri.EscapeDataString(path)}");
+    }
+
+    private static async Task<IResult> WorkspacePublicDownloadAsync(
+        Guid id,
+        string? path,
+        HttpContext context,
+        JsonDataStore store,
+        HtmlViews views,
+        WorkspaceService workspaceService)
+    {
+        var access = await RequireWorkspacePublicAsync(id, context, store, workspaceService);
+        if (access.Result is not null)
+        {
+            return access.Result;
+        }
+
+        if (access.Expired)
+        {
+            return Results.Content(views.WorkspaceExpired(context, access.Workspace!, access.PublicUrl), "text/html");
+        }
+
+        if (access.PasswordRequired)
+        {
+            return Results.Redirect($"/workspace/{id}");
+        }
+
+        try
+        {
+            var download = await workspaceService.DownloadAsync(access.Workspace!, path, context.RequestAborted);
+            await workspaceService.RecordActivityAsync(
+                access.Workspace!,
+                context,
+                access.User,
+                "Downloaded file",
+                path ?? "/",
+                download.FileName,
+                "Public",
+                context.RequestAborted);
+            return Results.File(download.Content, download.ContentType, download.FileName);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or IOException or FileNotFoundException)
+        {
+            return Results.BadRequest(new { error = ex.Message });
+        }
+    }
+
+    private static async Task<IResult> WorkspacePublicCreateDirectoryAsync(
+        Guid id,
+        HttpContext context,
+        JsonDataStore store,
+        HtmlViews views,
+        WorkspaceService workspaceService)
+    {
+        var access = await RequireWorkspacePublicAsync(id, context, store, workspaceService);
+        if (access.Result is not null)
+        {
+            return access.Result;
+        }
+
+        if (access.Expired)
+        {
+            return Results.Content(views.WorkspaceExpired(context, access.Workspace!, access.PublicUrl), "text/html");
+        }
+
+        if (access.PasswordRequired)
+        {
+            return Results.Content(views.WorkspacePassword(context, access.Workspace!, access.PublicUrl), "text/html");
+        }
+
+        return Results.Forbid();
+    }
+
+    private static async Task<IResult> WorkspacePublicCreateFileAsync(
+        Guid id,
+        HttpContext context,
+        JsonDataStore store,
+        HtmlViews views,
+        WorkspaceService workspaceService)
+    {
+        var access = await RequireWorkspacePublicAsync(id, context, store, workspaceService);
+        if (access.Result is not null)
+        {
+            return access.Result;
+        }
+
+        if (access.Expired)
+        {
+            return Results.Content(views.WorkspaceExpired(context, access.Workspace!, access.PublicUrl), "text/html");
+        }
+
+        if (access.PasswordRequired)
+        {
+            return Results.Content(views.WorkspacePassword(context, access.Workspace!, access.PublicUrl), "text/html");
+        }
+
+        return Results.Forbid();
+    }
+
+    private static async Task<IResult> WorkspacePublicDeleteEntryAsync(
+        Guid id,
+        HttpContext context,
+        JsonDataStore store,
+        HtmlViews views,
+        WorkspaceService workspaceService)
+    {
+        var access = await RequireWorkspacePublicAsync(id, context, store, workspaceService);
+        if (access.Result is not null)
+        {
+            return access.Result;
+        }
+
+        if (access.Expired)
+        {
+            return Results.Content(views.WorkspaceExpired(context, access.Workspace!, access.PublicUrl), "text/html");
+        }
+
+        if (access.PasswordRequired)
+        {
+            return Results.Content(views.WorkspacePassword(context, access.Workspace!, access.PublicUrl), "text/html");
+        }
+
+        return Results.Forbid();
+    }
+
+    private static async Task<IResult> WorkspacePublicSaveNoteAsync(
+        Guid id,
+        HttpContext context,
+        JsonDataStore store,
+        HtmlViews views,
+        WorkspaceService workspaceService)
+    {
+        var access = await RequireWorkspacePublicAsync(id, context, store, workspaceService);
+        if (access.Result is not null)
+        {
+            return access.Result;
+        }
+
+        if (access.PasswordRequired)
+        {
+            return Results.Content(views.WorkspacePassword(context, access.Workspace!, access.PublicUrl), "text/html");
+        }
+
+        var workspace = access.Workspace!;
+        if (!workspace.AllowTextExchange)
+        {
+            return Results.BadRequest(new { error = HtmlViews.Translate(context, "Text exchange is disabled for this workspace.") });
+        }
+
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        var text = form["text"].ToString();
+        await workspaceService.WriteSharedTextAsync(workspace, text, context.RequestAborted);
+        await workspaceService.RecordActivityAsync(
+            workspace,
+            context,
+            access.User,
+            "Updated shared text",
+            "/shared-note",
+            $"{text.Length:N0} characters",
+            "Public",
+            context.RequestAborted);
+        return Results.Redirect(WorkspaceTabRedirect(context, $"/workspace/{id}", form, "text"));
+    }
+
+    private static string WorkspaceTabRedirect(HttpContext context, string baseUrl, IFormCollection form, string defaultTab)
+    {
+        var tab = Clean(form["tab"].ToString(), "");
+        if (string.IsNullOrWhiteSpace(tab))
+        {
+            tab = Clean(context.Request.Query["tab"].ToString(), "");
+        }
+
+        tab = tab.ToLowerInvariant();
+        if (tab is not ("files" or "text" or "log" or "info" or "settings"))
+        {
+            tab = defaultTab;
+        }
+
+        var path = Clean(form["path"].ToString(), "");
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            path = Clean(context.Request.Query["path"].ToString(), "");
+        }
+
+        var url = $"{baseUrl}?tab={Uri.EscapeDataString(tab)}";
+        if (!string.IsNullOrWhiteSpace(path))
+        {
+            url += $"&path={Uri.EscapeDataString(path)}";
+        }
+
+        return EmbedAwareRedirect(context, url);
+    }
+
+    private static int ParseWorkspaceValidityHours(IFormCollection form, int fallback)
+    {
+        if (int.TryParse(form["publicAccessHours"].ToString(), out var hours))
+        {
+            return Math.Clamp(hours, 1, 24 * 365 * 10);
+        }
+
+        return fallback;
     }
 
     private static async Task<IResult> LaunchConnectionAsync(
@@ -1330,7 +2377,7 @@ public static class EndpointMapping
                 CanCreateServers = IsChecked(form, "canCreateServers") || IsChecked(form, "isAdmin"),
                 PreferredLanguage = NormalizeLanguage(form["preferredLanguage"].ToString()),
                 PreferredTheme = NormalizeTheme(form["preferredTheme"].ToString()),
-                RememberLoginByDefault = IsChecked(form, "rememberLoginByDefault"),
+                RememberLoginByDefault = true,
                 IsEnabled = true,
                 CreatedAt = now,
                 UpdatedAt = now
@@ -1423,7 +2470,7 @@ public static class EndpointMapping
             user.CanCreateServers = IsChecked(form, "canCreateServers") || user.IsAdmin;
             user.PreferredLanguage = NormalizeLanguage(form["preferredLanguage"].ToString());
             user.PreferredTheme = NormalizeTheme(form["preferredTheme"].ToString());
-            user.RememberLoginByDefault = IsChecked(form, "rememberLoginByDefault");
+            user.RememberLoginByDefault = true;
             user.UpdatedAt = DateTimeOffset.UtcNow;
             if (user.Id == currentUser.Id)
             {
@@ -1451,7 +2498,7 @@ public static class EndpointMapping
                     BuildAuthProperties(updatedSelfUser.RememberLoginByDefault));
             }
 
-            AppendRememberLoginCookie(context, updatedSelfUser.RememberLoginByDefault);
+            AppendRememberLoginCookie(context, true);
             context.Response.Cookies.Append(
                 HtmlViews.ThemeCookie,
                 NormalizeTheme(updatedSelfUser.PreferredTheme),
@@ -1640,7 +2687,7 @@ public static class EndpointMapping
             current.DisplayName = Clean(form["displayName"].ToString(), current.DisplayName);
             current.PreferredLanguage = NormalizeLanguage(form["preferredLanguage"].ToString());
             current.PreferredTheme = NormalizeTheme(form["preferredTheme"].ToString());
-            current.RememberLoginByDefault = IsChecked(form, "rememberLoginByDefault");
+            current.RememberLoginByDefault = true;
             current.UpdatedAt = DateTimeOffset.UtcNow;
             updatedUser = current;
         }, context.RequestAborted);
@@ -1656,7 +2703,7 @@ public static class EndpointMapping
                     BuildAuthProperties(updatedUser.RememberLoginByDefault));
             }
 
-            AppendRememberLoginCookie(context, updatedUser.RememberLoginByDefault);
+            AppendRememberLoginCookie(context, true);
             context.Response.Cookies.Append(
                 HtmlViews.ThemeCookie,
                 NormalizeTheme(updatedUser.PreferredTheme),
@@ -2144,6 +3191,53 @@ public static class EndpointMapping
         return new FileServerAccess(server, null);
     }
 
+    private static async Task<WorkspaceAccess> RequireWorkspaceAdminAsync(
+        Guid id,
+        HttpContext context,
+        JsonDataStore store,
+        WorkspaceService workspaceService)
+    {
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            return new WorkspaceAccess(null, Results.Redirect("/login"));
+        }
+
+        var workspace = await workspaceService.FindWorkspaceByIdAsync(id, context.RequestAborted);
+        if (workspace is null || !workspace.IsEnabled)
+        {
+            return new WorkspaceAccess(null, Results.NotFound());
+        }
+
+        if (!(user.IsAdmin || workspace.OwnerUserId == user.Id))
+        {
+            return new WorkspaceAccess(null, Results.Redirect("/forbidden"));
+        }
+
+        return new WorkspaceAccess(workspace, null);
+    }
+
+    private static async Task<WorkspacePublicAccess> RequireWorkspacePublicAsync(
+        Guid id,
+        HttpContext context,
+        JsonDataStore store,
+        WorkspaceService workspaceService)
+    {
+        var user = await CurrentUserAsync(context, store);
+        var workspace = await workspaceService.FindWorkspaceByIdAsync(id, context.RequestAborted);
+        if (workspace is null || !workspace.IsEnabled)
+        {
+            return new WorkspacePublicAccess(null, user, false, "", false, Results.NotFound());
+        }
+
+        var publicUrl = BuildWorkspacePublicUrl(context, workspace.Id);
+        var isOwnerOrAdmin = user is { } currentUser && (currentUser.IsAdmin || workspace.OwnerUserId == currentUser.Id);
+        var expired = !isOwnerOrAdmin && workspaceService.HasPublicAccessExpired(workspace);
+        var hasAccessGrant = workspaceService.HasValidAccessGrant(context, workspace);
+        var passwordRequired = !isOwnerOrAdmin && !expired && workspaceService.HasAccessPassword(workspace) && !hasAccessGrant;
+        return new WorkspacePublicAccess(workspace, user, passwordRequired, publicUrl, expired, null);
+    }
+
     private static async Task<MatgateUser?> CurrentUserAsync(HttpContext context, JsonDataStore store)
     {
         var idValue = context.User.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -2270,6 +3364,51 @@ public static class EndpointMapping
             context.Request.Headers["X-Matgate-Csrf"].ToString());
     }
 
+    private static string BuildWorkspacePublicUrl(HttpContext context, Guid id)
+    {
+        var pathBase = context.Request.PathBase.HasValue ? context.Request.PathBase.Value : "";
+        return $"{context.Request.Scheme}://{context.Request.Host}{pathBase}/workspace/{id}";
+    }
+
+    private static string NormalizeWorkspacePath(string? value)
+    {
+        var cleaned = (value ?? "").Trim().Replace('\\', '/');
+        if (string.IsNullOrWhiteSpace(cleaned))
+        {
+            return "/";
+        }
+
+        while (cleaned.Contains("//", StringComparison.Ordinal))
+        {
+            cleaned = cleaned.Replace("//", "/", StringComparison.Ordinal);
+        }
+
+        if (!cleaned.StartsWith('/'))
+        {
+            cleaned = "/" + cleaned.TrimStart('/');
+        }
+
+        if (cleaned.Length > 1 && cleaned.EndsWith('/'))
+        {
+            cleaned = cleaned.TrimEnd('/');
+        }
+
+        return cleaned;
+    }
+
+    private static string ParentVirtualPath(string path)
+    {
+        var normalized = NormalizeWorkspacePath(path);
+        if (normalized == "/")
+        {
+            return "/";
+        }
+
+        var trimmed = normalized.TrimEnd('/');
+        var index = trimmed.LastIndexOf('/');
+        return index <= 0 ? "/" : trimmed[..index];
+    }
+
     private static IResult BadRequest(HttpContext context, MatgateUser? user, HtmlViews views)
     {
         return Results.Content(views.Message(
@@ -2361,6 +3500,16 @@ public static class EndpointMapping
             UpdatedAt = now
         };
     }
+
+    private sealed record WorkspaceAccess(WorkspaceDefinition? Workspace, IResult? Result);
+
+    private sealed record WorkspacePublicAccess(
+        WorkspaceDefinition? Workspace,
+        MatgateUser? User,
+        bool PasswordRequired,
+        string PublicUrl,
+        bool Expired,
+        IResult? Result);
 
     private static bool IsChecked(IFormCollection form, string key)
     {
