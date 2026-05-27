@@ -61,14 +61,16 @@ public static class EndpointMapping
         """;
 
     private const string ServiceWorkerJs = """
-        const CACHE_NAME = 'matgate-pwa-v1';
-
         self.addEventListener('install', event => {
           self.skipWaiting();
         });
 
         self.addEventListener('activate', event => {
-          event.waitUntil(self.clients.claim());
+          event.waitUntil((async () => {
+            const cacheNames = await caches.keys();
+            await Promise.all(cacheNames.map(cacheName => caches.delete(cacheName)));
+            await self.clients.claim();
+          })());
         });
 
         self.addEventListener('fetch', event => {

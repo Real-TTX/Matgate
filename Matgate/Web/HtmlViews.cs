@@ -2542,6 +2542,7 @@ public sealed class HtmlViews
             globe = Icon("globe")
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
         var archiveExtensions = JsonSerializer.Serialize(FileArchiveFormats.SupportedExtensions, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        var bootSignature = JsonSerializer.Serialize(BuildBootSignature());
         var uiText = JsonSerializer.Serialize(new
         {
             about = T(context, "About"),
@@ -2761,6 +2762,8 @@ public sealed class HtmlViews
                 const shellTabs = new Map();
                 const homeBrowser = document.querySelector('[data-home-browser]');
                 const homeBrowserStateKey = 'matgate.home.browser.v1';
+                const appBootSignatureKey = 'matgate.app.boot.signature.v1';
+                const appBootSignature = {{bootSignature}};
 
                 let activeTabId = null;
                 let activeShellTabId = '';
@@ -2779,6 +2782,62 @@ public sealed class HtmlViews
                         host: ''
                     }
                 };
+
+                function clearMatgatePersistentState() {
+                    const keysToClear = new Set([
+                        workspaceStorageKey,
+                        shellTabStorageKey,
+                        tabOrderStorageKey,
+                        homeBrowserStateKey,
+                        appBootSignatureKey
+                    ]);
+
+                    try {
+                        for (let index = localStorage.length - 1; index >= 0; index -= 1) {
+                            const key = localStorage.key(index);
+                            if (!key) {
+                                continue;
+                            }
+
+                            if (keysToClear.has(key) || key.startsWith('matgate.workspace.panel.')) {
+                                localStorage.removeItem(key);
+                            }
+                        }
+                    }
+                    catch {
+                        // Ignore storage failures.
+                    }
+
+                    try {
+                        sessionStorage.clear();
+                    }
+                    catch {
+                        // Ignore storage failures.
+                    }
+                }
+
+                function ensureFreshBootState() {
+                    try {
+                        const storedSignature = localStorage.getItem(appBootSignatureKey);
+                        if (storedSignature === appBootSignature) {
+                            return;
+                        }
+
+                        clearMatgatePersistentState();
+                        localStorage.setItem(appBootSignatureKey, appBootSignature);
+
+                        if ('serviceWorker' in navigator) {
+                            navigator.serviceWorker.getRegistrations()
+                                .then(registrations => Promise.all(registrations.map(registration => registration.unregister())))
+                                .catch(() => {});
+                        }
+                    }
+                    catch {
+                        // Ignore storage failures.
+                    }
+                }
+
+                ensureFreshBootState();
 
                 const shellLayout = document.body.dataset.shellLayout === '1';
                 const updateViewportHeight = () => {
@@ -6759,6 +6818,7 @@ public sealed class HtmlViews
             """;
         var navigation = user is null ? "" : shellTabs;
         var pwaEnabled = !string.Equals(context.Request.Query["embed"].ToString(), "1", StringComparison.OrdinalIgnoreCase);
+        var cacheControlMarkup = """<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0"><meta http-equiv="Pragma" content="no-cache"><meta http-equiv="Expires" content="0">""";
         var pwaHeadMarkup = pwaEnabled
             ? """<meta name="application-name" content="Matgate"><meta name="mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="Matgate"><link rel="manifest" href="/manifest.webmanifest"><link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png"><link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">"""
             : "";
@@ -6777,6 +6837,7 @@ public sealed class HtmlViews
             <head>
                 <meta charset="utf-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+                {{cacheControlMarkup}}
                 <meta name="theme-color" content="#176b5b">
                 {{pwaHeadMarkup}}
                 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
@@ -10055,6 +10116,36 @@ public sealed class HtmlViews
         }
 
         return normalized;
+    }
+
+    private static string BuildBootSignature()
+    {
+        var version = ApplicationVersion();
+        var buildTag = BuildTagLabel();
+        var buildTime = BuildTimestampLabel();
+        var assembly = Assembly.GetEntryAssembly() ?? Assembly.GetExecutingAssembly();
+
+        string assemblyStamp = "";
+        try
+        {
+            var location = assembly.Location;
+            if (!string.IsNullOrWhiteSpace(location) && File.Exists(location))
+            {
+                assemblyStamp = File.GetLastWriteTimeUtc(location).ToString("O", CultureInfo.InvariantCulture);
+            }
+        }
+        catch
+        {
+            // Ignore file stamp issues.
+        }
+
+        return string.Join("|", new[]
+        {
+            version,
+            buildTag,
+            buildTime,
+            assemblyStamp
+        }.Where(value => !string.IsNullOrWhiteSpace(value)));
     }
 
     private static string NormalizeBuildTag(string? tag)
