@@ -11,10 +11,9 @@ public sealed class WorkspaceService
     private const string SessionCookieName = "Matgate.Workspace.Session";
     private const string AccessCookiePrefix = "Matgate.Workspace.Access.";
     private static readonly TimeSpan PresenceTimeout = TimeSpan.FromMinutes(30);
-    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
-    {
-        WriteIndented = true
-    };
+    private static readonly TimeSpan ActivityDebounceWindow = TimeSpan.FromSeconds(10);
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
+    private static readonly JsonSerializerOptions ActivityJsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly JsonDataStore _store;
     private readonly PasswordHasher _hasher;
@@ -60,6 +59,43 @@ public sealed class WorkspaceService
     public string GetSharedNotePath(WorkspaceDefinition workspace)
     {
         return Path.Combine(GetWorkspaceRoot(workspace), NormalizeFileName(workspace.SharedNoteFileName, "shared-note.md"));
+    }
+
+    public DateTimeOffset? GetSharedTextLastModified(WorkspaceDefinition workspace)
+    {
+        if (workspace.SharedTextUpdatedAt is { } updatedAt)
+        {
+            return updatedAt;
+        }
+
+        var path = GetSharedNotePath(workspace);
+        if (!File.Exists(path))
+        {
+            return null;
+        }
+
+        return new DateTimeOffset(File.GetLastWriteTimeUtc(path), TimeSpan.Zero);
+    }
+
+    public async Task<DateTimeOffset> MarkSharedTextUpdatedAsync(
+        Guid workspaceId,
+        DateTimeOffset? updatedAt = null,
+        CancellationToken cancellationToken = default)
+    {
+        var savedAt = updatedAt ?? DateTimeOffset.UtcNow;
+        await _store.UpdateWorkspacesAsync(workspaces =>
+        {
+            var stored = workspaces.FirstOrDefault(workspace => workspace.Id == workspaceId);
+            if (stored is null)
+            {
+                return;
+            }
+
+            stored.SharedTextUpdatedAt = savedAt;
+            stored.UpdatedAt = savedAt;
+        }, cancellationToken);
+
+        return savedAt;
     }
 
     public bool HasAccessPassword(WorkspaceDefinition workspace)
@@ -394,8 +430,20 @@ public sealed class WorkspaceService
         try
         {
             Directory.CreateDirectory(Path.GetDirectoryName(logPath)!);
-            var line = JsonSerializer.Serialize(entry, JsonOptions);
-            await File.AppendAllTextAsync(logPath, line + Environment.NewLine, cancellationToken);
+            var entries = File.Exists(logPath)
+                ? CompactActivityEntries(await ReadActivityEntriesAsync(logPath, cancellationToken))
+                : new List<WorkspaceActivityEntry>();
+            if (entries.Count > 0 && ShouldMergeActivity(entries[^1], entry))
+            {
+                entries[^1] = entry;
+            }
+            else
+            {
+                entries.Add(entry);
+            }
+
+            var lines = entries.Select(item => JsonSerializer.Serialize(item, ActivityJsonOptions)).ToArray();
+            await File.WriteAllLinesAsync(logPath, lines, cancellationToken);
         }
         catch (Exception ex)
         {
@@ -422,26 +470,14 @@ public sealed class WorkspaceService
         await gate.WaitAsync(cancellationToken);
         try
         {
-            var entries = File.ReadLines(logPath)
-                .Where(line => !string.IsNullOrWhiteSpace(line))
-                .Select(line =>
-                {
-                    try
-                    {
-                        return JsonSerializer.Deserialize<WorkspaceActivityEntry>(line, JsonOptions);
-                    }
-                    catch
-                    {
-                        return null;
-                    }
-                })
-                .Where(entry => entry is not null)
-                .Select(entry => entry!)
+            var entries = CompactActivityEntries(await ReadActivityEntriesAsync(logPath, cancellationToken));
+
+            var result = entries
                 .TakeLast(Math.Max(1, maxEntries))
                 .Reverse()
                 .ToArray();
 
-            return entries;
+            return result;
         }
         finally
         {
@@ -503,6 +539,72 @@ public sealed class WorkspaceService
     private string GetActivityLogPath(Guid workspaceId)
     {
         return Path.Combine(_store.DataDirectory, "workspace-logs", $"{workspaceId:N}.jsonl");
+    }
+
+    private async Task<List<WorkspaceActivityEntry>> ReadActivityEntriesAsync(string logPath, CancellationToken cancellationToken)
+    {
+        var bytes = await File.ReadAllBytesAsync(logPath, cancellationToken);
+        var reader = new Utf8JsonReader(bytes, new JsonReaderOptions
+        {
+            AllowMultipleValues = true
+        });
+        var entries = new List<WorkspaceActivityEntry>();
+
+        while (reader.Read())
+        {
+            if (reader.TokenType != JsonTokenType.StartObject)
+            {
+                continue;
+            }
+
+            try
+            {
+                using var document = JsonDocument.ParseValue(ref reader);
+                var entry = document.RootElement.Deserialize<WorkspaceActivityEntry>(JsonOptions);
+                if (entry is not null)
+                {
+                    entries.Add(entry);
+                }
+            }
+            catch
+            {
+                // Ignore malformed or partial records and keep scanning.
+            }
+        }
+
+        return entries;
+    }
+
+    private static List<WorkspaceActivityEntry> CompactActivityEntries(IEnumerable<WorkspaceActivityEntry> entries)
+    {
+        var compacted = new List<WorkspaceActivityEntry>();
+        foreach (var entry in entries)
+        {
+            if (compacted.Count > 0 && ShouldMergeActivity(compacted[^1], entry))
+            {
+                compacted[^1] = entry;
+                continue;
+            }
+
+            compacted.Add(entry);
+        }
+
+        return compacted;
+    }
+
+    private static bool ShouldMergeActivity(WorkspaceActivityEntry existing, WorkspaceActivityEntry current)
+    {
+        var age = current.Timestamp - existing.Timestamp;
+        if (age < TimeSpan.Zero || age > ActivityDebounceWindow)
+        {
+            return false;
+        }
+
+        return string.Equals(existing.Actor, current.Actor, StringComparison.Ordinal)
+            && string.Equals(existing.Mode, current.Mode, StringComparison.Ordinal)
+            && string.Equals(existing.Action, current.Action, StringComparison.Ordinal)
+            && string.Equals(existing.Path, current.Path, StringComparison.Ordinal)
+            && string.Equals(existing.SessionId, current.SessionId, StringComparison.Ordinal);
     }
 
     private static string NormalizeVirtualPath(string? path)

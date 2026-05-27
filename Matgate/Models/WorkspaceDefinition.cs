@@ -22,6 +22,8 @@ public sealed class WorkspaceDefinition
 
     public DateTimeOffset? PublicAccessExpiresAt { get; set; }
 
+    public DateTimeOffset? SharedTextUpdatedAt { get; set; }
+
     public Guid? OwnerUserId { get; set; }
 
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;

@@ -205,6 +205,9 @@ public sealed class HtmlViews
         ["Disconnect"] = "Trennen",
         ["No active tab"] = "Kein aktiver Tab",
         ["Ready"] = "Bereit",
+        ["Auto save"] = "Auto speichern",
+        ["Last saved"] = "Zuletzt gespeichert",
+        ["Never saved"] = "Noch nie gespeichert",
         ["Gateway: -"] = "Gateway: -",
         ["Tunnel: -"] = "Tunnel: -",
         ["Sync: -"] = "Sync: -",
@@ -774,90 +777,15 @@ public sealed class HtmlViews
         string defaultRootPath,
         string? pageTitleOverride = null)
     {
-        var selectedWorkspaceTab = selectedWorkspace is null
-            ? "files"
-            : WorkspaceSelectedTab(context, selectedWorkspace.AllowTextExchange);
-        var workspaceItems = workspaces.Count == 0
-            ? $"""<div class="empty">{T(context, "No workspaces yet.")}</div>"""
-            : string.Join("", workspaces.OrderBy(workspace => workspace.Name).Select(workspace =>
-            {
-                var active = selectedWorkspace?.Id == workspace.Id ? " active" : "";
-                var scope = workspace.IsPrivate ? T(context, "Personal") : T(context, "Shared");
-                return $$"""
-                    <a class="workspace-list-item{{active}}" href="/workspaces/{{workspace.Id}}" data-shell-open-tab="1" data-shell-title="{{A(workspace.Name)}}" data-shell-description="">
-                        <span class="workspace-list-item-main">
-                            <span class="workspace-list-item-title">{{Icon(workspace.IsPrivate ? "user" : "folder")}}<span>{{E(workspace.Name)}}</span></span>
-                            <small>{{E(workspace.Description)}}</small>
-                        </span>
-                        <span class="badge">{{scope}}</span>
-                    </a>
-                    """;
-            }));
-
-        var selectedPanel = selectedWorkspace is null
-            ? $"""<section class="panel"><div class="empty">{T(context, "Select a workspace to see files, text and log.")}</div></section>"""
-            : $$"""
-                <section class="panel">
-                    <div class="row split workspace-summary">
-                        <div>
-                            <p class="eyebrow">{{T(context, "Workspace")}}</p>
-                            <h2>{{E(selectedWorkspace.Name)}}</h2>
-                            <p class="muted">{{E(selectedWorkspace.Description)}}</p>
-                            {{WorkspacePublicUrlLine(context, publicUrl)}}
-                            <p class="muted"><strong>{{T(context, "Root path")}}:</strong> <code>{{E(string.IsNullOrWhiteSpace(selectedWorkspace.RootPath) ? defaultRootPath : selectedWorkspace.RootPath)}}</code></p>
-                        </div>
-                        <div class="stack workspace-summary-badges">
-                            <span class="badge">{{(selectedWorkspace.IsPrivate ? T(context, "Personal") : T(context, "Shared"))}}</span>
-                            <span class="badge">{{(selectedWorkspace.AllowUploads ? T(context, "Allow uploads") : T(context, "Uploads disabled"))}}</span>
-                            <span class="badge">{{(selectedWorkspace.AllowTextExchange ? T(context, "Allow text exchange") : T(context, "Text disabled"))}}</span>
-                        </div>
-                    </div>
-                </section>
-                {{(canEditSelected ? WorkspaceSettingsPanel(context, selectedWorkspace, defaultRootPath) : "")}}
-                <section class="workspace-tab-shell panel" data-workspace-tab-root="1" data-workspace-tab-key="{{A(selectedWorkspace.Id.ToString("N"))}}" data-workspace-default-tab="files">
-                    <div class="workspace-tab-strip" role="tablist" aria-label="{{A(T(context, "Workspace content"))}}">
-                        {{(selectedWorkspace.AllowTextExchange ? $"""<a class="workspace-tab-button{(selectedWorkspaceTab == "text" ? " active" : "")}" href="{A(WorkspaceTabUrl($"/workspaces/{selectedWorkspace.Id}", "text", listing?.Path ?? "/"))}" data-workspace-tab="text" role="tab" aria-selected="{A(selectedWorkspaceTab == "text" ? "true" : "false")}">{Icon("edit")}{T(context, "Text")}</a>""" : "")}}
-                        <a class="workspace-tab-button{{(selectedWorkspaceTab == "files" ? " active" : "")}}" href="{{A(WorkspaceTabUrl($"/workspaces/{selectedWorkspace.Id}", "files", listing?.Path ?? "/"))}}" data-workspace-tab="files" role="tab" aria-selected="{{A(selectedWorkspaceTab == "files" ? "true" : "false")}}">{{Icon("folder")}}{{T(context, "Files")}}</a>
-                        <a class="workspace-tab-button{{(selectedWorkspaceTab == "log" ? " active" : "")}}" href="{{A(WorkspaceTabUrl($"/workspaces/{selectedWorkspace.Id}", "log", listing?.Path ?? "/"))}}" data-workspace-tab="log" role="tab" aria-selected="{{A(selectedWorkspaceTab == "log" ? "true" : "false")}}">{{Icon("list")}}{{T(context, "Log")}}</a>
-                    </div>
-                    <div class="workspace-tab-panels">
-                        {{(selectedWorkspace.AllowTextExchange ? $$"""
-                        <div class="workspace-tab-panel{{(selectedWorkspaceTab == "text" ? "" : " hidden")}}" data-workspace-panel="text">
-                            {{WorkspaceTextPanel(context, selectedWorkspace, sharedText, canEditSelected || selectedWorkspace.AllowTextExchange, $"/workspaces/{selectedWorkspace.Id}", false, listing?.Path ?? "/")}}
-                        </div>
-                        """ : "")}}
-                        <div class="workspace-tab-panel{{(selectedWorkspaceTab == "files" ? "" : " hidden")}}" data-workspace-panel="files">
-                            {{WorkspaceFilesPanel(context, selectedWorkspace, listing, canEditSelected, selectedWorkspace.AllowUploads, $"/workspaces/{selectedWorkspace.Id}")}}
-                        </div>
-                        <div class="workspace-tab-panel{{(selectedWorkspaceTab == "log" ? "" : " hidden")}}" data-workspace-panel="log">
-                            {{WorkspaceActivityPanel(context, activityEntries)}}
-                        </div>
-                    </div>
-                </section>
-                {{(canEditSelected ? WorkspaceSessionsPanel(context, sessions) : "")}}
-                {{(canEditSelected ? WorkspaceDangerPanel(context, selectedWorkspace, "/workspaces") : "")}}
-                """;
-
         var body = $$"""
             <section class="page-head">
                 <div>
                     <p class="eyebrow">{{T(context, "Workspaces")}}</p>
                     <h1>{{T(context, "Workspaces")}}</h1>
-                    <p class="muted">{{T(context, "Shared folders, text and open sessions in one place.")}}</p>
                 </div>
                 <a class="button primary" href="/workspaces/new">{{Icon("plus")}}{{T(context, "Create workspace")}}</a>
             </section>
-            <section class="workspace-browser-layout">
-                <aside class="workspace-browser-sidebar panel">
-                    <h2>{{T(context, "Workspaces")}}</h2>
-                    <div class="workspace-list">
-                        {{workspaceItems}}
-                    </div>
-                </aside>
-                <div class="workspace-browser-content stack">
-                    {{selectedPanel}}
-                </div>
-            </section>
+            {{WorkspaceListSection(context, workspaces)}}
             """;
 
         return Layout(context, currentUser, string.IsNullOrWhiteSpace(pageTitleOverride) ? T(context, "Workspaces") : pageTitleOverride!, body);
@@ -869,6 +797,7 @@ public sealed class HtmlViews
         WorkspaceDefinition workspace,
         FileGatewayListResult? listing,
         string sharedText,
+        DateTimeOffset? sharedTextLastSavedAt,
         IReadOnlyList<WorkspacePresenceSnapshot> sessions,
         IReadOnlyList<WorkspaceActivityEntry> activityEntries,
         bool canEditSelected,
@@ -889,7 +818,7 @@ public sealed class HtmlViews
                 <div class="workspace-tab-panels">
                     {{(workspace.AllowTextExchange ? $$"""
                     <div class="workspace-tab-panel{{(selectedTab == "text" ? "" : " hidden")}}" data-workspace-panel="text">
-                        {{WorkspaceTextPanel(context, workspace, sharedText, canEditSelected || workspace.AllowTextExchange, $"/workspaces/{workspace.Id}", false, currentPath)}}
+                        {{WorkspaceTextPanel(context, workspace, sharedText, sharedTextLastSavedAt, canEditSelected || workspace.AllowTextExchange, $"/workspaces/{workspace.Id}", false, currentPath)}}
                     </div>
                     """ : "")}}
                     <div class="workspace-tab-panel{{(selectedTab == "files" ? "" : " hidden")}}" data-workspace-panel="files">
@@ -967,6 +896,7 @@ public sealed class HtmlViews
         WorkspaceDefinition workspace,
         FileGatewayListResult? listing,
         string sharedText,
+        DateTimeOffset? sharedTextLastSavedAt,
         IReadOnlyList<WorkspacePresenceSnapshot> sessions,
         string publicUrl,
         bool passwordRequired,
@@ -997,7 +927,7 @@ public sealed class HtmlViews
                 <div class="workspace-tab-panels">
                     {{(workspace.AllowTextExchange ? $$"""
                     <div class="workspace-tab-panel{{(selectedTab == "text" ? "" : " hidden")}}" data-workspace-panel="text">
-                        {{WorkspaceTextPanel(context, workspace, sharedText, workspace.AllowTextExchange, $"/workspace/{workspace.Id}", true, listing?.Path ?? "/")}}
+                        {{WorkspaceTextPanel(context, workspace, sharedText, sharedTextLastSavedAt, workspace.AllowTextExchange, $"/workspace/{workspace.Id}", true, listing?.Path ?? "/")}}
                     </div>
                     """ : "")}}
                     <div class="workspace-tab-panel{{(selectedTab == "files" ? "" : " hidden")}}" data-workspace-panel="files">
@@ -1425,7 +1355,7 @@ public sealed class HtmlViews
     {
         var currentPath = listing?.Path ?? "/";
         var parentPath = listing?.ParentPath ?? "/";
-        var refreshUrl = $"{baseUrl}?path={Uri.EscapeDataString(currentPath)}";
+        var refreshUrl = WorkspaceTabUrl(baseUrl, "files", currentPath);
         var hasEntries = listing is not null && listing.Entries.Count > 0;
         var parentDisabled = string.Equals(currentPath, parentPath, StringComparison.Ordinal);
         var parentRow = parentDisabled
@@ -1446,14 +1376,14 @@ public sealed class HtmlViews
                 <tr class="parent-directory">
                     <td class="file-select-cell"></td>
                     <td>
-                        <a class="file-name-button" href="{{A(WorkspaceUrlWithPath(baseUrl, parentPath))}}" title="{{A(parentPath)}}">
+                        <a class="file-name-button" href="{{A(WorkspaceFileUrl(baseUrl, parentPath))}}" title="{{A(parentPath)}}">
                             {{Icon("folder-up")}}<span>..</span>
                         </a>
                     </td>
                     <td>-</td>
                     <td>-</td>
                     <td class="file-actions-cell">
-                        <a class="file-action-button" href="{{A(WorkspaceUrlWithPath(baseUrl, parentPath))}}">
+                        <a class="file-action-button" href="{{A(WorkspaceFileUrl(baseUrl, parentPath))}}">
                             {{Icon("folder-up")}}<span>{{T(context, "Open")}}</span>
                         </a>
                     </td>
@@ -1463,7 +1393,7 @@ public sealed class HtmlViews
             ? $"""<tr><td colspan="5" class="file-empty">{T(context, "This folder is empty.")}</td></tr>"""
             : string.Join("", listing!.Entries.Select(entry =>
             {
-                var entryPath = WorkspaceUrlWithPath(baseUrl, entry.Path);
+                var entryPath = WorkspaceFileUrl(baseUrl, entry.Path);
                 var downloadUrl = $"{baseUrl}/download?path={Uri.EscapeDataString(entry.Path)}";
                 var nameCell = entry.IsDirectory
                     ? $$"""<a class="file-name-button" href="{{A(entryPath)}}">{{Icon("folder")}}<span>{{E(entry.Name)}}</span></a>"""
@@ -1476,6 +1406,7 @@ public sealed class HtmlViews
                         <form method="post" action="{{A($"{baseUrl}/delete-entry")}}" class="inline">
                             {{Csrf(context)}}
                             <input type="hidden" name="path" value="{{A(entry.Path)}}">
+                            <input type="hidden" name="returnPath" value="{{A(currentPath)}}">
                             <button type="submit" class="file-action-button danger">{{Icon("trash")}}<span>{{T(context, "Delete")}}</span></button>
                         </form>
                         """
@@ -1502,6 +1433,7 @@ public sealed class HtmlViews
                 <form method="post" action="{{A($"{baseUrl}/mkdir")}}" class="workspace-menu-form">
                     {{Csrf(context)}}
                     <input type="hidden" name="path" value="{{A(currentPath)}}">
+                    <input type="hidden" name="tab" value="files">
                     <label class="workspace-menu-field">
                         <span>{{T(context, "Directory")}}</span>
                         <input type="text" class="toolbar-input workspace-menu-input" name="name" placeholder="{{A(T(context, "Name"))}}" required>
@@ -1513,6 +1445,7 @@ public sealed class HtmlViews
                 <form method="post" action="{{A($"{baseUrl}/create-file")}}" class="workspace-menu-form">
                     {{Csrf(context)}}
                     <input type="hidden" name="path" value="{{A(currentPath)}}">
+                    <input type="hidden" name="tab" value="files">
                     <label class="workspace-menu-field">
                         <span>{{T(context, "File")}}</span>
                         <input type="text" class="toolbar-input workspace-menu-input" name="name" placeholder="{{A(T(context, "Name"))}}" required>
@@ -1527,6 +1460,7 @@ public sealed class HtmlViews
                 <form method="post" action="{{A($"{baseUrl}/upload")}}" enctype="multipart/form-data" class="workspace-upload-form">
                     {{Csrf(context)}}
                     <input type="hidden" name="path" value="{{A(currentPath)}}">
+                    <input type="hidden" name="tab" value="files">
                     {{ToolbarUploadButton(T(context, "Upload"), Icon("upload"), "file-upload-button", "", "onchange=\"this.form.submit()\"")}}
                 </form>
                 """
@@ -1539,7 +1473,7 @@ public sealed class HtmlViews
                         <a class="toolbar-button toolbar-icon-button" href="{{A(refreshUrl)}}" title="{{A(T(context, "Refresh"))}}" aria-label="{{A(T(context, "Refresh"))}}">
                             {{Icon("refresh")}}
                         </a>
-                        <form method="get" action="{{A(baseUrl)}}" class="workspace-path-form">
+                        <form method="get" action="{{A(WorkspaceTabUrl(baseUrl, "files", null))}}" class="workspace-path-form">
                             {{ToolbarInput("file-path-input", currentPath, T(context, "Path"))}}
                             <button type="submit" class="toolbar-button">{{Icon("folder")}}<span>{{T(context, "Open")}}</span></button>
                         </form>
@@ -1576,6 +1510,7 @@ public sealed class HtmlViews
         HttpContext context,
         WorkspaceDefinition workspace,
         string sharedText,
+        DateTimeOffset? lastSavedAt,
         bool canEditText,
         string baseUrl,
         bool isPublic,
@@ -1587,34 +1522,45 @@ public sealed class HtmlViews
         }
 
         var readonlyAttr = canEditText ? "" : " readonly";
-        var autoSaveLabel = Language(context) == "de" ? "Auto speichern nach 10 s" : "Auto save after 10s";
+        var autoSaveLabel = T(context, "Auto save");
         var savingLabel = Language(context) == "de" ? "Speichert..." : "Saving...";
         var savedLabel = Language(context) == "de" ? "Gespeichert" : "Saved";
         var readyLabel = T(context, "Ready");
         var dirtyLabel = Language(context) == "de" ? "Ungespeicherte Aenderungen" : "Unsaved changes";
         var failedLabel = Language(context) == "de" ? "Speichern fehlgeschlagen." : "Save failed.";
+        var lastSavedLabel = T(context, "Last saved");
+        var neverSavedLabel = T(context, "Never saved");
+        var lastSavedText = lastSavedAt is null
+            ? neverSavedLabel
+            : lastSavedAt.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
+        var lastSavedIso = lastSavedAt is null
+            ? ""
+            : lastSavedAt.Value.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
         var saveButton = canEditText
             ? $$"""
                 <div class="actions workspace-text-actions">
-                    <button type="submit" class="primary workspace-text-save-button" data-workspace-text-save>{{Icon("save")}}{{T(context, "Save")}}</button>
+                    <button type="button" class="primary workspace-text-save-button" data-workspace-text-save>{{Icon("save")}}{{T(context, "Save")}}</button>
                     <label class="workspace-auto-save">
                         <input type="checkbox" name="autoSave" checked data-workspace-text-auto-save>
                         <span>{{E(autoSaveLabel)}}</span>
                     </label>
                 </div>
-                <p class="muted workspace-text-status" data-workspace-text-status>{{E(readyLabel)}}</p>
                 """
             : "";
 
         return $$"""
             <section class="panel">
-                <h2>{{T(context, "Shared text")}}</h2>
-                <form method="post" action="{{A($"{baseUrl}/note")}}" class="stack workspace-text-form" data-workspace-text-form="1" data-workspace-saving-label="{{A(savingLabel)}}" data-workspace-saved-label="{{A(savedLabel)}}" data-workspace-ready-label="{{A(readyLabel)}}" data-workspace-dirty-label="{{A(dirtyLabel)}}" data-workspace-failed-label="{{A(failedLabel)}}">
+                <form method="post" action="{{A($"{baseUrl}/note")}}" class="stack workspace-text-form" data-workspace-text-form="1" data-workspace-saving-label="{{A(savingLabel)}}" data-workspace-saved-label="{{A(savedLabel)}}" data-workspace-ready-label="{{A(readyLabel)}}" data-workspace-dirty-label="{{A(dirtyLabel)}}" data-workspace-failed-label="{{A(failedLabel)}}" data-workspace-last-saved-label="{{A(lastSavedLabel)}}" data-workspace-never-saved-label="{{A(neverSavedLabel)}}" data-workspace-last-saved-at="{{A(lastSavedIso)}}" data-workspace-current-path="{{A(currentPath)}}">
                     {{Csrf(context)}}
                     <input type="hidden" name="tab" value="text">
                     <input type="hidden" name="path" value="{{A(currentPath)}}">
                     <textarea name="text" rows="10"{{readonlyAttr}}>{{E(sharedText)}}</textarea>
                     {{saveButton}}
+                    <p class="muted workspace-text-last-saved">
+                        <span>{{E(lastSavedLabel)}}:</span>
+                        <strong data-workspace-text-last-saved>{{E(lastSavedText)}}</strong>
+                    </p>
+                    <p class="muted workspace-text-status" data-workspace-text-status aria-live="polite">{{E(readyLabel)}}</p>
                 </form>
             </section>
             """;
@@ -1800,10 +1746,10 @@ public sealed class HtmlViews
             """;
     }
 
-    private static string WorkspaceUrlWithPath(string baseUrl, string path)
+    private static string WorkspaceFileUrl(string baseUrl, string path)
     {
-        var separator = baseUrl.Contains('?', StringComparison.Ordinal) ? "&" : "?";
-        return $"{baseUrl}{separator}path={Uri.EscapeDataString(path)}";
+        var url = WorkspaceTabUrl(baseUrl, "files", path);
+        return url;
     }
 
     private static string ManagedServersSection(
@@ -1814,7 +1760,7 @@ public sealed class HtmlViews
         IReadOnlyList<MatgateUser> users)
     {
         var rows = servers.Count == 0
-            ? $"""<tr><td colspan="6" class="muted">{E(emptyMessage)}</td></tr>"""
+            ? $"""<tr><td colspan="7" class="muted">{E(emptyMessage)}</td></tr>"""
             : string.Join("", servers.Select(server => $$"""
                 <tr>
                     <td><span class="server-name-cell">{{ServerIcon(server, "small")}}<a href="/admin/servers/{{server.Id}}">{{E(server.Name)}}</a></span></td>
@@ -1823,6 +1769,11 @@ public sealed class HtmlViews
                     <td><span class="badge">{{E(ServerProtocolLabel(server.Protocol))}}</span></td>
                     <td>{{E(ServerTargetValue(server))}}</td>
                     <td>{{(server.IsEnabled ? T(context, "Active") : T(context, "Off"))}}</td>
+                    <td class="table-actions">
+                        <a class="button toolbar-button toolbar-icon-button" href="/connect/{{server.Id}}" data-shell-open-tab="1" data-shell-title="{{A(server.Name)}}" data-shell-description="{{A(T(context, "Connection"))}}" title="{{A(T(context, "Open"))}}" aria-label="{{A(T(context, "Open"))}}">
+                            {{Icon("play")}}
+                        </a>
+                    </td>
                 </tr>
                 """));
 
@@ -1832,12 +1783,45 @@ public sealed class HtmlViews
                     <h2>{{E(title)}}</h2>
                     <div class="table-wrap">
                         <table>
-                            <thead><tr><th>{{T(context, "Name")}}</th><th>{{T(context, "Scope")}}</th><th>{{T(context, "Folder")}}</th><th>{{T(context, "Type")}}</th><th>{{T(context, "Target")}}</th><th>{{T(context, "Status")}}</th></tr></thead>
+                            <thead><tr><th>{{T(context, "Name")}}</th><th>{{T(context, "Scope")}}</th><th>{{T(context, "Folder")}}</th><th>{{T(context, "Type")}}</th><th>{{T(context, "Target")}}</th><th>{{T(context, "Status")}}</th><th class="table-actions">{{T(context, "Actions")}}</th></tr></thead>
                             <tbody>{{rows}}</tbody>
                         </table>
                     </div>
                 </section>
                 </section>
+            """;
+    }
+
+    private static string WorkspaceListSection(HttpContext context, IReadOnlyList<WorkspaceDefinition> workspaces)
+    {
+        var rows = workspaces.Count == 0
+            ? $"""<tr><td colspan="5" class="muted">{T(context, "No workspaces yet.")}</td></tr>"""
+            : string.Join("", workspaces
+                .OrderByDescending(WorkspaceIsPublicAccessActive)
+                .ThenBy(workspace => workspace.Name)
+                .Select(workspace => $$"""
+                    <tr>
+                        <td><span class="server-name-cell">{{Icon("briefcase")}}<a href="/workspaces/{{workspace.Id}}" data-shell-open-tab="1" data-shell-title="{{A(workspace.Name)}}" data-shell-description="{{A(T(context, "Workspace"))}}">{{E(workspace.Name)}}</a></span></td>
+                        <td><span class="badge">{{(workspace.IsPrivate ? T(context, "Personal") : T(context, "Shared"))}}</span></td>
+                        <td><span class="badge" title="{{A(WorkspacePublicAccessExpiresText(context, workspace))}}">{{E(WorkspaceValidityLabel(context, workspace))}}</span></td>
+                        <td><span class="badge">{{(WorkspaceIsPublicAccessActive(workspace) ? T(context, "Active") : T(context, "Expired"))}}</span></td>
+                        <td class="table-actions">
+                            <a class="button toolbar-button toolbar-icon-button" href="/workspaces/{{workspace.Id}}" data-shell-open-tab="1" data-shell-title="{{A(workspace.Name)}}" data-shell-description="{{A(T(context, "Workspace"))}}" title="{{A(T(context, "Open"))}}" aria-label="{{A(T(context, "Open"))}}">
+                                {{Icon("external-link")}}
+                            </a>
+                        </td>
+                    </tr>
+                    """));
+
+        return $$"""
+            <section class="panel">
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr><th>{{T(context, "Name")}}</th><th>{{T(context, "Scope")}}</th><th>{{T(context, "Validity")}}</th><th>{{T(context, "Status")}}</th><th class="table-actions">{{T(context, "Actions")}}</th></tr></thead>
+                        <tbody>{{rows}}</tbody>
+                    </table>
+                </div>
+            </section>
             """;
     }
 
@@ -2770,6 +2754,8 @@ public sealed class HtmlViews
                 let draggedTabId = null;
                 let suppressTabClicks = false;
                 let transparentDragImage = null;
+                const wiredWorkspaceTabRoots = new WeakSet();
+                const wiredWorkspaceTextForms = new WeakSet();
                 let credentialTab = null;
                 let resizeTimer = null;
                 let gatewayLatencyMs = null;
@@ -3293,6 +3279,17 @@ public sealed class HtmlViews
                         catch {
                             // Ignore cross-document lookup failures.
                         }
+
+                        try {
+                            const doc = iframe.contentDocument;
+                            if (doc) {
+                                wireWorkspaceTabs(doc);
+                                wireWorkspaceTextForms(doc);
+                            }
+                        }
+                        catch {
+                            // Ignore wiring failures in embedded documents.
+                        }
                     });
                     main.addEventListener('click', event => {
                         if (suppressTabClicks) {
@@ -3473,8 +3470,14 @@ public sealed class HtmlViews
                     });
                 }
 
-                function wireWorkspaceTabs() {
-                    document.querySelectorAll('[data-workspace-tab-root="1"]').forEach(root => {
+                function wireWorkspaceTabs(root = document) {
+                    const scope = root && typeof root.querySelectorAll === 'function' ? root : document;
+                    scope.querySelectorAll('[data-workspace-tab-root="1"]').forEach(root => {
+                        if (wiredWorkspaceTabRoots.has(root)) {
+                            return;
+                        }
+                        wiredWorkspaceTabRoots.add(root);
+
                         const buttons = Array.from(root.querySelectorAll('[data-workspace-tab]'));
                         const panels = Array.from(root.querySelectorAll('[data-workspace-panel]'));
                         if (!buttons.length || !panels.length) {
@@ -3538,12 +3541,20 @@ public sealed class HtmlViews
                     });
                 }
 
-                function wireWorkspaceTextForms() {
-                    document.querySelectorAll('form[data-workspace-text-form="1"]').forEach(form => {
+                function wireWorkspaceTextForms(root = document) {
+                    const scope = root && typeof root.querySelectorAll === 'function' ? root : document;
+                    scope.querySelectorAll('form[data-workspace-text-form="1"]').forEach(form => {
+                        if (wiredWorkspaceTextForms.has(form)) {
+                            return;
+                        }
+                        wiredWorkspaceTextForms.add(form);
+
                         const textarea = form.querySelector('textarea[name="text"]');
                         const saveButton = form.querySelector('[data-workspace-text-save]');
                         const autoSaveInput = form.querySelector('[data-workspace-text-auto-save]');
                         const status = form.querySelector('[data-workspace-text-status]');
+                        const lastSaved = form.querySelector('[data-workspace-text-last-saved]');
+                        const currentPath = form.dataset.workspaceCurrentPath || '';
                         const tabRoot = form.closest('[data-workspace-tab-root="1"]');
                         const logPanel = tabRoot?.querySelector('[data-workspace-panel="log"]') || null;
                         const savingLabel = form.dataset.workspaceSavingLabel || 'Saving...';
@@ -3551,17 +3562,34 @@ public sealed class HtmlViews
                         const readyLabel = form.dataset.workspaceReadyLabel || 'Ready';
                         const dirtyLabel = form.dataset.workspaceDirtyLabel || 'Unsaved changes';
                         const failedLabel = form.dataset.workspaceFailedLabel || 'Save failed.';
-                        const currentTab = form.querySelector('input[name="tab"]')?.value || 'text';
-                        const currentPath = form.querySelector('input[name="path"]')?.value || '/';
+                        const neverSavedLabel = form.dataset.workspaceNeverSavedLabel || 'Never saved';
+                        const initialLastSavedAt = form.dataset.workspaceLastSavedAt || '';
+                        const autoSaveDelay = 1200;
                         let autoSaveTimer = null;
-                        let manualSubmitTimer = null;
                         let saveInFlight = false;
-                        let manualSubmitPending = false;
                         let lastSavedValue = textarea?.value || '';
+                        let pendingSave = false;
 
                         if (!textarea) {
                             return;
                         }
+
+                        const pad = value => String(value).padStart(2, '0');
+                        const formatDateTime = (date) => {
+                            if (!(date instanceof Date) || Number.isNaN(date.getTime())) {
+                                return neverSavedLabel;
+                            }
+
+                            return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+                        };
+
+                        const updateLastSaved = (date) => {
+                            if (!lastSaved) {
+                                return;
+                            }
+
+                            lastSaved.textContent = date ? formatDateTime(date) : neverSavedLabel;
+                        };
 
                         const setStatus = (message) => {
                             if (status) {
@@ -3573,13 +3601,6 @@ public sealed class HtmlViews
                             if (autoSaveTimer) {
                                 window.clearTimeout(autoSaveTimer);
                                 autoSaveTimer = null;
-                            }
-                        };
-
-                        const clearManualSubmitTimer = () => {
-                            if (manualSubmitTimer) {
-                                window.clearTimeout(manualSubmitTimer);
-                                manualSubmitTimer = null;
                             }
                         };
 
@@ -3612,6 +3633,7 @@ public sealed class HtmlViews
 
                         const saveWorkspaceText = async () => {
                             if (saveInFlight) {
+                                pendingSave = true;
                                 return;
                             }
 
@@ -3635,8 +3657,10 @@ public sealed class HtmlViews
                                     method: 'POST',
                                     body: new FormData(form),
                                     cache: 'no-store',
+                                    credentials: 'same-origin',
                                     headers: {
-                                        'X-Requested-With': 'XMLHttpRequest'
+                                        'X-Requested-With': 'XMLHttpRequest',
+                                        'Accept': 'application/json'
                                     }
                                 });
 
@@ -3645,9 +3669,26 @@ public sealed class HtmlViews
                                     throw new Error(errorText || failedLabel);
                                 }
 
+                                const finalUrl = new URL(response.url, window.location.href);
+                                if (finalUrl.pathname === '/login') {
+                                    throw new Error(failedLabel);
+                                }
+
+                                const contentType = response.headers.get('content-type') || '';
+                                if (!contentType.includes('application/json')) {
+                                    throw new Error(failedLabel);
+                                }
+
+                                const payload = await response.json();
+                                if (!payload || payload.ok !== true) {
+                                    throw new Error((payload && payload.error) || failedLabel);
+                                }
+
+                                const savedAt = payload.savedAt ? new Date(payload.savedAt) : new Date();
                                 lastSavedValue = snapshot;
+                                updateLastSaved(savedAt);
                                 if (textarea.value === snapshot) {
-                                    setStatus(savedLabel);
+                                    setStatus(`${savedLabel} ${formatDateTime(savedAt)}`);
                                 }
                                 else {
                                     setStatus(dirtyLabel);
@@ -3664,32 +3705,15 @@ public sealed class HtmlViews
                                 if (saveButton instanceof HTMLButtonElement) {
                                     saveButton.disabled = false;
                                 }
+                                if (pendingSave && textarea.value !== lastSavedValue) {
+                                    pendingSave = false;
+                                    setStatus(dirtyLabel);
+                                    scheduleAutoSave();
+                                }
+                                else {
+                                    pendingSave = false;
+                                }
                             }
-                        };
-
-                        const scheduleManualSubmit = (delay = 120) => {
-                            clearManualSubmitTimer();
-                            clearAutoSaveTimer();
-                            manualSubmitTimer = window.setTimeout(() => {
-                                manualSubmitTimer = null;
-                                manualSubmitPending = true;
-                                try {
-                                    if (typeof form.requestSubmit === 'function') {
-                                        if (saveButton instanceof HTMLButtonElement) {
-                                            form.requestSubmit(saveButton);
-                                        }
-                                        else {
-                                            form.requestSubmit();
-                                        }
-                                    }
-                                    else {
-                                        form.submit();
-                                    }
-                                }
-                                catch {
-                                    form.submit();
-                                }
-                            }, delay);
                         };
 
                         const scheduleAutoSave = () => {
@@ -3701,11 +3725,12 @@ public sealed class HtmlViews
                             autoSaveTimer = window.setTimeout(() => {
                                 autoSaveTimer = null;
                                 saveWorkspaceText();
-                            }, 10000);
+                            }, autoSaveDelay);
                         };
 
                         textarea.addEventListener('input', () => {
                             if (saveInFlight) {
+                                pendingSave = true;
                                 return;
                             }
 
@@ -3719,17 +3744,16 @@ public sealed class HtmlViews
                             scheduleAutoSave();
                         });
 
-                        form.addEventListener('submit', event => {
-                            if (manualSubmitPending) {
-                                manualSubmitPending = false;
-                                clearAutoSaveTimer();
-                                setStatus(savingLabel);
-                                return;
-                            }
-
+                        saveButton?.addEventListener('click', event => {
                             event.preventDefault();
-                            setStatus(savingLabel);
-                            scheduleManualSubmit(120);
+                            clearAutoSaveTimer();
+                            saveWorkspaceText();
+                        });
+
+                        form.addEventListener('submit', event => {
+                            event.preventDefault();
+                            clearAutoSaveTimer();
+                            saveWorkspaceText();
                         });
 
                         autoSaveInput?.addEventListener('change', () => {
@@ -3749,6 +3773,7 @@ public sealed class HtmlViews
                             }
                         });
 
+                        updateLastSaved(initialLastSavedAt ? new Date(initialLastSavedAt) : null);
                         setStatus(readyLabel);
                     });
                 }
@@ -4576,7 +4601,7 @@ public sealed class HtmlViews
                     return `
                         <label class="${escapeHtml(CssClasses('toolbar-button toolbar-button--primary toolbar-upload-button', className))}" title="${escapeHtml(label || '')}">
                             ${iconHtml || ''}<span>${escapeHtml(label || '')}</span>
-                            <input type="file" class="${escapeHtml(CssClasses('toolbar-upload-input file-upload-input', inputClassName))}"${attrs}>
+                            <input type="file" name="file" class="${escapeHtml(CssClasses('toolbar-upload-input file-upload-input', inputClassName))}"${attrs}>
                         </label>`;
                 }
 
@@ -6795,26 +6820,38 @@ public sealed class HtmlViews
         var workspacesActive = requestPath.StartsWith("/workspaces", StringComparison.OrdinalIgnoreCase)
             || requestPath.StartsWith("/workspace/", StringComparison.OrdinalIgnoreCase)
             || requestPath.StartsWith("/w/", StringComparison.OrdinalIgnoreCase);
-        var serversActive = requestPath.StartsWith("/admin/servers", StringComparison.OrdinalIgnoreCase);
-        var usersActive = requestPath.StartsWith("/admin/users", StringComparison.OrdinalIgnoreCase);
+        var adminActive = requestPath.StartsWith("/admin", StringComparison.OrdinalIgnoreCase);
         var toolsActive = requestPath.StartsWith("/tools", StringComparison.OrdinalIgnoreCase);
         var accountActive = requestPath.StartsWith("/account", StringComparison.OrdinalIgnoreCase);
         var shellLayout = string.Equals(mainClass, "shell-main", StringComparison.OrdinalIgnoreCase)
             || string.Equals(mainClass, "session-main", StringComparison.OrdinalIgnoreCase)
             || string.Equals(mainClass, "viewer-main", StringComparison.OrdinalIgnoreCase);
         var workspacesClass = workspacesActive ? " active" : "";
-        var serversClass = serversActive ? " active" : "";
-        var usersClass = usersActive ? " active" : "";
+        var adminClass = adminActive ? " active" : "";
         var toolsClass = toolsActive ? " active" : "";
         var accountClass = accountActive ? " active" : "";
+        var adminMenu = canManageAdminArea ? $$"""
+                <details class="shell-menu{{adminClass}}">
+                    <summary class="shell-tab shell-menu-trigger{{adminClass}}" aria-label="{{A(T(context, "Administration"))}}">
+                        {{Icon("shield")}}<span>{{T(context, "Administration")}}</span><span class="menu-caret">{{Icon("chevron-down")}}</span>
+                    </summary>
+                    <div class="menu-panel shell-menu-panel">
+                        {{(canManageAdminArea ? $"""<a class="shell-menu-item" href="/admin/servers" data-shell-open-tab="1" data-shell-title="{A(T(context, "Servers"))}">{Icon("server")}<span>{T(context, "Servers")}</span></a>""" : "")}}
+                        {{(user!.IsAdmin ? $"""<a class="shell-menu-item" href="/admin/users" data-shell-open-tab="1" data-shell-title="{A(T(context, "Users"))}">{Icon("users")}<span>{T(context, "Users")}</span></a>""" : "")}}
+                    </div>
+                </details>
+                """ : "";
         var shellTabs = user is null ? "" : $$"""
-            <nav class="shell-tabs" aria-label="Primary">
-                <a class="shell-tab{{workspacesClass}}" href="/workspaces" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Workspaces"))}}">{{Icon("briefcase")}}<span>{{T(context, "Workspaces")}}</span></a>
-                {{(canManageAdminArea ? $"""<a class="shell-tab{serversClass}" href="/admin/servers" data-shell-open-tab="1" data-shell-title="{A(T(context, "Servers"))}">{Icon("server")}<span>{T(context, "Servers")}</span></a>""" : "")}}
-                {{(user!.IsAdmin ? $"""<a class="shell-tab{usersClass}" href="/admin/users" data-shell-open-tab="1" data-shell-title="{A(T(context, "Users"))}">{Icon("users")}<span>{T(context, "Users")}</span></a>""" : "")}}
-                <a class="shell-tab{{toolsClass}}" href="/tools" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Tools"))}}">{{Icon("wrench")}}<span>{{T(context, "Tools")}}</span></a>
-                <a class="shell-tab{{accountClass}}" href="/account" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Account"))}}">{{Icon("user")}}<span class="account-name">{{E(displayName)}}</span></a>
-            </nav>
+            <div class="shell-nav-row">
+                <div class="shell-tabs-scroll">
+                    <nav class="shell-tabs" aria-label="Primary">
+                        <a class="shell-tab{{workspacesClass}}" href="/workspaces" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Workspaces"))}}">{{Icon("briefcase")}}<span>{{T(context, "Workspaces")}}</span></a>
+                        <a class="shell-tab{{toolsClass}}" href="/tools" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Tools"))}}">{{Icon("wrench")}}<span>{{T(context, "Tools")}}</span></a>
+                    </nav>
+                </div>
+                {{adminMenu}}
+                <a class="shell-tab account-trigger{{accountClass}}" href="/account" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Account"))}}">{{Icon("user")}}<span class="account-name">{{E(displayName)}}</span></a>
+            </div>
             """;
         var navigation = user is null ? "" : shellTabs;
         var pwaEnabled = !string.Equals(context.Request.Query["embed"].ToString(), "1", StringComparison.OrdinalIgnoreCase);
@@ -6992,6 +7029,9 @@ public sealed class HtmlViews
                         top: 3px;
                     }
                     .brand-word span { color: var(--accent); }
+                    html[data-ios-standalone="1"] .brand {
+                        margin-left: clamp(20px, 4vw, 44px);
+                    }
                     .shell-page-row {
                         align-items: center;
                         background: var(--surface);
@@ -7036,11 +7076,24 @@ public sealed class HtmlViews
                     .shell-tabs {
                         flex: 1 1 auto;
                         min-width: 0;
+                        justify-content: flex-end;
+                        scrollbar-width: thin;
+                        width: max-content;
+                        min-width: 100%;
+                    }
+                    .shell-nav-row {
+                        align-items: center;
+                        display: flex;
+                        flex: 1 1 auto;
+                        gap: 6px;
+                        min-width: 0;
+                        justify-content: flex-end;
+                    }
+                    .shell-tabs-scroll {
+                        flex: 1 1 auto;
+                        min-width: 0;
                         overflow-x: auto;
                         overflow-y: visible;
-                        justify-content: flex-end;
-                        padding-right: 2px;
-                        scrollbar-width: thin;
                     }
                     .shell-tab {
                         align-items: center;
@@ -7080,6 +7133,47 @@ public sealed class HtmlViews
                     .shell-tabs .shell-tab.active:focus,
                     .shell-tabs .shell-tab.active:focus-visible {
                         color: var(--muted);
+                    }
+                    .shell-menu {
+                        position: relative;
+                        z-index: 40;
+                    }
+                    .shell-menu > summary {
+                        list-style: none;
+                    }
+                    .shell-menu > summary::-webkit-details-marker {
+                        display: none;
+                    }
+                    .shell-menu-trigger {
+                        align-items: center;
+                        display: inline-flex;
+                    }
+                    .shell-menu-trigger .menu-caret {
+                        display: inline-flex;
+                        margin-left: 2px;
+                    }
+                    .shell-menu-panel {
+                        min-width: 180px;
+                        z-index: 60;
+                    }
+                    .shell-menu-item {
+                        align-items: center;
+                        color: var(--text);
+                        display: inline-flex;
+                        gap: 7px;
+                        min-height: 30px;
+                        padding: 5px 8px;
+                        text-decoration: none;
+                    }
+                    .shell-menu-item .icon {
+                        height: 15px;
+                        width: 15px;
+                    }
+                    .shell-menu[open] > .shell-menu-trigger,
+                    .shell-menu[open] > .shell-menu-trigger:hover,
+                    .shell-menu[open] > .shell-menu-trigger:focus,
+                    .shell-menu[open] > .shell-menu-trigger:focus-visible {
+                        color: var(--accent);
                     }
                     .shell-tab-main {
                         background: transparent;
@@ -9355,25 +9449,14 @@ public sealed class HtmlViews
                     }
                     @media (max-width: 720px) {
                         header, .page-head, .auth-panel { align-items: stretch; flex-direction: column; grid-template-columns: 1fr; }
-                        .shell-tabs {
-                            align-items: center;
-                            flex: 1 1 auto;
-                            flex-direction: row;
-                            overflow-x: auto;
-                            overflow-y: hidden;
-                            width: 100%;
-                        }
-                        .shell-tabs > * {
-                            width: auto;
-                        }
-                        .shell-actions {
-                            margin-left: 0;
-                            width: 100%;
-                        }
-                        .shell-action {
-                            justify-content: center;
-                            width: 100%;
-                        }
+                        .shell-nav-row { align-items: stretch; flex-direction: column; width: 100%; }
+                        .shell-tabs-scroll { width: 100%; }
+                        .shell-tabs { align-items: center; flex: 1 1 auto; flex-direction: row; overflow: visible; width: max-content; min-width: 100%; }
+                        .shell-tabs > * { width: auto; }
+                        .shell-actions { margin-left: 0; width: 100%; }
+                        .shell-action { justify-content: center; width: 100%; }
+                        .shell-menu { width: 100%; }
+                        .shell-menu-panel { width: 100%; }
                         .shell-page-row {
                             align-items: stretch;
                             flex-direction: column;
@@ -9517,7 +9600,7 @@ public sealed class HtmlViews
                 <script>
                     (() => {
                         const closeOpenMenus = (keepMenu) => {
-                            document.querySelectorAll('details.toolbar-menu[open], details.file-menu[open]').forEach((menu) => {
+                            document.querySelectorAll('details.toolbar-menu[open], details.file-menu[open], details.shell-menu[open]').forEach((menu) => {
                                 if (menu !== keepMenu) {
                                     menu.removeAttribute('open');
                                 }
@@ -9525,6 +9608,14 @@ public sealed class HtmlViews
                         };
 
                         const embeddedPage = document.documentElement.dataset.embedded === '1';
+                        const isAppleTouchDevice = /iPad|iPhone|iPod/i.test(navigator.userAgent)
+                            || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+                        const isStandaloneMode = window.matchMedia('(display-mode: standalone)').matches
+                            || window.matchMedia('(display-mode: fullscreen)').matches
+                            || window.navigator.standalone === true;
+                        if (isAppleTouchDevice && isStandaloneMode) {
+                            document.documentElement.dataset.iosStandalone = '1';
+                        }
                         const rewriteEmbeddedUrl = (value) => {
                             const raw = (value || '').trim();
                             if (!raw || raw.startsWith('#') || /^(?:javascript:|mailto:|tel:|data:|blob:)/i.test(raw)) {
@@ -9615,7 +9706,7 @@ public sealed class HtmlViews
                                 return;
                             }
 
-                            const keepMenu = target.closest('details.toolbar-menu, details.file-menu');
+                            const keepMenu = target.closest('details.toolbar-menu, details.file-menu, details.shell-menu');
                             closeOpenMenus(keepMenu);
                         });
 
@@ -10312,7 +10403,7 @@ public sealed class HtmlViews
         return $"""
             <label class="{A(CssClasses("toolbar-button toolbar-button--primary toolbar-upload-button", className))}" title="{A(label)}">
                 {iconHtml}<span>{E(label)}</span>
-                <input type="file" class="{A(CssClasses("toolbar-upload-input file-upload-input", inputClassName))}"{inputAttrs}>
+                <input type="file" name="file" class="{A(CssClasses("toolbar-upload-input file-upload-input", inputClassName))}"{inputAttrs}>
             </label>
             """;
     }

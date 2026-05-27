@@ -654,50 +654,13 @@ public static class EndpointMapping
         var visibleWorkspaces = VisibleWorkspacesForUser(user, allWorkspaces);
 
         var openIdValue = context.Request.Query["open"].ToString();
-        WorkspaceDefinition? selectedWorkspace = null;
         if (Guid.TryParse(openIdValue, out var openId))
         {
-            selectedWorkspace = visibleWorkspaces.FirstOrDefault(workspace => workspace.Id == openId);
-        }
-
-        selectedWorkspace ??= visibleWorkspaces.FirstOrDefault();
-
-        FileGatewayListResult? listing = null;
-        string sharedText = "";
-        IReadOnlyList<WorkspacePresenceSnapshot> sessions = [];
-        string publicUrl = "";
-        if (selectedWorkspace is not null)
-        {
-            var path = context.Request.Query["path"].ToString();
-            listing = await workspaceService.ListFilesAsync(selectedWorkspace, path, context.RequestAborted);
-            sharedText = await workspaceService.ReadSharedTextAsync(selectedWorkspace, context.RequestAborted);
-            sessions = workspaceService.GetPresenceSnapshot(selectedWorkspace.Id);
-            workspaceService.TouchPresence(selectedWorkspace, context, user, "Admin");
-            await workspaceService.RecordActivityAsync(
-                selectedWorkspace,
-                context,
-                user,
-                "Opened workspace",
-                path,
-                "",
-                "Admin",
-                context.RequestAborted);
-            var activityEntries = await workspaceService.GetActivityAsync(selectedWorkspace, 200, context.RequestAborted);
-            publicUrl = BuildWorkspacePublicUrl(context, selectedWorkspace.Id);
-            return Results.Content(
-                views.Workspaces(
-                    context,
-                    user,
-                    visibleWorkspaces,
-                    selectedWorkspace,
-                    listing,
-                    sharedText,
-                    sessions,
-                    activityEntries,
-                    selectedWorkspace is not null && (user.IsAdmin || selectedWorkspace.OwnerUserId == user.Id),
-                    publicUrl,
-                    store.WorkspaceRootDirectory),
-                "text/html");
+            var selectedWorkspace = visibleWorkspaces.FirstOrDefault(workspace => workspace.Id == openId);
+            if (selectedWorkspace is not null)
+            {
+                return Results.Redirect($"/workspaces/{selectedWorkspace.Id}");
+            }
         }
 
         return Results.Content(
@@ -705,13 +668,13 @@ public static class EndpointMapping
                 context,
                 user,
                 visibleWorkspaces,
-                selectedWorkspace,
-                listing,
-                sharedText,
-                sessions,
+                null,
+                null,
+                "",
+                [],
                 [],
                 false,
-                publicUrl,
+                "",
                 store.WorkspaceRootDirectory),
             "text/html");
     }
@@ -820,17 +783,9 @@ public static class EndpointMapping
         var workspace = access.Workspace!;
         var listing = await workspaceService.ListFilesAsync(workspace, context.Request.Query["path"].ToString(), context.RequestAborted);
         var sharedText = await workspaceService.ReadSharedTextAsync(workspace, context.RequestAborted);
+        var sharedTextLastSavedAt = workspaceService.GetSharedTextLastModified(workspace);
         var sessions = workspaceService.GetPresenceSnapshot(workspace.Id);
         workspaceService.TouchPresence(workspace, context, user, "Admin");
-        await workspaceService.RecordActivityAsync(
-            workspace,
-            context,
-            user,
-            "Opened workspace",
-            context.Request.Query["path"].ToString(),
-            "",
-            "Admin",
-            context.RequestAborted);
         var activityEntries = await workspaceService.GetActivityAsync(workspace, 200, context.RequestAborted);
 
         return Results.Content(
@@ -840,6 +795,7 @@ public static class EndpointMapping
                 workspace,
                 listing,
                 sharedText,
+                sharedTextLastSavedAt,
                 sessions,
                 activityEntries,
                 true,
@@ -1078,7 +1034,7 @@ public static class EndpointMapping
                 context.RequestAborted);
         }
 
-        return Results.Redirect($"/workspaces/{id}?path={Uri.EscapeDataString(path)}");
+        return Results.Redirect(WorkspaceTabRedirect(context, $"/workspaces/{id}", form, "files"));
     }
 
     private static async Task<IResult> WorkspaceDownloadAsync(
@@ -1162,7 +1118,7 @@ public static class EndpointMapping
             "",
             "Admin",
             context.RequestAborted);
-        return Results.Redirect($"/workspaces/{id}?path={Uri.EscapeDataString(path)}");
+        return Results.Redirect(WorkspaceTabRedirect(context, $"/workspaces/{id}", form, "files"));
     }
 
     private static async Task<IResult> WorkspaceCreateFileAsync(
@@ -1246,8 +1202,7 @@ public static class EndpointMapping
             "",
             "Admin",
             context.RequestAborted);
-        var redirectPath = string.IsNullOrWhiteSpace(path) ? "" : Uri.EscapeDataString(ParentVirtualPath(path));
-        return Results.Redirect($"/workspaces/{id}{(string.IsNullOrWhiteSpace(redirectPath) ? "" : $"?path={redirectPath}")}");
+        return Results.Redirect(WorkspaceTabRedirect(context, $"/workspaces/{id}", form, "files"));
     }
 
     private static async Task<IResult> WorkspaceSaveNoteAsync(
@@ -1277,6 +1232,7 @@ public static class EndpointMapping
 
         var text = form["text"].ToString();
         await workspaceService.WriteSharedTextAsync(access.Workspace!, text, context.RequestAborted);
+        var savedAt = await workspaceService.MarkSharedTextUpdatedAsync(access.Workspace!.Id, null, context.RequestAborted);
         await workspaceService.RecordActivityAsync(
             access.Workspace!,
             context,
@@ -1286,6 +1242,17 @@ public static class EndpointMapping
             $"{text.Length:N0} characters",
             "Admin",
             context.RequestAborted);
+
+        if (WantsJsonResponse(context.Request))
+        {
+            return Results.Json(new
+            {
+                ok = true,
+                savedAt = savedAt.ToString("O"),
+                tab = "text"
+            });
+        }
+
         return Results.Redirect(WorkspaceTabRedirect(context, $"/workspaces/{id}", form, "text"));
     }
 
@@ -1316,16 +1283,8 @@ public static class EndpointMapping
         var workspace = access.Workspace!;
         var listing = await workspaceService.ListFilesAsync(workspace, path, context.RequestAborted);
         var sharedText = await workspaceService.ReadSharedTextAsync(workspace, context.RequestAborted);
+        var sharedTextLastSavedAt = workspaceService.GetSharedTextLastModified(workspace);
         workspaceService.TouchPresence(workspace, context, access.User, "Public");
-        await workspaceService.RecordActivityAsync(
-            workspace,
-            context,
-            access.User,
-            "Opened workspace",
-            path,
-            "",
-            "Public",
-            context.RequestAborted);
         var activityEntries = await workspaceService.GetActivityAsync(workspace, 200, context.RequestAborted);
         return Results.Content(
             views.WorkspacePublic(
@@ -1333,6 +1292,7 @@ public static class EndpointMapping
                 workspace,
                 listing,
                 sharedText,
+                sharedTextLastSavedAt,
                 workspaceService.GetPresenceSnapshot(workspace.Id),
                 access.PublicUrl,
                 false,
@@ -1437,7 +1397,7 @@ public static class EndpointMapping
                 context.RequestAborted);
         }
 
-        return Results.Redirect($"/workspace/{id}?path={Uri.EscapeDataString(path)}");
+        return Results.Redirect(WorkspaceTabRedirect(context, $"/workspace/{id}", form, "files"));
     }
 
     private static async Task<IResult> WorkspacePublicDownloadAsync(
@@ -1589,6 +1549,7 @@ public static class EndpointMapping
         var form = await context.Request.ReadFormAsync(context.RequestAborted);
         var text = form["text"].ToString();
         await workspaceService.WriteSharedTextAsync(workspace, text, context.RequestAborted);
+        var savedAt = await workspaceService.MarkSharedTextUpdatedAsync(workspace.Id, null, context.RequestAborted);
         await workspaceService.RecordActivityAsync(
             workspace,
             context,
@@ -1598,6 +1559,17 @@ public static class EndpointMapping
             $"{text.Length:N0} characters",
             "Public",
             context.RequestAborted);
+
+        if (WantsJsonResponse(context.Request))
+        {
+            return Results.Json(new
+            {
+                ok = true,
+                savedAt = savedAt.ToString("O"),
+                tab = "text"
+            });
+        }
+
         return Results.Redirect(WorkspaceTabRedirect(context, $"/workspace/{id}", form, "text"));
     }
 
@@ -1615,7 +1587,11 @@ public static class EndpointMapping
             tab = defaultTab;
         }
 
-        var path = Clean(form["path"].ToString(), "");
+        var path = Clean(form["returnPath"].ToString(), "");
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            path = Clean(form["path"].ToString(), "");
+        }
         if (string.IsNullOrWhiteSpace(path))
         {
             path = Clean(context.Request.Query["path"].ToString(), "");
@@ -1628,6 +1604,18 @@ public static class EndpointMapping
         }
 
         return EmbedAwareRedirect(context, url);
+    }
+
+    private static bool WantsJsonResponse(HttpRequest request)
+    {
+        var requestedWith = request.Headers["X-Requested-With"].ToString();
+        if (string.Equals(requestedWith, "XMLHttpRequest", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+
+        var accept = request.Headers.Accept.ToString();
+        return accept.Contains("application/json", StringComparison.OrdinalIgnoreCase);
     }
 
     private static int ParseWorkspaceValidityHours(IFormCollection form, int fallback)
