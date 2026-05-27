@@ -806,67 +806,22 @@ public sealed class HtmlViews
     {
         var selectedTab = WorkspaceSelectedTab(context, workspace.AllowTextExchange, includeInfo: true, includeSettings: canEditSelected);
         var currentPath = listing?.Path ?? "/";
-        var body = $$"""
-            <section class="workspace-tab-shell panel" data-workspace-tab-root="1" data-workspace-tab-key="{{A(workspace.Id.ToString("N"))}}" data-workspace-default-tab="{{A(workspace.AllowTextExchange ? "text" : "files")}}">
-                <div class="workspace-tab-strip" role="tablist" aria-label="{{A(T(context, "Workspace content"))}}">
-                    {{(workspace.AllowTextExchange ? $"""<a class="workspace-tab-button{(selectedTab == "text" ? " active" : "")}" href="{A(WorkspaceTabUrl($"/workspaces/{workspace.Id}", "text", currentPath))}" data-workspace-tab="text" role="tab" aria-selected="{A(selectedTab == "text" ? "true" : "false")}">{Icon("edit")}{T(context, "Text")}</a>""" : "")}}
-                    <a class="workspace-tab-button{{(selectedTab == "files" ? " active" : "")}}" href="{{A(WorkspaceTabUrl($"/workspaces/{workspace.Id}", "files", currentPath))}}" data-workspace-tab="files" role="tab" aria-selected="{{A(selectedTab == "files" ? "true" : "false")}}">{{Icon("folder")}}{{T(context, "Files")}}</a>
-                    <a class="workspace-tab-button{{(selectedTab == "info" ? " active" : "")}}" href="{{A(WorkspaceTabUrl($"/workspaces/{workspace.Id}", "info", currentPath))}}" data-workspace-tab="info" role="tab" aria-selected="{{A(selectedTab == "info" ? "true" : "false")}}">{{Icon("info")}}{{T(context, "Info")}}</a>
-                    {{(canEditSelected ? $"""<a class="workspace-tab-button{(selectedTab == "settings" ? " active" : "")}" href="{A(WorkspaceTabUrl($"/workspaces/{workspace.Id}", "settings", currentPath))}" data-workspace-tab="settings" role="tab" aria-selected="{A(selectedTab == "settings" ? "true" : "false")}">{Icon("settings")}{T(context, "Settings")}</a>""" : "")}}
-                    <a class="workspace-tab-button{{(selectedTab == "log" ? " active" : "")}}" href="{{A(WorkspaceTabUrl($"/workspaces/{workspace.Id}", "log", currentPath))}}" data-workspace-tab="log" role="tab" aria-selected="{{A(selectedTab == "log" ? "true" : "false")}}">{{Icon("list")}}{{T(context, "Log")}}</a>
-                </div>
-                <div class="workspace-tab-panels">
-                    {{(workspace.AllowTextExchange ? $$"""
-                    <div class="workspace-tab-panel{{(selectedTab == "text" ? "" : " hidden")}}" data-workspace-panel="text">
-                        {{WorkspaceTextPanel(context, workspace, sharedText, sharedTextLastSavedAt, canEditSelected || workspace.AllowTextExchange, $"/workspaces/{workspace.Id}", false, currentPath)}}
-                    </div>
-                    """ : "")}}
-                    <div class="workspace-tab-panel{{(selectedTab == "files" ? "" : " hidden")}}" data-workspace-panel="files">
-                        {{WorkspaceFilesPanel(context, workspace, listing, canEditSelected, workspace.AllowUploads, $"/workspaces/{workspace.Id}")}}
-                    </div>
-                    <div class="workspace-tab-panel{{(selectedTab == "info" ? "" : " hidden")}}" data-workspace-panel="info">
-                        <div class="stack">
-                            <section class="panel stack workspace-info-panel">
-                                <div class="row split workspace-summary">
-                                    <div>
-                                        <p class="eyebrow">{{T(context, "Info")}}</p>
-                                        <h2>{{E(workspace.Name)}}</h2>
-                                        <p class="muted">{{E(workspace.Description)}}</p>
-                                        {{WorkspacePublicUrlLine(context, publicUrl)}}
-                                        <p class="muted"><strong>{{T(context, "Valid until")}}:</strong> {{E(WorkspacePublicAccessExpiresText(context, workspace))}}</p>
-                                        <p class="muted"><strong>{{T(context, "Root path")}}:</strong> <code>{{E(string.IsNullOrWhiteSpace(workspace.RootPath) ? defaultRootPath : workspace.RootPath)}}</code></p>
-                                    </div>
-                                    <div class="stack workspace-summary-badges">
-                                        <span class="badge">{{(WorkspaceIsPublicAccessActive(workspace) ? T(context, "Active") : T(context, "Expired"))}}</span>
-                                        <span class="badge">{{(workspace.AllowUploads ? T(context, "Allow uploads") : T(context, "Uploads disabled"))}}</span>
-                                        <span class="badge">{{(workspace.AllowTextExchange ? T(context, "Allow text exchange") : T(context, "Text disabled"))}}</span>
-                                    </div>
-                                </div>
-                                <div class="actions workspace-info-actions">
-                                    <form method="post" action="/workspaces/{{workspace.Id}}/extend" class="inline">
-                                        {{Csrf(context)}}
-                                        <button type="submit" name="hours" value="24" class="button">{{Icon("clock")}}{{T(context, "+24h")}}</button>
-                                        <button type="submit" name="hours" value="168" class="button">{{Icon("calendar")}}{{T(context, "+7d")}}</button>
-                                    </form>
-                                </div>
-                            </section>
-                        </div>
-                    </div>
-                    {{(canEditSelected ? $$"""
-                    <div class="workspace-tab-panel{{(selectedTab == "settings" ? "" : " hidden")}}" data-workspace-panel="settings">
-                        <div class="stack">
-                            {{WorkspaceSettingsPanel(context, workspace, defaultRootPath)}}
-                            {{WorkspaceSessionsPanel(context, sessions)}}
-                            {{WorkspaceDangerPanel(context, workspace, "/workspaces")}}
-                        </div>
-                    </div>
-                    """ : "")}}
-                    <div class="workspace-tab-panel{{(selectedTab == "log" ? "" : " hidden")}}" data-workspace-panel="log">
-                        {{WorkspaceActivityPanel(context, activityEntries)}}
-                    </div>
-                </div>
-            </section>
-            """;
+        var body = WorkspaceContentShell(
+            context,
+            workspace,
+            listing,
+            sharedText,
+            sharedTextLastSavedAt,
+            sessions,
+            activityEntries,
+            selectedTab,
+            canEditSelected,
+            includeInfo: true,
+            includeSettings: canEditSelected,
+            baseUrl: $"/workspaces/{workspace.Id}",
+            publicUrl: publicUrl,
+            defaultRootPath: defaultRootPath,
+            currentPath: currentPath);
 
         return Layout(context, currentUser, workspace.Name, body, "workspace-detail-main");
     }
@@ -918,26 +873,22 @@ public sealed class HtmlViews
                     {{WorkspacePublicUrlLine(context, publicUrl)}}
                 </div>
             </section>
-            <section class="workspace-tab-shell panel" data-workspace-tab-root="1" data-workspace-tab-key="{{A(workspace.Id.ToString("N"))}}" data-workspace-default-tab="{{A(workspace.AllowTextExchange ? "text" : "files")}}">
-                <div class="workspace-tab-strip" role="tablist" aria-label="{{A(T(context, "Workspace content"))}}">
-                    {{(workspace.AllowTextExchange ? $"""<a class="workspace-tab-button{(selectedTab == "text" ? " active" : "")}" href="{A(WorkspaceTabUrl($"/workspace/{workspace.Id}", "text", listing?.Path ?? "/"))}" data-workspace-tab="text" role="tab" aria-selected="{A(selectedTab == "text" ? "true" : "false")}">{Icon("edit")}{T(context, "Text")}</a>""" : "")}}
-                    <a class="workspace-tab-button{{(selectedTab == "files" ? " active" : "")}}" href="{{A(WorkspaceTabUrl($"/workspace/{workspace.Id}", "files", listing?.Path ?? "/"))}}" data-workspace-tab="files" role="tab" aria-selected="{{A(selectedTab == "files" ? "true" : "false")}}">{{Icon("folder")}}{{T(context, "Files")}}</a>
-                    <a class="workspace-tab-button{{(selectedTab == "log" ? " active" : "")}}" href="{{A(WorkspaceTabUrl($"/workspace/{workspace.Id}", "log", listing?.Path ?? "/"))}}" data-workspace-tab="log" role="tab" aria-selected="{{A(selectedTab == "log" ? "true" : "false")}}">{{Icon("list")}}{{T(context, "Log")}}</a>
-                </div>
-                <div class="workspace-tab-panels">
-                    {{(workspace.AllowTextExchange ? $$"""
-                    <div class="workspace-tab-panel{{(selectedTab == "text" ? "" : " hidden")}}" data-workspace-panel="text">
-                        {{WorkspaceTextPanel(context, workspace, sharedText, sharedTextLastSavedAt, workspace.AllowTextExchange, $"/workspace/{workspace.Id}", true, listing?.Path ?? "/")}}
-                    </div>
-                    """ : "")}}
-                    <div class="workspace-tab-panel{{(selectedTab == "files" ? "" : " hidden")}}" data-workspace-panel="files">
-                        {{WorkspaceFilesPanel(context, workspace, listing, false, workspace.AllowUploads, $"/workspace/{workspace.Id}")}}
-                    </div>
-                    <div class="workspace-tab-panel{{(selectedTab == "log" ? "" : " hidden")}}" data-workspace-panel="log">
-                        {{WorkspaceActivityPanel(context, activityEntries)}}
-                    </div>
-                </div>
-            </section>
+            {{WorkspaceContentShell(
+                context,
+                workspace,
+                listing,
+                sharedText,
+                sharedTextLastSavedAt,
+                sessions,
+                activityEntries,
+                selectedTab,
+                workspace.AllowTextExchange,
+                includeInfo: false,
+                includeSettings: false,
+                baseUrl: $"/workspace/{workspace.Id}",
+                publicUrl: publicUrl,
+                defaultRootPath: "",
+                currentPath: listing?.Path ?? "/")}}
             """;
 
         return Layout(context, null, workspace.Name, body, "workspace-public-main");
@@ -1501,6 +1452,95 @@ public sealed class HtmlViews
                         </thead>
                         <tbody>{{parentRow}}{{rows}}</tbody>
                     </table>
+                </div>
+            </section>
+            """;
+    }
+
+    private static string WorkspaceContentShell(
+        HttpContext context,
+        WorkspaceDefinition workspace,
+        FileGatewayListResult? listing,
+        string sharedText,
+        DateTimeOffset? sharedTextLastSavedAt,
+        IReadOnlyList<WorkspacePresenceSnapshot> sessions,
+        IReadOnlyList<WorkspaceActivityEntry> activityEntries,
+        string selectedTab,
+        bool canEditSelected,
+        bool includeInfo,
+        bool includeSettings,
+        string baseUrl,
+        string publicUrl,
+        string defaultRootPath,
+        string currentPath)
+    {
+        var textTabActive = selectedTab == "text";
+        var filesTabActive = selectedTab == "files";
+        var infoTabActive = selectedTab == "info";
+        var settingsTabActive = selectedTab == "settings";
+        var logTabActive = selectedTab == "log";
+        var canEditText = workspace.AllowTextExchange || canEditSelected;
+
+        return $$"""
+            <section class="workspace-tab-shell panel" data-workspace-tab-root="1" data-workspace-tab-key="{{A(workspace.Id.ToString("N"))}}" data-workspace-default-tab="{{A(workspace.AllowTextExchange ? "text" : "files")}}">
+                <div class="workspace-tab-strip" role="tablist" aria-label="{{A(T(context, "Workspace content"))}}">
+                    {{(workspace.AllowTextExchange ? $"""<a class="workspace-tab-button{(textTabActive ? " active" : "")}" href="{A(WorkspaceTabUrl(baseUrl, "text", currentPath))}" data-workspace-tab="text" role="tab" aria-selected="{A(textTabActive ? "true" : "false")}">{Icon("edit")}{T(context, "Text")}</a>""" : "")}}
+                    <a class="workspace-tab-button{{(filesTabActive ? " active" : "")}}" href="{{A(WorkspaceTabUrl(baseUrl, "files", currentPath))}}" data-workspace-tab="files" role="tab" aria-selected="{{A(filesTabActive ? "true" : "false")}}">{{Icon("folder")}}{{T(context, "Files")}}</a>
+                    {{(includeInfo ? $"""<a class="workspace-tab-button{(infoTabActive ? " active" : "")}" href="{A(WorkspaceTabUrl(baseUrl, "info", currentPath))}" data-workspace-tab="info" role="tab" aria-selected="{A(infoTabActive ? "true" : "false")}">{Icon("info")}{T(context, "Info")}</a>""" : "")}}
+                    {{(includeSettings ? $"""<a class="workspace-tab-button{(settingsTabActive ? " active" : "")}" href="{A(WorkspaceTabUrl(baseUrl, "settings", currentPath))}" data-workspace-tab="settings" role="tab" aria-selected="{A(settingsTabActive ? "true" : "false")}">{Icon("settings")}{T(context, "Settings")}</a>""" : "")}}
+                    <a class="workspace-tab-button{{(logTabActive ? " active" : "")}}" href="{{A(WorkspaceTabUrl(baseUrl, "log", currentPath))}}" data-workspace-tab="log" role="tab" aria-selected="{{A(logTabActive ? "true" : "false")}}">{{Icon("list")}}{{T(context, "Log")}}</a>
+                </div>
+                <div class="workspace-tab-panels">
+                    {{(workspace.AllowTextExchange ? $$"""
+                    <div class="workspace-tab-panel{{(textTabActive ? "" : " hidden")}}" data-workspace-panel="text">
+                        {{WorkspaceTextPanel(context, workspace, sharedText, sharedTextLastSavedAt, canEditText, baseUrl, includeInfo ? false : true, currentPath)}}
+                    </div>
+                    """ : "")}}
+                    <div class="workspace-tab-panel{{(filesTabActive ? "" : " hidden")}}" data-workspace-panel="files">
+                        {{WorkspaceFilesPanel(context, workspace, listing, canEditSelected, workspace.AllowUploads, baseUrl)}}
+                    </div>
+                    {{(includeInfo ? $$"""
+                    <div class="workspace-tab-panel{{(infoTabActive ? "" : " hidden")}}" data-workspace-panel="info">
+                        <div class="stack">
+                            <section class="panel stack workspace-info-panel">
+                                <div class="row split workspace-summary">
+                                    <div>
+                                        <p class="eyebrow">{{T(context, "Info")}}</p>
+                                        <h2>{{E(workspace.Name)}}</h2>
+                                        <p class="muted">{{E(workspace.Description)}}</p>
+                                        {{WorkspacePublicUrlLine(context, publicUrl)}}
+                                        <p class="muted"><strong>{{T(context, "Valid until")}}:</strong> {{E(WorkspacePublicAccessExpiresText(context, workspace))}}</p>
+                                        <p class="muted"><strong>{{T(context, "Root path")}}:</strong> <code>{{E(string.IsNullOrWhiteSpace(workspace.RootPath) ? defaultRootPath : workspace.RootPath)}}</code></p>
+                                    </div>
+                                    <div class="stack workspace-summary-badges">
+                                        <span class="badge">{{(WorkspaceIsPublicAccessActive(workspace) ? T(context, "Active") : T(context, "Expired"))}}</span>
+                                        <span class="badge">{{(workspace.AllowUploads ? T(context, "Allow uploads") : T(context, "Uploads disabled"))}}</span>
+                                        <span class="badge">{{(workspace.AllowTextExchange ? T(context, "Allow text exchange") : T(context, "Text disabled"))}}</span>
+                                    </div>
+                                </div>
+                                <div class="actions workspace-info-actions">
+                                    <form method="post" action="/workspaces/{{workspace.Id}}/extend" class="inline">
+                                        {{Csrf(context)}}
+                                        <button type="submit" name="hours" value="24" class="button">{{Icon("clock")}}{{T(context, "+24h")}}</button>
+                                        <button type="submit" name="hours" value="168" class="button">{{Icon("calendar")}}{{T(context, "+7d")}}</button>
+                                    </form>
+                                </div>
+                            </section>
+                        </div>
+                    </div>
+                    """ : "")}}
+                    {{(includeSettings ? $$"""
+                    <div class="workspace-tab-panel{{(settingsTabActive ? "" : " hidden")}}" data-workspace-panel="settings">
+                        <div class="stack">
+                            {{WorkspaceSettingsPanel(context, workspace, defaultRootPath)}}
+                            {{WorkspaceSessionsPanel(context, sessions)}}
+                            {{WorkspaceDangerPanel(context, workspace, "/workspaces")}}
+                        </div>
+                    </div>
+                    """ : "")}}
+                    <div class="workspace-tab-panel{{(logTabActive ? "" : " hidden")}}" data-workspace-panel="log">
+                        {{WorkspaceActivityPanel(context, activityEntries)}}
+                    </div>
                 </div>
             </section>
             """;
