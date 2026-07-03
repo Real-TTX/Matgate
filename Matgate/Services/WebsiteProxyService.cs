@@ -34,6 +34,10 @@ public sealed class WebsiteProxyService
         @"<meta\b[^>]*http-equiv\s*=\s*(?:[""']?)(?:content-security-policy|content-security-policy-report-only|x-frame-options)(?:[""']?)[^>]*>",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
 
+    private static readonly Regex MetaRefreshRegex = new(
+        @"(?<prefix><meta\b[^>]*http-equiv\s*=\s*(?<q1>[""']?)refresh(\k<q1>)[^>]*\bcontent\s*=\s*(?<q2>[""']))(?<content>[^""']*)(?<q2close>\k<q2>)",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
     private static readonly Regex HtmlScriptBlockRegex = new(
         @"(?<open><script\b[^>]*>)(?<script>.*?)(?<close></script>)",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Singleline | RegexOptions.Compiled);
@@ -87,24 +91,13 @@ public sealed class WebsiteProxyService
             return;
         }
 
-        _logger.LogWarning("Website proxy {Server} {Method} {ProxyPath} -> {TargetUri}", server.Name, context.Request.Method, proxyPath ?? "", targetUri);
+        _logger.LogDebug("Website proxy {Server} {Method} {ProxyPath} -> {TargetUri}", server.Name, context.Request.Method, proxyPath ?? "", targetUri);
         using var request = new HttpRequestMessage(new HttpMethod(context.Request.Method), targetUri)
         {
             Version = HttpVersion.Version11,
             VersionPolicy = HttpVersionPolicy.RequestVersionExact
         };
         CopyRequestHeaders(context.Request, request, session, targetUri);
-        if (IsLoginTicketEndpoint(targetUri) || targetUri.AbsolutePath.StartsWith("/api2/", StringComparison.OrdinalIgnoreCase))
-        {
-            _logger.LogWarning(
-                "Website proxy cookies {Server} {Method} {ProxyPath} browser=[{BrowserCookies}] jar=[{JarCookies}] send=[{SendCookies}]",
-                server.Name,
-                context.Request.Method,
-                proxyPath ?? "",
-                browserCookieNames,
-                session.DescribeCookies(),
-                session.DescribeCookiesFor(targetUri));
-        }
 
         if (CanHaveRequestBody(context.Request.Method))
         {
@@ -137,116 +130,188 @@ public sealed class WebsiteProxyService
             }
         }
 
-        using var response = await session.Client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-        var responseContent = response.Content;
-        var contentType = responseContent?.Headers.ContentType?.ToString() ?? "application/octet-stream";
-        var body = responseContent is null
-            ? []
-            : await responseContent.ReadAsByteArrayAsync(cancellationToken);
-        _logger.LogDebug("Website proxy {Server} upstream {StatusCode} {ContentType} bytes={BodyLength}", server.Name, (int)response.StatusCode, contentType, body.Length);
-
-        if (IsLoginTicketEndpoint(targetUri) && response.IsSuccessStatusCode && session.TryCaptureLoginResponse(body, out var loginCookieHeader))
+        HttpResponseMessage response;
+        try
         {
-            _logger.LogWarning("Website login ticket captured {Server} {TargetUri} cookies=[{Cookies}]", server.Name, targetUri, session.DescribeCookies());
-            context.Response.Headers.Append("Set-Cookie", RewriteSetCookie(loginCookieHeader, session, context.Request.IsHttps));
+            response = await session.Client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         }
-
-        if (IsHtmlLike(contentType))
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            body = RewriteHtml(body, contentType, session, targetUri);
+            return;
         }
-        else if (IsCss(contentType))
+        catch (Exception ex)
         {
-            body = RewriteCss(body, contentType, session, targetUri);
-        }
-        else if (IsJavaScript(contentType))
-        {
-            body = RewriteJavaScript(body, contentType, session, targetUri);
-        }
-
-        if (IsLoginTicketEndpoint(targetUri))
-        {
-            var preview = Encoding.UTF8.GetString(body, 0, Math.Min(body.Length, 1024)).ReplaceLineEndings(" ");
-            _logger.LogWarning(
-                "Website login response {Server} {StatusCode} {ContentType} body={Preview}",
-                server.Name,
-                (int)response.StatusCode,
-                contentType,
-                preview);
-            _logger.LogWarning("Website login jar {Server} cookies=[{Cookies}]", server.Name, session.DescribeCookies());
-        }
-        else if (response.StatusCode == HttpStatusCode.Unauthorized || response.StatusCode == HttpStatusCode.Forbidden)
-        {
-            var preview = Encoding.UTF8.GetString(body, 0, Math.Min(body.Length, 512)).ReplaceLineEndings(" ");
-            _logger.LogWarning(
-                "Website proxy upstream denied {Server} {StatusCode} {ProxyPath} -> {TargetUri} cookies=[{Cookies}] body={Preview}",
-                server.Name,
-                (int)response.StatusCode,
-                proxyPath ?? "",
-                targetUri,
-                session.DescribeCookiesFor(targetUri),
-                preview);
-        }
-        else if (IsConsoleEndpoint(targetUri))
-        {
-            var preview = Encoding.UTF8.GetString(body, 0, Math.Min(body.Length, 512)).ReplaceLineEndings(" ");
-            _logger.LogWarning(
-                "Website proxy console response {Server} {StatusCode} {ProxyPath} -> {TargetUri} cookies=[{Cookies}] body={Preview}",
-                server.Name,
-                (int)response.StatusCode,
-                proxyPath ?? "",
-                targetUri,
-                session.DescribeCookiesFor(targetUri),
-                preview);
-        }
-
-        context.Response.StatusCode = (int)response.StatusCode;
-        context.Response.ContentType = contentType;
-
-        if (IsHtmlLike(contentType) || IsCss(contentType) || IsJavaScript(contentType) || IsLoginTicketEndpoint(targetUri))
-        {
-            PreventCaching(context.Response);
-        }
-
-        if (response.Headers.Location is not null)
-        {
-            context.Response.Headers["Location"] = RewriteLocation(response.Headers.Location, session, targetUri);
-        }
-
-        if (response.Headers.WwwAuthenticate.Count > 0)
-        {
-            context.Response.Headers["WWW-Authenticate"] = string.Join(", ", response.Headers.WwwAuthenticate.Select(item => item.ToString()));
-        }
-
-        if (response.Headers.TryGetValues("Set-Cookie", out var setCookieValues))
-        {
-            var cookies = setCookieValues.ToArray();
-            session.MergeResponseCookies(cookies, targetUri);
-
-            foreach (var setCookie in cookies)
+            _logger.LogWarning(ex, "Website proxy upstream request failed {Server} {Method} {TargetUri}", server.Name, context.Request.Method, targetUri);
+            if (!context.Response.HasStarted)
             {
-                context.Response.Headers.Append("Set-Cookie", RewriteSetCookie(setCookie, session, context.Request.IsHttps));
+                context.Response.StatusCode = StatusCodes.Status502BadGateway;
+                context.Response.ContentType = "text/plain; charset=utf-8";
+                await context.Response.WriteAsync(
+                    "The proxied website could not be reached. If it uses a self-signed certificate (e.g. UniFi, Synology, Proxmox over HTTPS), enable \"Ignore certificate\" for this server.",
+                    cancellationToken);
+            }
+
+            return;
+        }
+
+        using (response)
+        {
+            var responseContent = response.Content;
+            var contentType = responseContent?.Headers.ContentType?.ToString() ?? "application/octet-stream";
+            var shouldRewrite = IsHtmlLike(contentType) || IsCss(contentType) || IsJavaScript(contentType) || IsLoginTicketEndpoint(targetUri);
+
+            context.Response.StatusCode = (int)response.StatusCode;
+            context.Response.ContentType = contentType;
+
+            if (shouldRewrite)
+            {
+                PreventCaching(context.Response);
+            }
+
+            if (response.Headers.Location is not null)
+            {
+                context.Response.Headers["Location"] = RewriteLocation(response.Headers.Location, session, targetUri);
+            }
+
+            if (response.Headers.WwwAuthenticate.Count > 0)
+            {
+                context.Response.Headers["WWW-Authenticate"] = string.Join(", ", response.Headers.WwwAuthenticate.Select(item => item.ToString()));
+            }
+
+            CopyPassThroughResponseHeaders(response, responseContent, context.Response, shouldRewrite);
+
+            if (response.Headers.TryGetValues("Set-Cookie", out var setCookieValues))
+            {
+                var cookies = setCookieValues.ToArray();
+                session.MergeResponseCookies(cookies, targetUri);
+
+                foreach (var setCookie in cookies)
+                {
+                    context.Response.Headers.Append("Set-Cookie", RewriteSetCookie(setCookie, session, context.Request.IsHttps));
+                }
+            }
+
+            if (responseContent?.Headers.ContentDisposition is not null)
+            {
+                context.Response.Headers["Content-Disposition"] = responseContent.Headers.ContentDisposition.ToString();
+            }
+
+            if (responseContent?.Headers.ContentLanguage.Count > 0)
+            {
+                context.Response.Headers["Content-Language"] = string.Join(", ", responseContent.Headers.ContentLanguage);
+            }
+
+            if (!ShouldWriteResponseBody(context.Request.Method, response.StatusCode))
+            {
+                return;
+            }
+
+            // Anything we don't rewrite (downloads, images, audio/video, JSON, SSE, range requests)
+            // is streamed straight through so large media works and nothing is buffered in memory.
+            if (!shouldRewrite)
+            {
+                if (responseContent is null)
+                {
+                    return;
+                }
+
+                if (responseContent.Headers.ContentLength.HasValue)
+                {
+                    context.Response.ContentLength = responseContent.Headers.ContentLength.Value;
+                }
+
+                await using var upstreamStream = await responseContent.ReadAsStreamAsync(cancellationToken);
+                await upstreamStream.CopyToAsync(context.Response.Body, cancellationToken);
+                await context.Response.Body.FlushAsync(cancellationToken);
+                return;
+            }
+
+            var body = responseContent is null
+                ? []
+                : await responseContent.ReadAsByteArrayAsync(cancellationToken);
+
+            if (IsLoginTicketEndpoint(targetUri) && response.IsSuccessStatusCode && session.TryCaptureLoginResponse(body, out var loginCookieHeader))
+            {
+                context.Response.Headers.Append("Set-Cookie", RewriteSetCookie(loginCookieHeader, session, context.Request.IsHttps));
+            }
+
+            if (IsHtmlLike(contentType))
+            {
+                body = RewriteHtml(body, contentType, session, targetUri);
+            }
+            else if (IsCss(contentType))
+            {
+                body = RewriteCss(body, contentType, session, targetUri);
+            }
+            else if (IsJavaScript(contentType))
+            {
+                body = RewriteJavaScript(body, contentType, session, targetUri);
+            }
+
+            context.Response.ContentLength = body.Length;
+            await context.Response.Body.WriteAsync(body, cancellationToken);
+            await context.Response.Body.FlushAsync(cancellationToken);
+        }
+    }
+
+    private static void CopyPassThroughResponseHeaders(
+        HttpResponseMessage response,
+        HttpContent? content,
+        HttpResponse target,
+        bool isRewritten)
+    {
+        void Copy(string name, IEnumerable<string>? values)
+        {
+            if (values is null)
+            {
+                return;
+            }
+
+            var array = values.Where(value => !string.IsNullOrEmpty(value)).ToArray();
+            if (array.Length > 0)
+            {
+                target.Headers[name] = array;
             }
         }
 
-        if (responseContent?.Headers.ContentDisposition is not null)
+        if (response.Headers.TryGetValues("Vary", out var vary))
         {
-            context.Response.Headers["Content-Disposition"] = responseContent.Headers.ContentDisposition.ToString();
+            Copy("Vary", vary);
         }
 
-        if (responseContent?.Headers.ContentLanguage.Count > 0)
-        {
-            context.Response.Headers["Content-Language"] = string.Join(", ", responseContent.Headers.ContentLanguage);
-        }
-
-        if (!ShouldWriteResponseBody(context.Request.Method, response.StatusCode))
+        // Caching and range headers only make sense for content we pass through unchanged.
+        if (isRewritten)
         {
             return;
         }
 
-        context.Response.ContentLength = body.Length;
-        await context.Response.Body.WriteAsync(body, cancellationToken);
-        await context.Response.Body.FlushAsync(cancellationToken);
+        if (response.Headers.TryGetValues("ETag", out var etag))
+        {
+            Copy("ETag", etag);
+        }
+
+        if (response.Headers.TryGetValues("Accept-Ranges", out var acceptRanges))
+        {
+            Copy("Accept-Ranges", acceptRanges);
+        }
+
+        if (response.Headers.CacheControl is not null)
+        {
+            target.Headers["Cache-Control"] = response.Headers.CacheControl.ToString();
+        }
+
+        if (content is not null)
+        {
+            if (content.Headers.LastModified.HasValue)
+            {
+                target.Headers["Last-Modified"] = content.Headers.LastModified.Value.ToString("R", CultureInfo.InvariantCulture);
+            }
+
+            if (content.Headers.TryGetValues("Content-Range", out var contentRange))
+            {
+                Copy("Content-Range", contentRange);
+            }
+        }
     }
 
     private async Task HandleWebSocketProxyAsync(
@@ -267,14 +332,11 @@ public sealed class WebsiteProxyService
         using var upstream = new ClientWebSocket();
         ConfigureWebSocketOptions(context.Request, session, targetUri, upstream.Options, server.IgnoreCertificate);
 
-        _logger.LogWarning(
-            "Website websocket {Server} {ProxyPath} -> {TargetUri} browser=[{BrowserCookies}] jar=[{JarCookies}] send=[{SendCookies}]",
+        _logger.LogDebug(
+            "Website websocket {Server} {ProxyPath} -> {TargetUri}",
             server.Name,
             proxyPath ?? "",
-            websocketUri,
-            browserCookieNames,
-            session.DescribeCookies(),
-            session.DescribeCookiesFor(targetUri));
+            websocketUri);
 
         try
         {
@@ -1207,6 +1269,65 @@ public sealed class WebsiteProxyService
                 window.EventSource = patchConstructor(originalEventSource, rewriteUrl);
                 window.Worker = patchConstructor(originalWorker, rewriteUrl);
 
+                // Neutralize service workers. Every proxied site shares the Matgate origin, so a site's
+                // service worker would install on Matgate itself, run without these URL-rewriting shims,
+                // and could hijack unrelated pages. Present the API but make registration fail cleanly so
+                // apps fall back to their no-service-worker path.
+                try {
+                    if (navigator.serviceWorker) {
+                        const swNoop = () => {};
+                        const swReject = () => Promise.reject(new DOMException('Service workers are disabled behind the Matgate proxy.', 'SecurityError'));
+                        const swStub = {
+                            register: swReject,
+                            getRegistration: () => Promise.resolve(undefined),
+                            getRegistrations: () => Promise.resolve([]),
+                            ready: new Promise(() => {}),
+                            controller: null,
+                            oncontrollerchange: null,
+                            onmessage: null,
+                            startMessages: swNoop,
+                            addEventListener: swNoop,
+                            removeEventListener: swNoop,
+                            dispatchEvent: () => false
+                        };
+                        Object.defineProperty(navigator, 'serviceWorker', {
+                            configurable: true,
+                            get: () => swStub
+                        });
+                    }
+                }
+                catch {
+                    // Some browsers expose navigator.serviceWorker as non-configurable; ignore.
+                }
+
+                // Namespace IndexedDB per proxied target. Databases live on the shared Matgate origin, so
+                // without a per-session prefix every proxied site would see and clobber the others' data.
+                try {
+                    const idbFactory = window.indexedDB;
+                    if (idbFactory && typeof idbFactory.open === 'function') {
+                        const idbPrefix = '__mg' + proxyCookiePath.replace(/[^a-z0-9]+/gi, '_') + '__';
+                        const addPrefix = dbName => (typeof dbName === 'string' && dbName.indexOf(idbPrefix) !== 0) ? idbPrefix + dbName : dbName;
+                        const stripPrefix = dbName => (typeof dbName === 'string' && dbName.indexOf(idbPrefix) === 0) ? dbName.slice(idbPrefix.length) : dbName;
+                        const nativeIdbOpen = idbFactory.open.bind(idbFactory);
+                        idbFactory.open = function(dbName, ...rest) { return nativeIdbOpen(addPrefix(dbName), ...rest); };
+                        if (typeof idbFactory.deleteDatabase === 'function') {
+                            const nativeIdbDelete = idbFactory.deleteDatabase.bind(idbFactory);
+                            idbFactory.deleteDatabase = function(dbName, ...rest) { return nativeIdbDelete(addPrefix(dbName), ...rest); };
+                        }
+                        if (typeof idbFactory.databases === 'function') {
+                            const nativeIdbDatabases = idbFactory.databases.bind(idbFactory);
+                            idbFactory.databases = function() {
+                                return nativeIdbDatabases().then(list => (list || [])
+                                    .filter(info => info && typeof info.name === 'string' && info.name.indexOf(idbPrefix) === 0)
+                                    .map(info => Object.assign({}, info, { name: stripPrefix(info.name) })));
+                            };
+                        }
+                    }
+                }
+                catch {
+                    // Ignore IndexedDB shim failures; fall back to native (shared) behaviour.
+                }
+
                 if (document.documentElement) {
                     rewriteElementTree(document.documentElement);
                 }
@@ -1485,12 +1606,11 @@ public sealed class WebsiteProxyService
 
         if (IsWriteMethod(request.Method) && targetUri.AbsolutePath.StartsWith("/api2/", StringComparison.OrdinalIgnoreCase))
         {
-            _logger.LogWarning(
-                "Website proxy write auth {Method} {TargetUri} csrf={HasCsrfToken} cookies=[{Cookies}]",
+            _logger.LogDebug(
+                "Website proxy write auth {Method} {TargetUri} csrf={HasCsrfToken}",
                 request.Method,
                 targetUri,
-                shouldSendCsrfToken ? "yes" : "no",
-                session.DescribeCookiesFor(targetUri));
+                shouldSendCsrfToken ? "yes" : "no");
         }
 
         session.ApplyCookies(message, targetUri);
@@ -1584,6 +1704,19 @@ public sealed class WebsiteProxyService
 
         session.TryCaptureCsrfToken(html);
         html = MetaFrameBlockingRegex.Replace(html, "");
+        html = MetaRefreshRegex.Replace(html, m =>
+        {
+            var content = m.Groups["content"].Value;
+            var urlIndex = content.IndexOf("url=", StringComparison.OrdinalIgnoreCase);
+            if (urlIndex < 0)
+            {
+                return m.Value;
+            }
+
+            var head = content[..(urlIndex + 4)];
+            var url = content[(urlIndex + 4)..].Trim().Trim('\'', '"');
+            return $"{m.Groups["prefix"].Value}{head}{RewriteUrl(url, session, responseUri)}{m.Groups["q2close"].Value}";
+        });
         html = HtmlTargetTopRegex.Replace(html, m => $"{m.Groups["attr"].Value}{m.Groups["quote"].Value}_self{m.Groups["quote"].Value}");
         html = HtmlSrcSetRegex.Replace(html, m => $"{m.Groups["attr"].Value}{m.Groups["quote"].Value}{RewriteSrcSet(m.Groups["value"].Value, session, responseUri)}{m.Groups["quote"].Value}");
         html = HtmlUrlAttributeRegex.Replace(html, m => $"{m.Groups["attr"].Value}{m.Groups["quote"].Value}{RewriteUrl(m.Groups["value"].Value, session, responseUri)}{m.Groups["quote"].Value}");
@@ -1884,21 +2017,20 @@ public sealed class WebsiteProxyService
 
     private void LogLoginAttempt(Uri targetUri, IReadOnlyDictionary<string, string> form, string normalization)
     {
-        var userName = form.TryGetValue("username", out var usernameValue) ? usernameValue : "";
-        var realm = form.TryGetValue("realm", out var realmValue) ? realmValue : "";
-        var lang = form.TryGetValue("lang", out var langValue) ? langValue : "";
-        var saveUsername = form.TryGetValue("saveusername", out var saveUsernameValue) ? saveUsernameValue : "";
-        var fields = string.Join(", ", form.Keys.OrderBy(key => key, StringComparer.OrdinalIgnoreCase));
+        // Never log credential values. Only the (non-sensitive) field names, at debug level.
+        if (!_logger.IsEnabled(LogLevel.Debug))
+        {
+            return;
+        }
 
-        _logger.LogWarning(
-            "Website login attempt {TargetUri} username='{UserName}' realm='{Realm}' lang='{Lang}' saveusername='{SaveUsername}' normalized='{Normalization}' fields=[{Fields}]",
+        var fields = string.Join(", ", form.Keys.OrderBy(key => key, StringComparer.OrdinalIgnoreCase));
+        var realmNormalized = !string.IsNullOrEmpty(normalization);
+
+        _logger.LogDebug(
+            "Website login attempt {TargetUri} fields=[{Fields}] realmSplit={RealmNormalized}",
             targetUri,
-            userName,
-            realm,
-            lang,
-            saveUsername,
-            normalization,
-            fields);
+            fields,
+            realmNormalized);
     }
 
     private sealed class WebsiteProxySession : IDisposable

@@ -133,6 +133,15 @@ public sealed class GuacamoleConfigWriter
                 : server.KeyboardLayout.Trim()));
             connection.Add(Param("resize-method", "reconnect"));
             connection.Add(Param("enable-wallpaper", "false"));
+
+            // Report as "Matgate" instead of the default "Guacamole" client name.
+            connection.Add(Param("client-name", "Matgate"));
+
+            // Shared drive redirection for file transfer (drag & drop / upload in Matgate).
+            connection.Add(Param("enable-drive", "true"));
+            connection.Add(Param("drive-name", "Matgate"));
+            connection.Add(Param("create-drive-path", "true"));
+            connection.Add(Param("drive-path", $"/drive/{server.Id:N}"));
         }
         else if (server.Protocol == ServerProtocol.Vnc)
         {

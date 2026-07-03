@@ -17,6 +17,8 @@ public sealed class HtmlViews
     private static readonly IReadOnlyDictionary<string, string> GermanText = new Dictionary<string, string>
     {
         ["Home Network Gateway"] = "Heimnetz-Gateway",
+        ["Compact view"] = "Kompakte Ansicht",
+        ["Normal view"] = "Normale Ansicht",
         ["Workspaces"] = "Workspaces",
         ["Workspace"] = "Workspace",
         ["Info"] = "Info",
@@ -2555,6 +2557,7 @@ public sealed class HtmlViews
             fullscreen = Icon("maximize"),
             copy = Icon("copy"),
             clipboard = Icon("clipboard"),
+            upload = Icon("upload"),
             disconnect = Icon("logout")
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
         var websiteIcons = JsonSerializer.Serialize(new
@@ -2579,6 +2582,13 @@ public sealed class HtmlViews
             copyToClipboard = T(context, "Copy to clipboard"),
             copyUrlToClipboard = T(context, "Copy URL to clipboard"),
             pasteToActiveTab = Language(context) == "de" ? "In aktiven Tab einfuegen" : "Paste to active tab",
+            xferUpload = Language(context) == "de" ? "Dateien in die Sitzung uebertragen" : "Send files to the session",
+            xferDriveReady = Language(context) == "de" ? "Laufwerk 'Matgate' bereit" : "'Matgate' drive ready",
+            xferDriveUnavailable = Language(context) == "de" ? "Dateiuebertragung fuer diese Sitzung nicht verfuegbar" : "File transfer is not available for this session",
+            xferUploading = Language(context) == "de" ? "Lade hoch" : "Uploading",
+            xferUploaded = Language(context) == "de" ? "Hochgeladen" : "Uploaded",
+            xferUploadFailed = Language(context) == "de" ? "Upload fehlgeschlagen" : "Upload failed",
+            xferDownloading = Language(context) == "de" ? "Lade herunter" : "Downloading",
             disconnect = T(context, "Disconnect"),
             username = T(context, "Username"),
             password = T(context, "Password"),
@@ -4026,6 +4036,28 @@ public sealed class HtmlViews
                     throw lastError || new Error('Fullscreen unavailable');
                 }
 
+                // In fullscreen, capture browser-reserved shortcuts (Ctrl+T/W/N, Alt+Tab where allowed,
+                // Escape) via the Keyboard Lock API so they reach the remote session for real isolation.
+                function applyKeyboardLock() {
+                    try {
+                        if (!navigator.keyboard || typeof navigator.keyboard.lock !== 'function') {
+                            return;
+                        }
+
+                        if (isFullscreenActive()) {
+                            navigator.keyboard.lock();
+                        }
+                        else if (typeof navigator.keyboard.unlock === 'function') {
+                            navigator.keyboard.unlock();
+                        }
+                    }
+                    catch {
+                        // Keyboard Lock API unsupported or blocked; fullscreen still works without it.
+                    }
+                }
+                document.addEventListener('fullscreenchange', applyKeyboardLock);
+                document.addEventListener('webkitfullscreenchange', applyKeyboardLock);
+
                 function updateTabActions() {
                     if (!connectionTabActions) {
                         updateStatusBar();
@@ -4095,6 +4127,29 @@ public sealed class HtmlViews
                                 '',
                                 true);
                             connectionTabActions.appendChild(clipboardButton);
+                        }
+
+                        if (tab.filesystem && !tab.terminal) {
+                            const uploadButton = createTabActionButton(
+                                actionIcons.upload,
+                                uiText.xferUpload || 'Send files to the session',
+                                () => {
+                                    const input = document.createElement('input');
+                                    input.type = 'file';
+                                    input.multiple = true;
+                                    input.style.display = 'none';
+                                    input.addEventListener('change', () => {
+                                        if (input.files && input.files.length) {
+                                            uploadFilesToSession(tab, input.files);
+                                        }
+                                        input.remove();
+                                    });
+                                    document.body.appendChild(input);
+                                    input.click();
+                                },
+                                '',
+                                true);
+                            connectionTabActions.appendChild(uploadButton);
                         }
 
                         const disconnectButton = createTabActionButton(
@@ -4979,6 +5034,12 @@ public sealed class HtmlViews
 
                         client.onrequired = names => promptForRequiredArguments(tab, names);
                         client.onclipboard = (stream, mimetype) => receiveRemoteClipboard(tab, stream, mimetype);
+                        client.onfilesystem = (object, name) => {
+                            tab.filesystem = object;
+                            updateTabActions();
+                            flashStatus(tab, uiText.xferDriveReady || "'Matgate' drive ready");
+                        };
+                        client.onfile = (stream, mimetype, filename) => downloadRemoteFile(tab, stream, mimetype, filename);
                         client.onsync = () => {
                             tab.lastSyncAt = Date.now();
                             updateStatusBar();
@@ -5021,6 +5082,34 @@ public sealed class HtmlViews
                             client.sendKeyEvent(0, keysym);
                             return false;
                         };
+
+                        // Keep the remote clipboard in sync with the local one so Ctrl+V pastes directly.
+                        display.getElement().addEventListener('pointerdown', () => syncLocalClipboardToRemote(tab), true);
+                        tab.panel.addEventListener('focusin', () => syncLocalClipboardToRemote(tab), true);
+                        tab.panel.addEventListener('keydown', event => {
+                            if ((event.ctrlKey || event.metaKey) && !event.altKey && (event.key === 'v' || event.key === 'V')) {
+                                syncLocalClipboardToRemote(tab, true);
+                            }
+                        }, true);
+
+                        // Drag & drop files onto the session to copy them into the redirected drive.
+                        tab.panel.addEventListener('dragover', event => {
+                            if (event.dataTransfer && Array.from(event.dataTransfer.types || []).includes('Files')) {
+                                event.preventDefault();
+                                event.dataTransfer.dropEffect = 'copy';
+                                tab.panel.classList.add('drop-target');
+                            }
+                        });
+                        tab.panel.addEventListener('dragleave', () => tab.panel.classList.remove('drop-target'));
+                        tab.panel.addEventListener('drop', event => {
+                            if (!event.dataTransfer || !event.dataTransfer.files || !event.dataTransfer.files.length) {
+                                return;
+                            }
+
+                            event.preventDefault();
+                            tab.panel.classList.remove('drop-target');
+                            uploadFilesToSession(tab, event.dataTransfer.files);
+                        });
 
                         const size = viewport(tab);
                         tab.lastSentSize = size;
@@ -6199,7 +6288,7 @@ public sealed class HtmlViews
                     writer.sendEnd();
                 }
 
-                function sendClipboardText(tab, text) {
+                function sendClipboardText(tab, text, silent) {
                     if (!tab || !tab.client || !text) {
                         return false;
                     }
@@ -6208,8 +6297,90 @@ public sealed class HtmlViews
                     const writer = new Guacamole.StringWriter(stream);
                     writer.sendText(text);
                     writer.sendEnd();
-                    flashStatus(tab, uiText.clipboardSent || 'Clipboard sent');
+                    if (!silent) {
+                        flashStatus(tab, uiText.clipboardSent || 'Clipboard sent');
+                    }
                     return true;
+                }
+
+                // Mirror the local clipboard into the remote session so Ctrl+V works without the button.
+                // The first read triggers the browser's clipboard permission prompt; afterwards it is silent.
+                async function syncLocalClipboardToRemote(tab, force) {
+                    if (!tab || !tab.client || !navigator.clipboard || !navigator.clipboard.readText) {
+                        return;
+                    }
+
+                    const now = Date.now();
+                    if (!force && tab.lastClipboardReadAt && (now - tab.lastClipboardReadAt) < 400) {
+                        return;
+                    }
+                    tab.lastClipboardReadAt = now;
+
+                    try {
+                        const text = await navigator.clipboard.readText();
+                        if (typeof text === 'string' && text && text !== tab.lastSentClipboard) {
+                            tab.lastSentClipboard = text;
+                            sendClipboardText(tab, text, true);
+                        }
+                    }
+                    catch {
+                        // No permission/gesture yet - the manual clipboard button remains available.
+                    }
+                }
+
+                function uploadFilesToSession(tab, files) {
+                    if (!tab || !tab.filesystem) {
+                        if (tab) {
+                            flashStatus(tab, uiText.xferDriveUnavailable || 'File transfer is not available for this session');
+                        }
+                        return;
+                    }
+
+                    for (const file of Array.from(files)) {
+                        if (!file) {
+                            continue;
+                        }
+
+                        try {
+                            const stream = tab.filesystem.createOutputStream(file.type || 'application/octet-stream', '/' + file.name);
+                            const writer = new Guacamole.BlobWriter(stream);
+                            flashStatus(tab, `${uiText.xferUploading || 'Uploading'}: ${file.name}`);
+                            writer.oncomplete = () => flashStatus(tab, `${uiText.xferUploaded || 'Uploaded'}: ${file.name}`);
+                            writer.onerror = () => flashStatus(tab, `${uiText.xferUploadFailed || 'Upload failed'}: ${file.name}`);
+                            writer.sendBlob(file);
+                        }
+                        catch {
+                            flashStatus(tab, `${uiText.xferUploadFailed || 'Upload failed'}: ${file.name}`);
+                        }
+                    }
+                }
+
+                function downloadRemoteFile(tab, stream, mimetype, filename) {
+                    try {
+                        const reader = new Guacamole.BlobReader(stream, mimetype || 'application/octet-stream');
+                        if (tab) {
+                            flashStatus(tab, `${uiText.xferDownloading || 'Downloading'}: ${filename || ''}`);
+                        }
+                        reader.onend = () => {
+                            try {
+                                const blob = reader.getBlob();
+                                const url = URL.createObjectURL(blob);
+                                const link = document.createElement('a');
+                                link.href = url;
+                                link.download = filename || 'download';
+                                document.body.appendChild(link);
+                                link.click();
+                                link.remove();
+                                window.setTimeout(() => URL.revokeObjectURL(url), 10000);
+                            }
+                            catch {
+                                // Ignore download materialization failures.
+                            }
+                        };
+                    }
+                    catch {
+                        // Ignore unsupported download streams.
+                    }
                 }
 
                 function receiveRemoteClipboard(tab, stream, mimetype) {
@@ -6226,6 +6397,7 @@ public sealed class HtmlViews
 
                     reader.onend = async () => {
                         tab.remoteClipboard = value;
+                        tab.lastSentClipboard = value;
                         if (await tryWriteBrowserClipboard(value)) {
                             flashStatus(tab, uiText.clipboardReceived || 'Clipboard received');
                         }
@@ -6350,11 +6522,17 @@ public sealed class HtmlViews
 
                 function flashStatus(tab, text) {
                     window.clearTimeout(tab.statusTimer);
-                    const previous = tab.status;
+                    // Only capture the stable status the first time; chained flashes (e.g. Uploading ->
+                    // Uploaded) must revert to the original status, not to the previous transient one.
+                    if (!tab.flashActive) {
+                        tab.flashBase = tab.status;
+                    }
+                    tab.flashActive = true;
                     setStatus(tab, text);
                     tab.statusTimer = window.setTimeout(() => {
+                        tab.flashActive = false;
                         if (tabs.has(tab.id) && tab.status === text) {
-                            setStatus(tab, previous || 'Verbunden');
+                            setStatus(tab, tab.flashBase || 'Verbunden');
                         }
                     }, 1800);
                 }
@@ -6893,6 +7071,22 @@ public sealed class HtmlViews
                 <a class="shell-tab account-trigger{{accountClass}}" href="/account" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Account"))}}">{{Icon("user")}}<span class="account-name">{{E(displayName)}}</span></a>
             </div>
             """;
+        // Compact single-bar layout: the global nav collapses into this burger menu.
+        var burgerMenu = user is null ? "" : $$"""
+            <details class="shell-menu shell-burger">
+                <summary class="shell-tab shell-menu-trigger shell-burger-trigger" aria-label="{{A(T(context, "Menu"))}}" title="{{A(T(context, "Menu"))}}">{{Icon("menu")}}</summary>
+                <div class="menu-panel shell-menu-panel shell-burger-panel">
+                    <a class="shell-menu-item{{workspacesClass}}" href="/workspaces" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Workspaces"))}}">{{Icon("briefcase")}}<span>{{T(context, "Workspaces")}}</span></a>
+                    <a class="shell-menu-item{{toolsClass}}" href="/tools" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Tools"))}}">{{Icon("wrench")}}<span>{{T(context, "Tools")}}</span></a>
+                    {{(canManageAdminArea ? $"""<a class="shell-menu-item{(adminActive ? " active" : "")}" href="/admin/servers" data-shell-open-tab="1" data-shell-title="{A(T(context, "Servers"))}">{Icon("server")}<span>{T(context, "Servers")}</span></a>""" : "")}}
+                    {{(user!.IsAdmin ? $"""<a class="shell-menu-item" href="/admin/users" data-shell-open-tab="1" data-shell-title="{A(T(context, "Users"))}">{Icon("users")}<span>{T(context, "Users")}</span></a>""" : "")}}
+                    <a class="shell-menu-item account-trigger{{accountClass}}" href="/account" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Account"))}}">{{Icon("user")}}<span class="account-name">{{E(displayName)}}</span></a>
+                </div>
+            </details>
+            """;
+        var viewModeToggle = $$"""
+            <button id="view-mode-toggle" type="button" class="view-mode-toggle" aria-pressed="false" data-label-compact="{{A(T(context, "Compact view"))}}" data-label-normal="{{A(T(context, "Normal view"))}}" title="{{A(T(context, "Compact view"))}}" aria-label="{{A(T(context, "Compact view"))}}"><span class="view-mode-icon view-mode-icon--compact">{{Icon("chevrons-down-up")}}</span><span class="view-mode-icon view-mode-icon--normal">{{Icon("chevrons-up-down")}}</span></button>
+            """;
         var navigation = user is null ? "" : shellTabs;
         var pwaEnabled = !string.Equals(context.Request.Query["embed"].ToString(), "1", StringComparison.OrdinalIgnoreCase);
         var cacheControlMarkup = """<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0"><meta http-equiv="Pragma" content="no-cache"><meta http-equiv="Expires" content="0">""";
@@ -6916,6 +7110,17 @@ public sealed class HtmlViews
                 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
                 {{cacheControlMarkup}}
                 <meta name="theme-color" content="#176b5b">
+                <script>
+                    try {
+                        if (document.documentElement.dataset.shellLayout === '1'
+                            && localStorage.getItem('matgate.view.mode.v1') === 'minimal') {
+                            document.documentElement.dataset.viewMode = 'minimal';
+                        }
+                    }
+                    catch (e) {
+                        // Ignore storage failures.
+                    }
+                </script>
                 {{pwaHeadMarkup}}
                 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
                 <link rel="shortcut icon" href="/favicon.ico">
@@ -7686,6 +7891,10 @@ public sealed class HtmlViews
                         padding: 4px 9px;
                         white-space: nowrap;
                     }
+                    .drop-target {
+                        outline: 2px dashed var(--accent);
+                        outline-offset: -8px;
+                    }
                     .tab-action-button .icon {
                         height: 15px;
                         width: 15px;
@@ -7852,6 +8061,128 @@ public sealed class HtmlViews
                     }
                     .status-actions {
                         flex: 0 0 auto;
+                    }
+                    .view-mode-toggle {
+                        align-items: center;
+                        background: transparent;
+                        border: 0;
+                        border-left: 1px solid var(--line);
+                        color: var(--muted);
+                        cursor: pointer;
+                        display: inline-flex;
+                        flex: 0 0 auto;
+                        justify-content: center;
+                        min-height: 28px;
+                        min-width: 36px;
+                        padding: 0 9px;
+                    }
+                    .view-mode-toggle:hover,
+                    .view-mode-toggle:focus-visible {
+                        color: var(--accent);
+                    }
+                    .view-mode-toggle .icon {
+                        height: 16px;
+                        width: 16px;
+                    }
+                    .view-mode-icon {
+                        align-items: center;
+                        display: inline-flex;
+                    }
+                    .view-mode-icon--normal {
+                        display: none;
+                    }
+                    html[data-view-mode="minimal"] .view-mode-icon--compact {
+                        display: none;
+                    }
+                    html[data-view-mode="minimal"] .view-mode-icon--normal {
+                        display: inline-flex;
+                    }
+                    /* Burger menu + view toggle live in the header; hidden until compact mode. */
+                    .shell-burger {
+                        display: none;
+                        position: relative;
+                    }
+                    .shell-burger-trigger {
+                        cursor: pointer;
+                        padding: 4px 8px;
+                    }
+                    .shell-merge-slot {
+                        display: none;
+                    }
+                    .view-mode-toggle {
+                        align-self: center;
+                    }
+                    /*
+                     * Compact ("minimal") view: header, tab strip and global nav collapse into a
+                     * single bar -> [logo] [tabs] [actions] [burger] [toggle]. The session tab strip
+                     * is relocated into .shell-merge-slot by script; the global nav folds into the
+                     * burger menu. Reclaims the whole second row of vertical space.
+                     */
+                    html[data-view-mode="minimal"] header {
+                        align-items: stretch;
+                        flex-direction: row;
+                        flex-wrap: nowrap;
+                        gap: 6px;
+                        min-height: 40px;
+                        padding: env(safe-area-inset-top) calc(8px + env(safe-area-inset-right)) 0 calc(8px + env(safe-area-inset-left));
+                    }
+                    html[data-view-mode="minimal"] .brand {
+                        align-self: center;
+                        flex: 0 0 auto;
+                    }
+                    html[data-view-mode="minimal"] .brand-word {
+                        display: none;
+                    }
+                    html[data-view-mode="minimal"] .shell-nav-row {
+                        display: none;
+                    }
+                    html[data-view-mode="minimal"] .shell-page-row {
+                        display: none;
+                    }
+                    html[data-view-mode="minimal"] .shell-merge-slot {
+                        align-items: stretch;
+                        display: flex;
+                        flex: 1 1 auto;
+                        gap: 6px;
+                        min-width: 0;
+                        overflow: visible;
+                    }
+                    html[data-view-mode="minimal"] .shell-burger {
+                        align-items: stretch;
+                        display: inline-flex;
+                        flex: 0 0 auto;
+                        width: auto;
+                    }
+                    html[data-view-mode="minimal"] .shell-burger-panel {
+                        right: 0;
+                        width: max-content;
+                    }
+                    html[data-view-mode="minimal"] .shell-burger-trigger {
+                        align-items: center;
+                        color: var(--muted);
+                        display: inline-flex;
+                    }
+                    html[data-view-mode="minimal"] .shell-burger[open] > .shell-burger-trigger {
+                        color: var(--accent);
+                    }
+                    html[data-view-mode="minimal"] #connection-tab-actions {
+                        border-left: 1px solid var(--line);
+                        border-top: 0;
+                        flex-wrap: nowrap;
+                        margin-left: 0;
+                        width: auto;
+                    }
+                    html[data-view-mode="minimal"] #connection-tab-actions > * {
+                        flex: 0 0 auto;
+                    }
+                    html[data-view-mode="minimal"] .shell-merge-slot #session-tabs {
+                        width: auto;
+                    }
+                    html[data-view-mode="minimal"] .session-tab-description {
+                        display: none;
+                    }
+                    html[data-view-mode="minimal"] .session-tab-main {
+                        min-height: 40px;
                     }
                     .status-info-button {
                         align-items: center;
@@ -9634,7 +9965,10 @@ public sealed class HtmlViews
             <body data-shell-layout="{{(shellLayout ? "1" : "0")}}">
                 <header>
                     <a class="brand" href="/sessions" title="{{A(T(context, "New connection"))}}" aria-label="{{A(T(context, "New connection"))}}">{{Logo()}}</a>
+                    <div id="shell-merge-slot" class="shell-merge-slot"></div>
                     {{navigation}}
+                    {{burgerMenu}}
+                    {{viewModeToggle}}
                 </header>
                 <main class="{{A(mainClass)}}">{{body}}</main>
                 <script>
@@ -9646,6 +9980,66 @@ public sealed class HtmlViews
                                 }
                             });
                         };
+
+                        // Compact single-bar view: merges header + tab strip into one row and
+                        // collapses the global nav into the burger menu. Persisted per browser.
+                        const viewModeStorageKey = 'matgate.view.mode.v1';
+                        const viewModeToggle = document.getElementById('view-mode-toggle');
+                        const viewMergeSlot = document.getElementById('shell-merge-slot');
+                        const viewShellPageRow = document.querySelector('.shell-page-row');
+                        const viewSessionTabs = document.getElementById('session-tabs');
+                        const viewTabActions = document.getElementById('connection-tab-actions');
+                        const readStoredViewMode = () => {
+                            try {
+                                return localStorage.getItem(viewModeStorageKey) === 'minimal' ? 'minimal' : 'normal';
+                            }
+                            catch {
+                                return 'normal';
+                            }
+                        };
+                        const relocateForViewMode = (minimal) => {
+                            const target = minimal ? viewMergeSlot : viewShellPageRow;
+                            if (!target) {
+                                return;
+                            }
+                            if (viewSessionTabs && viewSessionTabs.parentElement !== target) {
+                                target.appendChild(viewSessionTabs);
+                            }
+                            if (viewTabActions && viewTabActions.parentElement !== target) {
+                                target.appendChild(viewTabActions);
+                            }
+                        };
+                        const applyViewMode = (mode, persist) => {
+                            const minimal = mode === 'minimal';
+                            document.documentElement.dataset.viewMode = minimal ? 'minimal' : 'normal';
+                            relocateForViewMode(minimal);
+                            if (viewModeToggle) {
+                                viewModeToggle.setAttribute('aria-pressed', minimal ? 'true' : 'false');
+                                const label = minimal
+                                    ? (viewModeToggle.dataset.labelNormal || '')
+                                    : (viewModeToggle.dataset.labelCompact || '');
+                                if (label) {
+                                    viewModeToggle.title = label;
+                                    viewModeToggle.setAttribute('aria-label', label);
+                                }
+                            }
+                            if (persist) {
+                                try {
+                                    localStorage.setItem(viewModeStorageKey, minimal ? 'minimal' : 'normal');
+                                }
+                                catch {
+                                    // Ignore storage failures.
+                                }
+                            }
+                            window.requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
+                        };
+                        applyViewMode(readStoredViewMode(), false);
+                        if (viewModeToggle) {
+                            viewModeToggle.addEventListener('click', () => {
+                                const next = document.documentElement.dataset.viewMode === 'minimal' ? 'normal' : 'minimal';
+                                applyViewMode(next, true);
+                            });
+                        }
 
                         const embeddedPage = document.documentElement.dataset.embedded === '1';
                         const isAppleTouchDevice = /iPad|iPhone|iPod/i.test(navigator.userAgent)
@@ -10329,6 +10723,8 @@ public sealed class HtmlViews
             "file" => """<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8"/><path d="M8 17h6"/>""",
             "clipboard" => """<rect x="8" y="4" width="8" height="4" rx="1"/><path d="M16 6h2a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h2"/>""",
             "maximize" => """<path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/>""",
+            "chevrons-down-up" => """<path d="m7 20 5-5 5 5"/><path d="m7 4 5 5 5-5"/>""",
+            "chevrons-up-down" => """<path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/>""",
             "refresh" => """<path d="M21 12a9 9 0 0 1-15.5 6.2"/><path d="M3 12A9 9 0 0 1 18.5 5.8"/><path d="M18 2v4h4"/><path d="M6 22v-4H2"/>""",
             "eye" => """<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>""",
             "edit" => """<path d="M4 20h4l10-10-4-4L4 16z"/><path d="m14 6 4 4"/>""",

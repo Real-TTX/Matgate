@@ -93,6 +93,17 @@ public sealed class GuacamoleLauncher
                 : server.KeyboardLayout.Trim();
             parameters["resize-method"] = "reconnect";
             parameters["enable-wallpaper"] = "false";
+
+            // Report as "Matgate" instead of the default "Guacamole" so Windows shows the
+            // redirected drive as "Matgate on Matgate" rather than "... on Guacamole".
+            parameters["client-name"] = "Matgate";
+
+            // Redirect a shared drive into the session so files can be transferred like real RDP
+            // (drag & drop / upload in Matgate). guacd stores the drive under drive-path.
+            parameters["enable-drive"] = "true";
+            parameters["drive-name"] = "Matgate";
+            parameters["create-drive-path"] = "true";
+            parameters["drive-path"] = $"/drive/{server.Id:N}";
         }
         else if (server.Protocol == ServerProtocol.Vnc)
         {

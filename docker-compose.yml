@@ -54,6 +54,8 @@ services:
   guacd:
     <<: *home-dns
     image: guacamole/guacd:1.6.0
+    volumes:
+      - ./data/guac-drives:/drive
     restart: unless-stopped
 
   guacamole:
