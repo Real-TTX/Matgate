@@ -7257,21 +7257,9 @@ public sealed class HtmlViews
                         position: relative;
                         width: 30px;
                     }
-                    .brand-gate {
-                        border: 2px solid rgb(255 255 255 / 80%);
-                        border-bottom: 0;
-                        border-radius: 7px 7px 0 0;
-                        height: 17px;
-                        left: 8px;
-                        position: absolute;
-                        top: 7px;
-                        width: 18px;
-                    }
-                    .brand-core {
-                        font-size: 15px;
-                        font-weight: 900;
-                        position: relative;
-                        top: 3px;
+                    .brand-glyph {
+                        height: 62%;
+                        width: 62%;
                     }
                     .brand-word span { color: var(--accent); }
                     html[data-ios-standalone="1"] .brand {
@@ -9735,14 +9723,6 @@ public sealed class HtmlViews
                         height: 38px;
                         width: 38px;
                     }
-                    .about-card-brand .brand-gate {
-                        left: 10px;
-                        top: 8px;
-                    }
-                    .about-card-brand .brand-core {
-                        font-size: 18px;
-                        top: 4px;
-                    }
                     .about-card-brand .brand-word {
                         font-size: 20px;
                     }
@@ -10745,8 +10725,7 @@ public sealed class HtmlViews
     {
         return """
             <span class="brand-mark" aria-hidden="true">
-                <span class="brand-gate"></span>
-                <span class="brand-core">M</span>
+                <svg class="brand-glyph" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><path d="M17 48 V16 H47 V48 H40 V23 H24 V48 Z" fill="currentColor"/></svg>
             </span>
             <span class="brand-word"><span>MAT</span>GATE</span>
             """;

@@ -24,9 +24,7 @@ public static class EndpointMapping
             </linearGradient>
           </defs>
           <rect width="64" height="64" rx="14" fill="url(#g)"/>
-          <path d="M19 23c0-7 5-12 13-12s13 5 13 12v18h-7V23c0-3.8-2.2-6-6-6s-6 2.2-6 6v18h-7z" fill="#fff" opacity=".9"/>
-          <path d="M18 40h28v8H18z" fill="#fff"/>
-        <path d="M26 40h12v4H26z" fill="#176b5b"/>
+          <path d="M17 48 V16 H47 V48 H40 V23 H24 V48 Z" fill="#fff"/>
         </svg>
         """;
 
@@ -114,12 +112,10 @@ public static class EndpointMapping
             }
         }
 
-        FillRect(pixels, size, (int)(size * 0.21), (int)(size * 0.20), (int)(size * 0.79), (int)(size * 0.30), 246, 250, 248, 255);
-        FillRect(pixels, size, (int)(size * 0.23), (int)(size * 0.20), (int)(size * 0.34), (int)(size * 0.74), 246, 250, 248, 255);
-        FillRect(pixels, size, (int)(size * 0.66), (int)(size * 0.20), (int)(size * 0.77), (int)(size * 0.74), 246, 250, 248, 255);
-        FillRect(pixels, size, (int)(size * 0.19), (int)(size * 0.72), (int)(size * 0.81), (int)(size * 0.82), 246, 250, 248, 255);
-        FillRect(pixels, size, (int)(size * 0.44), (int)(size * 0.35), (int)(size * 0.56), (int)(size * 0.72), 231, 238, 235, 255);
-        FillRect(pixels, size, (int)(size * 0.41), (int)(size * 0.52), (int)(size * 0.59), (int)(size * 0.60), 246, 250, 248, 255);
+        // Geometric gate glyph (matches the app logo): top lintel + two pillars, open bottom.
+        FillRect(pixels, size, (int)(size * 0.266), (int)(size * 0.25), (int)(size * 0.734), (int)(size * 0.359), 246, 250, 248, 255);
+        FillRect(pixels, size, (int)(size * 0.266), (int)(size * 0.25), (int)(size * 0.375), (int)(size * 0.75), 246, 250, 248, 255);
+        FillRect(pixels, size, (int)(size * 0.625), (int)(size * 0.25), (int)(size * 0.734), (int)(size * 0.75), 246, 250, 248, 255);
 
         return EncodePng(size, size, pixels);
     }
