@@ -2746,6 +2746,13 @@ public sealed class HtmlViews
                         <button id="clipboard-close" type="button">{{T(context, "Close")}}</button>
                     </div>
                 </form>
+                <div id="resolution-dialog" class="credential-dialog resolution-dialog hidden">
+                    <h2>{{(Language(context) == "de" ? "Aufloesung" : "Resolution")}}</h2>
+                    <div id="resolution-options" class="resolution-options"></div>
+                    <div class="actions">
+                        <button id="resolution-close" type="button">{{T(context, "Close")}}</button>
+                    </div>
+                </div>
                 <dialog id="file-viewer-dialog" class="matgate-dialog file-viewer-dialog"></dialog>
             </section>
             </div>
@@ -2755,6 +2762,7 @@ public sealed class HtmlViews
                     <span id="status-target">-</span>
                 </div>
                 <div class="status-secondary">
+                    <span id="status-resolution" class="status-resolution"></span>
                     <div class="status-metrics">
                         <span id="status-state">{{T(context, "Ready")}}</span>
                         <span id="status-latency">{{T(context, "Gateway: -")}}</span>
@@ -2800,6 +2808,10 @@ public sealed class HtmlViews
                 const clipboardDialog = document.getElementById('clipboard-dialog');
                 const clipboardText = document.getElementById('clipboard-text');
                 const clipboardClose = document.getElementById('clipboard-close');
+                const statusResolution = document.getElementById('status-resolution');
+                const resolutionDialog = document.getElementById('resolution-dialog');
+                const resolutionOptions = document.getElementById('resolution-options');
+                const resolutionClose = document.getElementById('resolution-close');
                 const shellPagePanels = document.getElementById('shell-page-panels');
                 const tabs = new Map();
                 const workspaceStorageKey = 'matgate.workspace.tabs.v2';
@@ -4146,21 +4158,13 @@ public sealed class HtmlViews
                                 connectionTabActions.appendChild(keyboardButton);
                             }
 
-                            const resolutionSelect = document.createElement('select');
-                            resolutionSelect.className = 'tab-action-select';
-                            resolutionSelect.title = uiText.resolutionLabel || 'Resolution';
-                            resolutionSelect.setAttribute('aria-label', uiText.resolutionLabel || 'Resolution');
-                            for (const preset of displayResPresets) {
-                                const option = document.createElement('option');
-                                option.value = preset;
-                                option.textContent = resolutionOptionLabel(preset);
-                                if (preset === displayRes) {
-                                    option.selected = true;
-                                }
-                                resolutionSelect.appendChild(option);
-                            }
-                            resolutionSelect.addEventListener('change', () => setDisplayRes(resolutionSelect.value));
-                            connectionTabActions.appendChild(resolutionSelect);
+                            const resolutionButton = createTabActionButton(
+                                actionIcons.resolution,
+                                `${uiText.resolutionLabel || 'Resolution'}: ${resolutionOptionLabel(displayRes)}`,
+                                () => openResolutionDialog(),
+                                isDesktopDisplayMode() ? 'active' : '',
+                                true);
+                            connectionTabActions.appendChild(resolutionButton);
 
                             if (isDesktopDisplayMode()) {
                                 const zoomOutButton = createTabActionButton(
@@ -5030,6 +5034,9 @@ public sealed class HtmlViews
                         statusTunnel.textContent = 'Tunnel: -';
                         statusSync.textContent = 'Sync: -';
                         statusMessage.textContent = ui('chooseConnection');
+                        if (statusResolution) {
+                            statusResolution.textContent = '';
+                        }
                         return;
                     }
 
@@ -5046,6 +5053,10 @@ public sealed class HtmlViews
                         : `Tunnel: ${tab.tunnelState || '-'}`;
                     statusSync.textContent = `Sync: ${formatAge(tab.lastSyncAt)}`;
                     statusMessage.textContent = tab.lastError || tab.lastMessage || '-';
+                    if (statusResolution) {
+                        const showResolution = !isWebsiteProtocol(tab.protocol) && !isFileProtocol(tab.protocol) && !tab.terminal;
+                        statusResolution.textContent = showResolution ? resolutionOptionLabel(displayRes) : '';
+                    }
                 }
 
                 window.MatgateWebsiteLocationChanged = (tabId, url) => {
@@ -6496,7 +6507,11 @@ public sealed class HtmlViews
 
                 const isTouchDevice = (navigator.maxTouchPoints || 0) > 0
                     || (window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
-                const pointerModeStorageKey = 'matgate.pointer.mode.v1';
+                // Tablets (iPad etc.) default to absolute "direct" touch (tap = click where you tap);
+                // only phones default to the touchpad/trackpad style. Screen size is the heuristic.
+                const isTabletDevice = isTouchDevice
+                    && Math.min(window.screen.width || 0, window.screen.height || 0) >= 640;
+                const pointerModeStorageKey = 'matgate.pointer.mode.v2';
                 let pointerMode = (() => {
                     try {
                         const stored = localStorage.getItem(pointerModeStorageKey);
@@ -6507,7 +6522,7 @@ public sealed class HtmlViews
                     catch {
                         // Ignore storage failures.
                     }
-                    return isTouchDevice ? 'touchpad' : 'direct';
+                    return (isTouchDevice && !isTabletDevice) ? 'touchpad' : 'direct';
                 })();
                 function setPointerMode(mode) {
                     pointerMode = mode === 'touchpad' ? 'touchpad' : 'direct';
@@ -6526,7 +6541,7 @@ public sealed class HtmlViews
                 // Display resolution: 'fit' matches the viewport (desktop default); a fixed WxH renders the
                 // remote at that size and lets the user pan/zoom around it like a mobile RDP client.
                 const displayResPresets = ['fit', '1280x720', '1600x900', '1920x1080'];
-                const displayResStorageKey = 'matgate.display.res.v1';
+                const displayResStorageKey = 'matgate.display.res.v2';
                 let displayRes = (() => {
                     try {
                         const stored = localStorage.getItem(displayResStorageKey);
@@ -6537,7 +6552,7 @@ public sealed class HtmlViews
                     catch {
                         // Ignore storage failures.
                     }
-                    return isTouchDevice ? '1280x720' : 'fit';
+                    return (isTouchDevice && !isTabletDevice) ? '1280x720' : 'fit';
                 })();
                 function isDesktopDisplayMode() {
                     return displayRes !== 'fit';
@@ -6574,6 +6589,29 @@ public sealed class HtmlViews
                 }
                 function resolutionOptionLabel(preset) {
                     return preset === 'fit' ? (uiText.resolutionFitShort || 'Fit') : preset.replace('x', '×');
+                }
+                function openResolutionDialog() {
+                    if (!resolutionDialog || !resolutionOptions) {
+                        return;
+                    }
+                    resolutionOptions.replaceChildren();
+                    for (const preset of displayResPresets) {
+                        const option = document.createElement('button');
+                        option.type = 'button';
+                        option.className = 'resolution-option' + (preset === displayRes ? ' active' : '');
+                        option.textContent = resolutionOptionLabel(preset);
+                        option.addEventListener('click', () => {
+                            setDisplayRes(preset);
+                            closeResolutionDialog();
+                        });
+                        resolutionOptions.appendChild(option);
+                    }
+                    resolutionDialog.classList.remove('hidden');
+                }
+                function closeResolutionDialog() {
+                    if (resolutionDialog) {
+                        resolutionDialog.classList.add('hidden');
+                    }
                 }
                 function adjustZoom(delta) {
                     const tab = tabs.get(activeTabId);
@@ -6870,6 +6908,9 @@ public sealed class HtmlViews
                     }
                 });
                 clipboardClose.addEventListener('click', closeClipboardDialog);
+                if (resolutionClose) {
+                    resolutionClose.addEventListener('click', closeResolutionDialog);
+                }
                 window.addEventListener('resize', scheduleResize);
                 // When returning to Matgate from another app, mirror the (possibly newly copied) local
                 // clipboard to the active session so the next paste is fresh - without per-click syncing.
@@ -8190,6 +8231,28 @@ public sealed class HtmlViews
                         border-color: var(--accent);
                         color: var(--accent);
                     }
+                    .resolution-options {
+                        display: grid;
+                        gap: 8px;
+                        margin: 10px 0 16px;
+                    }
+                    .resolution-option {
+                        justify-content: flex-start;
+                        width: 100%;
+                    }
+                    .resolution-option.active {
+                        border-color: var(--accent);
+                        color: var(--accent);
+                    }
+                    .status-resolution {
+                        color: var(--muted);
+                        flex: 0 0 auto;
+                        font-size: 12px;
+                        white-space: nowrap;
+                    }
+                    .status-resolution:empty {
+                        display: none;
+                    }
                     /* Off-screen but focusable so tapping the keyboard button raises the native keyboard. */
                     .osk-input {
                         border: 0;
@@ -9241,10 +9304,13 @@ public sealed class HtmlViews
                         justify-content: center;
                         overflow: hidden;
                         width: 100%;
+                        touch-action: none;
                         -webkit-touch-callout: none;
                         -webkit-user-select: none;
                         user-select: none;
                     }
+                    .guac-display .guac-scaler,
+                    .guac-display .guac-scaler > div { touch-action: none; }
                     .guac-scaler { flex: 0 0 auto; }
                     .guac-scaler > div { transform-origin: center center; }
                     .guac-display.scrollable {
