@@ -2558,6 +2558,11 @@ public sealed class HtmlViews
             copy = Icon("copy"),
             clipboard = Icon("clipboard"),
             upload = Icon("upload"),
+            pointer = Icon("pointer"),
+            keyboard = Icon("keyboard"),
+            resolution = Icon("monitor"),
+            zoomIn = Icon("zoom-in"),
+            zoomOut = Icon("zoom-out"),
             disconnect = Icon("logout")
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
         var websiteIcons = JsonSerializer.Serialize(new
@@ -2589,6 +2594,13 @@ public sealed class HtmlViews
             xferUploaded = Language(context) == "de" ? "Hochgeladen" : "Uploaded",
             xferUploadFailed = Language(context) == "de" ? "Upload fehlgeschlagen" : "Upload failed",
             xferDownloading = Language(context) == "de" ? "Lade herunter" : "Downloading",
+            pointerTouchpad = Language(context) == "de" ? "Zeiger: Touchpad (wischen bewegt den Cursor)" : "Pointer: touchpad (swipe to move)",
+            pointerDirect = Language(context) == "de" ? "Zeiger: Direkt (tippen = an diese Stelle)" : "Pointer: direct (tap to position)",
+            showKeyboard = Language(context) == "de" ? "Tastatur ein-/ausblenden" : "Show/hide keyboard",
+            resolutionLabel = Language(context) == "de" ? "Aufloesung" : "Resolution",
+            resolutionFitShort = Language(context) == "de" ? "Anpassen" : "Fit",
+            zoomInLabel = Language(context) == "de" ? "Vergroessern" : "Zoom in",
+            zoomOutLabel = Language(context) == "de" ? "Verkleinern" : "Zoom out",
             disconnect = T(context, "Disconnect"),
             username = T(context, "Username"),
             password = T(context, "Password"),
@@ -4016,24 +4028,35 @@ public sealed class HtmlViews
                 }
 
                 async function toggleFullscreen(element) {
-                    if (isFullscreenActive()) {
-                        await exitFullscreen();
-                        return;
+                    // "Immersive" (CSS) hides the header/tab list for maximum session space and works
+                    // everywhere, incl. iOS Safari where the Fullscreen API is unavailable. We also try
+                    // the real Fullscreen API where supported.
+                    const goImmersive = !document.documentElement.classList.contains('session-immersive');
+                    document.documentElement.classList.toggle('session-immersive', goImmersive);
+
+                    try {
+                        if (goImmersive) {
+                            if (!isFullscreenActive()) {
+                                for (const candidate of [element, document.documentElement].filter(Boolean)) {
+                                    try {
+                                        await requestFullscreen(candidate);
+                                        break;
+                                    }
+                                    catch {
+                                        // Try the next candidate; immersive CSS applies regardless.
+                                    }
+                                }
+                            }
+                        }
+                        else if (isFullscreenActive()) {
+                            await exitFullscreen();
+                        }
+                    }
+                    catch {
+                        // Fullscreen API unavailable (e.g. iOS Safari) - immersive mode still applies.
                     }
 
-                    const candidates = [element, document.documentElement, document.body].filter(Boolean);
-                    let lastError = null;
-                    for (const candidate of candidates) {
-                        try {
-                            await requestFullscreen(candidate);
-                            return;
-                        }
-                        catch (error) {
-                            lastError = error;
-                        }
-                    }
-
-                    throw lastError || new Error('Fullscreen unavailable');
+                    scheduleResize();
                 }
 
                 // In fullscreen, capture browser-reserved shortcuts (Ctrl+T/W/N, Alt+Tab where allowed,
@@ -4057,6 +4080,12 @@ public sealed class HtmlViews
                 }
                 document.addEventListener('fullscreenchange', applyKeyboardLock);
                 document.addEventListener('webkitfullscreenchange', applyKeyboardLock);
+                document.addEventListener('fullscreenchange', () => {
+                    if (!isFullscreenActive()) {
+                        document.documentElement.classList.remove('session-immersive');
+                    }
+                    scheduleResize();
+                });
 
                 function updateTabActions() {
                     if (!connectionTabActions) {
@@ -4090,6 +4119,67 @@ public sealed class HtmlViews
                             true);
 
                         connectionTabActions.appendChild(fullscreenButton);
+
+                        if (isTouchDevice && tab.client && !tab.terminal) {
+                            const pointerButton = createTabActionButton(
+                                actionIcons.pointer,
+                                pointerMode === 'touchpad' ? (uiText.pointerTouchpad || 'Touchpad pointer') : (uiText.pointerDirect || 'Direct touch'),
+                                () => setPointerMode(pointerMode === 'touchpad' ? 'direct' : 'touchpad'),
+                                pointerMode === 'touchpad' ? 'active' : '',
+                                true);
+                            connectionTabActions.appendChild(pointerButton);
+
+                            if (tab.oskInput) {
+                                const keyboardButton = createTabActionButton(
+                                    actionIcons.keyboard,
+                                    uiText.showKeyboard || 'Show/hide keyboard',
+                                    () => {
+                                        if (document.activeElement === tab.oskInput) {
+                                            tab.oskInput.blur();
+                                        }
+                                        else {
+                                            tab.oskInput.focus();
+                                        }
+                                    },
+                                    '',
+                                    true);
+                                connectionTabActions.appendChild(keyboardButton);
+                            }
+
+                            const resolutionSelect = document.createElement('select');
+                            resolutionSelect.className = 'tab-action-select';
+                            resolutionSelect.title = uiText.resolutionLabel || 'Resolution';
+                            resolutionSelect.setAttribute('aria-label', uiText.resolutionLabel || 'Resolution');
+                            for (const preset of displayResPresets) {
+                                const option = document.createElement('option');
+                                option.value = preset;
+                                option.textContent = resolutionOptionLabel(preset);
+                                if (preset === displayRes) {
+                                    option.selected = true;
+                                }
+                                resolutionSelect.appendChild(option);
+                            }
+                            resolutionSelect.addEventListener('change', () => setDisplayRes(resolutionSelect.value));
+                            connectionTabActions.appendChild(resolutionSelect);
+
+                            if (isDesktopDisplayMode()) {
+                                const zoomOutButton = createTabActionButton(
+                                    actionIcons.zoomOut,
+                                    uiText.zoomOutLabel || 'Zoom out',
+                                    () => adjustZoom(-0.25),
+                                    '',
+                                    true);
+                                connectionTabActions.appendChild(zoomOutButton);
+
+                                const zoomInButton = createTabActionButton(
+                                    actionIcons.zoomIn,
+                                    uiText.zoomInLabel || 'Zoom in',
+                                    () => adjustZoom(0.25),
+                                    '',
+                                    true);
+                                connectionTabActions.appendChild(zoomInButton);
+                            }
+                        }
 
                         if (tab.websiteUi) {
                             const copyUrl = toShareableUrl(tab.displayUrl || tab.currentUrl || tab.target || '');
@@ -4785,6 +4875,11 @@ public sealed class HtmlViews
                 }
 
                 function viewport(tab) {
+                    if (isDesktopDisplayMode()) {
+                        const res = parseDisplayRes(displayRes);
+                        return { width: res.width, height: res.height, dpi: 96 };
+                    }
+
                     const rect = tab.panel.getBoundingClientRect();
 
                     return {
@@ -4806,9 +4901,23 @@ public sealed class HtmlViews
                         return;
                     }
 
+                    if (isDesktopDisplayMode()) {
+                        const scale = Math.max(0.25, tab.zoom || 1);
+                        display.scale(scale);
+                        if (tab.displayScaler) {
+                            tab.displayScaler.style.width = Math.round(width * scale) + 'px';
+                            tab.displayScaler.style.height = Math.round(height * scale) + 'px';
+                        }
+                        return;
+                    }
+
                     const rect = tab.panel.getBoundingClientRect();
                     const scale = Math.min(1, rect.width / width, rect.height / height);
                     display.scale(Math.max(0.1, scale));
+                    if (tab.displayScaler) {
+                        tab.displayScaler.style.width = '';
+                        tab.displayScaler.style.height = '';
+                    }
                 }
 
                 function sendDisplaySize(tab) {
@@ -4998,8 +5107,14 @@ public sealed class HtmlViews
 
                         const client = new Guacamole.Client(tunnel);
                         tab.client = client;
+                        tab.zoom = tab.zoom || 1;
                         const display = client.getDisplay();
-                        tab.displayRoot.appendChild(display.getElement());
+                        const scaler = document.createElement('div');
+                        scaler.className = 'guac-scaler';
+                        scaler.appendChild(display.getElement());
+                        tab.displayScaler = scaler;
+                        tab.displayRoot.appendChild(scaler);
+                        applyDisplayMode(tab);
                         display.onresize = () => fitDisplay(tab);
                         updateTabActions();
 
@@ -5068,9 +5183,58 @@ public sealed class HtmlViews
                         const mouse = new Guacamole.Mouse(display.getElement());
                         mouse.onmousedown = mouse.onmouseup = mouse.onmousemove = state => client.sendMouseState(state, true);
 
+                        // Two touch pointer emulators; only the active mode forwards. "touchpad" = relative
+                        // (swipe moves the cursor like a laptop trackpad), "direct" = absolute (tap positions).
+                        tab.pointerMode = pointerMode;
+                        const forwardTouch = wanted => state => {
+                            if (tab.pointerMode === wanted) {
+                                client.sendMouseState(state, true);
+                                if (wanted === 'touchpad') {
+                                    edgeScrollToCursor(tab, state.x, state.y);
+                                }
+                            }
+                        };
                         if (Guacamole.Mouse.Touchscreen) {
                             const touchscreen = new Guacamole.Mouse.Touchscreen(display.getElement());
-                            touchscreen.onmousedown = touchscreen.onmouseup = touchscreen.onmousemove = state => client.sendMouseState(state, true);
+                            touchscreen.onmousedown = touchscreen.onmouseup = touchscreen.onmousemove = forwardTouch('direct');
+                        }
+                        if (Guacamole.Mouse.Touchpad) {
+                            const touchpad = new Guacamole.Mouse.Touchpad(display.getElement());
+                            touchpad.onmousedown = touchpad.onmouseup = touchpad.onmousemove = forwardTouch('touchpad');
+                        }
+
+                        // Hidden input to raise the device's native keyboard on touch devices and forward
+                        // typed characters to the remote as key events (reliable across mobile browsers).
+                        if (isTouchDevice) {
+                            const oskInput = document.createElement('textarea');
+                            oskInput.className = 'osk-input';
+                            oskInput.setAttribute('autocapitalize', 'off');
+                            oskInput.setAttribute('autocomplete', 'off');
+                            oskInput.setAttribute('autocorrect', 'off');
+                            oskInput.setAttribute('spellcheck', 'false');
+                            oskInput.setAttribute('aria-hidden', 'true');
+                            oskInput.tabIndex = -1;
+                            tab.panel.appendChild(oskInput);
+                            tab.oskInput = oskInput;
+                            const sendKeysym = keysym => {
+                                client.sendKeyEvent(1, keysym);
+                                client.sendKeyEvent(0, keysym);
+                            };
+                            oskInput.addEventListener('beforeinput', event => {
+                                if (event.inputType === 'insertText' && event.data) {
+                                    for (const ch of event.data) {
+                                        const cp = ch.codePointAt(0);
+                                        sendKeysym(cp < 0x100 ? cp : 0x01000000 + cp);
+                                    }
+                                }
+                                else if (event.inputType === 'insertLineBreak') {
+                                    sendKeysym(0xFF0D);
+                                }
+                                else if (event.inputType === 'deleteContentBackward') {
+                                    sendKeysym(0xFF08);
+                                }
+                            });
+                            oskInput.addEventListener('input', () => { oskInput.value = ''; });
                         }
 
                         tab.keyboard = new Guacamole.Keyboard(tab.panel);
@@ -5083,9 +5247,9 @@ public sealed class HtmlViews
                             return false;
                         };
 
-                        // Keep the remote clipboard in sync with the local one so Ctrl+V pastes directly.
-                        display.getElement().addEventListener('pointerdown', () => syncLocalClipboardToRemote(tab), true);
-                        tab.panel.addEventListener('focusin', () => syncLocalClipboardToRemote(tab), true);
+                        // Push the local clipboard to the remote only on an explicit paste (Ctrl/Cmd+V).
+                        // Never sync on plain clicks, otherwise copying inside the session (Ctrl+C) gets
+                        // clobbered by the stale local clipboard on the next click.
                         tab.panel.addEventListener('keydown', event => {
                             if ((event.ctrlKey || event.metaKey) && !event.altKey && (event.key === 'v' || event.key === 'V')) {
                                 syncLocalClipboardToRemote(tab, true);
@@ -6318,13 +6482,127 @@ public sealed class HtmlViews
 
                     try {
                         const text = await navigator.clipboard.readText();
-                        if (typeof text === 'string' && text && text !== tab.lastSentClipboard) {
+                        // Skip if unchanged, or if it equals what the remote last sent us (never echo the
+                        // remote's own copy back and overwrite it).
+                        if (typeof text === 'string' && text && text !== tab.lastSentClipboard && text !== tab.remoteClipboard) {
                             tab.lastSentClipboard = text;
                             sendClipboardText(tab, text, true);
                         }
                     }
                     catch {
                         // No permission/gesture yet - the manual clipboard button remains available.
+                    }
+                }
+
+                const isTouchDevice = (navigator.maxTouchPoints || 0) > 0
+                    || (window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+                const pointerModeStorageKey = 'matgate.pointer.mode.v1';
+                let pointerMode = (() => {
+                    try {
+                        const stored = localStorage.getItem(pointerModeStorageKey);
+                        if (stored === 'touchpad' || stored === 'direct') {
+                            return stored;
+                        }
+                    }
+                    catch {
+                        // Ignore storage failures.
+                    }
+                    return isTouchDevice ? 'touchpad' : 'direct';
+                })();
+                function setPointerMode(mode) {
+                    pointerMode = mode === 'touchpad' ? 'touchpad' : 'direct';
+                    for (const entry of tabs.values()) {
+                        entry.pointerMode = pointerMode;
+                    }
+                    try {
+                        localStorage.setItem(pointerModeStorageKey, pointerMode);
+                    }
+                    catch {
+                        // Ignore storage failures.
+                    }
+                    updateTabActions();
+                }
+
+                // Display resolution: 'fit' matches the viewport (desktop default); a fixed WxH renders the
+                // remote at that size and lets the user pan/zoom around it like a mobile RDP client.
+                const displayResPresets = ['fit', '1280x720', '1600x900', '1920x1080'];
+                const displayResStorageKey = 'matgate.display.res.v1';
+                let displayRes = (() => {
+                    try {
+                        const stored = localStorage.getItem(displayResStorageKey);
+                        if (displayResPresets.includes(stored)) {
+                            return stored;
+                        }
+                    }
+                    catch {
+                        // Ignore storage failures.
+                    }
+                    return isTouchDevice ? '1280x720' : 'fit';
+                })();
+                function isDesktopDisplayMode() {
+                    return displayRes !== 'fit';
+                }
+                function parseDisplayRes(value) {
+                    const parts = String(value).split('x');
+                    const w = parseInt(parts[0], 10);
+                    const h = parseInt(parts[1], 10);
+                    return { width: w > 0 ? w : 1280, height: h > 0 ? h : 720 };
+                }
+                function applyDisplayMode(tab) {
+                    if (tab && tab.displayRoot) {
+                        tab.displayRoot.classList.toggle('scrollable', isDesktopDisplayMode());
+                    }
+                }
+                function setDisplayRes(value) {
+                    if (!displayResPresets.includes(value)) {
+                        return;
+                    }
+                    displayRes = value;
+                    try {
+                        localStorage.setItem(displayResStorageKey, displayRes);
+                    }
+                    catch {
+                        // Ignore storage failures.
+                    }
+                    const tab = tabs.get(activeTabId);
+                    if (tab) {
+                        tab.zoom = 1;
+                        applyDisplayMode(tab);
+                        sendDisplaySize(tab);
+                    }
+                    updateTabActions();
+                }
+                function resolutionOptionLabel(preset) {
+                    return preset === 'fit' ? (uiText.resolutionFitShort || 'Fit') : preset.replace('x', '×');
+                }
+                function adjustZoom(delta) {
+                    const tab = tabs.get(activeTabId);
+                    if (!tab || !isDesktopDisplayMode()) {
+                        return;
+                    }
+                    tab.zoom = Math.min(3, Math.max(0.25, Math.round(((tab.zoom || 1) + delta) * 100) / 100));
+                    fitDisplay(tab);
+                }
+                function edgeScrollToCursor(tab, x, y) {
+                    const container = tab && tab.displayRoot;
+                    if (!container || !isDesktopDisplayMode()) {
+                        return;
+                    }
+                    const zoom = tab.zoom || 1;
+                    const margin = 48;
+                    const sx = x * zoom;
+                    const sy = y * zoom;
+                    if (sx - container.scrollLeft < margin) {
+                        container.scrollLeft = sx - margin;
+                    }
+                    else if (sx - container.scrollLeft > container.clientWidth - margin) {
+                        container.scrollLeft = sx - container.clientWidth + margin;
+                    }
+                    if (sy - container.scrollTop < margin) {
+                        container.scrollTop = sy - margin;
+                    }
+                    else if (sy - container.scrollTop > container.clientHeight - margin) {
+                        container.scrollTop = sy - container.clientHeight + margin;
                     }
                 }
 
@@ -6593,6 +6871,14 @@ public sealed class HtmlViews
                 });
                 clipboardClose.addEventListener('click', closeClipboardDialog);
                 window.addEventListener('resize', scheduleResize);
+                // When returning to Matgate from another app, mirror the (possibly newly copied) local
+                // clipboard to the active session so the next paste is fresh - without per-click syncing.
+                window.addEventListener('focus', () => {
+                    const activeTab = tabs.get(activeTabId);
+                    if (activeTab && activeTab.client && !activeTab.terminal) {
+                        syncLocalClipboardToRemote(activeTab);
+                    }
+                });
                 window.addEventListener('beforeunload', () => {
                     for (const tab of tabs.values()) {
                         if (tab.client) {
@@ -7883,6 +8169,41 @@ public sealed class HtmlViews
                         outline: 2px dashed var(--accent);
                         outline-offset: -8px;
                     }
+                    .tab-action-button.active {
+                        color: var(--accent);
+                    }
+                    .tab-action-select {
+                        appearance: none;
+                        background: transparent;
+                        border: 1px solid var(--line);
+                        border-radius: var(--radius);
+                        color: var(--text);
+                        cursor: pointer;
+                        flex: 0 0 auto;
+                        font: inherit;
+                        font-size: 12px;
+                        min-height: 28px;
+                        padding: 2px 8px;
+                    }
+                    .tab-action-select:hover,
+                    .tab-action-select:focus-visible {
+                        border-color: var(--accent);
+                        color: var(--accent);
+                    }
+                    /* Off-screen but focusable so tapping the keyboard button raises the native keyboard. */
+                    .osk-input {
+                        border: 0;
+                        bottom: 0;
+                        height: 1px;
+                        left: 0;
+                        opacity: 0;
+                        padding: 0;
+                        pointer-events: none;
+                        position: absolute;
+                        resize: none;
+                        width: 1px;
+                        z-index: -1;
+                    }
                     .tab-action-button .icon {
                         height: 15px;
                         width: 15px;
@@ -8924,7 +9245,21 @@ public sealed class HtmlViews
                         -webkit-user-select: none;
                         user-select: none;
                     }
-                    .guac-display > div { transform-origin: center center; }
+                    .guac-scaler { flex: 0 0 auto; }
+                    .guac-scaler > div { transform-origin: center center; }
+                    .guac-display.scrollable {
+                        align-items: flex-start;
+                        justify-content: flex-start;
+                        overflow: auto;
+                        -webkit-overflow-scrolling: touch;
+                    }
+                    .guac-display.scrollable .guac-scaler > div { transform-origin: top left; }
+                    /* Immersive session mode: hide chrome for maximum screen space (works on iOS too). */
+                    html.session-immersive header { display: none; }
+                    html.session-immersive #session-tabs { display: none; }
+                    html.session-immersive .session-statusbar { display: none; }
+                    #connection-tab-actions { overflow-x: auto; scrollbar-width: none; }
+                    #connection-tab-actions::-webkit-scrollbar { display: none; }
                     .guac-stage input,
                     .guac-stage textarea {
                         -webkit-user-select: text;
@@ -10714,6 +11049,11 @@ public sealed class HtmlViews
             "check" => """<path d="m20 6-11 11-5-5"/>""",
             "upload" => """<path d="M12 3v12"/><path d="m7 8 5-5 5 5"/><path d="M5 21h14"/>""",
             "download" => """<path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M5 21h14"/>""",
+            "pointer" => """<path d="m4 3 7 17 2.2-6.8L20 11z"/>""",
+            "keyboard" => """<rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/>""",
+            "monitor" => """<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>""",
+            "zoom-in" => """<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M11 8v6M8 11h6"/>""",
+            "zoom-out" => """<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6"/>""",
             "globe" => """<circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15 15 0 0 1 0 20"/><path d="M12 2a15 15 0 0 0 0 20"/>""",
             _ => """<circle cx="12" cy="12" r="9"/>"""
         };
