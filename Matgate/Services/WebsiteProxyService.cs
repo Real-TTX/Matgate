@@ -531,6 +531,7 @@ public sealed class WebsiteProxyService
             (() => {
                 const proxyPrefix = {{JsonSerializer.Serialize(proxyPrefix)}};
                 const targetOrigin = {{JsonSerializer.Serialize(targetOrigin)}};
+                const stateSyncUrl = {{JsonSerializer.Serialize(stateSyncUrl)}};
                 const currentOrigin = window.location.origin;
                 const tabId = window.name || '';
                 const routeHasTabId = {{JsonSerializer.Serialize(hasTabId)}};
@@ -1592,12 +1593,19 @@ public sealed class WebsiteProxyService
             || string.Equals(request.Method, HttpMethods.Patch, StringComparison.OrdinalIgnoreCase)
             || string.Equals(request.Method, HttpMethods.Delete, StringComparison.OrdinalIgnoreCase))
         {
+            // Ensure exactly one Origin header. The header loop above already adds one when the browser
+            // sends Origin (it does on POST); adding a second here produces a duplicate Origin, which
+            // nginx (e.g. Synology DSM) rejects with 400 Bad Request.
+            message.Headers.Remove("Origin");
             message.Headers.TryAddWithoutValidation("Origin", session.TargetOrigin);
         }
 
+        // CSRFPreventionToken is a Proxmox concept (api2/*). Never attach it to other targets (e.g. Synology),
+        // where a stray/oversized header value would be rejected by the upstream with 400.
         var shouldSendCsrfToken = session.HasCsrfToken
             && IsWriteMethod(request.Method)
-            && !IsLoginTicketEndpoint(targetUri);
+            && !IsLoginTicketEndpoint(targetUri)
+            && targetUri.AbsolutePath.StartsWith("/api2/", StringComparison.OrdinalIgnoreCase);
 
         if (shouldSendCsrfToken)
         {
@@ -2113,21 +2121,27 @@ public sealed class WebsiteProxyService
                 return false;
             }
 
-            var token = value.Trim();
-            var match = CsrfTokenAssignmentRegex.Match(token);
+            var candidate = value.Trim();
+            var match = CsrfTokenAssignmentRegex.Match(candidate);
             if (match.Success)
             {
-                token = match.Groups["token"].Value;
+                candidate = match.Groups["token"].Value.Trim();
             }
 
-            if (string.IsNullOrWhiteSpace(token)
-                || token.Equals("null", StringComparison.OrdinalIgnoreCase)
-                || token.Equals("undefined", StringComparison.OrdinalIgnoreCase))
+            // This is called with whole HTML/JS bodies, so guard hard: a real Proxmox CSRF token is a short
+            // single word (e.g. "HHMMSS:base64") with no whitespace. Anything long or containing whitespace/
+            // control chars is arbitrary content and must never be stored - otherwise the whole JS blob gets
+            // sent back as a CSRF header and the upstream (e.g. Synology nginx) rejects it with 400.
+            if (string.IsNullOrWhiteSpace(candidate)
+                || candidate.Length > 128
+                || candidate.Equals("null", StringComparison.OrdinalIgnoreCase)
+                || candidate.Equals("undefined", StringComparison.OrdinalIgnoreCase)
+                || candidate.Any(c => char.IsWhiteSpace(c) || char.IsControl(c)))
             {
                 return false;
             }
 
-            _csrfToken = token;
+            _csrfToken = candidate;
             return true;
         }
 
