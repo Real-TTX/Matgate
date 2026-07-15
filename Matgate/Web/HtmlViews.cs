@@ -4158,30 +4158,32 @@ public sealed class HtmlViews
                                 connectionTabActions.appendChild(keyboardButton);
                             }
 
-                            const resolutionButton = createTabActionButton(
-                                actionIcons.resolution,
-                                `${uiText.resolutionLabel || 'Resolution'}: ${resolutionOptionLabel(displayRes)}`,
-                                () => openResolutionDialog(),
-                                isDesktopDisplayMode() ? 'active' : '',
-                                true);
-                            connectionTabActions.appendChild(resolutionButton);
-
-                            if (isDesktopDisplayMode()) {
-                                const zoomOutButton = createTabActionButton(
-                                    actionIcons.zoomOut,
-                                    uiText.zoomOutLabel || 'Zoom out',
-                                    () => adjustZoom(-0.25),
-                                    '',
+                            if (supportsResolution(tab.protocol)) {
+                                const resolutionButton = createTabActionButton(
+                                    actionIcons.resolution,
+                                    `${uiText.resolutionLabel || 'Resolution'}: ${resolutionOptionLabel(tab.displayRes)}`,
+                                    () => openResolutionDialog(),
+                                    isDesktopDisplayMode(tab) ? 'active' : '',
                                     true);
-                                connectionTabActions.appendChild(zoomOutButton);
+                                connectionTabActions.appendChild(resolutionButton);
 
-                                const zoomInButton = createTabActionButton(
-                                    actionIcons.zoomIn,
-                                    uiText.zoomInLabel || 'Zoom in',
-                                    () => adjustZoom(0.25),
-                                    '',
-                                    true);
-                                connectionTabActions.appendChild(zoomInButton);
+                                if (isDesktopDisplayMode(tab)) {
+                                    const zoomOutButton = createTabActionButton(
+                                        actionIcons.zoomOut,
+                                        uiText.zoomOutLabel || 'Zoom out',
+                                        () => adjustZoom(-0.25),
+                                        '',
+                                        true);
+                                    connectionTabActions.appendChild(zoomOutButton);
+
+                                    const zoomInButton = createTabActionButton(
+                                        actionIcons.zoomIn,
+                                        uiText.zoomInLabel || 'Zoom in',
+                                        () => adjustZoom(0.25),
+                                        '',
+                                        true);
+                                    connectionTabActions.appendChild(zoomInButton);
+                                }
                             }
                         }
 
@@ -4555,6 +4557,8 @@ public sealed class HtmlViews
                         connectionName: '',
                         encryptedData: '',
                         remoteClipboard: '',
+                        displayRes: resolutionForServer(server.id, server.protocol),
+                        zoom: 1,
                         websiteUi: null,
                         currentUrl: '',
                         displayUrl: '',
@@ -4879,8 +4883,8 @@ public sealed class HtmlViews
                 }
 
                 function viewport(tab) {
-                    if (isDesktopDisplayMode()) {
-                        const res = parseDisplayRes(displayRes);
+                    if (isDesktopDisplayMode(tab)) {
+                        const res = parseDisplayRes(tab.displayRes);
                         return { width: res.width, height: res.height, dpi: 96 };
                     }
 
@@ -4905,7 +4909,7 @@ public sealed class HtmlViews
                         return;
                     }
 
-                    if (isDesktopDisplayMode()) {
+                    if (isDesktopDisplayMode(tab)) {
                         const scale = Math.max(0.25, tab.zoom || 1);
                         display.scale(scale);
                         if (tab.displayScaler) {
@@ -5054,8 +5058,9 @@ public sealed class HtmlViews
                     statusSync.textContent = `Sync: ${formatAge(tab.lastSyncAt)}`;
                     statusMessage.textContent = tab.lastError || tab.lastMessage || '-';
                     if (statusResolution) {
-                        const showResolution = !isWebsiteProtocol(tab.protocol) && !isFileProtocol(tab.protocol) && !tab.terminal;
-                        statusResolution.textContent = showResolution ? resolutionOptionLabel(displayRes) : '';
+                        statusResolution.textContent = supportsResolution(tab.protocol)
+                            ? resolutionOptionLabel(tab.displayRes)
+                            : '';
                     }
                 }
 
@@ -6505,8 +6510,9 @@ public sealed class HtmlViews
                     }
                 }
 
-                const isTouchDevice = (navigator.maxTouchPoints || 0) > 0
-                    || (window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
+                // Touch-primary only: a desktop with a mouse counts as non-touch even if it also has a
+                // touchscreen (primary pointer is fine). Phones/tablets report a coarse primary pointer.
+                const isTouchDevice = !!(window.matchMedia && window.matchMedia('(pointer: coarse)').matches);
                 // Tablets (iPad etc.) default to absolute "direct" touch (tap = click where you tap);
                 // only phones default to the touchpad/trackpad style. Screen size is the heuristic.
                 const isTabletDevice = isTouchDevice
@@ -6538,24 +6544,47 @@ public sealed class HtmlViews
                     updateTabActions();
                 }
 
-                // Display resolution: 'fit' matches the viewport (desktop default); a fixed WxH renders the
-                // remote at that size and lets the user pan/zoom around it like a mobile RDP client.
+                // Per-connection display resolution. 'fit' scales the remote to the viewport; a fixed WxH
+                // renders at that size with pan/zoom. Only RDP (real resize) and VNC (view scaling) use it;
+                // SSH and other protocols are always 'fit'. The choice is remembered per server.
                 const displayResPresets = ['fit', '1280x720', '1600x900', '1920x1080'];
-                const displayResStorageKey = 'matgate.display.res.v2';
-                let displayRes = (() => {
+                const displayResStorageKey = 'matgate.display.res.v3';
+                function supportsResolution(protocol) {
+                    const p = (protocol || '').toUpperCase();
+                    return p === 'RDP' || p === 'VNC' || p === 'LEGACYBROWSER';
+                }
+                function defaultDisplayRes() {
+                    return (isTouchDevice && !isTabletDevice) ? '1280x720' : 'fit';
+                }
+                function loadResMap() {
                     try {
-                        const stored = localStorage.getItem(displayResStorageKey);
-                        if (displayResPresets.includes(stored)) {
-                            return stored;
-                        }
+                        const raw = localStorage.getItem(displayResStorageKey);
+                        const parsed = raw ? JSON.parse(raw) : null;
+                        return (parsed && typeof parsed === 'object') ? parsed : {};
+                    }
+                    catch {
+                        return {};
+                    }
+                }
+                function resolutionForServer(serverId, protocol) {
+                    if (!supportsResolution(protocol)) {
+                        return 'fit';
+                    }
+                    const stored = loadResMap()[serverId];
+                    return displayResPresets.includes(stored) ? stored : defaultDisplayRes();
+                }
+                function saveResForServer(serverId, res) {
+                    try {
+                        const map = loadResMap();
+                        map[serverId] = res;
+                        localStorage.setItem(displayResStorageKey, JSON.stringify(map));
                     }
                     catch {
                         // Ignore storage failures.
                     }
-                    return (isTouchDevice && !isTabletDevice) ? '1280x720' : 'fit';
-                })();
-                function isDesktopDisplayMode() {
-                    return displayRes !== 'fit';
+                }
+                function isDesktopDisplayMode(tab) {
+                    return !!(tab && tab.displayRes && tab.displayRes !== 'fit');
                 }
                 function parseDisplayRes(value) {
                     const parts = String(value).split('x');
@@ -6565,40 +6594,37 @@ public sealed class HtmlViews
                 }
                 function applyDisplayMode(tab) {
                     if (tab && tab.displayRoot) {
-                        tab.displayRoot.classList.toggle('scrollable', isDesktopDisplayMode());
+                        tab.displayRoot.classList.toggle('scrollable', isDesktopDisplayMode(tab));
                     }
                 }
                 function setDisplayRes(value) {
                     if (!displayResPresets.includes(value)) {
                         return;
                     }
-                    displayRes = value;
-                    try {
-                        localStorage.setItem(displayResStorageKey, displayRes);
-                    }
-                    catch {
-                        // Ignore storage failures.
-                    }
                     const tab = tabs.get(activeTabId);
-                    if (tab) {
-                        tab.zoom = 1;
-                        applyDisplayMode(tab);
-                        sendDisplaySize(tab);
+                    if (!tab || !supportsResolution(tab.protocol)) {
+                        return;
                     }
+                    tab.displayRes = value;
+                    tab.zoom = 1;
+                    saveResForServer(tab.serverId, value);
+                    applyDisplayMode(tab);
+                    sendDisplaySize(tab);
                     updateTabActions();
                 }
                 function resolutionOptionLabel(preset) {
                     return preset === 'fit' ? (uiText.resolutionFitShort || 'Fit') : preset.replace('x', '×');
                 }
                 function openResolutionDialog() {
-                    if (!resolutionDialog || !resolutionOptions) {
+                    const tab = tabs.get(activeTabId);
+                    if (!resolutionDialog || !resolutionOptions || !tab) {
                         return;
                     }
                     resolutionOptions.replaceChildren();
                     for (const preset of displayResPresets) {
                         const option = document.createElement('button');
                         option.type = 'button';
-                        option.className = 'resolution-option' + (preset === displayRes ? ' active' : '');
+                        option.className = 'resolution-option' + (preset === tab.displayRes ? ' active' : '');
                         option.textContent = resolutionOptionLabel(preset);
                         option.addEventListener('click', () => {
                             setDisplayRes(preset);
@@ -6615,7 +6641,7 @@ public sealed class HtmlViews
                 }
                 function adjustZoom(delta) {
                     const tab = tabs.get(activeTabId);
-                    if (!tab || !isDesktopDisplayMode()) {
+                    if (!tab || !isDesktopDisplayMode(tab)) {
                         return;
                     }
                     tab.zoom = Math.min(3, Math.max(0.25, Math.round(((tab.zoom || 1) + delta) * 100) / 100));
@@ -6623,7 +6649,7 @@ public sealed class HtmlViews
                 }
                 function edgeScrollToCursor(tab, x, y) {
                     const container = tab && tab.displayRoot;
-                    if (!container || !isDesktopDisplayMode()) {
+                    if (!container || !isDesktopDisplayMode(tab)) {
                         return;
                     }
                     const zoom = tab.zoom || 1;
