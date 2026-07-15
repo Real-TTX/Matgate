@@ -1916,6 +1916,14 @@ public sealed class WebsiteProxyService
 
     private static string InjectBootstrapScript(string html, string scriptUrl)
     {
+        // Only inject into full HTML documents. Apps that load page content via XHR return HTML fragments
+        // (e.g. SLZB-06M: GET api2?action=..&page=.. -> "<div id=main>..."). The parent page is already
+        // bootstrapped, so injecting a <script> into a fragment just corrupts it and breaks the content swap.
+        if (!LooksLikeFullHtmlDocument(html))
+        {
+            return html;
+        }
+
         var scriptTag = $"""<script src="{WebUtility.HtmlEncode(scriptUrl)}"></script>""";
         var scriptIndex = html.IndexOf("proxmoxlib.js", StringComparison.OrdinalIgnoreCase);
         if (scriptIndex >= 0)
@@ -1959,6 +1967,14 @@ public sealed class WebsiteProxyService
         }
 
         return scriptTag + html;
+    }
+
+    private static bool LooksLikeFullHtmlDocument(string html)
+    {
+        return html.Contains("<!doctype", StringComparison.OrdinalIgnoreCase)
+            || html.Contains("<html", StringComparison.OrdinalIgnoreCase)
+            || html.Contains("</head>", StringComparison.OrdinalIgnoreCase)
+            || html.Contains("<body", StringComparison.OrdinalIgnoreCase);
     }
 
     private static Encoding ResolveEncoding(string contentType)
