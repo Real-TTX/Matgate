@@ -2762,9 +2762,9 @@ public sealed class HtmlViews
                     <span id="status-target">-</span>
                 </div>
                 <div class="status-secondary">
-                    <span id="status-resolution" class="status-resolution"></span>
                     <div class="status-metrics">
                         <span id="status-state">{{T(context, "Ready")}}</span>
+                        <span id="status-resolution" class="status-resolution"></span>
                         <span id="status-latency">{{T(context, "Gateway: -")}}</span>
                         <span id="status-tunnel">{{T(context, "Tunnel: -")}}</span>
                         <span id="status-sync">{{T(context, "Sync: -")}}</span>
@@ -5059,7 +5059,7 @@ public sealed class HtmlViews
                     statusMessage.textContent = tab.lastError || tab.lastMessage || '-';
                     if (statusResolution) {
                         statusResolution.textContent = supportsResolution(tab.protocol)
-                            ? resolutionOptionLabel(tab.displayRes)
+                            ? `Screen: ${resolutionOptionLabel(tab.displayRes)}`
                             : '';
                     }
                 }
