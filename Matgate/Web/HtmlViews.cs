@@ -4993,6 +4993,169 @@ public sealed class HtmlViews
                     };
                 }
 
+                // --- Pinch-to-zoom (touch) ------------------------------------------------
+                // A purely client-side visual zoom applied to the scaler wrapper
+                // (tab.displayScaler). It layers ON TOP of Guacamole's own display.scale
+                // (which writes its transform to the inner element), so it never renegotiates
+                // the remote resolution and survives fitDisplay (which only ever touches the
+                // scaler's width/height, never its transform).
+                function applyPinchTransform(tab) {
+                    if (!tab || !tab.displayScaler) {
+                        return;
+                    }
+                    const z = tab.pinchZoom || 1;
+                    const x = tab.pinchPanX || 0;
+                    const y = tab.pinchPanY || 0;
+                    if (z <= 1 && x === 0 && y === 0) {
+                        tab.displayScaler.style.transform = '';
+                        tab.displayScaler.style.transformOrigin = '';
+                        return;
+                    }
+                    tab.displayScaler.style.transformOrigin = '0 0';
+                    tab.displayScaler.style.transform = 'translate(' + Math.round(x) + 'px, ' + Math.round(y) + 'px) scale(' + z + ')';
+                }
+
+                function resetPinchZoom(tab) {
+                    if (!tab) {
+                        return;
+                    }
+                    tab.pinchZoom = 1;
+                    tab.pinchPanX = 0;
+                    tab.pinchPanY = 0;
+                    applyPinchTransform(tab);
+                }
+
+                // Keep the pan within roughly one viewport of the origin so content can't be
+                // flung fully off-screen; also re-applied on resize/rotate so a stale pan can't
+                // strand the view outside the (possibly resized) container.
+                function clampPinchPan(tab) {
+                    if (!tab || !tab.displayRoot) {
+                        return;
+                    }
+                    const cont = tab.displayRoot.getBoundingClientRect();
+                    tab.pinchPanX = Math.min(cont.width, Math.max(-cont.width, tab.pinchPanX || 0));
+                    tab.pinchPanY = Math.min(cont.height, Math.max(-cont.height, tab.pinchPanY || 0));
+                }
+
+                function setupPinchZoom(tab) {
+                    if (!isTouchDevice || !tab || !tab.displayRoot || tab.pinchReady) {
+                        return;
+                    }
+                    tab.pinchReady = true;
+                    tab.pinchZoom = tab.pinchZoom || 1;
+                    tab.pinchPanX = tab.pinchPanX || 0;
+                    tab.pinchPanY = tab.pinchPanY || 0;
+
+                    const root = tab.displayRoot;
+                    let active = false;   // currently tracking an exact two-finger gesture
+                    let pinched = false;  // a pinch is in progress; own the whole gesture until all fingers lift
+                    let startDist = 1;
+                    let startZoom = 1;
+                    let lastMidX = 0;
+                    let lastMidY = 0;
+
+                    const distance = touches => {
+                        const dx = touches[0].clientX - touches[1].clientX;
+                        const dy = touches[0].clientY - touches[1].clientY;
+                        return Math.hypot(dx, dy) || 1;
+                    };
+                    const midpoint = touches => ({
+                        x: (touches[0].clientX + touches[1].clientX) / 2,
+                        y: (touches[0].clientY + touches[1].clientY) / 2
+                    });
+                    // Multi-finger gestures are ours: keep them from reaching Guacamole's touch
+                    // emulators (which live on the inner display element) so they don't leak as
+                    // stray remote mouse/scroll input.
+                    const swallow = event => {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        if (typeof event.stopImmediatePropagation === 'function') {
+                            event.stopImmediatePropagation();
+                        }
+                    };
+                    const beginPinch = touches => {
+                        active = true;
+                        pinched = true;
+                        startDist = distance(touches);
+                        startZoom = tab.pinchZoom || 1;
+                        const m = midpoint(touches);
+                        lastMidX = m.x;
+                        lastMidY = m.y;
+                    };
+
+                    root.addEventListener('touchstart', event => {
+                        // Single-finger touches belong to Guacamole (remote cursor); leave them alone.
+                        // Pinch is a fit-mode-only feature: fixed-resolution 'desktop' mode already zooms
+                        // (buttons) and pans (native scroll), which a second transform would fight.
+                        if (event.touches.length < 2 || isDesktopDisplayMode(tab)) {
+                            return;
+                        }
+                        swallow(event);
+                        if (event.touches.length === 2) {
+                            beginPinch(event.touches);
+                        }
+                        else {
+                            active = false; // wait until it settles back to exactly two fingers
+                        }
+                    }, { passive: false, capture: true });
+
+                    root.addEventListener('touchmove', event => {
+                        // Own the whole tail of a pinch (down to one finger) so a lifting/jittering
+                        // finger is never forwarded to the remote as a stray move or click.
+                        if (pinched && event.touches.length < 2) {
+                            swallow(event);
+                            return;
+                        }
+                        if (event.touches.length < 2 || isDesktopDisplayMode(tab)) {
+                            return;
+                        }
+                        swallow(event);
+                        if (event.touches.length !== 2) {
+                            active = false; // 3+ fingers: hold until it settles to two
+                            return;
+                        }
+                        if (!active) {
+                            beginPinch(event.touches); // (re)arm on a clean two-finger state (e.g. 3->2)
+                            return;
+                        }
+                        const rect = tab.displayScaler.getBoundingClientRect();
+                        const m = midpoint(event.touches);
+                        const z = tab.pinchZoom || 1;
+                        const newZoom = Math.min(4, Math.max(1, startZoom * (distance(event.touches) / startDist)));
+                        // Keep the pinch focal point anchored while zooming.
+                        const focalFactor = 1 - newZoom / z;
+                        tab.pinchPanX += (m.x - rect.left) * focalFactor;
+                        tab.pinchPanY += (m.y - rect.top) * focalFactor;
+                        // Two-finger drag pans.
+                        tab.pinchPanX += (m.x - lastMidX);
+                        tab.pinchPanY += (m.y - lastMidY);
+                        tab.pinchZoom = newZoom;
+                        lastMidX = m.x;
+                        lastMidY = m.y;
+                        clampPinchPan(tab);
+                        applyPinchTransform(tab);
+                    }, { passive: false, capture: true });
+
+                    const end = event => {
+                        if (!pinched) {
+                            return;
+                        }
+                        swallow(event); // own the tail touchend/touchcancel too
+                        if (event.touches.length < 2) {
+                            active = false;
+                            // Snap back cleanly when the user pinches (almost) all the way out.
+                            if ((tab.pinchZoom || 1) <= 1.02) {
+                                resetPinchZoom(tab);
+                            }
+                        }
+                        if (event.touches.length === 0) {
+                            pinched = false; // gesture fully released; re-arm for the next one
+                        }
+                    };
+                    root.addEventListener('touchend', end, { passive: false, capture: true });
+                    root.addEventListener('touchcancel', end, { passive: false, capture: true });
+                }
+
                 function fitDisplay(tab) {
                     if (!tab || !tab.client) {
                         return;
@@ -5012,6 +5175,8 @@ public sealed class HtmlViews
                             tab.displayScaler.style.width = Math.round(width * scale) + 'px';
                             tab.displayScaler.style.height = Math.round(height * scale) + 'px';
                         }
+                        clampPinchPan(tab);
+                        applyPinchTransform(tab);
                         return;
                     }
 
@@ -5022,6 +5187,8 @@ public sealed class HtmlViews
                         tab.displayScaler.style.width = '';
                         tab.displayScaler.style.height = '';
                     }
+                    clampPinchPan(tab);
+                    applyPinchTransform(tab);
                 }
 
                 function sendDisplaySize(tab) {
@@ -5314,6 +5481,9 @@ public sealed class HtmlViews
                             const touchpad = new Guacamole.Mouse.Touchpad(display.getElement());
                             touchpad.onmousedown = touchpad.onmouseup = touchpad.onmousemove = forwardTouch('touchpad');
                         }
+
+                        // Two-finger pinch to zoom / pan the remote view (touch devices only).
+                        setupPinchZoom(tab);
 
                         // Hidden input to raise the device's native keyboard on touch devices and forward
                         // typed characters to the remote as key events (reliable across mobile browsers).
@@ -6709,6 +6879,7 @@ public sealed class HtmlViews
                     }
                     tab.displayRes = value;
                     tab.zoom = 1;
+                    resetPinchZoom(tab);
                     saveResForServer(tab.serverId, value);
                     applyDisplayMode(tab);
                     sendDisplaySize(tab);
@@ -7654,16 +7825,26 @@ public sealed class HtmlViews
                         }
                     }
                     * { box-sizing: border-box; }
+                    @media (prefers-reduced-motion: reduce) {
+                        *, *::before, *::after, *::backdrop {
+                            animation-duration: 0.01ms !important;
+                            animation-iteration-count: 1 !important;
+                            transition-duration: 0.01ms !important;
+                            scroll-behavior: auto !important;
+                        }
+                    }
                     body {
                         margin: 0;
                         background: var(--bg);
                         color: var(--text);
                         font-family: Segoe UI, system-ui, -apple-system, sans-serif;
                         line-height: 1.5;
+                        -webkit-tap-highlight-color: transparent;
                     }
                     html[data-shell-layout="1"] {
                         height: var(--matgate-viewport-height, 100vh);
                         overflow: hidden;
+                        overscroll-behavior: none;
                     }
                     body[data-shell-layout="1"] {
                         display: flex;
@@ -8417,6 +8598,7 @@ public sealed class HtmlViews
                         flex: 0 0 auto;
                         max-width: 280px;
                         cursor: grab;
+                        transition: background-color .15s ease, opacity .15s ease;
                     }
                     .session-tab.active { background: var(--surface); }
                     .session-tab.dragging { opacity: .65; }
@@ -8848,6 +9030,7 @@ public sealed class HtmlViews
                     .connection-picker-panel {
                         overflow-x: hidden;
                         overflow-y: auto;
+                        overscroll-behavior: contain;
                         -webkit-overflow-scrolling: touch;
                     }
                     .connection-picker-inner {
@@ -9443,12 +9626,13 @@ public sealed class HtmlViews
                     }
                     .guac-display .guac-scaler,
                     .guac-display .guac-scaler > div { touch-action: none; }
-                    .guac-scaler { flex: 0 0 auto; }
+                    .guac-scaler { flex: 0 0 auto; will-change: transform; }
                     .guac-scaler > div { transform-origin: center center; }
                     .guac-display.scrollable {
                         align-items: flex-start;
                         justify-content: flex-start;
                         overflow: auto;
+                        overscroll-behavior: contain;
                         -webkit-overflow-scrolling: touch;
                     }
                     .guac-display.scrollable .guac-scaler > div { transform-origin: top left; }
@@ -9566,6 +9750,7 @@ public sealed class HtmlViews
                         min-height: 32px;
                         padding: 4px 8px;
                         text-decoration: none;
+                        transition: background-color .15s ease, border-color .15s ease, color .15s ease;
                     }
                     .toolbar-button:hover,
                     .toolbar-button:focus-visible,
@@ -10254,11 +10439,38 @@ public sealed class HtmlViews
                         overflow: visible;
                         padding: 0;
                         width: min(1160px, calc(100vw - 32px));
+                        opacity: 0;
+                        transform: translateY(10px) scale(.98);
+                        transition: opacity .18s ease, transform .18s ease, overlay .18s ease allow-discrete, display .18s ease allow-discrete;
+                    }
+                    .matgate-dialog[open],
+                    .file-viewer-dialog[open] {
+                        opacity: 1;
+                        transform: translateY(0) scale(1);
+                    }
+                    @starting-style {
+                        .matgate-dialog[open],
+                        .file-viewer-dialog[open] {
+                            opacity: 0;
+                            transform: translateY(10px) scale(.98);
+                        }
                     }
                     .matgate-dialog::backdrop,
                     .file-viewer-dialog::backdrop {
                         background: rgb(10 14 12 / 72%);
                         backdrop-filter: blur(2px);
+                        opacity: 0;
+                        transition: opacity .18s ease, overlay .18s ease allow-discrete, display .18s ease allow-discrete;
+                    }
+                    .matgate-dialog[open]::backdrop,
+                    .file-viewer-dialog[open]::backdrop {
+                        opacity: 1;
+                    }
+                    @starting-style {
+                        .matgate-dialog[open]::backdrop,
+                        .file-viewer-dialog[open]::backdrop {
+                            opacity: 0;
+                        }
                     }
                     .about-page {
                         display: grid;
@@ -10350,11 +10562,17 @@ public sealed class HtmlViews
                         padding: 24px;
                         position: absolute;
                         z-index: 3;
+                        opacity: 1;
+                        transition: opacity .2s ease, display .2s ease allow-discrete;
                         -webkit-touch-callout: none;
                         -webkit-user-select: none;
                         user-select: none;
                     }
                     .connection-overlay.hidden, .hidden { display: none; }
+                    .connection-overlay.hidden { opacity: 0; pointer-events: none; }
+                    @starting-style {
+                        .connection-overlay:not(.hidden) { opacity: 0; }
+                    }
                     .connection-dialog {
                         max-width: 520px;
                         text-align: center;
@@ -10369,9 +10587,22 @@ public sealed class HtmlViews
                         padding: 18px;
                         position: absolute;
                         top: 50%;
-                        transform: translate(-50%, -50%);
+                        transform: translate(-50%, -50%) scale(1);
                         width: min(420px, calc(100% - 32px));
                         z-index: 4;
+                        opacity: 1;
+                        transition: opacity .18s ease, transform .18s ease, display .18s ease allow-discrete;
+                    }
+                    .credential-dialog.hidden {
+                        opacity: 0;
+                        pointer-events: none;
+                        transform: translate(-50%, -50%) scale(.96);
+                    }
+                    @starting-style {
+                        .credential-dialog:not(.hidden) {
+                            opacity: 0;
+                            transform: translate(-50%, -50%) scale(.96);
+                        }
                     }
                     @media (max-width: 720px) {
                         .page-head, .auth-panel { align-items: stretch; flex-direction: column; grid-template-columns: 1fr; }
@@ -10535,6 +10766,81 @@ public sealed class HtmlViews
                         .embedded-viewer { height: calc(var(--matgate-viewport-height, 100vh) - 16px); width: calc(100vw - 16px); }
                         .matgate-dialog,
                         .file-viewer-dialog { width: calc(100vw - 16px); }
+                        /* Comfortable ~40px tap targets across the session chrome on phones. */
+                        .status-info-button {
+                            height: 40px;
+                            min-height: 40px;
+                            min-width: 40px;
+                            width: 40px;
+                        }
+                        .favorite-toggle {
+                            height: 40px;
+                            min-height: 40px;
+                            min-width: 40px;
+                            width: 40px;
+                        }
+                        .view-mode-toggle {
+                            min-height: 40px;
+                            min-width: 44px;
+                        }
+                        .website-tool-button {
+                            min-height: 40px;
+                        }
+                        .tab-actions button,
+                        .tab-action-button,
+                        .tab-action-select {
+                            min-height: 40px;
+                        }
+                        .tab-action-button.icon-only {
+                            min-width: 40px;
+                            width: 40px;
+                        }
+                        /* 16px avoids iOS auto-zoom when the select opens. */
+                        .tab-action-select {
+                            font-size: 16px;
+                        }
+                        .session-tab-close {
+                            min-width: 40px;
+                        }
+                        .button,
+                        button {
+                            min-height: 40px;
+                        }
+                        /* Keep icon-only controls square (the generic 40px min-height above would
+                           otherwise stretch the 32px .button-classed icon anchors into rectangles). */
+                        .toolbar-icon-button {
+                            height: 40px;
+                            min-height: 40px;
+                            min-width: 40px;
+                            width: 40px;
+                        }
+                        /* Suppress long-press text selection on interactive chrome. */
+                        .session-tab,
+                        .tab-action-button,
+                        .toolbar-button,
+                        .status-info-button,
+                        .view-mode-toggle,
+                        .favorite-toggle,
+                        button {
+                            -webkit-user-select: none;
+                            user-select: none;
+                        }
+                    }
+                    /* Intentional press feedback for ALL touch devices (phones AND tablets >720px),
+                       replacing the grey tap flash removed via -webkit-tap-highlight-color on body. */
+                    @media (pointer: coarse) {
+                        a.button:active,
+                        .button:active,
+                        button:active,
+                        .tab-action-button:active,
+                        .toolbar-button:active,
+                        .status-info-button:active,
+                        .website-tool-button:active,
+                        .view-mode-toggle:active,
+                        .favorite-toggle:active,
+                        .session-tab-close:active {
+                            opacity: .68;
+                        }
                     }
                 </style>
             </head>
