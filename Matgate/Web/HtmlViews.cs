@@ -4120,7 +4120,7 @@ public sealed class HtmlViews
                             uiText.fullscreen || 'Fullscreen',
                             async () => {
                                 try {
-                                    await toggleFullscreen(tab.panel || deck);
+                                    await toggleFullscreen(document.documentElement);
                                     scheduleResize();
                                 }
                                 catch {
@@ -4889,10 +4889,12 @@ public sealed class HtmlViews
                     }
 
                     const rect = tab.panel.getBoundingClientRect();
-
+                    // Fit modes: request a proportionally larger remote resolution (fit75/fit50) so more
+                    // content renders, then fitDisplay scales it down to fit the viewport.
+                    const fitScale = fitScaleFor(tab && tab.displayRes);
                     return {
-                        width: Math.max(320, Math.floor(rect.width)),
-                        height: Math.max(240, Math.floor(rect.height)),
+                        width: Math.max(320, Math.floor(rect.width / fitScale)),
+                        height: Math.max(240, Math.floor(rect.height / fitScale)),
                         dpi: 96
                     };
                 }
@@ -6547,7 +6549,7 @@ public sealed class HtmlViews
                 // Per-connection display resolution. 'fit' scales the remote to the viewport; a fixed WxH
                 // renders at that size with pan/zoom. Only RDP (real resize) and VNC (view scaling) use it;
                 // SSH and other protocols are always 'fit'. The choice is remembered per server.
-                const displayResPresets = ['fit', '1280x720', '1600x900', '1920x1080'];
+                const displayResPresets = ['fit', 'fit75', 'fit50', '1280x720', '1600x900', '1920x1080'];
                 const displayResStorageKey = 'matgate.display.res.v3';
                 function supportsResolution(protocol) {
                     const p = (protocol || '').toUpperCase();
@@ -6584,7 +6586,13 @@ public sealed class HtmlViews
                     }
                 }
                 function isDesktopDisplayMode(tab) {
-                    return !!(tab && tab.displayRes && tab.displayRes !== 'fit');
+                    // Only a fixed WxH is the pannable "desktop" mode; 'fit'/'fit75'/'fit50' are fit modes.
+                    return !!(tab && tab.displayRes && tab.displayRes.indexOf('x') > 0);
+                }
+                function fitScaleFor(res) {
+                    if (res === 'fit75') return 0.75;
+                    if (res === 'fit50') return 0.5;
+                    return 1;
                 }
                 function parseDisplayRes(value) {
                     const parts = String(value).split('x');
@@ -6613,7 +6621,11 @@ public sealed class HtmlViews
                     updateTabActions();
                 }
                 function resolutionOptionLabel(preset) {
-                    return preset === 'fit' ? (uiText.resolutionFitShort || 'Fit') : preset.replace('x', '×');
+                    const fit = uiText.resolutionFitShort || 'Fit';
+                    if (preset === 'fit') return fit;
+                    if (preset === 'fit75') return fit + ' 75%';
+                    if (preset === 'fit50') return fit + ' 50%';
+                    return preset.replace('x', '×');
                 }
                 function openResolutionDialog() {
                     const tab = tabs.get(activeTabId);
@@ -7626,7 +7638,7 @@ public sealed class HtmlViews
                         gap: 8px;
                         min-height: 40px;
                         overflow: visible;
-                        padding: 2px 12px;
+                        padding: 2px calc(12px + env(safe-area-inset-right)) 2px calc(12px + env(safe-area-inset-left));
                     }
                     .shell-page-tabs {
                         flex: 1 1 auto;
@@ -8441,7 +8453,7 @@ public sealed class HtmlViews
                         gap: 12px;
                         justify-content: space-between;
                         min-height: 28px;
-                        padding: 3px clamp(10px, 2vw, 18px);
+                        padding: 3px calc(clamp(10px, 2vw, 18px) + env(safe-area-inset-right)) calc(3px + env(safe-area-inset-bottom)) calc(clamp(10px, 2vw, 18px) + env(safe-area-inset-left));
                     }
                     .status-primary, .status-secondary, .status-metrics, .status-actions {
                         align-items: center;
@@ -9350,6 +9362,9 @@ public sealed class HtmlViews
                     html.session-immersive header { display: none; }
                     html.session-immersive #session-tabs { display: none; }
                     html.session-immersive .session-statusbar { display: none; }
+                    /* In immersive/fullscreen the header (which carried the top inset) is gone, so the
+                       toolbar row is topmost - keep it clear of the notch. */
+                    html.session-immersive .shell-page-row { padding-top: calc(2px + env(safe-area-inset-top)); }
                     #connection-tab-actions { overflow-x: auto; scrollbar-width: none; }
                     #connection-tab-actions::-webkit-scrollbar { display: none; }
                     .guac-stage input,
@@ -10255,6 +10270,14 @@ public sealed class HtmlViews
                         }
                         #connection-tab-actions > * {
                             flex: 0 0 auto;
+                        }
+                        #connection-tab-actions .tab-action-button,
+                        #connection-tab-actions .tab-action-select {
+                            min-height: 40px;
+                        }
+                        #connection-tab-actions .tab-action-button.icon-only {
+                            min-width: 40px;
+                            width: 40px;
                         }
                         .shell-page-tabs {
                             width: 100%;
