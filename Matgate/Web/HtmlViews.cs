@@ -2719,6 +2719,7 @@ public sealed class HtmlViews
                 </div>
             <div id="connection-tab-actions" class="tab-actions" aria-label="{{A(T(context, "Actions for the active tab"))}}"></div>
             </div>
+            <button id="immersive-handle" type="button" class="immersive-handle" aria-label="{{A(Language(context) == "de" ? "Steuerung ein-/ausblenden" : "Show/hide controls")}}" title="{{A(Language(context) == "de" ? "Steuerung ein-/ausblenden" : "Show/hide controls")}}">{{Icon("chevron-down")}}</button>
             <div id="shell-page-panels" class="shell-page-panels">
             <section id="home-view" class="app-view session-page multi-session-page active">
                 <div id="session-deck" class="session-deck">
@@ -4046,6 +4047,14 @@ public sealed class HtmlViews
                     const goImmersive = !document.documentElement.classList.contains('session-immersive');
                     document.documentElement.classList.toggle('session-immersive', goImmersive);
 
+                    if (goImmersive) {
+                        // Flash the toolbar once on entry so the pull-tab is discoverable, then auto-hide.
+                        flashImmersiveBar();
+                    }
+                    else {
+                        closeImmersiveBar();
+                    }
+
                     try {
                         if (goImmersive) {
                             if (!isFullscreenActive()) {
@@ -4095,9 +4104,94 @@ public sealed class HtmlViews
                 document.addEventListener('fullscreenchange', () => {
                     if (!isFullscreenActive()) {
                         document.documentElement.classList.remove('session-immersive');
+                        closeImmersiveBar();
                     }
                     scheduleResize();
                 });
+
+                // --- Immersive toolbar reveal -----------------------------------------------------
+                // In immersive/fullscreen the toolbar slides out of the way so the session fills the
+                // screen. A fixed pull-tab (#immersive-handle) toggles it back in; a swipe down from the
+                // very top edge does the same. It auto-hides after a few seconds of inactivity.
+                const immersiveHandle = document.getElementById('immersive-handle');
+                let immersiveBarTimer = null;
+
+                function clearImmersiveBarTimer() {
+                    if (immersiveBarTimer !== null) {
+                        window.clearTimeout(immersiveBarTimer);
+                        immersiveBarTimer = null;
+                    }
+                }
+
+                function scheduleImmersiveBarHide() {
+                    clearImmersiveBarTimer();
+                    immersiveBarTimer = window.setTimeout(() => {
+                        document.documentElement.classList.remove('immersive-bar-open');
+                        immersiveBarTimer = null;
+                    }, 6000);
+                }
+
+                function openImmersiveBar() {
+                    document.documentElement.classList.add('immersive-bar-open');
+                    scheduleImmersiveBarHide();
+                }
+
+                function closeImmersiveBar() {
+                    clearImmersiveBarTimer();
+                    document.documentElement.classList.remove('immersive-bar-open');
+                }
+
+                function flashImmersiveBar() {
+                    // Show briefly on entry, then let the auto-hide timer tuck it away.
+                    openImmersiveBar();
+                }
+
+                function toggleImmersiveBar() {
+                    if (document.documentElement.classList.contains('immersive-bar-open')) {
+                        closeImmersiveBar();
+                    }
+                    else {
+                        openImmersiveBar();
+                    }
+                }
+
+                if (immersiveHandle) {
+                    immersiveHandle.addEventListener('click', event => {
+                        event.preventDefault();
+                        toggleImmersiveBar();
+                    });
+                }
+
+                // Keep the bar visible while the user is actually touching it.
+                document.addEventListener('pointerdown', event => {
+                    if (document.documentElement.classList.contains('immersive-bar-open')
+                        && event.target instanceof Element
+                        && event.target.closest('.shell-page-row')) {
+                        scheduleImmersiveBarHide();
+                    }
+                }, true);
+
+                // Swipe down from the top edge to reveal the bar (best-effort; the tab is the sure path).
+                let edgeSwipeStartY = null;
+                document.addEventListener('touchstart', event => {
+                    if (document.documentElement.classList.contains('session-immersive')
+                        && event.touches.length === 1
+                        && event.touches[0].clientY <= 32) {
+                        edgeSwipeStartY = event.touches[0].clientY;
+                    }
+                    else {
+                        edgeSwipeStartY = null;
+                    }
+                }, { passive: true, capture: true });
+                document.addEventListener('touchmove', event => {
+                    if (edgeSwipeStartY !== null
+                        && event.touches.length === 1
+                        && event.touches[0].clientY - edgeSwipeStartY > 36) {
+                        edgeSwipeStartY = null;
+                        openImmersiveBar();
+                    }
+                }, { passive: true, capture: true });
+                document.addEventListener('touchend', () => { edgeSwipeStartY = null; }, true);
 
                 function updateTabActions() {
                     if (!connectionTabActions) {
@@ -9362,9 +9456,48 @@ public sealed class HtmlViews
                     html.session-immersive header { display: none; }
                     html.session-immersive #session-tabs { display: none; }
                     html.session-immersive .session-statusbar { display: none; }
-                    /* In immersive/fullscreen the header (which carried the top inset) is gone, so the
-                       toolbar row is topmost - keep it clear of the notch. */
-                    html.session-immersive .shell-page-row { padding-top: calc(2px + env(safe-area-inset-top)); }
+                    /* Immersive/fullscreen: the toolbar slides up out of flow so the session fills the
+                       screen; the always-visible handle taps it back (plus edge-swipe from the top). */
+                    html.session-immersive .shell-page-row {
+                        left: 0;
+                        padding-top: calc(2px + env(safe-area-inset-top));
+                        position: absolute;
+                        right: 0;
+                        top: 0;
+                        transform: translateY(-110%);
+                        transition: transform .2s ease;
+                        z-index: 65;
+                    }
+                    html.session-immersive.immersive-bar-open .shell-page-row {
+                        transform: translateY(0);
+                    }
+                    .immersive-handle { display: none; }
+                    html.session-immersive .immersive-handle {
+                        align-items: center;
+                        background: rgba(20, 22, 20, .72);
+                        border: 1px solid var(--line);
+                        border-top: 0;
+                        border-radius: 0 0 12px 12px;
+                        color: #fff;
+                        cursor: pointer;
+                        display: inline-flex;
+                        height: 24px;
+                        justify-content: center;
+                        left: 50%;
+                        opacity: .55;
+                        position: fixed;
+                        top: env(safe-area-inset-top);
+                        transform: translateX(-50%);
+                        width: 56px;
+                        z-index: 66;
+                    }
+                    html.session-immersive .immersive-handle:active { opacity: 1; }
+                    html.session-immersive .immersive-handle .icon { height: 16px; width: 16px; transition: transform .2s ease; }
+                    html.session-immersive.immersive-bar-open .immersive-handle {
+                        opacity: .85;
+                        top: calc(46px + env(safe-area-inset-top));
+                    }
+                    html.session-immersive.immersive-bar-open .immersive-handle .icon { transform: rotate(180deg); }
                     #connection-tab-actions { overflow-x: auto; scrollbar-width: none; }
                     #connection-tab-actions::-webkit-scrollbar { display: none; }
                     .guac-stage input,
