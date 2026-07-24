@@ -1919,6 +1919,7 @@ public sealed class HtmlViews
                         <h1>{{T(context, "New Connection")}}</h1>
                     </div>
                     <div class="connection-browser-head-actions">
+                        <button type="button" class="button home-browser-nav-toggle" data-home-nav-toggle="1" aria-expanded="false">{{Icon("folder")}}<span>{{T(context, "Folders")}}</span></button>
                         <div class="connection-browser-mode-switch" role="tablist" aria-label="{{A(T(context, "Connections"))}}">
                             <button type="button" class="connection-browser-mode-button active" data-home-mode-switch="folder">{{Icon("folder")}}<span>{{T(context, "Folder view")}}</span></button>
                             <button type="button" class="connection-browser-mode-button" data-home-mode-switch="host">{{Icon("server")}}<span>{{T(context, "Server view")}}</span></button>
@@ -3239,6 +3240,33 @@ public sealed class HtmlViews
                             });
                         });
                     });
+
+                    // Mobile off-canvas drawer for the folder/server sidebar.
+                    const navToggle = homeBrowser.querySelector('[data-home-nav-toggle]');
+                    const setNavOpen = open => {
+                        homeBrowser.classList.toggle('home-nav-open', open);
+                        if (navToggle) {
+                            navToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+                        }
+                    };
+                    if (navToggle) {
+                        navToggle.addEventListener('click', () => {
+                            setNavOpen(!homeBrowser.classList.contains('home-nav-open'));
+                        });
+                    }
+                    homeBrowser.addEventListener('click', event => {
+                        if (!homeBrowser.classList.contains('home-nav-open')) {
+                            return;
+                        }
+                        const target = event.target instanceof Element ? event.target : null;
+                        if (!target || target.closest('[data-home-nav-toggle]')) {
+                            return;
+                        }
+                        // Picking a folder/server (or workspace), or tapping the scrim/content, closes it.
+                        if (target.closest('.home-browser-nav-item') || !target.closest('.home-browser-sidebar')) {
+                            setNavOpen(false);
+                        }
+                    });
                 }
 
                 function restoreHomeBrowser() {
@@ -4192,6 +4220,23 @@ public sealed class HtmlViews
                     }
                 }, { passive: true, capture: true });
                 document.addEventListener('touchend', () => { edgeSwipeStartY = null; }, true);
+
+                // Desktop (and any mouse): move the pointer to the very top edge to reveal the toolbar,
+                // like a fullscreen video player - no need to aim for the small corner handle. It tucks
+                // away again on the usual inactivity timer. Also keeps the bar open while hovering it.
+                document.addEventListener('mousemove', event => {
+                    if (!document.documentElement.classList.contains('session-immersive')) {
+                        return;
+                    }
+                    if (event.clientY <= 2) {
+                        openImmersiveBar();
+                    }
+                    else if (document.documentElement.classList.contains('immersive-bar-open')
+                        && event.target instanceof Element
+                        && event.target.closest('.shell-page-row')) {
+                        scheduleImmersiveBarHide();
+                    }
+                }, { passive: true });
 
                 function updateTabActions() {
                     if (!connectionTabActions) {
@@ -6820,7 +6865,10 @@ public sealed class HtmlViews
                     return p === 'RDP' || p === 'VNC' || p === 'LEGACYBROWSER';
                 }
                 function defaultDisplayRes() {
-                    return (isTouchDevice && !isTabletDevice) ? '1280x720' : 'fit';
+                    // Phones default to Fit 50%: the remote renders at 2x the on-screen size and is
+                    // scaled down to fit, so the whole screen is always visible AND pinch-zoom has real
+                    // pixel detail to reveal. Beats a fixed WxH that would force constant scrolling.
+                    return (isTouchDevice && !isTabletDevice) ? 'fit50' : 'fit';
                 }
                 function loadResMap() {
                     try {
@@ -9119,6 +9167,9 @@ public sealed class HtmlViews
                         flex: 1;
                         min-height: 0;
                     }
+                    /* The folder/server list is a full sidebar on desktop; on phones it collapses into
+                       an off-canvas drawer opened via this toggle (see the max-width:720px block). */
+                    .home-browser-nav-toggle { display: none; }
                     .home-browser-layout {
                         display: grid;
                         gap: 14px;
@@ -9667,21 +9718,22 @@ public sealed class HtmlViews
                         display: inline-flex;
                         height: 24px;
                         justify-content: center;
-                        left: 50%;
                         opacity: .55;
                         position: fixed;
+                        right: calc(12px + env(safe-area-inset-right));
                         top: env(safe-area-inset-top);
-                        transform: translateX(-50%);
                         width: 56px;
                         z-index: 66;
                     }
+                    html.session-immersive .immersive-handle:hover,
                     html.session-immersive .immersive-handle:active { opacity: 1; }
                     html.session-immersive .immersive-handle .icon { height: 16px; width: 16px; transition: transform .2s ease; }
+                    /* While the toolbar is revealed it carries its own controls (incl. the fullscreen
+                       exit) and auto-hides on inactivity, so the corner handle just gets out of the way. */
                     html.session-immersive.immersive-bar-open .immersive-handle {
-                        opacity: .85;
-                        top: calc(46px + env(safe-area-inset-top));
+                        opacity: 0;
+                        pointer-events: none;
                     }
-                    html.session-immersive.immersive-bar-open .immersive-handle .icon { transform: rotate(180deg); }
                     #connection-tab-actions { overflow-x: auto; scrollbar-width: none; }
                     #connection-tab-actions::-webkit-scrollbar { display: none; }
                     .guac-stage input,
@@ -10730,6 +10782,36 @@ public sealed class HtmlViews
                         .home-browser-sidebar {
                             max-height: none;
                             overflow: visible;
+                        }
+                        /* Main home browser: the folder/server sidebar becomes an off-canvas drawer so
+                           the connection cards get the full width instead of being pushed down. */
+                        [data-home-browser] .home-browser-nav-toggle { display: inline-flex; }
+                        [data-home-browser] .home-browser-sidebar {
+                            border-radius: 0 var(--radius) var(--radius) 0;
+                            bottom: 0;
+                            left: 0;
+                            max-height: none;
+                            overflow-y: auto;
+                            padding-bottom: calc(12px + env(safe-area-inset-bottom));
+                            padding-left: calc(12px + env(safe-area-inset-left));
+                            padding-top: calc(12px + env(safe-area-inset-top));
+                            position: fixed;
+                            top: 0;
+                            transform: translateX(-102%);
+                            transition: transform .22s ease;
+                            width: min(320px, 84vw);
+                            z-index: 40;
+                        }
+                        [data-home-browser].home-nav-open .home-browser-sidebar {
+                            box-shadow: var(--shadow-strong);
+                            transform: translateX(0);
+                        }
+                        [data-home-browser].home-nav-open::before {
+                            background: rgb(0 0 0 / 45%);
+                            content: '';
+                            inset: 0;
+                            position: fixed;
+                            z-index: 39;
                         }
                         .workspace-browser-layout {
                             grid-template-columns: 1fr;
