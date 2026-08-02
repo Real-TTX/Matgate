@@ -351,7 +351,8 @@ public static class EndpointMapping
         app.MapPost("/api/files/{id:guid}/delete", DeleteFilesAsync).RequireAuthorization();
         app.MapDelete("/api/files/{id:guid}", DeleteFileAsync).RequireAuthorization();
 
-        app.MapGet("/admin/users", UsersAsync).RequireAuthorization();
+        app.MapGet("/admin", AdminHomeAsync).RequireAuthorization();
+        app.MapGet("/admin/users", () => Results.Redirect("/admin?tab=users")).RequireAuthorization();
         app.MapGet("/admin/users/new", NewUserAsync).RequireAuthorization();
         app.MapPost("/admin/users", CreateUserAsync).RequireAuthorization();
         app.MapGet("/admin/users/{id:guid}", UserDetailAsync).RequireAuthorization();
@@ -360,7 +361,7 @@ public static class EndpointMapping
         app.MapPost("/admin/users/{id:guid}/password", ResetUserPasswordAsync).RequireAuthorization();
         app.MapPost("/admin/users/{id:guid}/delete", DeleteUserAsync).RequireAuthorization();
 
-        app.MapGet("/admin/servers", ServersAsync).RequireAuthorization();
+        app.MapGet("/admin/servers", () => Results.Redirect("/admin?tab=servers")).RequireAuthorization();
         app.MapGet("/admin/servers/new", NewServerAsync).RequireAuthorization();
         app.MapPost("/admin/servers", CreateServerAsync).RequireAuthorization();
         app.MapGet("/admin/servers/{id:guid}", ServerDetailAsync).RequireAuthorization();
@@ -2964,6 +2965,30 @@ public static class EndpointMapping
 
         await configWriter.SynchronizeAsync(context.RequestAborted);
         return Results.Redirect(EmbedAwareRedirect(context, "/admin/users"));
+    }
+
+    private static async Task<IResult> AdminHomeAsync(
+        HttpContext context,
+        JsonDataStore store,
+        HtmlViews views,
+        WorkspaceService workspaceService)
+    {
+        var user = await RequireServerManagerAsync(context, store);
+        if (user is null)
+        {
+            return Results.Redirect("/forbidden");
+        }
+
+        var servers = (await store.GetServersAsync(context.RequestAborted))
+            .Where(server => CanEditServer(user, server))
+            .OrderBy(server => server.OwnerUserId is null ? 0 : 1)
+            .ThenBy(server => server.FolderName)
+            .ThenBy(server => server.Name)
+            .ToList();
+        var users = await store.GetUsersAsync(context.RequestAborted);
+        var workspaces = VisibleWorkspacesForUser(user, await workspaceService.GetWorkspacesAsync(context.RequestAborted));
+
+        return Results.Content(views.AdminHome(context, user, servers, users, workspaces), "text/html");
     }
 
     private static async Task<IResult> ServersAsync(HttpContext context, JsonDataStore store, HtmlViews views)

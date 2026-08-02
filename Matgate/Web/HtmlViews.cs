@@ -576,6 +576,95 @@ public sealed class HtmlViews
         return Layout(context, currentUser, Language(context) == "de" ? "Benutzer bearbeiten" : "Edit user", body);
     }
 
+    // Unified admin: one tabbed page (Servers | Users | Workspaces) built on the reusable
+    // Tabs + DataTable controls. Create/edit stay on separate sub-pages; rows offer open/edit
+    // links and an inline (confirmed) delete.
+    public string AdminHome(
+        HttpContext context,
+        MatgateUser currentUser,
+        IReadOnlyList<ServerEndpoint> servers,
+        IReadOnlyList<MatgateUser> users,
+        IReadOnlyList<WorkspaceDefinition> workspaces)
+    {
+        var de = Language(context) == "de";
+        var openLabel = T(context, "Open");
+        var editLabel = de ? "Bearbeiten" : "Edit";
+        var deleteLabel = de ? "Loeschen" : "Delete";
+        var confirmDelete = de ? "Wirklich loeschen?" : "Delete this entry?";
+
+        string DeleteForm(string action) => $$"""<form method="post" action="{{action}}" data-confirm="{{A(confirmDelete)}}">{{Csrf(context)}}<button type="submit" class="icon-button danger-action" title="{{A(deleteLabel)}}" aria-label="{{A(deleteLabel)}}">{{Icon("trash")}}</button></form>""";
+        string EditLink(string href) => $$"""<a class="icon-button" href="{{href}}" title="{{A(editLabel)}}" aria-label="{{A(editLabel)}}">{{Icon("edit")}}</a>""";
+
+        var serverRows = string.Join("", servers.Select(server => $$"""
+            <tr>
+                <td><span class="server-name-cell">{{ServerIcon(server, "small")}}<a href="/admin/servers/{{server.Id}}">{{E(server.Name)}}</a></span></td>
+                <td>{{ServerScopeBadge(context, server, users)}}</td>
+                <td>{{(string.IsNullOrWhiteSpace(server.FolderName) ? "<span class=\"muted\">-</span>" : ServerFolderBadge(context, server))}}</td>
+                <td data-sort-value="{{A(ServerProtocolLabel(server.Protocol))}}"><span class="badge">{{E(ServerProtocolLabel(server.Protocol))}}</span></td>
+                <td>{{E(ServerTargetValue(server))}}</td>
+                <td>{{(server.IsEnabled ? T(context, "Active") : T(context, "Off"))}}</td>
+                <td class="table-actions"><div class="row-actions"><a class="icon-button" href="/connect/{{server.Id}}" data-shell-open-tab="1" data-shell-title="{{A(server.Name)}}" data-shell-description="{{A(T(context, "Connection"))}}" title="{{A(openLabel)}}" aria-label="{{A(openLabel)}}">{{Icon("play")}}</a>{{EditLink($"/admin/servers/{server.Id}")}}{{DeleteForm($"/admin/servers/{server.Id}/delete")}}</div></td>
+            </tr>
+            """));
+        var serverHeaders = $$"""<th data-sortable>{{T(context, "Name")}}</th><th data-sortable>{{T(context, "Scope")}}</th><th data-sortable>{{T(context, "Folder")}}</th><th data-sortable>{{T(context, "Type")}}</th><th data-sortable>{{T(context, "Target")}}</th><th data-sortable>{{T(context, "Status")}}</th><th class="table-actions">{{T(context, "Actions")}}</th>""";
+        var serverTable = DataTable(de ? "Server suchen..." : "Search servers...", serverHeaders, serverRows, T(context, "No servers yet."), 7, 15, "",
+            $$"""<a class="button primary" href="/admin/servers/new">{{Icon("plus")}}{{(de ? "Neuer Server" : "New server")}}</a>""");
+
+        var userRows = string.Join("", users.OrderBy(u => u.UserName).Select(u => $$"""
+            <tr>
+                <td><a href="/admin/users/{{u.Id}}">{{E(u.UserName)}}</a></td>
+                <td>{{E(u.DisplayName)}}</td>
+                <td>{{RoleLabels(context, u)}}</td>
+                <td>{{(u.IsEnabled ? T(context, "Active") : T(context, "Locked"))}}</td>
+                <td class="table-actions"><div class="row-actions">{{EditLink($"/admin/users/{u.Id}")}}{{(u.Id == currentUser.Id ? "" : DeleteForm($"/admin/users/{u.Id}/delete"))}}</div></td>
+            </tr>
+            """));
+        var userHeaders = $$"""<th data-sortable>{{T(context, "Name")}}</th><th data-sortable>{{T(context, "Display")}}</th><th data-sortable>{{T(context, "Roles")}}</th><th data-sortable>{{T(context, "Status")}}</th><th class="table-actions">{{T(context, "Actions")}}</th>""";
+        var userTable = DataTable(de ? "Benutzer suchen..." : "Search users...", userHeaders, userRows, T(context, "No users created yet."), 5, 15, "",
+            $$"""<a class="button primary" href="/admin/users/new">{{Icon("plus")}}{{T(context, "Create user")}}</a>""");
+
+        var workspaceRows = string.Join("", workspaces
+            .OrderByDescending(WorkspaceIsPublicAccessActive)
+            .ThenBy(w => w.Name)
+            .Select(w => $$"""
+            <tr>
+                <td><span class="server-name-cell">{{Icon("briefcase")}}<a href="/workspaces/{{w.Id}}" data-shell-open-tab="1" data-shell-title="{{A(w.Name)}}" data-shell-description="{{A(T(context, "Workspace"))}}">{{E(w.Name)}}</a></span></td>
+                <td><span class="badge">{{(w.IsPrivate ? T(context, "Personal") : T(context, "Shared"))}}</span></td>
+                <td data-sort-value="{{A(WorkspaceValidityLabel(context, w))}}"><span class="badge" title="{{A(WorkspacePublicAccessExpiresText(context, w))}}">{{E(WorkspaceValidityLabel(context, w))}}</span></td>
+                <td>{{(WorkspaceIsPublicAccessActive(w) ? T(context, "Active") : T(context, "Expired"))}}</td>
+                <td class="table-actions"><div class="row-actions"><a class="icon-button" href="/workspaces/{{w.Id}}" data-shell-open-tab="1" data-shell-title="{{A(w.Name)}}" data-shell-description="{{A(T(context, "Workspace"))}}" title="{{A(openLabel)}}" aria-label="{{A(openLabel)}}">{{Icon("external-link")}}</a>{{EditLink($"/workspaces/{w.Id}?tab=settings")}}{{DeleteForm($"/workspaces/{w.Id}/delete")}}</div></td>
+            </tr>
+            """));
+        var workspaceHeaders = $$"""<th data-sortable>{{T(context, "Name")}}</th><th data-sortable>{{T(context, "Scope")}}</th><th data-sortable>{{T(context, "Validity")}}</th><th data-sortable>{{T(context, "Status")}}</th><th class="table-actions">{{T(context, "Actions")}}</th>""";
+        var workspaceTable = DataTable(de ? "Workspaces suchen..." : "Search workspaces...", workspaceHeaders, workspaceRows, T(context, "No workspaces yet."), 5, 15, "",
+            $$"""<a class="button primary" href="/workspaces/new">{{Icon("plus")}}{{(de ? "Neuer Workspace" : "New workspace")}}</a>""");
+
+        var tabs = new List<TabItem>
+        {
+            new("servers", T(context, "Servers"), Icon("server"), $"""<section class="panel">{serverTable}</section>""")
+        };
+        if (currentUser.IsAdmin)
+        {
+            tabs.Add(new("users", T(context, "Users"), Icon("users"), $"""<section class="panel">{userTable}</section>"""));
+        }
+        tabs.Add(new("workspaces", T(context, "Workspaces"), Icon("briefcase"), $"""<section class="panel">{workspaceTable}</section>"""));
+
+        var tabParam = context.Request.Query["tab"].ToString().ToLowerInvariant();
+        var activeKey = tabs.Any(t => t.Key == tabParam) ? tabParam : tabs[0].Key;
+
+        var body = $$"""
+            <section class="page-head">
+                <div>
+                    <p class="eyebrow">{{T(context, "Administration")}}</p>
+                    <h1>{{T(context, "Administration")}}</h1>
+                </div>
+            </section>
+            {{Tabs(activeKey, tabs.ToArray())}}
+            """;
+
+        return Layout(context, currentUser, T(context, "Administration"), body);
+    }
+
     public string Servers(HttpContext context, MatgateUser currentUser, IReadOnlyList<ServerEndpoint> servers, IReadOnlyList<MatgateUser> users)
     {
         var visibleServers = servers
@@ -7847,15 +7936,7 @@ public sealed class HtmlViews
         var toolsClass = toolsActive ? " active" : "";
         var accountClass = accountActive ? " active" : "";
         var adminMenu = canManageAdminArea ? $$"""
-                <details class="shell-menu{{adminClass}}">
-                    <summary class="shell-tab shell-menu-trigger{{adminClass}}" aria-label="{{A(T(context, "Administration"))}}">
-                        {{Icon("shield")}}<span>{{T(context, "Administration")}}</span><span class="menu-caret">{{Icon("chevron-down")}}</span>
-                    </summary>
-                    <div class="menu-panel shell-menu-panel">
-                        {{(canManageAdminArea ? $"""<a class="shell-menu-item" href="/admin/servers" data-shell-open-tab="1" data-shell-title="{A(T(context, "Servers"))}">{Icon("server")}<span>{T(context, "Servers")}</span></a>""" : "")}}
-                        {{(user!.IsAdmin ? $"""<a class="shell-menu-item" href="/admin/users" data-shell-open-tab="1" data-shell-title="{A(T(context, "Users"))}">{Icon("users")}<span>{T(context, "Users")}</span></a>""" : "")}}
-                    </div>
-                </details>
+                <a class="shell-tab{{adminClass}}" href="/admin" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Administration"))}}">{{Icon("shield")}}<span>{{T(context, "Administration")}}</span></a>
                 """ : "";
         var shellTabs = user is null ? "" : $$"""
             <div class="shell-nav-row">
@@ -7891,8 +7972,7 @@ public sealed class HtmlViews
                 <div class="menu-panel shell-menu-panel shell-burger-panel">
                     <a class="shell-menu-item{{workspacesClass}}" href="/workspaces" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Workspaces"))}}">{{Icon("briefcase")}}<span>{{T(context, "Workspaces")}}</span></a>
                     <a class="shell-menu-item{{toolsClass}}" href="/tools" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Tools"))}}">{{Icon("wrench")}}<span>{{T(context, "Tools")}}</span></a>
-                    {{(canManageAdminArea ? $"""<a class="shell-menu-item{(adminActive ? " active" : "")}" href="/admin/servers" data-shell-open-tab="1" data-shell-title="{A(T(context, "Servers"))}">{Icon("server")}<span>{T(context, "Servers")}</span></a>""" : "")}}
-                    {{(user!.IsAdmin ? $"""<a class="shell-menu-item" href="/admin/users" data-shell-open-tab="1" data-shell-title="{A(T(context, "Users"))}">{Icon("users")}<span>{T(context, "Users")}</span></a>""" : "")}}
+                    {{(canManageAdminArea ? $"""<a class="shell-menu-item{(adminActive ? " active" : "")}" href="/admin" data-shell-open-tab="1" data-shell-title="{A(T(context, "Administration"))}">{Icon("shield")}<span>{T(context, "Administration")}</span></a>""" : "")}}
                     <a class="shell-menu-item account-trigger{{accountClass}}" href="/account" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Account"))}}">{{Icon("settings")}}<span class="account-name">{{E(displayName)}}</span></a>
                     <form method="post" action="/logout" class="account-menu-logout">
                         {{Csrf(context)}}
@@ -8335,6 +8415,67 @@ public sealed class HtmlViews
                         min-height: 34px;
                         padding: 5px 10px;
                     }
+                    /* Reusable data table: toolbar (search/sort) above, pagination directly under the
+                       table, list actions below (left-aligned; destructive actions pushed apart). */
+                    .data-table { display: flex; flex-direction: column; gap: 12px; }
+                    .data-table-toolbar {
+                        align-items: center;
+                        display: flex;
+                        flex-wrap: wrap;
+                        gap: 10px;
+                        justify-content: space-between;
+                    }
+                    .data-table-search { align-items: center; display: inline-flex; flex: 1 1 220px; gap: 8px; max-width: 380px; }
+                    .data-table-search input { width: 100%; }
+                    .data-table-toolbar-actions { align-items: center; display: inline-flex; flex-wrap: wrap; gap: 8px; }
+                    thead th.sortable { cursor: pointer; user-select: none; white-space: nowrap; }
+                    thead th.sortable:hover { color: var(--accent); }
+                    thead th.sortable::after { content: '↕'; font-size: 11px; margin-left: 6px; opacity: .35; }
+                    thead th.sortable[data-sort-dir="asc"]::after { content: '↑'; opacity: 1; }
+                    thead th.sortable[data-sort-dir="desc"]::after { content: '↓'; opacity: 1; }
+                    .pagination { align-items: center; display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; }
+                    .pagination-button {
+                        background: var(--surface);
+                        border: 1px solid var(--line);
+                        border-radius: var(--radius);
+                        color: var(--text);
+                        cursor: pointer;
+                        min-height: 34px;
+                        min-width: 34px;
+                        padding: 4px 10px;
+                    }
+                    .pagination-button:hover:not(:disabled) { background: var(--hover-bg); }
+                    .pagination-button.active { background: var(--surface-2); border-color: var(--accent); color: var(--accent); }
+                    .pagination-button:disabled { cursor: default; opacity: .45; }
+                    /* List actions below the table + generic button row: positive left, destructive pushed
+                       right via .spacer (button order = positive -> negative, e.g. Save Back <space> Delete). */
+                    .data-table-actions, .form-actions {
+                        align-items: center;
+                        display: flex;
+                        flex-wrap: wrap;
+                        gap: 8px;
+                        margin-top: 4px;
+                    }
+                    .data-table-actions .spacer, .form-actions .spacer { flex: 1 1 auto; min-width: 12px; }
+                    .row-actions { align-items: center; display: inline-flex; gap: 4px; justify-content: flex-end; }
+                    .row-actions .icon-button {
+                        align-items: center;
+                        background: transparent;
+                        border: 1px solid transparent;
+                        border-radius: var(--radius);
+                        color: var(--muted);
+                        cursor: pointer;
+                        display: inline-flex;
+                        height: 34px;
+                        justify-content: center;
+                        padding: 0;
+                        width: 34px;
+                    }
+                    .row-actions .icon-button .icon { height: 15px; width: 15px; }
+                    .row-actions .icon-button:hover { background: var(--hover-bg); color: var(--text); }
+                    .row-actions .icon-button.danger-action:hover { background: rgb(192 87 79 / 14%); color: #c0574f; }
+                    .row-actions form { display: inline-flex; margin: 0; }
+                    tbody tr.hidden { display: none; }
                     .shell-tab-main {
                         background: transparent;
                         border: 0;
@@ -11221,6 +11362,105 @@ public sealed class HtmlViews
                             }));
                         });
 
+                        // Reusable client-side data table: [data-table] with a [data-table-search] input,
+                        // sortable [data-sortable] headers, a [data-table-body], optional [data-table-empty]
+                        // row and [data-pagination] via data-page-size. Scoped per root -> multi-instance safe.
+                        document.querySelectorAll('[data-table]').forEach((root) => {
+                            const body = root.querySelector('[data-table-body]');
+                            if (!body) {
+                                return;
+                            }
+                            const searchInput = root.querySelector('[data-table-search]');
+                            const emptyRow = root.querySelector('[data-table-empty]');
+                            const pager = root.querySelector('[data-pagination]');
+                            const pageSize = parseInt(root.getAttribute('data-page-size') || '0', 10) || 0;
+                            const headers = Array.from(root.querySelectorAll('thead th'));
+                            let page = 1;
+                            let sortCol = -1;
+                            let sortDir = 1;
+
+                            const dataRows = () => Array.from(body.children).filter((r) => r.tagName === 'TR' && !r.hasAttribute('data-table-empty'));
+                            const cellKey = (row, i) => {
+                                const cell = row.children[i];
+                                if (!cell) { return ''; }
+                                const v = cell.getAttribute('data-sort-value');
+                                return (v !== null ? v : (cell.textContent || '')).trim().toLowerCase();
+                            };
+
+                            const renderPager = (pages) => {
+                                if (!pager) { return; }
+                                if (!pageSize || pages <= 1) { pager.innerHTML = ''; pager.classList.add('hidden'); return; }
+                                pager.classList.remove('hidden');
+                                pager.innerHTML = '';
+                                const mk = (label, target, disabled, current) => {
+                                    const b = document.createElement('button');
+                                    b.type = 'button';
+                                    b.className = 'pagination-button' + (current ? ' active' : '');
+                                    b.textContent = label;
+                                    if (disabled) { b.disabled = true; }
+                                    else { b.addEventListener('click', () => { page = target; apply(); }); }
+                                    pager.appendChild(b);
+                                };
+                                mk('‹', Math.max(1, page - 1), page <= 1, false);
+                                for (let p = 1; p <= pages; p += 1) { mk(String(p), p, false, p === page); }
+                                mk('›', Math.min(pages, page + 1), page >= pages, false);
+                            };
+
+                            const apply = () => {
+                                const q = (searchInput && searchInput.value || '').trim().toLowerCase();
+                                const rows = dataRows();
+                                let visible = rows.filter((r) => !q || (r.textContent || '').toLowerCase().includes(q));
+                                if (sortCol >= 0) {
+                                    visible.sort((a, b) => {
+                                        const av = cellKey(a, sortCol);
+                                        const bv = cellKey(b, sortCol);
+                                        const an = parseFloat(av);
+                                        const bn = parseFloat(bv);
+                                        let cmp;
+                                        if (!isNaN(an) && !isNaN(bn) && av !== '' && bv !== '') { cmp = an - bn; }
+                                        else { cmp = av < bv ? -1 : (av > bv ? 1 : 0); }
+                                        return cmp * sortDir;
+                                    });
+                                    visible.forEach((r) => body.appendChild(r));
+                                }
+                                const total = visible.length;
+                                const pages = pageSize ? Math.max(1, Math.ceil(total / pageSize)) : 1;
+                                if (page > pages) { page = pages; }
+                                rows.forEach((r) => r.classList.add('hidden'));
+                                const start = pageSize ? (page - 1) * pageSize : 0;
+                                const end = pageSize ? start + pageSize : total;
+                                visible.slice(start, end).forEach((r) => r.classList.remove('hidden'));
+                                if (emptyRow) { emptyRow.classList.toggle('hidden', total > 0); }
+                                renderPager(pages);
+                            };
+
+                            headers.forEach((th, i) => {
+                                if (!th.hasAttribute('data-sortable')) { return; }
+                                th.classList.add('sortable');
+                                th.addEventListener('click', () => {
+                                    if (sortCol === i) { sortDir = -sortDir; }
+                                    else { sortCol = i; sortDir = 1; }
+                                    headers.forEach((h) => h.removeAttribute('data-sort-dir'));
+                                    th.setAttribute('data-sort-dir', sortDir > 0 ? 'asc' : 'desc');
+                                    apply();
+                                });
+                            });
+                            if (searchInput) {
+                                searchInput.addEventListener('input', () => { page = 1; apply(); });
+                            }
+                            apply();
+                        });
+
+                        // Confirm-before-submit for any form marked [data-confirm] (inline deletes etc.).
+                        document.addEventListener('submit', (event) => {
+                            const form = event.target;
+                            if (form instanceof HTMLFormElement && form.hasAttribute('data-confirm')) {
+                                if (!window.confirm(form.getAttribute('data-confirm') || 'Are you sure?')) {
+                                    event.preventDefault();
+                                }
+                            }
+                        }, true);
+
                         // Compact single-bar view: merges header + tab strip into one row and
                         // collapses the global nav into the burger menu. Persisted per browser.
                         const viewModeStorageKey = 'matgate.view.mode.v1';
@@ -11753,6 +11993,67 @@ public sealed class HtmlViews
     private static string Csrf(HttpContext context)
     {
         return $"""<input type="hidden" name="_csrf" value="{A(context.User.FindFirstValue("csrf"))}">""";
+    }
+
+    // ---- Reusable UI controls (code base) ----------------------------------------------------
+
+    private sealed record TabItem(string Key, string Label, string IconHtml, string Panel);
+
+    // A reusable tab control: strip + panels, driven by the generic [data-tabs] JS. Multiple
+    // instances per page are independent (state is per [data-tabs] root).
+    private static string Tabs(string activeKey, params TabItem[] tabs)
+    {
+        var strip = string.Join("", tabs.Select(t =>
+            $"""<a class="tab-button{(t.Key == activeKey ? " active" : "")}" href="?tab={A(t.Key)}" data-tab-target="{A(t.Key)}" role="tab" aria-selected="{(t.Key == activeKey ? "true" : "false")}">{t.IconHtml}<span>{E(t.Label)}</span></a>"""));
+        var panels = string.Join("", tabs.Select(t =>
+            $"""<div class="tab-panel{(t.Key == activeKey ? "" : " hidden")}" data-tab-panel="{A(t.Key)}">{t.Panel}</div>"""));
+        return $"""<section class="tabs" data-tabs><div class="tab-strip" role="tablist">{strip}</div><div class="tab-panels">{panels}</div></section>""";
+    }
+
+    // A reusable data table: search/sort toolbar above, pagination directly under the table, and an
+    // optional list-actions row below (left-aligned; use a "<span class='spacer'></span>" to push
+    // destructive actions apart). Sortable headers carry data-sortable.
+    private static string DataTable(
+        string searchPlaceholder,
+        string headersHtml,
+        string rowsHtml,
+        string emptyMessage,
+        int columnCount,
+        int pageSize = 0,
+        string toolbarActionsHtml = "",
+        string listActionsHtml = "")
+    {
+        var pageSizeAttr = pageSize > 0 ? $" data-page-size=\"{pageSize}\"" : "";
+        var listActions = string.IsNullOrWhiteSpace(listActionsHtml)
+            ? ""
+            : $"""<div class="data-table-actions">{listActionsHtml}</div>""";
+        return $$"""
+            <section class="data-table" data-table{{pageSizeAttr}}>
+                <div class="data-table-toolbar">
+                    <label class="data-table-search"><input type="search" data-table-search placeholder="{{A(searchPlaceholder)}}" aria-label="{{A(searchPlaceholder)}}"></label>
+                    <div class="data-table-toolbar-actions">{{toolbarActionsHtml}}</div>
+                </div>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr>{{headersHtml}}</tr></thead>
+                        <tbody data-table-body>
+                            {{rowsHtml}}
+                            <tr data-table-empty class="hidden"><td colspan="{{columnCount}}" class="muted">{{E(emptyMessage)}}</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <nav class="pagination hidden" data-pagination></nav>
+                {{listActions}}
+            </section>
+            """;
+    }
+
+    // A button row in guideline order: positive (Save) -> neutral (Back) -> spacer -> destructive
+    // (Delete). Any part may be empty; the spacer only appears when there is a destructive action.
+    private static string FormActions(string positiveHtml, string neutralHtml = "", string destructiveHtml = "")
+    {
+        var spacer = string.IsNullOrWhiteSpace(destructiveHtml) ? "" : """<span class="spacer"></span>""";
+        return $"""<div class="form-actions">{positiveHtml}{neutralHtml}{spacer}{destructiveHtml}</div>""";
     }
 
     public static string Language(HttpContext context)
