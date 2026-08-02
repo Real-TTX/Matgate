@@ -896,15 +896,45 @@ public sealed class HtmlViews
         string defaultRootPath,
         string? pageTitleOverride = null)
     {
+        var de = Language(context) == "de";
+        var active = workspaces.Where(WorkspaceIsPublicAccessActive).OrderBy(w => w.Name).ToList();
+        var expired = workspaces.Where(w => !WorkspaceIsPublicAccessActive(w)).OrderBy(w => w.Name).ToList();
+
+        string wsRow(WorkspaceDefinition w) => $$"""
+            <tr>
+                <td><span class="server-name-cell">{{Icon("briefcase")}}<a href="/workspaces/{{w.Id}}" data-shell-open-tab="1" data-shell-title="{{A(w.Name)}}" data-shell-description="{{A(T(context, "Workspace"))}}">{{E(w.Name)}}</a></span></td>
+                <td><span class="badge">{{(w.IsPrivate ? T(context, "Personal") : T(context, "Shared"))}}</span></td>
+                <td data-sort-value="{{A(WorkspaceValidityLabel(context, w))}}"><span class="badge" title="{{A(WorkspacePublicAccessExpiresText(context, w))}}">{{E(WorkspaceValidityLabel(context, w))}}</span></td>
+                <td class="table-actions"><div class="row-actions"><a class="icon-button" href="/workspaces/{{w.Id}}" data-shell-open-tab="1" data-shell-title="{{A(w.Name)}}" data-shell-description="{{A(T(context, "Workspace"))}}" title="{{A(T(context, "Open"))}}" aria-label="{{A(T(context, "Open"))}}">{{Icon("external-link")}}</a><a class="icon-button" href="/workspaces/{{w.Id}}?tab=settings" title="{{A(de ? "Bearbeiten" : "Edit")}}" aria-label="{{A(de ? "Bearbeiten" : "Edit")}}">{{Icon("edit")}}</a></div></td>
+            </tr>
+            """;
+        var wsHeaders = $$"""<th data-sortable>{{T(context, "Name")}}</th><th data-sortable>{{T(context, "Scope")}}</th><th data-sortable>{{T(context, "Validity")}}</th><th class="table-actions">{{T(context, "Actions")}}</th>""";
+
+        var activeTable = DataTable(de ? "Workspaces suchen..." : "Search workspaces...", wsHeaders,
+            string.Join("", active.Select(wsRow)), de ? "Keine aktiven Workspaces." : "No active workspaces.", 4, 15, "",
+            $$"""<a class="button primary" href="/workspaces/new">{{Icon("plus")}}{{(de ? "Neuer Workspace" : "New workspace")}}</a>""");
+
+        var expiredSection = expired.Count == 0 ? "" : $$"""
+            <section class="panel workspace-expired-panel">
+                <h2 class="workspace-expired-head">{{(de ? "Abgelaufen" : "Expired")}} <span class="badge">{{expired.Count}}</span></h2>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr>{{wsHeaders}}</tr></thead>
+                        <tbody>{{string.Join("", expired.Select(wsRow))}}</tbody>
+                    </table>
+                </div>
+            </section>
+            """;
+
         var body = $$"""
             <section class="page-head">
                 <div>
                     <p class="eyebrow">{{T(context, "Workspaces")}}</p>
                     <h1>{{T(context, "Workspaces")}}</h1>
                 </div>
-                <a class="button primary" href="/workspaces/new">{{Icon("plus")}}{{T(context, "Create workspace")}}</a>
             </section>
-            {{WorkspaceListSection(context, workspaces)}}
+            <section class="panel">{{activeTable}}</section>
+            {{expiredSection}}
             """;
 
         return Layout(context, currentUser, string.IsNullOrWhiteSpace(pageTitleOverride) ? T(context, "Workspaces") : pageTitleOverride!, body);
@@ -1991,7 +2021,6 @@ public sealed class HtmlViews
         IReadOnlyList<WorkspaceDefinition> workspaces,
         bool includeEditButtons)
     {
-        var workspaceSection = WorkspaceBrowserNavSection(context, workspaces);
         if (servers.Count == 0)
         {
             var createButton = user.CanCreateServers
@@ -1999,21 +2028,12 @@ public sealed class HtmlViews
                 : "";
             return $$"""
                 <section class="connection-browser-empty">
-                    <div class="home-browser-layout">
-                        <aside class="home-browser-sidebar">
-                            {{workspaceSection}}
-                        </aside>
-                        <div class="home-browser-content">
-                            <section class="connection-browser-empty">
-                                <div>
-                                    <p class="eyebrow">{{T(context, "Home")}}</p>
-                                    <h1>{{T(context, "New Connection")}}</h1>
-                                    <p class="muted">{{T(context, "No connections yet.")}}</p>
-                                </div>
-                                {{createButton}}
-                            </section>
-                        </div>
+                    <div>
+                        <p class="eyebrow">{{T(context, "Home")}}</p>
+                        <h1>{{T(context, "New Connection")}}</h1>
+                        <p class="muted">{{T(context, "No connections yet.")}}</p>
                     </div>
+                    {{createButton}}
                 </section>
                 """;
         }
@@ -2092,7 +2112,6 @@ public sealed class HtmlViews
             .OrderBy(ConnectionChoiceSortGroup)
             .ThenBy(server => server.Name)
             .ToList();
-        var workspaceSection = WorkspaceBrowserNavSection(context, workspaces);
 
         var groups = new List<ConnectionBrowserGroup>();
         if (favorites.Count > 0)
@@ -2156,11 +2175,6 @@ public sealed class HtmlViews
         if (ownGroups.Count > 0)
         {
             navSections.Add(ConnectionBrowserNavSection(T(context, "Own servers"), ownGroups, defaultGroupKey));
-        }
-
-        if (!string.IsNullOrWhiteSpace(workspaceSection))
-        {
-            navSections.Add(workspaceSection);
         }
 
         var panels = string.Join("", groups.Select((group, index) => ConnectionBrowserGroupSection(context, user, group, includeEditButtons, returnUrl, index == 0)));
@@ -5254,6 +5268,9 @@ public sealed class HtmlViews
                     let lastMidX = 0;
                     let lastMidY = 0;
                     let scrollAccum = 0;
+                    let tapStart = 0;         // timestamp of a two-finger touch (for tap = right-click)
+                    let hadTwoFingers = false;
+                    let tapCandidate = false; // still could be a two-finger tap (no move/zoom yet)
                     const SCROLL_STEP = 36; // px of two-finger travel per emulated wheel tick
 
                     const distance = touches => {
@@ -5293,6 +5310,9 @@ public sealed class HtmlViews
                         startMidX = lastMidX = m.x;
                         startMidY = lastMidY = m.y;
                         scrollAccum = 0;
+                        tapStart = Date.now();
+                        hadTwoFingers = true;
+                        tapCandidate = true;
                         mode = (tab.pinchZoom || 1) > 1.02 ? 'transform' : null;
                     };
 
@@ -5341,6 +5361,9 @@ public sealed class HtmlViews
                         if (!mode) {
                             const distChange = Math.abs(dist / startDist - 1);
                             const midMove = Math.hypot(m.x - startMidX, m.y - startMidY);
+                            if (distChange > 0.06 || midMove > 8) {
+                                tapCandidate = false; // moved -> not a tap
+                            }
                             if (distChange > 0.15) {
                                 mode = 'transform';
                                 startDist = dist;
@@ -5393,6 +5416,12 @@ public sealed class HtmlViews
                         if (mode) {
                             swallow(event); // own the tail touchend/touchcancel of a committed gesture
                         }
+                        // Two-finger tap (no zoom/scroll/move, quick release) = right click at the cursor.
+                        if (event.touches.length === 0 && hadTwoFingers && tapCandidate && !mode
+                            && (Date.now() - tapStart) < 400) {
+                            swallow(event);
+                            sendRightClick(tab);
+                        }
                         if (event.touches.length < 2) {
                             active = false;
                             if ((tab.pinchZoom || 1) <= 1.02) {
@@ -5401,6 +5430,8 @@ public sealed class HtmlViews
                         }
                         if (event.touches.length === 0) {
                             mode = null; // gesture fully released; re-arm
+                            hadTwoFingers = false;
+                            tapCandidate = false;
                         }
                     };
                     root.addEventListener('touchend', end, { passive: false, capture: true });
@@ -8373,10 +8404,10 @@ public sealed class HtmlViews
                         align-items: stretch;
                         background: var(--surface-2);
                         border: 1px solid var(--line);
-                        border-radius: calc(var(--radius) + 2px);
+                        border-radius: 999px;
                         display: flex;
                         flex-wrap: wrap;
-                        gap: 2px;
+                        gap: 4px;
                         margin-bottom: 16px;
                         padding: 4px;
                     }
@@ -8384,22 +8415,24 @@ public sealed class HtmlViews
                         align-items: center;
                         background: transparent;
                         border: 0;
-                        border-radius: var(--radius);
+                        border-radius: 999px;
                         color: var(--muted);
                         cursor: pointer;
                         display: inline-flex;
                         font: inherit;
                         gap: 7px;
-                        min-height: 34px;
-                        padding: 6px 14px;
+                        min-height: 36px;
+                        padding: 6px 16px;
                         text-decoration: none;
                         transition: background-color .15s ease, color .15s ease;
                     }
-                    .tab-button:hover { color: var(--text); }
-                    .tab-button.active {
-                        background: var(--surface);
-                        box-shadow: var(--shadow);
-                        color: var(--accent);
+                    .tab-button:hover { background: var(--hover-bg); color: var(--text); }
+                    /* Highlight the SELECTED tab (accent-filled pill); --bg text contrasts in both themes. */
+                    .tab-button.active,
+                    .tab-button.active:hover {
+                        background: var(--accent);
+                        color: var(--bg);
+                        font-weight: 600;
                     }
                     .tab-button .icon { height: 15px; width: 15px; }
                     .tab-panel.hidden { display: none; }
@@ -8477,6 +8510,8 @@ public sealed class HtmlViews
                     .row-actions .icon-button.danger-action:hover { background: rgb(192 87 79 / 14%); color: #c0574f; }
                     .row-actions form { display: inline-flex; margin: 0; }
                     tbody tr.hidden { display: none; }
+                    .workspace-expired-panel { margin-top: 20px; opacity: .82; }
+                    .workspace-expired-head { align-items: center; color: var(--muted); display: flex; font-size: 16px; gap: 8px; }
                     .shell-tab-main {
                         background: transparent;
                         border: 0;
@@ -9389,12 +9424,32 @@ public sealed class HtmlViews
                         align-items: stretch;
                         background: var(--surface);
                         border: 1px solid var(--line);
-                        border-radius: var(--radius);
+                        border-radius: 16px;
+                        box-shadow: 0 1px 2px rgb(0 0 0 / 6%);
                         display: grid;
                         gap: 12px;
                         min-height: 150px;
-                        padding: 14px;
+                        padding: 18px;
+                        position: relative;
+                        transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease;
                     }
+                    .connection-choice:hover {
+                        border-color: var(--accent);
+                        box-shadow: var(--shadow-strong, 0 12px 28px rgb(0 0 0 / 18%));
+                        transform: translateY(-3px);
+                    }
+                    /* Accent rail on the left edge for a more modern, scannable card. */
+                    .connection-choice::before {
+                        background: var(--accent);
+                        border-radius: 16px 0 0 16px;
+                        content: '';
+                        inset: 0 auto 0 0;
+                        opacity: 0;
+                        position: absolute;
+                        transition: opacity .16s ease;
+                        width: 4px;
+                    }
+                    .connection-choice:hover::before { opacity: 1; }
                     .connection-choice h2 {
                         margin: 8px 0 8px;
                     }
@@ -11071,16 +11126,28 @@ public sealed class HtmlViews
                             flex-direction: column;
                         }
                         #connection-tab-actions {
-                            border-top: 0;
+                            background: var(--surface-2);
+                            border-top: 1px solid var(--line);
                             flex: 0 0 auto;
                             flex-wrap: nowrap;
+                            gap: 6px;
                             justify-content: flex-start;
                             min-width: 0;
                             overflow-x: auto;
+                            overscroll-behavior-x: contain;
+                            padding: 5px 8px;
+                            -webkit-overflow-scrolling: touch;
                             width: 100%;
                         }
                         #connection-tab-actions > * {
                             flex: 0 0 auto;
+                        }
+                        /* Slim visible scrollbar so it's obvious the icon row scrolls horizontally. */
+                        #connection-tab-actions { scrollbar-width: thin; }
+                        #connection-tab-actions::-webkit-scrollbar { height: 4px; }
+                        #connection-tab-actions::-webkit-scrollbar-thumb { background: var(--line); border-radius: 999px; }
+                        .shell-page-tabs {
+                            border-bottom: 1px solid var(--line);
                         }
                         #connection-tab-actions .tab-action-button,
                         #connection-tab-actions .tab-action-select {
