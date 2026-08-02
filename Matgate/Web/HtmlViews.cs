@@ -2435,7 +2435,10 @@ public sealed class HtmlViews
         bool includeEditButtons,
         string returnUrl)
     {
-        var canEdit = includeEditButtons && server.OwnerUserId == user.Id;
+        var canEdit = includeEditButtons
+            && (user.IsAdmin
+                || server.OwnerUserId == user.Id
+                || (server.OwnerUserId is null && user.CanManageServers));
         var actions = new List<string>
         {
             $"""<button type="button" class="primary workspace-open-button connection-choice-open" data-server-id="{server.Id}">{Icon("play")}{T(context, server.Protocol == ServerProtocol.Website ? "Open" : "Connect")}</button>"""
@@ -2443,7 +2446,8 @@ public sealed class HtmlViews
 
         if (canEdit)
         {
-            actions.Add($"""<a class="button connection-choice-edit" href="/admin/servers/{server.Id}">{Icon("edit")}{T(context, "Edit")}</a>""");
+            // Gear -> the connection's settings page (own server, or any for admins/managers).
+            actions.Add($"""<a class="button connection-choice-settings icon-only" href="/admin/servers/{server.Id}" title="{A(T(context, "Settings"))}" aria-label="{A(T(context, "Settings"))}">{Icon("settings")}</a>""");
         }
 
         return $$"""
@@ -10086,6 +10090,16 @@ public sealed class HtmlViews
                     .connection-choice-edit {
                         flex: 0 0 auto;
                     }
+                    .connection-choice-settings {
+                        align-items: center;
+                        flex: 0 0 auto;
+                        justify-content: center;
+                        min-height: 40px;
+                        min-width: 40px;
+                        padding: 0;
+                        width: 40px;
+                    }
+                    .connection-choice-settings .icon { height: 16px; width: 16px; }
                     .table-actions {
                         text-align: right;
                     }
