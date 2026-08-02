@@ -705,27 +705,23 @@ public sealed class HtmlViews
                 <div>
                     <p class="eyebrow">{{T(context, "Server")}}</p>
                     <h1>{{E(server.Name)}}</h1>
-                    <p class="muted">{{ServerScopeText(context, server, users)}}{{(string.IsNullOrWhiteSpace(server.FolderName) ? "" : $" ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â· {ServerFolderBadge(context, server)}")}}</p>
+                    <p class="muted">{{ServerScopeText(context, server, users)}}{{(string.IsNullOrWhiteSpace(server.FolderName) ? "" : $" &middot; {ServerFolderBadge(context, server)}")}}</p>
                 </div>
-                <a class="button" href="/admin/servers">{{Icon("server")}}{{T(context, "Servers")}}</a>
             </section>
             <form id="server-edit-form" method="post" action="/admin/servers/{{server.Id}}" class="stack server-form" data-server-form>
                 {{Csrf(context)}}
                 {{ServerFields(context, currentUser, server)}}
             </form>
             {{ServerFormScript()}}
-            <section class="panel danger-zone">
-                <div class="server-form-footer">
-                    <div>
-                        <h2>{{T(context, "Remove")}}</h2>
-                    </div>
-                    <div class="actions server-form-actions">
-                        <button type="submit" form="server-edit-form" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button>
-                        <form method="post" action="/admin/servers/{{server.Id}}/delete" class="server-delete-form">
-                            {{Csrf(context)}}
-                            <button type="submit" class="danger">{{Icon("trash")}}{{T(context, "Delete server")}}</button>
-                        </form>
-                    </div>
+            <section class="panel">
+                <div class="form-actions">
+                    <button type="submit" form="server-edit-form" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button>
+                    <a class="button" href="/admin?tab=servers">{{Icon("arrow-left")}}{{T(context, "Back")}}</a>
+                    <span class="spacer"></span>
+                    <form method="post" action="/admin/servers/{{server.Id}}/delete" data-confirm="{{A(Language(context) == "de" ? "Server wirklich loeschen?" : "Delete this server?")}}">
+                        {{Csrf(context)}}
+                        <button type="submit" class="danger">{{Icon("trash")}}{{T(context, "Delete server")}}</button>
+                    </form>
                 </div>
             </section>
             """;
@@ -4307,8 +4303,13 @@ public sealed class HtmlViews
                 }
 
                 if (immersiveHandle) {
-                    // Open on pointerdown so a single tap (or click) is enough on every device -
-                    // no precise swipe or click-delay to fight on iOS. The bar auto-hides again.
+                    // Open on the first touch/press so a single tap is enough on every device - no precise
+                    // swipe or click-delay to fight on iOS. touchstart is the most reliable on iOS Safari;
+                    // pointerdown/click cover mouse + other browsers. The bar auto-hides again.
+                    immersiveHandle.addEventListener('touchstart', event => {
+                        event.preventDefault();
+                        openImmersiveBar();
+                    }, { passive: false });
                     immersiveHandle.addEventListener('pointerdown', event => {
                         event.preventDefault();
                         openImmersiveBar();
@@ -4333,7 +4334,7 @@ public sealed class HtmlViews
                 document.addEventListener('touchstart', event => {
                     if (document.documentElement.classList.contains('session-immersive')
                         && event.touches.length === 1
-                        && event.touches[0].clientY <= 32) {
+                        && event.touches[0].clientY <= 80) {
                         edgeSwipeStartY = event.touches[0].clientY;
                     }
                     else {
