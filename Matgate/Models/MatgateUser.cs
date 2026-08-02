@@ -32,7 +32,21 @@ public sealed class MatgateUser
 
     public List<Guid> ServerAccess { get; set; } = [];
 
+    // Optional per-(user, file-server) restrictions. Absence of a rule = full access.
+    public List<FileAccessRule> FileAccessRules { get; set; } = [];
+
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+}
+
+// Restricts a user's access to a single file connection (SMB/FTP/SFTP): optionally read-only
+// and/or confined to a subfolder (relative to the server's configured file root).
+public sealed class FileAccessRule
+{
+    public Guid ServerId { get; set; }
+
+    public bool ReadOnly { get; set; }
+
+    public string SubPath { get; set; } = "";
 }

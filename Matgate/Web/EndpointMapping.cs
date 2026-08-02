@@ -1876,6 +1876,12 @@ public static class EndpointMapping
             return access.Result;
         }
 
+        var readOnly = ReadOnlyGuard(context, access);
+        if (readOnly is not null)
+        {
+            return readOnly;
+        }
+
         var request = await context.Request.ReadFromJsonAsync<FileZipCreateRequest>(cancellationToken: context.RequestAborted);
         var paths = CleanPathList(request?.Paths);
         if (paths.Count == 0)
@@ -1974,6 +1980,12 @@ public static class EndpointMapping
             return access.Result;
         }
 
+        var readOnly = ReadOnlyGuard(context, access);
+        if (readOnly is not null)
+        {
+            return readOnly;
+        }
+
         IFormCollection form;
         try
         {
@@ -2039,6 +2051,12 @@ public static class EndpointMapping
             return access.Result;
         }
 
+        var readOnly = ReadOnlyGuard(context, access);
+        if (readOnly is not null)
+        {
+            return readOnly;
+        }
+
         var request = await context.Request.ReadFromJsonAsync<FileCreateRequest>(cancellationToken: context.RequestAborted);
         if (request is null || string.IsNullOrWhiteSpace(request.Name))
         {
@@ -2075,6 +2093,12 @@ public static class EndpointMapping
         if (access.Result is not null)
         {
             return access.Result;
+        }
+
+        var readOnly = ReadOnlyGuard(context, access);
+        if (readOnly is not null)
+        {
+            return readOnly;
         }
 
         var request = await context.Request.ReadFromJsonAsync<FileArchiveExtractRequest>(cancellationToken: context.RequestAborted);
@@ -2124,6 +2148,12 @@ public static class EndpointMapping
             return access.Result;
         }
 
+        var readOnly = ReadOnlyGuard(context, access);
+        if (readOnly is not null)
+        {
+            return readOnly;
+        }
+
         var request = await context.Request.ReadFromJsonAsync<FileDirectoryRequest>(cancellationToken: context.RequestAborted);
         if (request is null || string.IsNullOrWhiteSpace(request.Name))
         {
@@ -2160,6 +2190,12 @@ public static class EndpointMapping
         if (access.Result is not null)
         {
             return access.Result;
+        }
+
+        var readOnly = ReadOnlyGuard(context, access);
+        if (readOnly is not null)
+        {
+            return readOnly;
         }
 
         var request = await context.Request.ReadFromJsonAsync<FileBatchTransferRequest>(cancellationToken: context.RequestAborted);
@@ -2204,6 +2240,12 @@ public static class EndpointMapping
         if (access.Result is not null)
         {
             return access.Result;
+        }
+
+        var readOnly = ReadOnlyGuard(context, access);
+        if (readOnly is not null)
+        {
+            return readOnly;
         }
 
         var request = await context.Request.ReadFromJsonAsync<FileBatchTransferRequest>(cancellationToken: context.RequestAborted);
@@ -2262,6 +2304,12 @@ public static class EndpointMapping
             return access.Result;
         }
 
+        var readOnly = ReadOnlyGuard(context, access);
+        if (readOnly is not null)
+        {
+            return readOnly;
+        }
+
         var request = await context.Request.ReadFromJsonAsync<FileBatchRequest>(cancellationToken: context.RequestAborted);
         var paths = CleanPathList(request?.Paths);
         if (paths.Count == 0)
@@ -2300,6 +2348,12 @@ public static class EndpointMapping
         if (access.Result is not null)
         {
             return access.Result;
+        }
+
+        var readOnly = ReadOnlyGuard(context, access);
+        if (readOnly is not null)
+        {
+            return readOnly;
         }
 
         try
@@ -2855,16 +2909,30 @@ public static class EndpointMapping
         }
 
         var allServers = IsChecked(form, "allServers");
-        var managedServerIds = (await store.GetServersAsync(context.RequestAborted))
+        var allManagedServers = (await store.GetServersAsync(context.RequestAborted))
             .Where(server => server.OwnerUserId is null)
-            .Select(server => server.Id)
-            .ToHashSet();
+            .ToList();
+        var managedServerIds = allManagedServers.Select(server => server.Id).ToHashSet();
 
         var serverIds = form["serverIds"]
             .Select(value => Guid.TryParse(value, out var parsed) ? parsed : Guid.Empty)
             .Where(value => value != Guid.Empty && managedServerIds.Contains(value))
             .Distinct()
             .ToList();
+
+        // Per-file-connection restrictions: read-only and/or a subfolder, only for granted file servers.
+        var fileRules = new List<FileAccessRule>();
+        foreach (var server in allManagedServers.Where(server =>
+            ServerEndpoint.IsFileProtocol(server.Protocol) && serverIds.Contains(server.Id)))
+        {
+            var key = server.Id.ToString("N");
+            var readOnly = IsChecked(form, $"readonly_{key}");
+            var subPath = Clean(form[$"subpath_{key}"].ToString(), "");
+            if (readOnly || !string.IsNullOrWhiteSpace(subPath))
+            {
+                fileRules.Add(new FileAccessRule { ServerId = server.Id, ReadOnly = readOnly, SubPath = subPath });
+            }
+        }
 
         await store.UpdateUsersAsync(users =>
         {
@@ -2876,6 +2944,7 @@ public static class EndpointMapping
 
             user.ServerAccessAll = allServers;
             user.ServerAccess = serverIds;
+            user.FileAccessRules = fileRules;
             user.UpdatedAt = DateTimeOffset.UtcNow;
         }, context.RequestAborted);
 
@@ -3255,7 +3324,31 @@ public static class EndpointMapping
             return new FileServerAccess(null, Results.BadRequest(new { error = HtmlViews.Translate(context, "This server is not a file connection.") }));
         }
 
-        return new FileServerAccess(server, null);
+        // Apply the caller's per-connection restriction (if any): confine to a subfolder by extending
+        // the file root on a clone, and surface the read-only flag. Owners/admins are unrestricted.
+        var rule = (user.IsAdmin || server.OwnerUserId == user.Id)
+            ? null
+            : user.FileAccessRules?.FirstOrDefault(r => r.ServerId == server.Id);
+        var effectiveServer = server;
+        if (rule is not null)
+        {
+            var sub = (rule.SubPath ?? "").Replace('\\', '/').Trim('/');
+            if (sub.Length > 0)
+            {
+                var baseRoot = (server.FileRootPath ?? "").TrimEnd('/', '\\');
+                effectiveServer = server.WithFileRootPath(baseRoot.Length == 0 ? sub : baseRoot + "/" + sub);
+            }
+        }
+
+        return new FileServerAccess(effectiveServer, null, rule?.ReadOnly ?? false);
+    }
+
+    // 403 for a write attempt on a connection the caller only has read-only access to.
+    private static IResult? ReadOnlyGuard(HttpContext context, FileServerAccess access)
+    {
+        return access.ReadOnly
+            ? Results.Json(new { error = HtmlViews.Translate(context, "This connection is read-only for you.") }, statusCode: StatusCodes.Status403Forbidden)
+            : null;
     }
 
     private static async Task<FileServerAccess> RequireWebsiteServerAsync(
@@ -4222,7 +4315,7 @@ public static class EndpointMapping
         public long Length => IsSatisfiable ? Math.Max(0, End - Start + 1) : 0;
     }
 
-    private sealed record FileServerAccess(ServerEndpoint? Server, IResult? Result);
+    private sealed record FileServerAccess(ServerEndpoint? Server, IResult? Result, bool ReadOnly = false);
 
     private sealed record FileBatchRequest(IReadOnlyList<string>? Paths);
 

@@ -70,6 +70,15 @@ public sealed class ServerEndpoint
 
     public bool IsPrivate => OwnerUserId.HasValue;
 
+    // Shallow copy with a different file root - used to confine a user to a subfolder without
+    // mutating the shared/cached endpoint instance.
+    public ServerEndpoint WithFileRootPath(string fileRootPath)
+    {
+        var clone = (ServerEndpoint)MemberwiseClone();
+        clone.FileRootPath = fileRootPath;
+        return clone;
+    }
+
     public static int NormalizeTerminalFontSize(int fontSize)
     {
         return Math.Clamp(fontSize <= 0 ? DefaultTerminalFontSize : fontSize, 8, 24);

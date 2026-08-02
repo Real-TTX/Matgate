@@ -466,14 +466,23 @@ public sealed class HtmlViews
         MatgateUser editedUser,
         IReadOnlyList<ServerEndpoint> servers)
     {
+        var de = Language(context) == "de";
         var sharedServers = servers.Where(server => server.OwnerUserId is null).OrderBy(server => server.Name).ToList();
         var allServersChecked = editedUser.IsAdmin || editedUser.ServerAccessAll;
         var accessRows = sharedServers.Count == 0
-            ? $"""<tr><td colspan="4" class="muted">{T(context, "No global servers created yet.")}</td></tr>"""
+            ? $"""<tr><td colspan="6" class="muted">{T(context, "No global servers created yet.")}</td></tr>"""
             : string.Join("", sharedServers.Select(server =>
             {
                 var isChecked = editedUser.IsAdmin || editedUser.ServerAccessAll || editedUser.ServerAccess.Contains(server.Id);
                 var disabled = editedUser.IsAdmin ? " disabled" : "";
+                var isFile = ServerEndpoint.IsFileProtocol(server.Protocol);
+                var rule = editedUser.FileAccessRules?.FirstOrDefault(r => r.ServerId == server.Id);
+                var roCell = isFile
+                    ? $$"""<input type="checkbox" name="readonly_{{server.Id:N}}"{{Checked(rule?.ReadOnly ?? false)}}{{disabled}}>"""
+                    : """<span class="muted">-</span>""";
+                var subCell = isFile
+                    ? $$"""<input type="text" name="subpath_{{server.Id:N}}" value="{{A(rule?.SubPath ?? "")}}" placeholder="{{A(de ? "Unterordner (optional)" : "Subfolder (optional)")}}"{{disabled}}>"""
+                    : """<span class="muted">-</span>""";
                 return $$"""
                     <tr>
                         <td class="access-select-cell">
@@ -484,6 +493,8 @@ public sealed class HtmlViews
                         </td>
                         <td><span class="badge">{{E(ServerProtocolLabel(server.Protocol))}}</span></td>
                         <td>{{E(ServerTargetValue(server))}}</td>
+                        <td class="access-select-cell">{{roCell}}</td>
+                        <td>{{subCell}}</td>
                     </tr>
                     """;
             }));
@@ -545,6 +556,8 @@ public sealed class HtmlViews
                                     <th>{{T(context, "Name")}}</th>
                                     <th>{{T(context, "Type")}}</th>
                                     <th>{{T(context, "Target")}}</th>
+                                    <th class="access-select-cell">{{(de ? "Nur-Lesen" : "Read-only")}}</th>
+                                    <th>{{(de ? "Unterordner" : "Subfolder")}}</th>
                                 </tr>
                             </thead>
                             <tbody>{{accessRows}}</tbody>
