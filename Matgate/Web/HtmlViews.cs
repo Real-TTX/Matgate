@@ -5155,12 +5155,16 @@ public sealed class HtmlViews
                     tab.pinchPanY = tab.pinchPanY || 0;
 
                     const root = tab.displayRoot;
-                    let active = false;   // currently tracking an exact two-finger gesture
-                    let pinched = false;  // a pinch is in progress; own the whole gesture until all fingers lift
+                    let active = false;   // exactly-two-finger gesture is being tracked
+                    let mode = null;      // null=undecided, 'transform'=zoom/pan, 'scroll'=wheel to remote
                     let startDist = 1;
                     let startZoom = 1;
+                    let startMidX = 0;
+                    let startMidY = 0;
                     let lastMidX = 0;
                     let lastMidY = 0;
+                    let scrollAccum = 0;
+                    const SCROLL_STEP = 36; // px of two-finger travel per emulated wheel tick
 
                     const distance = touches => {
                         const dx = touches[0].clientX - touches[1].clientX;
@@ -5171,9 +5175,6 @@ public sealed class HtmlViews
                         x: (touches[0].clientX + touches[1].clientX) / 2,
                         y: (touches[0].clientY + touches[1].clientY) / 2
                     });
-                    // Multi-finger gestures are ours: keep them from reaching Guacamole's touch
-                    // emulators (which live on the inner display element) so they don't leak as
-                    // stray remote mouse/scroll input.
                     const swallow = event => {
                         event.preventDefault();
                         event.stopPropagation();
@@ -5181,60 +5182,114 @@ public sealed class HtmlViews
                             event.stopImmediatePropagation();
                         }
                     };
-                    const beginPinch = touches => {
+                    // Emulate one mouse-wheel tick at (x,y): dir < 0 = up, dir > 0 = down.
+                    const sendScroll = (x, y, dir) => {
+                        if (!tab.client) {
+                            return;
+                        }
+                        const base = { x: Math.round(x), y: Math.round(y), left: false, middle: false, right: false, up: false, down: false };
+                        tab.client.sendMouseState({ x: base.x, y: base.y, left: false, middle: false, right: false, up: dir < 0, down: dir > 0 }, true);
+                        tab.client.sendMouseState(base, true);
+                    };
+                    // Start tracking a clean two-finger gesture. We stay UNDECIDED (and let events reach
+                    // Guacamole) until the fingers clearly spread/pinch (=> zoom) or clearly translate
+                    // (=> scroll), so a two-finger scroll is not swallowed by the zoom handler. If the view
+                    // is already zoomed, two fingers pan immediately.
+                    const track = touches => {
                         active = true;
-                        pinched = true;
                         startDist = distance(touches);
                         startZoom = tab.pinchZoom || 1;
                         const m = midpoint(touches);
-                        lastMidX = m.x;
-                        lastMidY = m.y;
+                        startMidX = lastMidX = m.x;
+                        startMidY = lastMidY = m.y;
+                        scrollAccum = 0;
+                        mode = (tab.pinchZoom || 1) > 1.02 ? 'transform' : null;
                     };
 
                     root.addEventListener('touchstart', event => {
                         // Single-finger touches belong to Guacamole (remote cursor); leave them alone.
-                        // Pinch is a fit-mode-only feature: fixed-resolution 'desktop' mode already zooms
-                        // (buttons) and pans (native scroll), which a second transform would fight.
+                        // Pinch/scroll take-over is a fit-mode feature; fixed-resolution mode uses native scroll.
                         if (event.touches.length < 2 || isDesktopDisplayMode(tab)) {
                             return;
                         }
-                        swallow(event);
                         if (event.touches.length === 2) {
-                            beginPinch(event.touches);
+                            track(event.touches);
+                            if (mode) {
+                                swallow(event);
+                            }
                         }
                         else {
-                            active = false; // wait until it settles back to exactly two fingers
+                            active = false; // 3+ fingers: wait until it settles to two
                         }
                     }, { passive: false, capture: true });
 
                     root.addEventListener('touchmove', event => {
-                        // Own the whole tail of a pinch (down to one finger) so a lifting/jittering
-                        // finger is never forwarded to the remote as a stray move or click.
-                        if (pinched && event.touches.length < 2) {
-                            swallow(event);
+                        if (mode && event.touches.length < 2) {
+                            swallow(event); // own the tail of a committed gesture
                             return;
                         }
                         if (event.touches.length < 2 || isDesktopDisplayMode(tab)) {
                             return;
                         }
-                        swallow(event);
                         if (event.touches.length !== 2) {
-                            active = false; // 3+ fingers: hold until it settles to two
+                            if (mode) {
+                                swallow(event);
+                            }
+                            active = false;
                             return;
                         }
                         if (!active) {
-                            beginPinch(event.touches); // (re)arm on a clean two-finger state (e.g. 3->2)
+                            track(event.touches);
+                            if (mode) {
+                                swallow(event);
+                            }
                             return;
                         }
-                        const rect = tab.displayScaler.getBoundingClientRect();
+
+                        const dist = distance(event.touches);
                         const m = midpoint(event.touches);
+                        if (!mode) {
+                            const distChange = Math.abs(dist / startDist - 1);
+                            const midMove = Math.hypot(m.x - startMidX, m.y - startMidY);
+                            if (distChange > 0.15) {
+                                mode = 'transform';
+                                startDist = dist;
+                                startZoom = tab.pinchZoom || 1;
+                                lastMidX = m.x;
+                                lastMidY = m.y;
+                            }
+                            else if (midMove > 12) {
+                                mode = 'scroll';
+                                lastMidX = m.x;
+                                lastMidY = m.y;
+                                scrollAccum = 0;
+                            }
+                            else {
+                                return; // undecided - let it fall through to Guacamole
+                            }
+                        }
+
+                        swallow(event);
+
+                        if (mode === 'scroll') {
+                            scrollAccum += (m.y - lastMidY);
+                            lastMidX = m.x;
+                            lastMidY = m.y;
+                            while (Math.abs(scrollAccum) >= SCROLL_STEP) {
+                                // Fingers moving down scroll the content up (natural), and vice versa.
+                                sendScroll(m.x, m.y, scrollAccum > 0 ? -1 : 1);
+                                scrollAccum -= scrollAccum > 0 ? SCROLL_STEP : -SCROLL_STEP;
+                            }
+                            return;
+                        }
+
+                        // transform: zoom (distance) + pan (midpoint drag)
+                        const rect = tab.displayScaler.getBoundingClientRect();
                         const z = tab.pinchZoom || 1;
-                        const newZoom = Math.min(4, Math.max(1, startZoom * (distance(event.touches) / startDist)));
-                        // Keep the pinch focal point anchored while zooming.
+                        const newZoom = Math.min(4, Math.max(1, startZoom * (dist / startDist)));
                         const focalFactor = 1 - newZoom / z;
                         tab.pinchPanX += (m.x - rect.left) * focalFactor;
                         tab.pinchPanY += (m.y - rect.top) * focalFactor;
-                        // Two-finger drag pans.
                         tab.pinchPanX += (m.x - lastMidX);
                         tab.pinchPanY += (m.y - lastMidY);
                         tab.pinchZoom = newZoom;
@@ -5245,19 +5300,17 @@ public sealed class HtmlViews
                     }, { passive: false, capture: true });
 
                     const end = event => {
-                        if (!pinched) {
-                            return;
+                        if (mode) {
+                            swallow(event); // own the tail touchend/touchcancel of a committed gesture
                         }
-                        swallow(event); // own the tail touchend/touchcancel too
                         if (event.touches.length < 2) {
                             active = false;
-                            // Snap back cleanly when the user pinches (almost) all the way out.
                             if ((tab.pinchZoom || 1) <= 1.02) {
                                 resetPinchZoom(tab);
                             }
                         }
                         if (event.touches.length === 0) {
-                            pinched = false; // gesture fully released; re-arm for the next one
+                            mode = null; // gesture fully released; re-arm
                         }
                     };
                     root.addEventListener('touchend', end, { passive: false, capture: true });
@@ -7892,7 +7945,7 @@ public sealed class HtmlViews
                 <style>
                     :root {
                         color-scheme: light;
-                        --radius: 2px;
+                        --radius: 8px;
                         --shell-height: 34px;
                         --bg: #f4f6f4;
                         --panel: #ffffff;
@@ -8271,6 +8324,17 @@ public sealed class HtmlViews
                     .tab-panel.hidden { display: none; }
                     .tab-panels > .tab-panel > .panel:first-child,
                     .tab-panels > .tab-panel > section:first-child { margin-top: 0; }
+                    /* Read-only value shown in place of an input the user may not edit. */
+                    .static-field {
+                        align-items: center;
+                        background: var(--surface-2);
+                        border: 1px solid var(--line);
+                        border-radius: var(--radius);
+                        color: var(--text);
+                        display: inline-flex;
+                        min-height: 34px;
+                        padding: 5px 10px;
+                    }
                     .shell-tab-main {
                         background: transparent;
                         border: 0;
@@ -11406,10 +11470,11 @@ public sealed class HtmlViews
         }
 
         var canChangeScope = currentUser.IsAdmin || (currentUser.CanManageServers && currentUser.CanCreateServers);
-        var scopeHelp = canChangeScope
-            ? ""
-            : $"""<p class="muted">{T(context, scopeValue == "private" ? "Own server" : "Global")}</p>""";
-        var scopeHidden = canChangeScope ? "" : $"""<input type="hidden" name="scope" value="{A(scopeValue)}">""";
+        // When scope can't be changed, show a read-only value + ONE hidden field to submit it. (Previously
+        // a disabled <select> AND a hidden <input> both carried name="scope" - the duplicate the user saw.)
+        var scopeControl = canChangeScope
+            ? $"""<select name="scope"><option value="global"{Selected(scopeValue == "global")}>{T(context, "Global")}</option><option value="private"{Selected(scopeValue == "private")}>{T(context, "Own server")}</option></select>"""
+            : $"""<span class="static-field">{T(context, scopeValue == "private" ? "Own server" : "Global")}</span><input type="hidden" name="scope" value="{A(scopeValue)}">""";
 
         var basicSection = $$"""
             <section class="panel server-form-section">
@@ -11419,12 +11484,7 @@ public sealed class HtmlViews
                         <input name="name" value="{{A(server?.Name)}}" required>
                     </label>
                     <label>{{T(context, "Scope")}}
-                        <select name="scope"{{(canChangeScope ? "" : " disabled")}}>
-                            <option value="global"{{Selected(scopeValue == "global")}}>{{T(context, "Global")}}</option>
-                            <option value="private"{{Selected(scopeValue == "private")}}>{{T(context, "Own server")}}</option>
-                        </select>
-                        {{scopeHidden}}
-                        {{scopeHelp}}
+                        {{scopeControl}}
                     </label>
                     <label>{{T(context, "Protocol")}}
                         <select name="protocol">
