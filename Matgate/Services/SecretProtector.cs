@@ -22,8 +22,10 @@ public sealed class SecretProtector
     {
         _logger = logger;
 
-        var raw = Environment.GetEnvironmentVariable("MATGATE_SECRET_KEY")
-            ?? configuration["Matgate:SecretKey"];
+        var raw = SecretUtil.FirstNonEmpty(
+            Environment.GetEnvironmentVariable("MATGATE_SECRET_KEY"),
+            configuration["Matgate:SecretKey"],
+            SecretUtil.ReadSecretFile(Environment.GetEnvironmentVariable("MATGATE_SECRET_KEY_FILE")));
 
         if (!string.IsNullOrWhiteSpace(raw))
         {

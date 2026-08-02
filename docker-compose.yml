@@ -7,6 +7,26 @@ x-home-dns: &home-dns
     - ${MATGATE_DNS_SEARCH:-Schmoldt.local}
 
 services:
+  # One-time init: auto-generates strong secrets into a named volume so a plain `docker compose up`
+  # just works - no .env required. You can still override either value via .env (see below).
+  secrets:
+    image: alpine:3
+    volumes:
+      - matgate-secrets:/secrets
+    command:
+      - /bin/sh
+      - -c
+      - |
+        set -e
+        if [ ! -s /secrets/guac.key ]; then
+          od -An -tx1 -N16 /dev/urandom | tr -d ' \n\r' > /secrets/guac.key
+        fi
+        if [ ! -s /secrets/master.key ]; then
+          od -An -tx1 -N32 /dev/urandom | tr -d ' \n\r' > /secrets/master.key
+        fi
+        echo "Matgate secrets ready."
+    restart: "no"
+
   edge:
     <<: *home-dns
     image: caddy:2
@@ -42,19 +62,27 @@ services:
       dockerfile: Matgate/Dockerfile
       args:
         MATGATE_VERSION_SUFFIX: ${MATGATE_VERSION_SUFFIX:-}
+    depends_on:
+      secrets:
+        condition: service_completed_successfully
     environment:
       ASPNETCORE_URLS: http://+:8080
       MATGATE_DATA_DIR: /data
       MATGATE_ADMIN_USER: ${MATGATE_ADMIN_USER:-admin}
       MATGATE_ADMIN_PASSWORD: ${MATGATE_ADMIN_PASSWORD:-change-me-now}
-      # At-rest encryption key for stored device credentials; must live outside ./data (in .env).
-      MATGATE_SECRET_KEY: ${MATGATE_SECRET_KEY:?Set a random MATGATE_SECRET_KEY in .env (openssl rand -hex 32) to encrypt stored credentials at rest}
       MATGATE_REQUIRE_HTTPS: ${MATGATE_REQUIRE_HTTPS:-false}
-      Guacamole__JsonSecretKey: ${MATGATE_GUACAMOLE_JSON_SECRET_KEY:?Set a strong 32-hex secret in .env (openssl rand -hex 16); the old public default is refused}
+      # Secrets: an explicit .env value wins; otherwise the auto-generated file in the secrets volume
+      # is used. The at-rest key (master.key) lives OUTSIDE ./data so a stolen ./data backup can't
+      # decrypt stored device credentials - keep the `matgate-secrets` volume backed up.
+      Guacamole__JsonSecretKey: ${MATGATE_GUACAMOLE_JSON_SECRET_KEY:-}
+      MATGATE_GUACAMOLE_JSON_SECRET_KEY_FILE: /run/matgate-secrets/guac.key
+      MATGATE_SECRET_KEY: ${MATGATE_SECRET_KEY:-}
+      MATGATE_SECRET_KEY_FILE: /run/matgate-secrets/master.key
       Guacamole__PublicBasePath: /guacamole
       Guacamole__DirectLaunch: "true"
     volumes:
       - ./data:/data
+      - matgate-secrets:/run/matgate-secrets:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
@@ -70,12 +98,27 @@ services:
     <<: *home-dns
     image: guacamole/guacamole:1.6.0
     depends_on:
-      - guacd
+      guacd:
+        condition: service_started
+      secrets:
+        condition: service_completed_successfully
     environment:
       GUACD_HOSTNAME: guacd
       GUACD_PORT: "4822"
       JSON_ENABLED: "true"
-      JSON_SECRET_KEY: ${MATGATE_GUACAMOLE_JSON_SECRET_KEY:?Set a strong 32-hex secret in .env (openssl rand -hex 16); the old public default is refused}
+      # Optional .env override; empty falls back to the auto-generated shared key (see command below).
+      JSON_SECRET_KEY: ${MATGATE_GUACAMOLE_JSON_SECRET_KEY:-}
+    # Load the shared JSON secret (from .env or the auto-generated file) into the env the Guacamole
+    # webapp reads at startup, then run its normal entrypoint. $$ keeps the shell expansion out of
+    # Compose's own variable substitution.
+    entrypoint:
+      - /bin/sh
+      - -c
+      - export JSON_SECRET_KEY="$${JSON_SECRET_KEY:-$$(cat /run/matgate-secrets/guac.key)}"; exec /opt/guacamole/bin/entrypoint.sh
     volumes:
       - ./data:/etc/guacamole
+      - matgate-secrets:/run/matgate-secrets:ro
     restart: unless-stopped
+
+volumes:
+  matgate-secrets:

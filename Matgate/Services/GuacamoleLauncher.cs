@@ -35,9 +35,13 @@ public sealed class GuacamoleLauncher
                 "Dateiverbindungen werden im Matgate-Dateimanager gestartet."));
         }
 
-        var secret = _configuration["Guacamole:JsonSecretKey"]
-            ?? Environment.GetEnvironmentVariable("GUACAMOLE_JSON_SECRET_KEY")
-            ?? Environment.GetEnvironmentVariable("JSON_SECRET_KEY");
+        var secret = SecretUtil.FirstNonEmpty(
+            _configuration["Guacamole:JsonSecretKey"],
+            Environment.GetEnvironmentVariable("GUACAMOLE_JSON_SECRET_KEY"),
+            Environment.GetEnvironmentVariable("JSON_SECRET_KEY"),
+            SecretUtil.ReadSecretFile(
+                Environment.GetEnvironmentVariable("MATGATE_GUACAMOLE_JSON_SECRET_KEY_FILE")
+                ?? _configuration["Guacamole:JsonSecretKeyFile"]));
 
         if (!TryReadHexKey(secret, out var key))
         {
