@@ -9,6 +9,48 @@ using System.Text;
 using System.Threading.RateLimiting;
 
 Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+
+// Auto-generate persistent secrets into their "*_FILE" path when nothing else provides them, so a
+// bare `docker compose up` works with no init container and no manual .env. An explicit env value
+// always wins; an existing non-empty file is kept.
+static void EnsureSecretFile(string envName, string fileEnvName, int byteCount)
+{
+    if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(envName)))
+    {
+        return;
+    }
+
+    var path = Environment.GetEnvironmentVariable(fileEnvName);
+    if (string.IsNullOrWhiteSpace(path))
+    {
+        return;
+    }
+
+    try
+    {
+        if (File.Exists(path) && new FileInfo(path).Length > 0)
+        {
+            return;
+        }
+
+        var directory = Path.GetDirectoryName(path);
+        if (!string.IsNullOrEmpty(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        var key = Convert.ToHexString(System.Security.Cryptography.RandomNumberGenerator.GetBytes(byteCount)).ToLowerInvariant();
+        File.WriteAllText(path, key);
+    }
+    catch
+    {
+        // Read-only mount or similar - fall back to whatever the *_FILE / env eventually provides.
+    }
+}
+
+EnsureSecretFile("MATGATE_GUACAMOLE_JSON_SECRET_KEY", "MATGATE_GUACAMOLE_JSON_SECRET_KEY_FILE", 16);
+EnsureSecretFile("MATGATE_SECRET_KEY", "MATGATE_SECRET_KEY_FILE", 32);
+
 var builder = WebApplication.CreateBuilder(args);
 var configuredDataDirectory = Environment.GetEnvironmentVariable("MATGATE_DATA_DIR")
     ?? builder.Configuration["Matgate:DataDirectory"];

@@ -7,26 +7,6 @@ x-home-dns: &home-dns
     - ${MATGATE_DNS_SEARCH:-Schmoldt.local}
 
 services:
-  # One-time init: auto-generates strong secrets into a named volume so a plain `docker compose up`
-  # just works - no .env required. You can still override either value via .env (see below).
-  secrets:
-    image: alpine:3
-    volumes:
-      - matgate-secrets:/secrets
-    command:
-      - /bin/sh
-      - -c
-      - |
-        set -e
-        if [ ! -s /secrets/guac.key ]; then
-          od -An -tx1 -N16 /dev/urandom | tr -d ' \n\r' > /secrets/guac.key
-        fi
-        if [ ! -s /secrets/master.key ]; then
-          od -An -tx1 -N32 /dev/urandom | tr -d ' \n\r' > /secrets/master.key
-        fi
-        echo "Matgate secrets ready."
-    restart: "no"
-
   edge:
     <<: *home-dns
     image: caddy:2
@@ -62,18 +42,16 @@ services:
       dockerfile: Matgate/Dockerfile
       args:
         MATGATE_VERSION_SUFFIX: ${MATGATE_VERSION_SUFFIX:-}
-    depends_on:
-      secrets:
-        condition: service_completed_successfully
     environment:
       ASPNETCORE_URLS: http://+:8080
       MATGATE_DATA_DIR: /data
       MATGATE_ADMIN_USER: ${MATGATE_ADMIN_USER:-admin}
       MATGATE_ADMIN_PASSWORD: ${MATGATE_ADMIN_PASSWORD:-change-me-now}
       MATGATE_REQUIRE_HTTPS: ${MATGATE_REQUIRE_HTTPS:-false}
-      # Secrets: an explicit .env value wins; otherwise the auto-generated file in the secrets volume
-      # is used. The at-rest key (master.key) lives OUTSIDE ./data so a stolen ./data backup can't
-      # decrypt stored device credentials - keep the `matgate-secrets` volume backed up.
+      # Secrets: an explicit .env value wins; otherwise matgate itself generates the key on first
+      # start and writes it into the shared secrets volume (see MATGATE_*_FILE below). The at-rest key
+      # (master.key) lives OUTSIDE ./data so a stolen ./data backup can't decrypt stored device
+      # credentials - keep the `matgate-secrets` volume backed up.
       Guacamole__JsonSecretKey: ${MATGATE_GUACAMOLE_JSON_SECRET_KEY:-}
       MATGATE_GUACAMOLE_JSON_SECRET_KEY_FILE: /run/matgate-secrets/guac.key
       MATGATE_SECRET_KEY: ${MATGATE_SECRET_KEY:-}
@@ -82,9 +60,16 @@ services:
       Guacamole__DirectLaunch: "true"
     volumes:
       - ./data:/data
-      - matgate-secrets:/run/matgate-secrets:ro
+      - matgate-secrets:/run/matgate-secrets
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # matgate writes the shared Guacamole key on first start; guacamole waits for this to go healthy.
+    healthcheck:
+      test: ["CMD-SHELL", "test -s /run/matgate-secrets/guac.key"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+      start_period: 2s
     restart: unless-stopped
 
   guacd:
@@ -100,8 +85,8 @@ services:
     depends_on:
       guacd:
         condition: service_started
-      secrets:
-        condition: service_completed_successfully
+      matgate:
+        condition: service_healthy
     environment:
       GUACD_HOSTNAME: guacd
       GUACD_PORT: "4822"
