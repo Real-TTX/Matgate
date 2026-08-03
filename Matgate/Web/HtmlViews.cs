@@ -3053,7 +3053,11 @@ public sealed class HtmlViews
 
                 const shellLayout = document.body.dataset.shellLayout === '1';
                 const updateViewportHeight = () => {
-                    document.documentElement.style.setProperty('--matgate-viewport-height', `${window.innerHeight}px`);
+                    // Prefer the visual viewport so the layout shrinks when the on-screen keyboard opens
+                    // (otherwise the bottom of the app is hidden behind the keyboard on iOS).
+                    const vv = window.visualViewport;
+                    const height = vv ? vv.height : window.innerHeight;
+                    document.documentElement.style.setProperty('--matgate-viewport-height', `${Math.round(height)}px`);
                     if (shellLayout) {
                         document.documentElement.style.overscrollBehavior = 'none';
                         document.documentElement.style.overflow = 'hidden';
@@ -3070,6 +3074,10 @@ public sealed class HtmlViews
                 updateViewportHeight();
                 window.addEventListener('resize', updateViewportHeight, { passive: true });
                 window.addEventListener('orientationchange', updateViewportHeight);
+                if (window.visualViewport) {
+                    window.visualViewport.addEventListener('resize', updateViewportHeight, { passive: true });
+                    window.visualViewport.addEventListener('scroll', updateViewportHeight, { passive: true });
+                }
 
                 window.MatgateOpenAboutTab = (event) => {
                     if (event) {
@@ -8177,6 +8185,11 @@ public sealed class HtmlViews
                         flex: 1 1 auto;
                         min-height: 0;
                         width: 100%;
+                    }
+                    /* Regular (scrolling) pages: keep content clear of the home indicator / rounded
+                       bottom corners (top is handled by the sticky header's safe-area padding). */
+                    body:not([data-shell-layout="1"]) {
+                        padding-bottom: env(safe-area-inset-bottom);
                     }
                     html[data-embedded="1"] header {
                         display: none;
