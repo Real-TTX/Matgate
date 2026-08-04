@@ -12272,7 +12272,13 @@ public sealed class HtmlViews
                             min-width: 40px;
                             width: 40px;
                         }
+                        /* Make the compact-view toggle an obvious button on phones (was a faint
+                           transparent icon that users couldn't find). */
                         .view-mode-toggle {
+                            background: var(--surface-2);
+                            border: 1px solid var(--line);
+                            border-radius: var(--radius);
+                            color: var(--text);
                             min-height: 40px;
                             min-width: 44px;
                         }
