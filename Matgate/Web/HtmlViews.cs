@@ -10337,9 +10337,13 @@ public sealed class HtmlViews
                     .home2-qc-actions .button { min-height: 40px; padding: 8px 18px; }
                     .home2-qc-label[hidden], .home2-qc-error[hidden] { display: none !important; }
                     .home2-folder-grid {
-                        display: grid;
+                        display: flex;
                         gap: 12px;
-                        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+                        margin: -20px 0;
+                        overflow-x: auto;
+                        padding: 20px 0;
+                        scrollbar-width: thin;
+                        -webkit-overflow-scrolling: touch;
                     }
                     .home2-folder-tile {
                         align-items: center;
@@ -10349,11 +10353,12 @@ public sealed class HtmlViews
                         color: var(--text);
                         cursor: pointer;
                         display: flex;
+                        flex: 0 0 auto;
                         gap: 12px;
+                        min-width: 190px;
                         padding: 12px 14px;
                         text-align: left;
                         transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease;
-                        width: 100%;
                     }
                     .home2-folder-tile:hover {
                         border-color: var(--proto, var(--accent));
