@@ -2101,20 +2101,18 @@ public sealed class HtmlViews
             """;
 
         var quickConnect = canQuick ? QuickConnectSection(de) : "";
-        var folderTiles = FolderTilesSection(servers, de);
+        var filterRow = FilterTilesSection(context, user, servers, de);
         var recentSection = RecentConnectionsSection(context, user, servers, includeEditButtons, returnUrl, de);
-        var favoritesSection = FavoritesSection(context, user, servers, includeEditButtons, returnUrl, de);
-        var allSection = AllConnectionsSection(context, user, servers, includeEditButtons, returnUrl, de);
+        var connectionsSection = ConnectionsSection(context, user, servers, includeEditButtons, returnUrl, de);
 
         return $$"""
             <section class="home2" data-home2="1">
                 {{head}}
                 {{searchBox}}
                 {{quickConnect}}
-                {{folderTiles}}
+                {{filterRow}}
                 {{recentSection}}
-                {{favoritesSection}}
-                {{allSection}}
+                {{connectionsSection}}
                 <section class="home2-noresults hidden" data-home2-noresults>
                     <p class="muted">{{(de ? "Keine Treffer." : "No matches.")}}</p>
                 </section>
@@ -2227,9 +2225,13 @@ public sealed class HtmlViews
             """;
     }
 
-    // Folder tiles with connection counts; clicking one filters the "All connections" grid.
-    private static string FolderTilesSection(IReadOnlyList<ServerEndpoint> servers, bool de)
+    // Filter row: a "Favorites" toggle first, then one toggle per folder. Selecting one filters the
+    // single Connections list below (mutually exclusive; click the active one again to clear).
+    private static string FilterTilesSection(HttpContext context, MatgateUser user, IReadOnlyList<ServerEndpoint> servers, bool de)
     {
+        var favoriteIds = user.FavoriteServerIds?.ToHashSet() ?? new HashSet<Guid>();
+        var favoriteCount = servers.Count(server => favoriteIds.Contains(server.Id));
+
         var groups = servers
             .GroupBy(server => string.IsNullOrWhiteSpace(server.FolderName) ? "" : server.FolderName.Trim(), StringComparer.OrdinalIgnoreCase)
             .Select(group => new { group.Key, First = group.First(), Count = group.Count() })
@@ -2237,42 +2239,57 @@ public sealed class HtmlViews
             .ThenBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
             .ToList();
 
-        // Only worth showing when there is at least one real (named) folder.
-        if (!groups.Any(group => !string.IsNullOrWhiteSpace(group.Key)))
+        var hasNamedFolder = groups.Any(group => !string.IsNullOrWhiteSpace(group.Key));
+        // Nothing to filter by.
+        if (favoriteCount == 0 && !hasNamedFolder)
         {
             return "";
         }
 
+        string CountLabel(int count) => count == 1
+            ? (de ? "1 Verbindung" : "1 connection")
+            : $"{count} {(de ? "Verbindungen" : "connections")}";
+
+        var tiles = new List<string>();
+        if (favoriteCount > 0)
+        {
+            tiles.Add($$"""
+                <button type="button" class="home2-folder-tile home2-filter-fav" data-home2-filter="__favorites__" style="--proto: #f5b301">
+                    <span class="home2-folder-icon">{{Icon("star")}}</span>
+                    <span class="home2-folder-copy">
+                        <span class="home2-folder-name">{{(de ? "Favoriten" : "Favorites")}}</span>
+                        <small>{{E(CountLabel(favoriteCount))}}</small>
+                    </span>
+                </button>
+                """);
+        }
+
         var palette = new[] { "#4c8dff", "#35c07f", "#b06cff", "#f0a92b", "#3aa0ff", "#e0863a", "#5bc2a8" };
         var paletteIndex = 0;
-        var tiles = string.Join("", groups.Select(group =>
+        foreach (var group in groups)
         {
             var isUnsorted = string.IsNullOrWhiteSpace(group.Key);
             var name = isUnsorted ? (de ? "Unsortiert" : "Unsorted") : group.Key;
             var color = palette[paletteIndex++ % palette.Length];
             var icon = isUnsorted ? Icon("folder") : ServerFolderIcon(group.First);
-            var countLabel = group.Count == 1
-                ? (de ? "1 Verbindung" : "1 connection")
-                : $"{group.Count} {(de ? "Verbindungen" : "connections")}";
-            return $$"""
-                <button type="button" class="home2-folder-tile" data-home2-folder="{{A(FolderFilterKey(group.Key))}}" style="--proto: {{color}}">
+            tiles.Add($$"""
+                <button type="button" class="home2-folder-tile" data-home2-filter="{{A(FolderFilterKey(group.Key))}}" style="--proto: {{color}}">
                     <span class="home2-folder-icon">{{icon}}</span>
                     <span class="home2-folder-copy">
                         <span class="home2-folder-name">{{E(name)}}</span>
-                        <small>{{E(countLabel)}}</small>
+                        <small>{{E(CountLabel(group.Count))}}</small>
                     </span>
                 </button>
-                """;
-        }));
+                """);
+        }
 
         return $$"""
             <section class="home2-section home2-folders-section">
                 <div class="home2-section-head">
-                    <h2>{{(de ? "Ordner" : "Folders")}}</h2>
-                    <button type="button" class="button home2-folder-clear hidden" data-home2-folder-clear>{{Icon("x")}}<span>{{(de ? "Filter aufheben" : "Clear filter")}}</span></button>
+                    <h2>{{(de ? "Filter" : "Filter")}}</h2>
                 </div>
                 <div class="home2-folder-grid">
-                    {{tiles}}
+                    {{string.Join("", tiles)}}
                 </div>
             </section>
             """;
@@ -2326,7 +2343,9 @@ public sealed class HtmlViews
             """;
     }
 
-    private static string FavoritesSection(
+    // Single connections list: favorites first, then folder/name order. The filter row above
+    // (Favorites / folder toggles) and the search box narrow this list client-side.
+    private static string ConnectionsSection(
         HttpContext context,
         MatgateUser user,
         IReadOnlyList<ServerEndpoint> servers,
@@ -2335,46 +2354,16 @@ public sealed class HtmlViews
         bool de)
     {
         var favoriteIds = user.FavoriteServerIds?.ToHashSet() ?? new HashSet<Guid>();
-        var favorites = servers
-            .Where(server => favoriteIds.Contains(server.Id))
-            .OrderBy(ConnectionChoiceSortGroup)
-            .ThenBy(server => server.Name)
-            .ToList();
-        if (favorites.Count == 0)
-        {
-            return "";
-        }
-
-        var cards = string.Join("", favorites.Select(server => ConnectionChoiceCard(context, user, server, includeEditButtons, returnUrl)));
-        return $$"""
-            <section class="home2-section" data-home2-favorites>
-                <div class="home2-section-head">
-                    <h2>{{Icon("star")}}<span>{{(de ? "Favoriten" : "Favorites")}}</span></h2>
-                </div>
-                <div class="home2-card-grid">
-                    {{cards}}
-                </div>
-            </section>
-            """;
-    }
-
-    private static string AllConnectionsSection(
-        HttpContext context,
-        MatgateUser user,
-        IReadOnlyList<ServerEndpoint> servers,
-        bool includeEditButtons,
-        string returnUrl,
-        bool de)
-    {
         var ordered = servers
-            .OrderBy(ConnectionChoiceSortGroup)
+            .OrderByDescending(server => favoriteIds.Contains(server.Id))
+            .ThenBy(ConnectionChoiceSortGroup)
             .ThenBy(server => server.Name)
             .ToList();
         var cards = string.Join("", ordered.Select(server => ConnectionChoiceCard(context, user, server, includeEditButtons, returnUrl)));
         return $$"""
             <section class="home2-section home2-all-section" data-home2-all>
                 <div class="home2-section-head">
-                    <h2>{{(de ? "Alle Verbindungen" : "All connections")}}</h2>
+                    <h2>{{(de ? "Verbindungen" : "Connections")}}</h2>
                     <span class="badge">{{ordered.Count}}</span>
                 </div>
                 <div class="home2-card-grid">
@@ -2822,7 +2811,7 @@ public sealed class HtmlViews
         }
 
         return $$"""
-            <article class="connection-choice" data-home2-card="1" data-folder="{{A(FolderFilterKey(server.FolderName))}}" data-search="{{A(searchIndex)}}" style="--proto: {{ProtocolAccent(server.Protocol)}}">
+            <article class="connection-choice" data-home2-card="1" data-fav="{{(IsFavoriteServer(user, server.Id) ? "1" : "0")}}" data-folder="{{A(FolderFilterKey(server.FolderName))}}" data-search="{{A(searchIndex)}}" style="--proto: {{ProtocolAccent(server.Protocol)}}">
                 {{FavoriteToggleForm(context, user, server, returnUrl)}}
                 <div class="connection-choice-body">
                     <div class="server-title connection-choice-title">
@@ -3806,13 +3795,12 @@ public sealed class HtmlViews
                     const searchInput = root.querySelector('[data-home2-search]');
                     const cards = Array.from(root.querySelectorAll('[data-home2-card]'));
                     const quickSection = root.querySelector('.home2-quick-section');
-                    const foldersSection = root.querySelector('.home2-folders-section');
                     const allSection = root.querySelector('[data-home2-all]');
                     const noResults = root.querySelector('[data-home2-noresults]');
-                    const folderTiles = Array.from(root.querySelectorAll('[data-home2-folder]'));
-                    const clearButton = root.querySelector('[data-home2-folder-clear]');
-                    const resultSections = Array.from(root.querySelectorAll('[data-home2-recent],[data-home2-favorites],[data-home2-all]'));
-                    let folderKey = null;
+                    const filterTiles = Array.from(root.querySelectorAll('[data-home2-filter]'));
+                    const resultSections = Array.from(root.querySelectorAll('[data-home2-recent],[data-home2-all]'));
+                    // null = no filter; '__favorites__' = only favorites; otherwise a folder key.
+                    let activeFilter = null;
 
                     const apply = () => {
                         const term = (searchInput ? searchInput.value : '').trim().toLowerCase();
@@ -3821,8 +3809,13 @@ public sealed class HtmlViews
                         cards.forEach(card => {
                             const inAll = allSection ? allSection.contains(card) : false;
                             const matchesSearch = !searching || (card.dataset.search || '').includes(term);
-                            const matchesFolder = folderKey === null || !inAll || card.dataset.folder === folderKey;
-                            const visible = matchesSearch && matchesFolder;
+                            let matchesFilter = true;
+                            if (activeFilter !== null && inAll) {
+                                matchesFilter = activeFilter === '__favorites__'
+                                    ? card.dataset.fav === '1'
+                                    : card.dataset.folder === activeFilter;
+                            }
+                            const visible = matchesSearch && matchesFilter;
                             card.hidden = !visible;
                             if (visible) {
                                 visibleCount += 1;
@@ -3833,9 +3826,6 @@ public sealed class HtmlViews
                         });
                         if (quickSection) {
                             quickSection.hidden = searching;
-                        }
-                        if (foldersSection) {
-                            foldersSection.hidden = searching && folderKey === null;
                         }
                         if (noResults) {
                             const empty = visibleCount === 0;
@@ -3848,31 +3838,17 @@ public sealed class HtmlViews
                         searchInput.addEventListener('input', apply);
                     }
 
-                    folderTiles.forEach(tile => {
+                    filterTiles.forEach(tile => {
                         tile.addEventListener('click', () => {
-                            const key = tile.dataset.home2Folder || '';
-                            folderKey = folderKey === key ? null : key;
-                            folderTiles.forEach(other => other.classList.toggle('active', other.dataset.home2Folder === folderKey));
-                            if (clearButton) {
-                                clearButton.hidden = folderKey === null;
-                                clearButton.classList.toggle('hidden', folderKey === null);
-                            }
+                            const key = tile.dataset.home2Filter || '';
+                            activeFilter = activeFilter === key ? null : key;
+                            filterTiles.forEach(other => other.classList.toggle('active', other.dataset.home2Filter === activeFilter));
                             apply();
-                            if (folderKey !== null && allSection) {
+                            if (activeFilter !== null && allSection) {
                                 allSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
                             }
                         });
                     });
-
-                    if (clearButton) {
-                        clearButton.addEventListener('click', () => {
-                            folderKey = null;
-                            folderTiles.forEach(other => other.classList.remove('active'));
-                            clearButton.hidden = true;
-                            clearButton.classList.add('hidden');
-                            apply();
-                        });
-                    }
 
                     const protoDialog = root.querySelector('[data-home2-proto-dialog]');
                     if (protoDialog) {
