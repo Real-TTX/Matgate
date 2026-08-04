@@ -8591,6 +8591,7 @@ public sealed class HtmlViews
                     <a class="shell-menu-item{{toolsClass}}" href="/tools" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Tools"))}}">{{Icon("wrench")}}<span>{{T(context, "Tools")}}</span></a>
                     {{(canManageAdminArea ? $"""<a class="shell-menu-item{(adminActive ? " active" : "")}" href="/admin" data-shell-open-tab="1" data-shell-title="{A(T(context, "Administration"))}">{Icon("shield")}<span>{T(context, "Administration")}</span></a>""" : "")}}
                     <a class="shell-menu-item account-trigger{{accountClass}}" href="/account" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Account"))}}">{{Icon("settings")}}<span class="account-name">{{E(displayName)}}</span></a>
+                    <button type="button" class="shell-menu-item" data-view-mode-toggle>{{Icon("chevrons-down-up")}}<span>{{(Language(context) == "de" ? "Kompakte Ansicht ein/aus" : "Toggle compact view")}}</span></button>
                     <form method="post" action="/logout" class="account-menu-logout">
                         {{Csrf(context)}}
                         <button type="submit" class="shell-menu-item shell-menu-logout">{{Icon("logout")}}<span>{{T(context, "Logout")}}</span></button>
@@ -10162,17 +10163,24 @@ public sealed class HtmlViews
                         pointer-events: none;
                     }
                     .home2-search-icon .icon { height: 18px; width: 18px; }
-                    .home2-search-input {
+                    .home2-search input.home2-search-input {
+                        appearance: none;
+                        -webkit-appearance: none;
                         background: transparent;
                         border: 0;
+                        border-radius: 0;
+                        box-shadow: none;
                         color: var(--text);
                         flex: 1 1 auto;
                         font: inherit;
                         min-height: 50px;
                         min-width: 0;
+                        outline: none;
                         padding: 13px 0;
+                        width: auto;
                     }
-                    .home2-search-input:focus-visible { outline: none; }
+                    .home2-search input.home2-search-input:focus,
+                    .home2-search input.home2-search-input:focus-visible { box-shadow: none; outline: none; }
                     .home2-search-input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
                     .home2-section {
                         display: flex;
@@ -12537,12 +12545,24 @@ public sealed class HtmlViews
                             window.requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
                         };
                         applyViewMode(readStoredViewMode(), false);
+                        const toggleViewMode = () => {
+                            const next = document.documentElement.dataset.viewMode === 'minimal' ? 'normal' : 'minimal';
+                            applyViewMode(next, true);
+                        };
                         if (viewModeToggle) {
-                            viewModeToggle.addEventListener('click', () => {
-                                const next = document.documentElement.dataset.viewMode === 'minimal' ? 'normal' : 'minimal';
-                                applyViewMode(next, true);
-                            });
+                            viewModeToggle.addEventListener('click', toggleViewMode);
                         }
+                        // Also reachable as a labelled entry in the burger menu (the icon-only toggle
+                        // is easy to miss on phones).
+                        document.querySelectorAll('[data-view-mode-toggle]').forEach(item => {
+                            item.addEventListener('click', () => {
+                                toggleViewMode();
+                                const openMenu = item.closest('details[open]');
+                                if (openMenu) {
+                                    openMenu.removeAttribute('open');
+                                }
+                            });
+                        });
 
                         const embeddedPage = document.documentElement.dataset.embedded === '1';
                         const isAppleTouchDevice = /iPad|iPhone|iPod/i.test(navigator.userAgent)
