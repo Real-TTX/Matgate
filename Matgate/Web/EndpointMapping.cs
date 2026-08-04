@@ -337,6 +337,7 @@ public static class EndpointMapping
         app.MapPost("/api/tools/port-check", ToolsPortCheckAsync).RequireAuthorization();
         app.MapPost("/api/tools/download", ToolsDownloadAsync).RequireAuthorization();
         app.MapPost("/api/connections/{id:guid}/launch", LaunchConnectionAsync).RequireAuthorization();
+        app.MapPost("/api/quick-connect", QuickConnectAsync).RequireAuthorization();
         app.MapGet("/files/{id:guid}/view", FileViewerAsync).RequireAuthorization();
         app.MapGet("/api/files/{id:guid}/list", ListFilesAsync).RequireAuthorization();
         app.MapGet("/api/files/{id:guid}/download", DownloadFileAsync).RequireAuthorization();
@@ -1665,7 +1666,7 @@ public static class EndpointMapping
             return Results.BadRequest(new { error = HtmlViews.Translate(context, "Invalid request") });
         }
 
-        var server = await store.FindServerByIdAsync(id, context.RequestAborted);
+        var server = await ResolveServerForUserAsync(id, user, context, store);
         if (server is null || !server.IsEnabled || !CanAccessServer(user, server))
         {
             return Results.NotFound(new { error = HtmlViews.Translate(context, "This server is not shared with you.") });
@@ -1676,6 +1677,29 @@ public static class EndpointMapping
         if (!launch.Success || string.IsNullOrWhiteSpace(launch.Url))
         {
             return Results.BadRequest(new { error = launch.Error ?? HtmlViews.Translate(context, "The connection could not be started.") });
+        }
+
+        // Record this connection in the user's recently-used history (most recent first, capped).
+        // Skip ad-hoc quick-connect sessions: their ids are ephemeral and would never resolve again.
+        var isPersisted = await store.FindServerByIdAsync(id, context.RequestAborted) is not null;
+        if (isPersisted)
+        {
+            await store.UpdateUsersAsync(users =>
+            {
+                var current = users.FirstOrDefault(candidate => candidate.Id == user.Id);
+                if (current is null)
+                {
+                    return;
+                }
+
+                current.RecentConnections ??= [];
+                current.RecentConnections.RemoveAll(entry => entry.ServerId == id);
+                current.RecentConnections.Insert(0, new RecentConnectionEntry { ServerId = id, UsedAt = DateTimeOffset.UtcNow });
+                if (current.RecentConnections.Count > 12)
+                {
+                    current.RecentConnections.RemoveRange(12, current.RecentConnections.Count - 12);
+                }
+            }, context.RequestAborted);
         }
 
         return Results.Json(new
@@ -2438,6 +2462,7 @@ public static class EndpointMapping
                 IsAdmin = IsChecked(form, "isAdmin"),
                 CanManageServers = IsChecked(form, "canManageServers") || IsChecked(form, "isAdmin"),
                 CanCreateServers = IsChecked(form, "canCreateServers") || IsChecked(form, "isAdmin"),
+                CanQuickConnect = IsChecked(form, "canQuickConnect") || IsChecked(form, "isAdmin"),
                 PreferredLanguage = NormalizeLanguage(form["preferredLanguage"].ToString()),
                 PreferredTheme = NormalizeTheme(form["preferredTheme"].ToString()),
                 RememberLoginByDefault = true,
@@ -2531,6 +2556,7 @@ public static class EndpointMapping
             user.IsAdmin = nextIsAdmin;
             user.CanManageServers = IsChecked(form, "canManageServers") || user.IsAdmin;
             user.CanCreateServers = IsChecked(form, "canCreateServers") || user.IsAdmin;
+            user.CanQuickConnect = IsChecked(form, "canQuickConnect") || user.IsAdmin;
             user.PreferredLanguage = NormalizeLanguage(form["preferredLanguage"].ToString());
             user.PreferredTheme = NormalizeTheme(form["preferredTheme"].ToString());
             user.RememberLoginByDefault = true;
@@ -3089,7 +3115,12 @@ public static class EndpointMapping
             return Results.Redirect("/forbidden");
         }
 
-        return Results.Content(views.ServerCreate(context, user), "text/html");
+        // Optional ?protocol= preselects the protocol (used by the home "Quick connect" tiles).
+        var preferredProtocol = Enum.TryParse<ServerProtocol>(context.Request.Query["protocol"].ToString(), ignoreCase: true, out var parsedProtocol)
+            ? parsedProtocol
+            : (ServerProtocol?)null;
+
+        return Results.Content(views.ServerCreate(context, user, preferredProtocol), "text/html");
     }
 
     private static async Task<IResult> CreateServerAsync(
@@ -3305,6 +3336,103 @@ public static class EndpointMapping
         return user is { IsAdmin: true } || user is { CanManageServers: true } || user is { CanCreateServers: true } ? user : null;
     }
 
+    // Resolves a connection id to either a persisted server or the caller's own ad-hoc (ephemeral)
+    // quick-connect endpoint. Callers still apply the usual IsEnabled + CanAccessServer checks
+    // (which pass for ephemeral endpoints since they are owned by the caller).
+    private static async Task<ServerEndpoint?> ResolveServerForUserAsync(Guid id, MatgateUser user, HttpContext context, JsonDataStore store)
+    {
+        var server = await store.FindServerByIdAsync(id, context.RequestAborted);
+        if (server is not null)
+        {
+            return server;
+        }
+
+        return context.RequestServices.GetService<EphemeralServerStore>()?.TryResolve(id, user.Id);
+    }
+
+    // Ad-hoc "Quick connect": build an in-memory endpoint from the submitted host + credentials,
+    // register it (never persisted), and return a descriptor the SPA opens like any connection.
+    private static async Task<IResult> QuickConnectAsync(HttpContext context, JsonDataStore store, EphemeralServerStore ephemeral)
+    {
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        if (!(user.IsAdmin || user.CanQuickConnect))
+        {
+            return Results.Json(
+                new { error = HtmlViews.Translate(context, "Quick connect is not enabled for your account.") },
+                statusCode: StatusCodes.Status403Forbidden);
+        }
+
+        if (!ValidateCsrfHeader(context))
+        {
+            return Results.BadRequest(new { error = HtmlViews.Translate(context, "Invalid request") });
+        }
+
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        var protocol = Enum.TryParse<ServerProtocol>(form["protocol"].ToString(), ignoreCase: true, out var parsed)
+            ? parsed
+            : ServerProtocol.Rdp;
+        if (protocol == ServerProtocol.LegacyBrowser)
+        {
+            protocol = ServerProtocol.Rdp;
+        }
+
+        var isWebsite = ServerEndpoint.IsWebsiteProtocol(protocol);
+        var target = (form["host"].ToString() ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(target))
+        {
+            return Results.BadRequest(new { error = HtmlViews.Translate(context, "Please enter a target.") });
+        }
+
+        var defaultPort = protocol switch
+        {
+            ServerProtocol.Rdp => 3389,
+            ServerProtocol.Vnc => 5900,
+            ServerProtocol.Ssh => 22,
+            ServerProtocol.Sftp => 22,
+            ServerProtocol.Ftp => 21,
+            ServerProtocol.Smb => 445,
+            _ => 0
+        };
+        var port = int.TryParse(form["port"].ToString(), out var parsedPort) && parsedPort > 0 ? parsedPort : defaultPort;
+
+        var server = new ServerEndpoint
+        {
+            Name = target,
+            Protocol = protocol,
+            Host = isWebsite ? "" : target,
+            Port = port,
+            UserName = (form["username"].ToString() ?? "").Trim(),
+            Password = form["password"].ToString() ?? "",
+            Domain = (form["domain"].ToString() ?? "").Trim(),
+            FileRootPath = (form["fileRoot"].ToString() ?? "").Trim(),
+            WebsiteUrl = isWebsite ? target : "",
+            Notes = HtmlViews.Translate(context, "Quick connect")
+        };
+
+        var stored = ephemeral.Register(user, server);
+        var iconKey = ServerEndpoint.EffectiveIconKey(stored.Protocol, stored.IconKey);
+
+        return Results.Json(new
+        {
+            server = new
+            {
+                id = stored.Id.ToString(),
+                name = stored.Name,
+                protocol = stored.Protocol.ToString().ToUpperInvariant(),
+                iconKey,
+                iconHtml = HtmlViews.IconMarkup(iconKey),
+                target = isWebsite
+                    ? stored.WebsiteUrl
+                    : $"{stored.Host}:{stored.Port}"
+            }
+        });
+    }
+
     private static async Task<FileServerAccess> RequireFileServerAsync(Guid id, HttpContext context, JsonDataStore store)
     {
         var user = await RequireUserAsync(context, store);
@@ -3313,7 +3441,7 @@ public static class EndpointMapping
             return new FileServerAccess(null, Results.Unauthorized());
         }
 
-        var server = await store.FindServerByIdAsync(id, context.RequestAborted);
+        var server = await ResolveServerForUserAsync(id, user, context, store);
         if (server is null || !server.IsEnabled || !CanAccessServer(user, server))
         {
             return new FileServerAccess(null, Results.NotFound(new { error = HtmlViews.Translate(context, "This server is not shared with you.") }));
@@ -3362,7 +3490,7 @@ public static class EndpointMapping
             return new FileServerAccess(null, Results.Unauthorized());
         }
 
-        var server = await store.FindServerByIdAsync(id, context.RequestAborted);
+        var server = await ResolveServerForUserAsync(id, user, context, store);
         if (server is null || !server.IsEnabled || !CanAccessServer(user, server))
         {
             return new FileServerAccess(null, Results.NotFound(new { error = HtmlViews.Translate(context, "This server is not shared with you.") }));

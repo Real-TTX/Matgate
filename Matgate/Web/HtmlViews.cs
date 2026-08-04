@@ -449,6 +449,7 @@ public sealed class HtmlViews
                         <label class="check"><input type="checkbox" name="isAdmin"> {{T(context, "Administrator")}}</label>
                         <label class="check"><input type="checkbox" name="canManageServers"> {{T(context, "Manage servers")}}</label>
                         <label class="check"><input type="checkbox" name="canCreateServers"> {{T(context, "Can create own servers")}}</label>
+                        <label class="check"><input type="checkbox" name="canQuickConnect"> {{(Language(context) == "de" ? "Quick-Connect erlauben" : "Allow quick connect")}}</label>
                     </div>
                 </section>
                 <div class="actions">
@@ -538,6 +539,7 @@ public sealed class HtmlViews
                         <label class="check"><input type="checkbox" name="isAdmin"{{Checked(editedUser.IsAdmin)}}> {{T(context, "Administrator")}}</label>
                         <label class="check"><input type="checkbox" name="canManageServers"{{Checked(editedUser.CanManageServers)}}> {{T(context, "Manage servers")}}</label>
                         <label class="check"><input type="checkbox" name="canCreateServers"{{Checked(editedUser.CanCreateServers)}}> {{T(context, "Can create own servers")}}</label>
+                        <label class="check"><input type="checkbox" name="canQuickConnect"{{Checked(editedUser.CanQuickConnect)}}> {{(de ? "Quick-Connect erlauben" : "Allow quick connect")}}</label>
                     </div>
                 </section>
                 <div class="actions"><button type="submit" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button></div>
@@ -742,7 +744,7 @@ public sealed class HtmlViews
         return Layout(context, currentUser, Language(context) == "de" ? "Server bearbeiten" : "Edit server", body);
     }
 
-    public string ServerCreate(HttpContext context, MatgateUser currentUser)
+    public string ServerCreate(HttpContext context, MatgateUser currentUser, ServerProtocol? preferredProtocol = null)
     {
         var body = $$"""
             <section class="page-head">
@@ -754,7 +756,7 @@ public sealed class HtmlViews
             </section>
             <form method="post" action="/admin/servers" class="stack server-form" data-server-form>
                 {{Csrf(context)}}
-                {{ServerFields(context, currentUser)}}
+                {{ServerFields(context, currentUser, null, preferredProtocol)}}
                 <div class="actions"><button type="submit" class="primary">{{Icon("plus")}}{{T(context, "Create")}}</button></div>
             </form>
             {{ServerFormScript()}}
@@ -2027,6 +2029,8 @@ public sealed class HtmlViews
             """;
     }
 
+    // The logged-in home / "New Tab" page: a single, scrollable column of sections
+    // (header, search, quick-connect, folders, recently used, favorites, all connections).
     private static string ConnectionChoiceSections(
         HttpContext context,
         MatgateUser user,
@@ -2034,55 +2038,407 @@ public sealed class HtmlViews
         IReadOnlyList<WorkspaceDefinition> workspaces,
         bool includeEditButtons)
     {
+        var de = Language(context) == "de";
+        var canCreate = user.IsAdmin || user.CanManageServers || user.CanCreateServers;
+        var canQuick = user.IsAdmin || user.CanQuickConnect;
+        var returnUrl = $"{context.Request.Path}{context.Request.QueryString}";
+        var subtitle = de
+            ? "Schnell verbinden oder eine gespeicherte Verbindung öffnen"
+            : "Connect quickly or open a saved connection";
+
+        // "New connection" = create a SAVED connection (needs create rights); the ad-hoc quick-connect
+        // lives in the "Quick connect" section + dialog and needs the quick-connect permission.
+        var quickButton = canQuick
+            ? $$"""<button type="button" class="button primary home2-new-connection" data-home2-more>{{Icon("play")}}<span>{{(de ? "Quick-Connect" : "Quick connect")}}</span></button>"""
+            : "";
+        var createButtons = canCreate
+            ? $$"""
+                <a class="button{{(canQuick ? "" : " primary")}} home2-new-folder" href="/admin/servers/new">{{Icon("plus")}}<span>{{(de ? "Neue Verbindung" : "New connection")}}</span></a>
+                """
+            : "";
+        var headerActions = (canQuick || canCreate)
+            ? $$"""<div class="home2-head-actions">{{quickButton}}{{createButtons}}</div>"""
+            : "";
+        var protocolDialog = canQuick ? ProtocolDialog(de) : "";
+
+        var head = $$"""
+            <section class="home2-head">
+                <div class="home2-head-copy">
+                    <h1>{{(de ? "Verbindungen" : "Connections")}}</h1>
+                    <p class="muted">{{E(subtitle)}}</p>
+                </div>
+                {{headerActions}}
+            </section>
+            """;
+
+        // Global empty state: no accessible connections at all.
         if (servers.Count == 0)
         {
-            var createButton = user.CanCreateServers
+            var createButton = canCreate
                 ? $"""<a class="button primary" href="/admin/servers/new">{Icon("plus")}{T(context, "Create own server")}</a>"""
                 : "";
             return $$"""
-                <section class="connection-browser-empty">
-                    <div>
-                        <p class="eyebrow">{{T(context, "Home")}}</p>
-                        <h1>{{T(context, "New Connection")}}</h1>
-                        <p class="muted">{{T(context, "No connections yet.")}}</p>
-                    </div>
-                    {{createButton}}
+                <section class="home2" data-home2="1">
+                    {{head}}
+                    <section class="home2-empty">
+                        <div>
+                            <h2>{{(de ? "Noch keine Verbindungen" : "No connections yet")}}</h2>
+                            <p class="muted">{{(de ? "Lege deine erste Verbindung an, um loszulegen." : "Create your first connection to get started.")}}</p>
+                        </div>
+                        {{createButton}}
+                    </section>
+                    {{protocolDialog}}
                 </section>
                 """;
         }
 
-        var returnUrl = $"{context.Request.Path}{context.Request.QueryString}";
-        var browserModes = new[]
-        {
-            ConnectionChoiceBrowserMode(context, user, servers, workspaces, includeEditButtons, returnUrl, ConnectionBrowseMode.Folder),
-            ConnectionChoiceBrowserMode(context, user, servers, workspaces, includeEditButtons, returnUrl, ConnectionBrowseMode.Host)
-        };
-        var headerCreateButton = user.CanCreateServers
-            ? $"""<a class="button primary" href="/admin/servers/new">{Icon("plus")}{T(context, "Create own server")}</a>"""
-            : "";
+        var searchBox = $$"""
+            <section class="home2-search">
+                <span class="home2-search-icon">{{Icon("search")}}</span>
+                <input type="search" class="home2-search-input" data-home2-search autocomplete="off" spellcheck="false" placeholder="{{A(de ? "Verbindungen, Ordner oder Host suchen…" : "Search connections, folders or hosts…")}}" aria-label="{{A(de ? "Suchen" : "Search")}}">
+                <kbd class="home2-search-kbd">{{(de ? "Strg K" : "Ctrl K")}}</kbd>
+            </section>
+            """;
+
+        var quickConnect = canQuick ? QuickConnectSection(de) : "";
+        var folderTiles = FolderTilesSection(servers, de);
+        var recentSection = RecentConnectionsSection(context, user, servers, includeEditButtons, returnUrl, de);
+        var favoritesSection = FavoritesSection(context, user, servers, includeEditButtons, returnUrl, de);
+        var allSection = AllConnectionsSection(context, user, servers, includeEditButtons, returnUrl, de);
 
         return $$"""
-            <section class="connection-browser" data-home-browser="1">
-                <section class="connection-picker-head connection-browser-head">
-                    <div>
-                        <p class="eyebrow">{{T(context, "Home")}}</p>
-                        <h1>{{T(context, "New Connection")}}</h1>
-                    </div>
-                    <div class="connection-browser-head-actions">
-                        <button type="button" class="button home-browser-nav-toggle" data-home-nav-toggle="1" aria-expanded="false">{{Icon("folder")}}<span>{{T(context, "Folders")}}</span></button>
-                        <div class="connection-browser-mode-switch" role="tablist" aria-label="{{A(T(context, "Connections"))}}">
-                            <button type="button" class="connection-browser-mode-button active" data-home-mode-switch="folder">{{Icon("folder")}}<span>{{T(context, "Folder view")}}</span></button>
-                            <button type="button" class="connection-browser-mode-button" data-home-mode-switch="host">{{Icon("server")}}<span>{{T(context, "Server view")}}</span></button>
-                        </div>
-                        {{headerCreateButton}}
-                    </div>
+            <section class="home2" data-home2="1">
+                {{head}}
+                {{searchBox}}
+                {{quickConnect}}
+                {{folderTiles}}
+                {{recentSection}}
+                {{favoritesSection}}
+                {{allSection}}
+                <section class="home2-noresults hidden" data-home2-noresults>
+                    <p class="muted">{{(de ? "Keine Treffer." : "No matches.")}}</p>
                 </section>
-                <div class="connection-browser-modes">
-                    {{browserModes[0]}}
-                    {{browserModes[1]}}
+                {{protocolDialog}}
+            </section>
+            """;
+    }
+
+    // All protocols offered for a new connection (order = row order; the row shows the first few,
+    // the rest live in the "More" dialog).
+    private static (string Protocol, string Name, string Desc, string IconKey, string Color)[] QuickProtocols(bool de)
+    {
+        return new (string Protocol, string Name, string Desc, string IconKey, string Color)[]
+        {
+            ("rdp", "RDP", de ? "Remote-Desktop" : "Remote Desktop", "rdp", "#4c8dff"),
+            ("ssh", "SSH", "Linux / Unix", "ssh", "#8a7cff"),
+            ("vnc", "VNC", de ? "Remote-Desktop" : "Remote Desktop", "vnc", "#b06cff"),
+            ("sftp", "SFTP", de ? "Sichere Dateien" : "Secure files", "sftp", "#f0a92b"),
+            ("smb", "SMB", de ? "Netzwerkfreigabe" : "Network share", "smb", "#35c07f"),
+            ("website", "HTTP / HTTPS", de ? "Webseite" : "Website", "globe", "#3aa0ff"),
+            ("ftp", "FTP", de ? "Dateiübertragung" : "File transfer", "ftp", "#e0863a"),
+        };
+    }
+
+    // Single row of protocol chips + a "More" chip that opens the full protocol dialog.
+    private static string QuickConnectSection(bool de)
+    {
+        const int rowCount = 6;
+        var protocols = QuickProtocols(de);
+        var chips = string.Join("", protocols.Take(rowCount).Select(protocol => $$"""
+            <button type="button" class="home2-proto-chip" data-home2-qc="{{A(protocol.Protocol)}}" style="--proto: {{protocol.Color}}" title="{{A(protocol.Desc)}}">
+                <span class="home2-proto-chip-icon">{{Icon(protocol.IconKey)}}</span>
+                <span class="home2-proto-chip-name">{{E(protocol.Name)}}</span>
+            </button>
+            """));
+
+        return $$"""
+            <section class="home2-section home2-quick-section">
+                <div class="home2-section-head">
+                    <h2>{{(de ? "Schnell verbinden" : "Quick connect")}}</h2>
+                </div>
+                <div class="home2-quick-row">
+                    {{chips}}
+                    <button type="button" class="home2-proto-chip home2-proto-more" data-home2-more>
+                        <span class="home2-proto-chip-icon">{{Icon("grid")}}</span>
+                        <span class="home2-proto-chip-name">{{(de ? "Mehr" : "More")}}</span>
+                    </button>
                 </div>
             </section>
             """;
+    }
+
+    // Ad-hoc Quick-Connect dialog: pick a protocol, enter host + credentials, connect immediately
+    // (nothing is saved). Opened by the "Quick connect" chips/button. Fullscreen on phones (see CSS).
+    private static string ProtocolDialog(bool de)
+    {
+        var protoButtons = string.Join("", QuickProtocols(de).Select((protocol, index) => $$"""
+            <button type="button" class="home2-qc-proto{{(index == 0 ? " active" : "")}}" data-home2-qc-proto="{{A(protocol.Protocol)}}" style="--proto: {{protocol.Color}}" title="{{A(protocol.Desc)}}">
+                <span class="home2-qc-proto-icon">{{Icon(protocol.IconKey)}}</span>
+                <span>{{E(protocol.Name)}}</span>
+            </button>
+            """));
+
+        return $$"""
+            <dialog class="home2-proto-dialog" data-home2-proto-dialog>
+                <div class="home2-proto-dialog-head">
+                    <div>
+                        <h2>{{(de ? "Quick-Connect" : "Quick connect")}}</h2>
+                        <p class="muted">{{(de ? "Direkt verbinden, ohne zu speichern" : "Connect directly, without saving")}}</p>
+                    </div>
+                    <button type="button" class="button icon-only home2-proto-dialog-close" data-home2-proto-close aria-label="{{A(de ? "Schließen" : "Close")}}">{{Icon("x")}}</button>
+                </div>
+                <form class="home2-qc-form" data-home2-qc-form>
+                    <div class="home2-qc-protos">{{protoButtons}}</div>
+                    <input type="hidden" name="protocol" value="rdp" data-home2-qc-proto-input>
+                    <label class="home2-qc-label">
+                        <span data-home2-qc-hostlabel>{{(de ? "Host" : "Host")}}</span>
+                        <input name="host" required autocomplete="off" spellcheck="false" data-home2-qc-host placeholder="{{A(de ? "z. B. 192.168.1.10" : "e.g. 192.168.1.10")}}">
+                    </label>
+                    <div class="home2-qc-grid2">
+                        <label class="home2-qc-label" data-home2-qc-field="port">
+                            <span>{{(de ? "Port" : "Port")}}</span>
+                            <input name="port" type="number" inputmode="numeric" autocomplete="off" data-home2-qc-port>
+                        </label>
+                        <label class="home2-qc-label" data-home2-qc-field="domain">
+                            <span>{{(de ? "Domäne" : "Domain")}}</span>
+                            <input name="domain" autocomplete="off" spellcheck="false">
+                        </label>
+                    </div>
+                    <div class="home2-qc-grid2">
+                        <label class="home2-qc-label">
+                            <span>{{(de ? "Benutzer" : "Username")}}</span>
+                            <input name="username" autocomplete="off" spellcheck="false">
+                        </label>
+                        <label class="home2-qc-label">
+                            <span>{{(de ? "Passwort" : "Password")}}</span>
+                            <input name="password" type="password" autocomplete="off">
+                        </label>
+                    </div>
+                    <label class="home2-qc-label" data-home2-qc-field="fileRoot">
+                        <span>{{(de ? "Startverzeichnis (optional)" : "Start folder (optional)")}}</span>
+                        <input name="fileRoot" autocomplete="off" spellcheck="false" placeholder="/">
+                    </label>
+                    <p class="home2-qc-error hidden" data-home2-qc-error></p>
+                    <div class="home2-qc-actions">
+                        <button type="submit" class="button primary">{{Icon("play")}}<span>{{(de ? "Verbinden" : "Connect")}}</span></button>
+                    </div>
+                </form>
+            </dialog>
+            """;
+    }
+
+    // Folder tiles with connection counts; clicking one filters the "All connections" grid.
+    private static string FolderTilesSection(IReadOnlyList<ServerEndpoint> servers, bool de)
+    {
+        var groups = servers
+            .GroupBy(server => string.IsNullOrWhiteSpace(server.FolderName) ? "" : server.FolderName.Trim(), StringComparer.OrdinalIgnoreCase)
+            .Select(group => new { group.Key, First = group.First(), Count = group.Count() })
+            .OrderBy(group => string.IsNullOrWhiteSpace(group.Key) ? 1 : 0)
+            .ThenBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
+        // Only worth showing when there is at least one real (named) folder.
+        if (!groups.Any(group => !string.IsNullOrWhiteSpace(group.Key)))
+        {
+            return "";
+        }
+
+        var palette = new[] { "#4c8dff", "#35c07f", "#b06cff", "#f0a92b", "#3aa0ff", "#e0863a", "#5bc2a8" };
+        var paletteIndex = 0;
+        var tiles = string.Join("", groups.Select(group =>
+        {
+            var isUnsorted = string.IsNullOrWhiteSpace(group.Key);
+            var name = isUnsorted ? (de ? "Unsortiert" : "Unsorted") : group.Key;
+            var color = palette[paletteIndex++ % palette.Length];
+            var icon = isUnsorted ? Icon("folder") : ServerFolderIcon(group.First);
+            var countLabel = group.Count == 1
+                ? (de ? "1 Verbindung" : "1 connection")
+                : $"{group.Count} {(de ? "Verbindungen" : "connections")}";
+            return $$"""
+                <button type="button" class="home2-folder-tile" data-home2-folder="{{A(FolderFilterKey(group.Key))}}" style="--proto: {{color}}">
+                    <span class="home2-folder-icon">{{icon}}</span>
+                    <span class="home2-folder-copy">
+                        <span class="home2-folder-name">{{E(name)}}</span>
+                        <small>{{E(countLabel)}}</small>
+                    </span>
+                </button>
+                """;
+        }));
+
+        return $$"""
+            <section class="home2-section home2-folders-section">
+                <div class="home2-section-head">
+                    <h2>{{(de ? "Ordner" : "Folders")}}</h2>
+                    <button type="button" class="button home2-folder-clear hidden" data-home2-folder-clear>{{Icon("x")}}<span>{{(de ? "Filter aufheben" : "Clear filter")}}</span></button>
+                </div>
+                <div class="home2-folder-grid">
+                    {{tiles}}
+                </div>
+            </section>
+            """;
+    }
+
+    // Recently-used connections (from MatgateUser.RecentConnections), most recent first.
+    private static string RecentConnectionsSection(
+        HttpContext context,
+        MatgateUser user,
+        IReadOnlyList<ServerEndpoint> servers,
+        bool includeEditButtons,
+        string returnUrl,
+        bool de)
+    {
+        if (user.RecentConnections is null || user.RecentConnections.Count == 0)
+        {
+            return "";
+        }
+
+        var byId = servers.ToDictionary(server => server.Id);
+        var cards = new List<string>();
+        foreach (var entry in user.RecentConnections)
+        {
+            if (!byId.TryGetValue(entry.ServerId, out var server))
+            {
+                continue;
+            }
+
+            var meta = $"""<span class="connection-choice-time">{Icon("clock")}<span>{E(RelativeTime(entry.UsedAt, de))}</span></span>""";
+            cards.Add(ConnectionChoiceCard(context, user, server, includeEditButtons, returnUrl, meta));
+            if (cards.Count >= 8)
+            {
+                break;
+            }
+        }
+
+        if (cards.Count == 0)
+        {
+            return "";
+        }
+
+        return $$"""
+            <section class="home2-section" data-home2-recent>
+                <div class="home2-section-head">
+                    <h2>{{Icon("clock")}}<span>{{(de ? "Zuletzt verwendet" : "Recently used")}}</span></h2>
+                </div>
+                <div class="home2-card-grid">
+                    {{string.Join("", cards)}}
+                </div>
+            </section>
+            """;
+    }
+
+    private static string FavoritesSection(
+        HttpContext context,
+        MatgateUser user,
+        IReadOnlyList<ServerEndpoint> servers,
+        bool includeEditButtons,
+        string returnUrl,
+        bool de)
+    {
+        var favoriteIds = user.FavoriteServerIds?.ToHashSet() ?? new HashSet<Guid>();
+        var favorites = servers
+            .Where(server => favoriteIds.Contains(server.Id))
+            .OrderBy(ConnectionChoiceSortGroup)
+            .ThenBy(server => server.Name)
+            .ToList();
+        if (favorites.Count == 0)
+        {
+            return "";
+        }
+
+        var cards = string.Join("", favorites.Select(server => ConnectionChoiceCard(context, user, server, includeEditButtons, returnUrl)));
+        return $$"""
+            <section class="home2-section" data-home2-favorites>
+                <div class="home2-section-head">
+                    <h2>{{Icon("star")}}<span>{{(de ? "Favoriten" : "Favorites")}}</span></h2>
+                </div>
+                <div class="home2-card-grid">
+                    {{cards}}
+                </div>
+            </section>
+            """;
+    }
+
+    private static string AllConnectionsSection(
+        HttpContext context,
+        MatgateUser user,
+        IReadOnlyList<ServerEndpoint> servers,
+        bool includeEditButtons,
+        string returnUrl,
+        bool de)
+    {
+        var ordered = servers
+            .OrderBy(ConnectionChoiceSortGroup)
+            .ThenBy(server => server.Name)
+            .ToList();
+        var cards = string.Join("", ordered.Select(server => ConnectionChoiceCard(context, user, server, includeEditButtons, returnUrl)));
+        return $$"""
+            <section class="home2-section home2-all-section" data-home2-all>
+                <div class="home2-section-head">
+                    <h2>{{(de ? "Alle Verbindungen" : "All connections")}}</h2>
+                    <span class="badge">{{ordered.Count}}</span>
+                </div>
+                <div class="home2-card-grid">
+                    {{cards}}
+                </div>
+            </section>
+            """;
+    }
+
+    // Stable token used to match a folder tile against a card's data-folder attribute.
+    private static string FolderFilterKey(string? folderName)
+    {
+        return string.IsNullOrWhiteSpace(folderName) ? "__unsorted__" : folderName.Trim().ToLowerInvariant();
+    }
+
+    // A per-protocol accent colour (mockup-style coloured icon chips). Colours are not final.
+    private static string ProtocolAccent(ServerProtocol protocol)
+    {
+        return protocol switch
+        {
+            ServerProtocol.Rdp => "#4c8dff",
+            ServerProtocol.Vnc => "#b06cff",
+            ServerProtocol.Ssh => "#8a7cff",
+            ServerProtocol.Sftp => "#f0a92b",
+            ServerProtocol.Ftp => "#e0863a",
+            ServerProtocol.Smb => "#35c07f",
+            ServerProtocol.Website => "#3aa0ff",
+            _ => "#5bc2a8"
+        };
+    }
+
+    private static string RelativeTime(DateTimeOffset when, bool de)
+    {
+        var delta = DateTimeOffset.UtcNow - when;
+        if (delta < TimeSpan.Zero)
+        {
+            delta = TimeSpan.Zero;
+        }
+
+        if (delta.TotalMinutes < 1)
+        {
+            return de ? "gerade eben" : "just now";
+        }
+
+        if (delta.TotalMinutes < 60)
+        {
+            var minutes = (int)delta.TotalMinutes;
+            return de ? $"vor {minutes} Min." : $"{minutes} min ago";
+        }
+
+        if (delta.TotalHours < 24)
+        {
+            var hours = (int)delta.TotalHours;
+            return de ? $"vor {hours} Std." : $"{hours} h ago";
+        }
+
+        if (delta.TotalDays < 7)
+        {
+            var days = (int)delta.TotalDays;
+            return de ? $"vor {days} T." : $"{days} d ago";
+        }
+
+        var weeks = (int)(delta.TotalDays / 7);
+        return de ? $"vor {weeks} Wo." : $"{weeks} w ago";
     }
 
     private enum ConnectionBrowseMode
@@ -2446,8 +2802,10 @@ public sealed class HtmlViews
         MatgateUser user,
         ServerEndpoint server,
         bool includeEditButtons,
-        string returnUrl)
+        string returnUrl,
+        string extraHtml = "")
     {
+        var searchIndex = $"{server.Name} {ServerTargetValue(server)} {server.FolderName} {ServerProtocolLabel(server.Protocol)}".ToLowerInvariant();
         var canEdit = includeEditButtons
             && (user.IsAdmin
                 || server.OwnerUserId == user.Id
@@ -2464,7 +2822,7 @@ public sealed class HtmlViews
         }
 
         return $$"""
-            <article class="connection-choice">
+            <article class="connection-choice" data-home2-card="1" data-folder="{{A(FolderFilterKey(server.FolderName))}}" data-search="{{A(searchIndex)}}" style="--proto: {{ProtocolAccent(server.Protocol)}}">
                 {{FavoriteToggleForm(context, user, server, returnUrl)}}
                 <div class="connection-choice-body">
                     <div class="server-title connection-choice-title">
@@ -2477,6 +2835,7 @@ public sealed class HtmlViews
                             </div>
                             <h3>{{E(server.Name)}}</h3>
                             <p class="target">{{E(ServerTargetValue(server))}}</p>
+                            {{extraHtml}}
                         </div>
                     </div>
                     {{(string.IsNullOrWhiteSpace(server.Notes) ? "" : $"""<p class="muted connection-choice-notes">{E(server.Notes)}</p>""")}}
@@ -3435,6 +3794,235 @@ public sealed class HtmlViews
                     homeBrowserState = loadHomeBrowserState();
                     setHomeBrowserMode(homeBrowserState.mode, false);
                     setHomeBrowserWorkspaceFilter(homeBrowserState.workspaceFilter, false);
+                }
+
+                // Home / New Tab page: live search + folder filtering over the connection cards.
+                function wireHome2() {
+                    const root = document.querySelector('[data-home2]');
+                    if (!root) {
+                        return;
+                    }
+
+                    const searchInput = root.querySelector('[data-home2-search]');
+                    const cards = Array.from(root.querySelectorAll('[data-home2-card]'));
+                    const quickSection = root.querySelector('.home2-quick-section');
+                    const foldersSection = root.querySelector('.home2-folders-section');
+                    const allSection = root.querySelector('[data-home2-all]');
+                    const noResults = root.querySelector('[data-home2-noresults]');
+                    const folderTiles = Array.from(root.querySelectorAll('[data-home2-folder]'));
+                    const clearButton = root.querySelector('[data-home2-folder-clear]');
+                    const resultSections = Array.from(root.querySelectorAll('[data-home2-recent],[data-home2-favorites],[data-home2-all]'));
+                    let folderKey = null;
+
+                    const apply = () => {
+                        const term = (searchInput ? searchInput.value : '').trim().toLowerCase();
+                        const searching = term.length > 0;
+                        let visibleCount = 0;
+                        cards.forEach(card => {
+                            const inAll = allSection ? allSection.contains(card) : false;
+                            const matchesSearch = !searching || (card.dataset.search || '').includes(term);
+                            const matchesFolder = folderKey === null || !inAll || card.dataset.folder === folderKey;
+                            const visible = matchesSearch && matchesFolder;
+                            card.hidden = !visible;
+                            if (visible) {
+                                visibleCount += 1;
+                            }
+                        });
+                        resultSections.forEach(section => {
+                            section.hidden = section.querySelector('[data-home2-card]:not([hidden])') === null;
+                        });
+                        if (quickSection) {
+                            quickSection.hidden = searching;
+                        }
+                        if (foldersSection) {
+                            foldersSection.hidden = searching && folderKey === null;
+                        }
+                        if (noResults) {
+                            const empty = visibleCount === 0;
+                            noResults.hidden = !empty;
+                            noResults.classList.toggle('hidden', !empty);
+                        }
+                    };
+
+                    if (searchInput) {
+                        searchInput.addEventListener('input', apply);
+                    }
+
+                    folderTiles.forEach(tile => {
+                        tile.addEventListener('click', () => {
+                            const key = tile.dataset.home2Folder || '';
+                            folderKey = folderKey === key ? null : key;
+                            folderTiles.forEach(other => other.classList.toggle('active', other.dataset.home2Folder === folderKey));
+                            if (clearButton) {
+                                clearButton.hidden = folderKey === null;
+                                clearButton.classList.toggle('hidden', folderKey === null);
+                            }
+                            apply();
+                            if (folderKey !== null && allSection) {
+                                allSection.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            }
+                        });
+                    });
+
+                    if (clearButton) {
+                        clearButton.addEventListener('click', () => {
+                            folderKey = null;
+                            folderTiles.forEach(other => other.classList.remove('active'));
+                            clearButton.hidden = true;
+                            clearButton.classList.add('hidden');
+                            apply();
+                        });
+                    }
+
+                    const protoDialog = root.querySelector('[data-home2-proto-dialog]');
+                    if (protoDialog) {
+                        const qcForm = protoDialog.querySelector('[data-home2-qc-form]');
+                        const qcProtoInput = protoDialog.querySelector('[data-home2-qc-proto-input]');
+                        const qcProtoButtons = Array.from(protoDialog.querySelectorAll('[data-home2-qc-proto]'));
+                        const qcHostLabel = protoDialog.querySelector('[data-home2-qc-hostlabel]');
+                        const qcHostInput = protoDialog.querySelector('[data-home2-qc-host]');
+                        const qcPortInput = protoDialog.querySelector('[data-home2-qc-port]');
+                        const qcError = protoDialog.querySelector('[data-home2-qc-error]');
+                        const originalHostPlaceholder = qcHostInput ? (qcHostInput.getAttribute('placeholder') || '') : '';
+                        const originalHostLabel = qcHostLabel ? qcHostLabel.textContent : 'Host';
+                        const defaultPorts = { rdp: '3389', ssh: '22', vnc: '5900', sftp: '22', ftp: '21', smb: '445', website: '' };
+
+                        const setField = (name, on) => {
+                            const el = protoDialog.querySelector('[data-home2-qc-field="' + name + '"]');
+                            if (el) {
+                                el.hidden = !on;
+                                el.classList.toggle('hidden', !on);
+                            }
+                        };
+
+                        const setQcProtocol = proto => {
+                            const value = Object.prototype.hasOwnProperty.call(defaultPorts, proto) ? proto : 'rdp';
+                            if (qcProtoInput) {
+                                qcProtoInput.value = value;
+                            }
+                            qcProtoButtons.forEach(button => button.classList.toggle('active', button.dataset.home2QcProto === value));
+                            const isWeb = value === 'website';
+                            setField('port', !isWeb);
+                            setField('domain', value === 'rdp' || value === 'smb');
+                            setField('fileRoot', value === 'sftp' || value === 'ftp' || value === 'smb');
+                            if (qcHostLabel) {
+                                qcHostLabel.textContent = isWeb ? 'URL' : originalHostLabel;
+                            }
+                            if (qcHostInput) {
+                                qcHostInput.placeholder = isWeb ? 'https://…' : originalHostPlaceholder;
+                            }
+                            if (qcPortInput) {
+                                qcPortInput.value = isWeb ? '' : (defaultPorts[value] || '');
+                            }
+                        };
+
+                        qcProtoButtons.forEach(button => {
+                            button.addEventListener('click', () => setQcProtocol(button.dataset.home2QcProto));
+                        });
+
+                        const openDialog = proto => {
+                            setQcProtocol(proto || 'rdp');
+                            if (qcError) {
+                                qcError.hidden = true;
+                                qcError.classList.add('hidden');
+                            }
+                            if (typeof protoDialog.showModal === 'function') {
+                                protoDialog.showModal();
+                            }
+                            else {
+                                protoDialog.setAttribute('open', '');
+                            }
+                            if (qcHostInput) {
+                                qcHostInput.focus();
+                            }
+                        };
+
+                        Array.from(root.querySelectorAll('[data-home2-more]')).forEach(button => {
+                            button.addEventListener('click', () => openDialog('rdp'));
+                        });
+                        Array.from(root.querySelectorAll('[data-home2-qc]')).forEach(button => {
+                            button.addEventListener('click', () => openDialog(button.dataset.home2Qc));
+                        });
+
+                        const protoClose = protoDialog.querySelector('[data-home2-proto-close]');
+                        if (protoClose) {
+                            protoClose.addEventListener('click', () => protoDialog.close());
+                        }
+                        protoDialog.addEventListener('click', event => {
+                            if (event.target === protoDialog) {
+                                protoDialog.close();
+                            }
+                        });
+
+                        if (qcForm) {
+                            qcForm.addEventListener('submit', async event => {
+                                event.preventDefault();
+                                if (qcError) {
+                                    qcError.hidden = true;
+                                    qcError.classList.add('hidden');
+                                }
+                                const submitButton = qcForm.querySelector('button[type="submit"]');
+                                if (submitButton) {
+                                    submitButton.disabled = true;
+                                }
+                                try {
+                                    const response = await fetch('/api/quick-connect', {
+                                        method: 'POST',
+                                        headers: { 'X-Matgate-Csrf': csrfToken },
+                                        body: new FormData(qcForm)
+                                    });
+                                    if (!response.ok) {
+                                        let message = ui('connectionStartFailed');
+                                        try {
+                                            const payload = await response.json();
+                                            message = payload.error || message;
+                                        }
+                                        catch {
+                                            // Keep the generic error.
+                                        }
+                                        throw new Error(message);
+                                    }
+                                    const data = await response.json();
+                                    if (data && data.server && data.server.id) {
+                                        availableServers.push(data.server);
+                                        protoDialog.close();
+                                        qcForm.reset();
+                                        openServer(data.server.id);
+                                    }
+                                }
+                                catch (error) {
+                                    if (qcError) {
+                                        qcError.textContent = (error && error.message) || ui('connectionStartFailed');
+                                        qcError.hidden = false;
+                                        qcError.classList.remove('hidden');
+                                    }
+                                }
+                                finally {
+                                    if (submitButton) {
+                                        submitButton.disabled = false;
+                                    }
+                                }
+                            });
+                        }
+
+                        setQcProtocol('rdp');
+                    }
+
+                    document.addEventListener('keydown', event => {
+                        if ((event.ctrlKey || event.metaKey) && (event.key === 'k' || event.key === 'K')) {
+                            if (searchInput) {
+                                event.preventDefault();
+                                searchInput.focus();
+                                searchInput.select();
+                            }
+                        }
+                        else if (event.key === 'Escape' && searchInput && document.activeElement === searchInput && searchInput.value) {
+                            searchInput.value = '';
+                            apply();
+                        }
+                    });
+
+                    apply();
                 }
 
                 function shellEmbeddedUrl(url) {
@@ -7552,6 +8140,7 @@ public sealed class HtmlViews
                 showView('home', false);
                 wireHomeBrowser();
                 restoreHomeBrowser();
+                wireHome2();
                 restoreShellTabs();
                 measureGatewayLatency();
                 window.setInterval(measureGatewayLatency, 5000);
@@ -9554,6 +10143,342 @@ public sealed class HtmlViews
                         max-width: 1440px;
                         min-height: 100%;
                         width: 100%;
+                    }
+                    /* ---- Home / New Tab page: single scrollable column of sections ---- */
+                    .home2 {
+                        display: flex;
+                        flex-direction: column;
+                        gap: 24px;
+                        margin: 0 auto;
+                        max-width: 1200px;
+                        width: 100%;
+                    }
+                    .home2-head {
+                        align-items: flex-start;
+                        display: flex;
+                        flex-wrap: wrap;
+                        gap: 16px;
+                        justify-content: space-between;
+                    }
+                    .home2-head-copy h1 {
+                        font-size: 30px;
+                        line-height: 1.15;
+                        margin: 0 0 6px;
+                    }
+                    .home2-head-copy .muted { margin: 0; }
+                    .home2-head-actions {
+                        display: flex;
+                        flex-wrap: wrap;
+                        gap: 8px;
+                    }
+                    .home2-search {
+                        align-items: center;
+                        display: flex;
+                        position: relative;
+                    }
+                    .home2-search-icon {
+                        color: var(--muted);
+                        display: inline-flex;
+                        left: 16px;
+                        pointer-events: none;
+                        position: absolute;
+                    }
+                    .home2-search-icon .icon { height: 18px; width: 18px; }
+                    .home2-search-input {
+                        background: var(--surface);
+                        border: 1px solid var(--line);
+                        border-radius: 999px;
+                        color: var(--text);
+                        font: inherit;
+                        min-height: 50px;
+                        padding: 13px 100px 13px 46px;
+                        width: 100%;
+                    }
+                    .home2-search-input:focus-visible {
+                        border-color: var(--accent);
+                        box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+                        outline: none;
+                    }
+                    .home2-search-kbd {
+                        background: var(--surface-2);
+                        border: 1px solid var(--line);
+                        border-radius: 6px;
+                        color: var(--muted);
+                        font-family: inherit;
+                        font-size: 11px;
+                        padding: 3px 8px;
+                        pointer-events: none;
+                        position: absolute;
+                        right: 14px;
+                    }
+                    .home2-section {
+                        display: flex;
+                        flex-direction: column;
+                        gap: 12px;
+                    }
+                    .home2-section-head {
+                        align-items: center;
+                        display: flex;
+                        gap: 10px;
+                        justify-content: space-between;
+                    }
+                    .home2-section-head h2 {
+                        align-items: center;
+                        color: var(--muted);
+                        display: flex;
+                        font-size: 13px;
+                        font-weight: 800;
+                        gap: 8px;
+                        letter-spacing: .04em;
+                        margin: 0;
+                        text-transform: uppercase;
+                    }
+                    .home2-section-head h2 .icon { color: var(--accent); height: 15px; width: 15px; }
+                    .home2-quick-row {
+                        display: flex;
+                        gap: 10px;
+                        margin: -20px 0;
+                        overflow-x: auto;
+                        padding: 20px 0;
+                        scrollbar-width: thin;
+                    }
+                    .home2-proto-chip {
+                        align-items: center;
+                        background: var(--surface);
+                        border: 1px solid var(--line);
+                        border-radius: 12px;
+                        color: var(--text);
+                        cursor: pointer;
+                        display: inline-flex;
+                        flex: 0 0 auto;
+                        font: inherit;
+                        gap: 10px;
+                        padding: 10px 14px;
+                        text-decoration: none;
+                        transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease;
+                    }
+                    .home2-proto-chip:hover {
+                        border-color: var(--proto, var(--accent));
+                        box-shadow: var(--shadow-strong);
+                        transform: translateY(-2px);
+                    }
+                    .home2-proto-chip-icon {
+                        align-items: center;
+                        background: color-mix(in srgb, var(--proto, var(--accent)) 16%, transparent);
+                        border-radius: 9px;
+                        color: var(--proto, var(--accent));
+                        display: inline-flex;
+                        flex: 0 0 auto;
+                        height: 34px;
+                        justify-content: center;
+                        width: 34px;
+                    }
+                    .home2-proto-chip-icon .icon { height: 18px; width: 18px; }
+                    .home2-proto-chip-name { font-weight: 700; white-space: nowrap; }
+                    .home2-proto-more { --proto: var(--accent); }
+                    .home2-proto-more .home2-proto-chip-icon { background: var(--surface-2); color: var(--muted); }
+                    .home2-proto-dialog {
+                        background: var(--panel);
+                        border: 1px solid var(--line);
+                        border-radius: 16px;
+                        box-shadow: var(--shadow-strong);
+                        color: var(--text);
+                        display: flex;
+                        flex-direction: column;
+                        max-height: min(620px, calc(100vh - 48px));
+                        max-width: 460px;
+                        overflow: hidden;
+                        padding: 0;
+                        width: min(460px, calc(100vw - 32px));
+                    }
+                    .home2-proto-dialog::backdrop { background: rgb(0 0 0 / 55%); }
+                    .home2-proto-dialog-head {
+                        align-items: flex-start;
+                        display: flex;
+                        gap: 12px;
+                        justify-content: space-between;
+                        padding: 18px 18px 8px;
+                    }
+                    .home2-proto-dialog-head h2 { font-size: 18px; margin: 0; }
+                    .home2-proto-dialog-head .muted { margin: 2px 0 0; }
+                    .home2-proto-dialog-close { flex: 0 0 auto; }
+                    .home2-proto-dialog-head { flex: 0 0 auto; }
+                    .home2-qc-form {
+                        display: flex;
+                        flex: 1 1 auto;
+                        flex-direction: column;
+                        gap: 12px;
+                        overflow-y: auto;
+                        padding: 6px 18px 18px;
+                        -webkit-overflow-scrolling: touch;
+                    }
+                    .home2-qc-protos { display: flex; flex-wrap: wrap; gap: 8px; }
+                    .home2-qc-proto {
+                        align-items: center;
+                        background: var(--surface);
+                        border: 1px solid var(--line);
+                        border-radius: 999px;
+                        color: var(--text);
+                        cursor: pointer;
+                        display: inline-flex;
+                        font: inherit;
+                        gap: 7px;
+                        padding: 6px 12px 6px 8px;
+                        transition: border-color .16s ease, background .16s ease;
+                    }
+                    .home2-qc-proto:hover { border-color: var(--proto, var(--accent)); }
+                    .home2-qc-proto.active {
+                        background: color-mix(in srgb, var(--proto, var(--accent)) 16%, transparent);
+                        border-color: var(--proto, var(--accent));
+                        color: var(--proto, var(--accent));
+                        font-weight: 700;
+                    }
+                    .home2-qc-proto-icon {
+                        align-items: center;
+                        background: color-mix(in srgb, var(--proto, var(--accent)) 18%, transparent);
+                        border-radius: 999px;
+                        color: var(--proto, var(--accent));
+                        display: inline-flex;
+                        height: 24px;
+                        justify-content: center;
+                        width: 24px;
+                    }
+                    .home2-qc-proto-icon .icon { height: 14px; width: 14px; }
+                    .home2-qc-label { display: grid; font-size: 13px; gap: 5px; }
+                    .home2-qc-label > span { color: var(--muted); font-weight: 600; }
+                    .home2-qc-label input {
+                        background: var(--surface);
+                        border: 1px solid var(--line);
+                        border-radius: 10px;
+                        color: var(--text);
+                        font: inherit;
+                        padding: 9px 11px;
+                        width: 100%;
+                    }
+                    .home2-qc-label input:focus-visible {
+                        border-color: var(--accent);
+                        box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+                        outline: none;
+                    }
+                    .home2-qc-grid2 { display: grid; gap: 12px; grid-template-columns: 1fr 1fr; }
+                    .home2-qc-error {
+                        background: color-mix(in srgb, var(--danger) 14%, transparent);
+                        border: 1px solid var(--danger);
+                        border-radius: 10px;
+                        color: var(--danger);
+                        margin: 0;
+                        padding: 8px 11px;
+                    }
+                    .home2-qc-actions { display: flex; justify-content: flex-end; margin-top: 2px; }
+                    .home2-qc-actions .button { min-height: 40px; padding: 8px 18px; }
+                    .home2-qc-label[hidden], .home2-qc-error[hidden] { display: none !important; }
+                    .home2-folder-grid {
+                        display: grid;
+                        gap: 12px;
+                        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+                    }
+                    .home2-folder-tile {
+                        align-items: center;
+                        background: var(--surface);
+                        border: 1px solid var(--line);
+                        border-radius: 14px;
+                        color: var(--text);
+                        cursor: pointer;
+                        display: flex;
+                        gap: 12px;
+                        padding: 12px 14px;
+                        text-align: left;
+                        transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease;
+                        width: 100%;
+                    }
+                    .home2-folder-tile:hover {
+                        border-color: var(--proto, var(--accent));
+                        box-shadow: var(--shadow-strong);
+                        transform: translateY(-2px);
+                    }
+                    .home2-folder-tile.active {
+                        border-color: var(--proto, var(--accent));
+                        box-shadow: inset 0 0 0 1px var(--proto, var(--accent));
+                    }
+                    .home2-folder-icon {
+                        align-items: center;
+                        background: color-mix(in srgb, var(--proto, var(--accent)) 16%, transparent);
+                        border-radius: 10px;
+                        color: var(--proto, var(--accent));
+                        display: inline-flex;
+                        flex: 0 0 auto;
+                        height: 38px;
+                        justify-content: center;
+                        width: 38px;
+                    }
+                    .home2-folder-icon .icon { height: 18px; width: 18px; }
+                    .home2-folder-copy { display: grid; gap: 1px; min-width: 0; }
+                    .home2-folder-name {
+                        font-weight: 700;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        white-space: nowrap;
+                    }
+                    .home2-folder-copy small { color: var(--muted); }
+                    .home2-folder-clear { gap: 6px; }
+                    .home2-card-grid {
+                        display: grid;
+                        gap: 12px;
+                        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+                    }
+                    .home2 .connection-choice .server-icon {
+                        background: color-mix(in srgb, var(--proto, var(--accent)) 16%, transparent);
+                        color: var(--proto, var(--accent));
+                    }
+                    .home2 .connection-choice:hover { border-color: var(--proto, var(--accent)); }
+                    .home2 .connection-choice::before { background: var(--proto, var(--accent)); }
+                    .connection-choice-time {
+                        align-items: center;
+                        color: var(--muted);
+                        display: inline-flex;
+                        font-size: 12px;
+                        gap: 5px;
+                        margin-top: 2px;
+                    }
+                    .connection-choice-time .icon { height: 13px; width: 13px; }
+                    .home2-empty {
+                        align-items: center;
+                        background: var(--surface);
+                        border: 1px dashed var(--line);
+                        border-radius: var(--radius);
+                        display: flex;
+                        flex-wrap: wrap;
+                        gap: 16px;
+                        justify-content: space-between;
+                        padding: 24px;
+                    }
+                    .home2-empty h2 { margin: 0 0 4px; }
+                    .home2-noresults { padding: 24px; text-align: center; }
+                    .home2-section[hidden],
+                    .connection-choice[hidden] { display: none !important; }
+                    @media (max-width: 720px) {
+                        .home2 { gap: 20px; }
+                        .home2-head-copy h1 { font-size: 24px; }
+                        .home2-head-actions { width: 100%; }
+                        .home2-head-actions .button { flex: 1 1 auto; justify-content: center; }
+                        .home2-search-kbd { display: none; }
+                        .home2-search-input { padding-right: 46px; }
+                        .home2-proto-dialog {
+                            border: 0;
+                            border-radius: 0;
+                            height: 100dvh;
+                            margin: 0;
+                            max-height: none;
+                            max-width: none;
+                            width: 100vw;
+                        }
+                        .home2-proto-dialog-head {
+                            flex: 0 0 auto;
+                            padding-top: calc(18px + env(safe-area-inset-top));
+                        }
+                        .home2-proto-dialog-grid {
+                            padding-bottom: calc(18px + env(safe-area-inset-bottom));
+                        }
                     }
                     .connection-picker-head {
                         margin-bottom: 0;
@@ -11776,15 +12701,18 @@ public sealed class HtmlViews
             """;
     }
 
-    private static string ServerFields(HttpContext context, MatgateUser currentUser, ServerEndpoint? server = null)
+    private static string ServerFields(HttpContext context, MatgateUser currentUser, ServerEndpoint? server = null, ServerProtocol? preferredProtocol = null)
     {
-        var selectedRdp = Selected(server?.Protocol is null or ServerProtocol.Rdp or ServerProtocol.LegacyBrowser);
-        var selectedVnc = Selected(server?.Protocol == ServerProtocol.Vnc);
-        var selectedSsh = Selected(server?.Protocol == ServerProtocol.Ssh);
-        var selectedSftp = Selected(server?.Protocol == ServerProtocol.Sftp);
-        var selectedFtp = Selected(server?.Protocol == ServerProtocol.Ftp);
-        var selectedSmb = Selected(server?.Protocol == ServerProtocol.Smb);
-        var selectedWebsite = Selected(server?.Protocol == ServerProtocol.Website);
+        // For a new server (server is null) an optional preferred protocol preselects the dropdown;
+        // if neither is set, RDP stays the default.
+        var effectiveProtocol = server?.Protocol ?? preferredProtocol;
+        var selectedRdp = Selected(effectiveProtocol is null or ServerProtocol.Rdp or ServerProtocol.LegacyBrowser);
+        var selectedVnc = Selected(effectiveProtocol == ServerProtocol.Vnc);
+        var selectedSsh = Selected(effectiveProtocol == ServerProtocol.Ssh);
+        var selectedSftp = Selected(effectiveProtocol == ServerProtocol.Sftp);
+        var selectedFtp = Selected(effectiveProtocol == ServerProtocol.Ftp);
+        var selectedSmb = Selected(effectiveProtocol == ServerProtocol.Smb);
+        var selectedWebsite = Selected(effectiveProtocol == ServerProtocol.Website);
         var iconKey = ServerEndpoint.NormalizeIconKey(server?.IconKey);
         var folderName = Clean(server?.FolderName, "");
         var folderIconKey = string.IsNullOrWhiteSpace(folderName)
@@ -12217,6 +13145,9 @@ public sealed class HtmlViews
 
     public static string Translate(HttpContext context, string key) => T(context, key);
 
+    // Public accessor for the inline icon SVG (used by JSON responses such as quick-connect).
+    public static string IconMarkup(string name) => Icon(name);
+
     private static string LanguageOptions(HttpContext context, string selectedLanguage)
     {
         var normalized = NormalizeLanguageCode(selectedLanguage);
@@ -12385,6 +13316,12 @@ public sealed class HtmlViews
             "zoom-in" => """<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M11 8v6M8 11h6"/>""",
             "zoom-out" => """<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6"/>""",
             "globe" => """<circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15 15 0 0 1 0 20"/><path d="M12 2a15 15 0 0 0 0 20"/>""",
+            "search" => """<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>""",
+            "clock" => """<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>""",
+            "grid" => """<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>""",
+            "chevron-right" => """<path d="m9 6 6 6-6 6"/>""",
+            "briefcase" => """<rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M3 13h18"/>""",
+            "settings" => """<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>""",
             _ => """<circle cx="12" cy="12" r="9"/>"""
         };
 

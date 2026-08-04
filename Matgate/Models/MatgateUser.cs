@@ -18,6 +18,10 @@ public sealed class MatgateUser
 
     public bool CanCreateServers { get; set; }
 
+    // Allowed to open ad-hoc "Quick connect" sessions (enter host + credentials, connect without
+    // saving a connection). Admins are always allowed.
+    public bool CanQuickConnect { get; set; }
+
     public bool ServerAccessAll { get; set; }
 
     public string PreferredLanguage { get; set; } = "en";
@@ -30,6 +34,10 @@ public sealed class MatgateUser
 
     public List<Guid> FavoriteServerIds { get; set; } = [];
 
+    // Most-recently-opened connections (most recent first), updated whenever a connection launches.
+    // Drives the "Recently used" section on the home page.
+    public List<RecentConnectionEntry> RecentConnections { get; set; } = [];
+
     public List<Guid> ServerAccess { get; set; } = [];
 
     // Optional per-(user, file-server) restrictions. Absence of a rule = full access.
@@ -38,6 +46,14 @@ public sealed class MatgateUser
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+}
+
+// One entry in a user's recently-used connection history.
+public sealed class RecentConnectionEntry
+{
+    public Guid ServerId { get; set; }
+
+    public DateTimeOffset UsedAt { get; set; } = DateTimeOffset.UtcNow;
 }
 
 // Restricts a user's access to a single file connection (SMB/FTP/SFTP): optionally read-only
