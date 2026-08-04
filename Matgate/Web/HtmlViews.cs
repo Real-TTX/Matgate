@@ -11069,6 +11069,14 @@ public sealed class HtmlViews
                     html.session-immersive header { display: none; }
                     html.session-immersive #session-tabs { display: none; }
                     html.session-immersive .session-statusbar { display: none; }
+                    /* Keep the session content clear of the notch / Dynamic Island / rounded corners
+                       (iPhone etc.): inset it by the safe areas so nothing is hidden; the resulting
+                       margins are black. The absolutely-positioned .app-view (inset:0) honours this
+                       padding, and the reveal strip / toolbar sit above it (fixed/absolute). */
+                    html.session-immersive .shell-page-panels {
+                        background: #000;
+                        padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+                    }
                     /* Immersive/fullscreen: the toolbar slides up out of flow so the session fills the
                        screen; the always-visible handle taps it back (plus edge-swipe from the top). */
                     html.session-immersive .shell-page-row {
