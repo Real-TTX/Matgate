@@ -139,6 +139,27 @@ builder.Services.AddSingleton<WebsiteProxyService>();
 var app = builder.Build();
 
 app.UseForwardedHeaders();
+
+// Never let a browser / installed PWA serve a stale app shell: HTML pages carry the whole app
+// (CSS + JS are inlined), so mark every HTML response no-store. Assets served with their own
+// cache headers (manifest, icons, proxied content) are text/* or binary and unaffected.
+app.Use(async (context, next) =>
+{
+    context.Response.OnStarting(() =>
+    {
+        var contentType = context.Response.ContentType;
+        if (contentType is not null && contentType.Contains("text/html", StringComparison.OrdinalIgnoreCase))
+        {
+            context.Response.Headers.CacheControl = "no-store, no-cache, must-revalidate";
+            context.Response.Headers.Pragma = "no-cache";
+        }
+
+        return Task.CompletedTask;
+    });
+
+    await next();
+});
+
 if (requireHttps)
 {
     app.UseHsts();
