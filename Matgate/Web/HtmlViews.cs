@@ -2042,9 +2042,6 @@ public sealed class HtmlViews
         var canCreate = user.IsAdmin || user.CanManageServers || user.CanCreateServers;
         var canQuick = user.IsAdmin || user.CanQuickConnect;
         var returnUrl = $"{context.Request.Path}{context.Request.QueryString}";
-        var subtitle = de
-            ? "Schnell verbinden oder eine gespeicherte Verbindung öffnen"
-            : "Connect quickly or open a saved connection";
 
         // "New connection" = create a SAVED connection (needs create rights); the ad-hoc quick-connect
         // lives in the "Quick connect" section + dialog and needs the quick-connect permission.
@@ -2065,7 +2062,6 @@ public sealed class HtmlViews
             <section class="home2-head">
                 <div class="home2-head-copy">
                     <h1>{{(de ? "Verbindungen" : "Connections")}}</h1>
-                    <p class="muted">{{E(subtitle)}}</p>
                 </div>
                 {{headerActions}}
             </section>
@@ -2096,7 +2092,6 @@ public sealed class HtmlViews
             <section class="home2-search">
                 <span class="home2-search-icon">{{Icon("search")}}</span>
                 <input type="search" class="home2-search-input" data-home2-search autocomplete="off" spellcheck="false" placeholder="{{A(de ? "Verbindungen, Ordner oder Host suchen…" : "Search connections, folders or hosts…")}}" aria-label="{{A(de ? "Suchen" : "Search")}}">
-                <kbd class="home2-search-kbd">{{(de ? "Strg K" : "Ctrl K")}}</kbd>
             </section>
             """;
 
@@ -10149,44 +10144,36 @@ public sealed class HtmlViews
                     }
                     .home2-search {
                         align-items: center;
+                        background: var(--surface);
+                        border: 1px solid var(--line);
+                        border-radius: 999px;
                         display: flex;
-                        position: relative;
+                        gap: 10px;
+                        padding: 0 18px;
+                    }
+                    .home2-search:focus-within {
+                        border-color: var(--accent);
+                        box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
                     }
                     .home2-search-icon {
                         color: var(--muted);
                         display: inline-flex;
-                        left: 16px;
+                        flex: 0 0 auto;
                         pointer-events: none;
-                        position: absolute;
                     }
                     .home2-search-icon .icon { height: 18px; width: 18px; }
                     .home2-search-input {
-                        background: var(--surface);
-                        border: 1px solid var(--line);
-                        border-radius: 999px;
+                        background: transparent;
+                        border: 0;
                         color: var(--text);
+                        flex: 1 1 auto;
                         font: inherit;
                         min-height: 50px;
-                        padding: 13px 100px 13px 46px;
-                        width: 100%;
+                        min-width: 0;
+                        padding: 13px 0;
                     }
-                    .home2-search-input:focus-visible {
-                        border-color: var(--accent);
-                        box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
-                        outline: none;
-                    }
-                    .home2-search-kbd {
-                        background: var(--surface-2);
-                        border: 1px solid var(--line);
-                        border-radius: 6px;
-                        color: var(--muted);
-                        font-family: inherit;
-                        font-size: 11px;
-                        padding: 3px 8px;
-                        pointer-events: none;
-                        position: absolute;
-                        right: 14px;
-                    }
+                    .home2-search-input:focus-visible { outline: none; }
+                    .home2-search-input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
                     .home2-section {
                         display: flex;
                         flex-direction: column;
@@ -10438,8 +10425,6 @@ public sealed class HtmlViews
                         .home2-head-copy h1 { font-size: 24px; }
                         .home2-head-actions { width: 100%; }
                         .home2-head-actions .button { flex: 1 1 auto; justify-content: center; }
-                        .home2-search-kbd { display: none; }
-                        .home2-search-input { padding-right: 46px; }
                         .home2-proto-dialog {
                             border: 0;
                             border-radius: 0;
