@@ -10283,14 +10283,15 @@ public sealed class HtmlViews
                         border-radius: 16px;
                         box-shadow: var(--shadow-strong);
                         color: var(--text);
-                        display: flex;
-                        flex-direction: column;
                         max-height: min(620px, calc(100vh - 48px));
                         max-width: 460px;
                         overflow: hidden;
                         padding: 0;
                         width: min(460px, calc(100vw - 32px));
                     }
+                    /* Only lay out as a flex column when actually open; closed <dialog> stays hidden. */
+                    .home2-proto-dialog:not([open]) { display: none; }
+                    .home2-proto-dialog[open] { display: flex; flex-direction: column; }
                     .home2-proto-dialog::backdrop { background: rgb(0 0 0 / 55%); }
                     .home2-proto-dialog-head {
                         align-items: flex-start;
