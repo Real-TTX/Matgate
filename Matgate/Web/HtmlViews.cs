@@ -12049,7 +12049,13 @@ public sealed class HtmlViews
                     @media (max-width: 720px) {
                         .page-head, .auth-panel { align-items: stretch; flex-direction: column; grid-template-columns: 1fr; }
                         /* Compact single-row header on phones: the global nav folds into the burger menu. */
-                        header { align-items: center; flex-direction: row; gap: 8px; }
+                        header {
+                            align-items: center;
+                            flex-direction: row;
+                            gap: 8px;
+                            padding-left: calc(8px + env(safe-area-inset-left));
+                            padding-right: calc(8px + env(safe-area-inset-right));
+                        }
                         .shell-nav-row { display: none; }
                         .shell-burger { align-items: center; display: inline-flex; flex: 0 0 auto; width: auto; }
                         .shell-burger-trigger { color: var(--muted); }
@@ -12064,6 +12070,9 @@ public sealed class HtmlViews
                         .shell-page-row {
                             align-items: stretch;
                             flex-direction: column;
+                            gap: 0;
+                            padding-left: calc(4px + env(safe-area-inset-left));
+                            padding-right: calc(4px + env(safe-area-inset-right));
                         }
                         #connection-tab-actions {
                             background: var(--surface-2);
