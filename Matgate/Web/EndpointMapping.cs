@@ -740,9 +740,11 @@ public static class EndpointMapping
             // directory under WorkspaceRootDirectory.
             RootPath = user.IsAdmin ? Clean(form["rootPath"].ToString(), "") : "",
             SharedNoteFileName = Clean(form["sharedNoteFileName"].ToString(), "shared-note.md"),
-            AllowUploads = IsChecked(form, "allowUploads"),
-            AllowTextExchange = IsChecked(form, "allowTextExchange"),
-            IsEnabled = IsChecked(form, "isEnabled"),
+            // The simplified create form omits these toggles - a new workspace is enabled and allows
+            // uploads + text by default; they can be restricted later in the workspace settings.
+            AllowUploads = true,
+            AllowTextExchange = true,
+            IsEnabled = true,
             PublicAccessExpiresAt = DateTimeOffset.UtcNow.AddHours(ParseWorkspaceValidityHours(form, 24)),
             OwnerUserId = user.Id
         };
@@ -945,6 +947,12 @@ public static class EndpointMapping
             $"+{hours:N0} hours",
             "Admin",
             context.RequestAborted);
+        // Quick-actions from the workspace list pass a returnUrl so the user stays on the list.
+        var rawReturn = form["returnUrl"].ToString();
+        if (!string.IsNullOrWhiteSpace(rawReturn))
+        {
+            return Results.Redirect(EmbedAwareRedirect(context, NormalizeReturnUrl(rawReturn)));
+        }
         return Results.Redirect(WorkspaceTabRedirect(context, $"/workspaces/{id}", form, "settings"));
     }
 

@@ -873,25 +873,59 @@ public sealed class HtmlViews
 
     public string WorkspaceCreate(HttpContext context, MatgateUser currentUser, string defaultRootPath)
     {
+        var de = Language(context) == "de";
         var body = $$"""
-            <section class="page-head">
-                <div>
-                    <p class="eyebrow">{{T(context, "Workspaces")}}</p>
-                    <h1>{{T(context, "Create workspace")}}</h1>
+            <section class="ws-create">
+                <div class="ws-create-head">
+                    <h1>{{(de ? "Neuer Workspace" : "New workspace")}}</h1>
                     <p class="muted">{{T(context, "A workspace is a shared folder with a public link and shared text.")}}</p>
                 </div>
-                <a class="button" href="/workspaces">{{Icon("folder")}}{{T(context, "Workspaces")}}</a>
+                <form method="post" action="/workspaces" class="ws-create-form">
+                    {{Csrf(context)}}
+                    <label class="ws-field">
+                        <span>{{T(context, "Name")}}</span>
+                        <input name="name" required maxlength="120" autofocus placeholder="{{A(de ? "z. B. Projekt X" : "e.g. Project X")}}">
+                    </label>
+                    <label class="ws-field">
+                        <span>{{T(context, "Description")}} <small class="muted">({{(de ? "optional" : "optional")}})</small></span>
+                        <textarea name="description" rows="2" placeholder="{{A(de ? "Wofür ist dieser Workspace?" : "What is this workspace for?")}}"></textarea>
+                    </label>
+                    <div class="ws-field">
+                        <span>{{(de ? "Gültigkeit des öffentlichen Zugriffs" : "Public access validity")}}</span>
+                        <div class="ws-validity" data-ws-validity>
+                            <input type="hidden" name="publicAccessHours" value="24" data-ws-validity-input>
+                            <button type="button" class="ws-validity-option active" data-ws-hours="24">{{(de ? "1 Tag" : "1 day")}}</button>
+                            <button type="button" class="ws-validity-option" data-ws-hours="168">{{(de ? "7 Tage" : "7 days")}}</button>
+                            <button type="button" class="ws-validity-option" data-ws-hours="720">{{(de ? "30 Tage" : "30 days")}}</button>
+                        </div>
+                    </div>
+                    <label class="ws-field">
+                        <span>{{T(context, "Access password")}} <small class="muted">({{(de ? "optional" : "optional")}})</small></span>
+                        <input name="password" type="password" autocomplete="new-password" placeholder="{{A(de ? "Leer = kein Passwort" : "Empty = no password")}}">
+                    </label>
+                    <div class="ws-create-actions">
+                        <button type="submit" class="button primary">{{Icon("plus")}}<span>{{(de ? "Workspace anlegen" : "Create workspace")}}</span></button>
+                        <a class="button" href="/workspaces">{{Icon("arrow-left")}}<span>{{T(context, "Workspaces")}}</span></a>
+                    </div>
+                </form>
+                <script>
+                    (() => {
+                        const box = document.querySelector('[data-ws-validity]');
+                        if (!box) {
+                            return;
+                        }
+                        const input = box.querySelector('[data-ws-validity-input]');
+                        box.querySelectorAll('[data-ws-hours]').forEach((option) => {
+                            option.addEventListener('click', () => {
+                                if (input) {
+                                    input.value = option.dataset.wsHours;
+                                }
+                                box.querySelectorAll('[data-ws-hours]').forEach((other) => other.classList.toggle('active', other === option));
+                            });
+                        });
+                    })();
+                </script>
             </section>
-            <form method="post" action="/workspaces" class="stack">
-                {{Csrf(context)}}
-                <section class="panel">
-                    <h2>{{T(context, "Workspace")}}</h2>
-                    {{WorkspaceSettingsFields(context, null, defaultRootPath, true)}}
-                </section>
-                <div class="actions">
-                    <button type="submit" class="primary">{{Icon("plus")}}{{T(context, "Create workspace")}}</button>
-                </div>
-            </form>
             """;
 
         return Layout(context, currentUser, T(context, "Create workspace"), body);
@@ -929,13 +963,38 @@ public sealed class HtmlViews
             string.Join("", active.Select(wsRow)), de ? "Keine aktiven Workspaces." : "No active workspaces.", 4, 15, "",
             $$"""<a class="button primary" href="/workspaces/new">{{Icon("plus")}}{{(de ? "Neuer Workspace" : "New workspace")}}</a>""");
 
+        // Expired workspaces: one-click re-activation (+24h / +7d), only for workspaces the user
+        // may edit (owner or admin). ExtendPublicAccess re-bases from "now" when already expired.
+        bool canEditWs(WorkspaceDefinition w) => currentUser.IsAdmin || w.OwnerUserId == currentUser.Id;
+        string extendForm(WorkspaceDefinition w, int hours, string label) => $$"""
+            <form method="post" action="/workspaces/{{w.Id}}/extend" class="ws-extend-form">
+                {{Csrf(context)}}
+                <input type="hidden" name="publicAccessHours" value="{{hours}}">
+                <input type="hidden" name="returnUrl" value="/workspaces">
+                <button type="submit" class="button ws-extend-btn" title="{{A((de ? "Verlängern um " : "Extend by ") + label)}}">{{Icon("clock")}}<span>+{{E(label)}}</span></button>
+            </form>
+            """;
+        string wsExpiredRow(WorkspaceDefinition w) => $$"""
+            <tr>
+                <td><span class="server-name-cell">{{Icon("briefcase")}}<a href="/workspaces/{{w.Id}}" data-shell-open-tab="1" data-shell-title="{{A(w.Name)}}" data-shell-description="{{A(T(context, "Workspace"))}}">{{E(w.Name)}}</a></span></td>
+                <td><span class="badge">{{(w.IsPrivate ? T(context, "Personal") : T(context, "Shared"))}}</span></td>
+                <td><span class="badge" title="{{A(WorkspacePublicAccessExpiresText(context, w))}}">{{E(WorkspaceValidityLabel(context, w))}}</span></td>
+                <td class="table-actions">
+                    <div class="row-actions">
+                        {{(canEditWs(w) ? extendForm(w, 24, "24h") + extendForm(w, 168, "7d") : "")}}
+                        <a class="icon-button" href="/workspaces/{{w.Id}}" data-shell-open-tab="1" data-shell-title="{{A(w.Name)}}" data-shell-description="{{A(T(context, "Workspace"))}}" title="{{A(T(context, "Open"))}}" aria-label="{{A(T(context, "Open"))}}">{{Icon("external-link")}}</a>
+                    </div>
+                </td>
+            </tr>
+            """;
+
         var expiredSection = expired.Count == 0 ? "" : $$"""
             <section class="panel workspace-expired-panel">
                 <h2 class="workspace-expired-head">{{(de ? "Abgelaufen" : "Expired")}} <span class="badge">{{expired.Count}}</span></h2>
                 <div class="table-wrap">
                     <table>
                         <thead><tr>{{wsHeaders}}</tr></thead>
-                        <tbody>{{string.Join("", expired.Select(wsRow))}}</tbody>
+                        <tbody>{{string.Join("", expired.Select(wsExpiredRow))}}</tbody>
                     </table>
                 </div>
             </section>
@@ -10357,6 +10416,52 @@ public sealed class HtmlViews
                     }
                     .icon-picker-option .icon { height: 22px; width: 22px; }
                     .icon-picker-auto { font-size: 11px; font-weight: 800; letter-spacing: .02em; }
+                    /* New-workspace: simple modern create form. */
+                    .ws-create {
+                        display: flex;
+                        flex-direction: column;
+                        gap: 20px;
+                        margin: 0 auto;
+                        max-width: 640px;
+                        width: 100%;
+                    }
+                    .ws-create-head h1 { font-size: 26px; margin: 0 0 6px; }
+                    .ws-create-head .muted { margin: 0; }
+                    .ws-create-form {
+                        background: var(--surface);
+                        border: 1px solid var(--line);
+                        border-radius: 16px;
+                        display: flex;
+                        flex-direction: column;
+                        gap: 16px;
+                        padding: 20px;
+                    }
+                    .ws-field { display: grid; gap: 6px; }
+                    .ws-field > span { font-weight: 600; }
+                    .ws-validity { display: flex; flex-wrap: wrap; gap: 8px; }
+                    .ws-validity-option {
+                        background: var(--surface-2);
+                        border: 1px solid var(--line);
+                        border-radius: 999px;
+                        color: var(--text);
+                        cursor: pointer;
+                        font: inherit;
+                        min-height: 40px;
+                        padding: 8px 16px;
+                        transition: border-color .16s ease, background .16s ease, color .16s ease;
+                    }
+                    .ws-validity-option:hover { border-color: var(--accent); }
+                    .ws-validity-option.active {
+                        background: color-mix(in srgb, var(--accent) 16%, transparent);
+                        border-color: var(--accent);
+                        color: var(--accent);
+                        font-weight: 700;
+                    }
+                    .ws-create-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 4px; }
+                    /* Expired workspace one-click extend buttons. */
+                    .ws-extend-form { display: inline-flex; margin: 0; }
+                    .ws-extend-btn { gap: 5px; min-height: 32px; padding: 4px 10px; }
+                    .ws-extend-btn .icon { height: 14px; width: 14px; }
                     .home2-qc-label { display: grid; font-size: 13px; gap: 5px; }
                     .home2-qc-label > span { color: var(--muted); font-weight: 600; }
                     .home2-qc-label input {
