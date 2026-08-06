@@ -10319,6 +10319,32 @@ public sealed class HtmlViews
                     /* Server form: protocol picker reuses the quick-connect chip look. */
                     .server-protocol-field { display: grid; gap: 8px; }
                     .server-protocol-picker { display: flex; flex-wrap: wrap; gap: 8px; }
+                    /* Server form: visual icon picker (shows the real icons as tiles). */
+                    .icon-picker-field { display: grid; gap: 8px; }
+                    .icon-picker { display: flex; flex-wrap: wrap; gap: 8px; }
+                    .icon-picker-option {
+                        align-items: center;
+                        background: var(--surface);
+                        border: 1px solid var(--line);
+                        border-radius: 12px;
+                        color: var(--muted);
+                        cursor: pointer;
+                        display: inline-flex;
+                        flex: 0 0 auto;
+                        height: 46px;
+                        justify-content: center;
+                        padding: 0;
+                        transition: border-color .16s ease, color .16s ease, background .16s ease;
+                        width: 46px;
+                    }
+                    .icon-picker-option:hover { border-color: var(--accent); color: var(--text); }
+                    .icon-picker-option.active {
+                        background: color-mix(in srgb, var(--accent) 16%, transparent);
+                        border-color: var(--accent);
+                        color: var(--accent);
+                    }
+                    .icon-picker-option .icon { height: 22px; width: 22px; }
+                    .icon-picker-auto { font-size: 11px; font-weight: 800; letter-spacing: .02em; }
                     .home2-qc-label { display: grid; font-size: 13px; gap: 5px; }
                     .home2-qc-label > span { color: var(--muted); font-weight: 600; }
                     .home2-qc-label input {
@@ -12761,37 +12787,37 @@ public sealed class HtmlViews
         var basicSection = $$"""
             <section class="panel server-form-section">
                 <h2>{{T(context, "Basics")}}</h2>
-                <label class="server-protocol-field">
-                    <span>{{T(context, "Protocol")}}</span>
-                    {{ServerProtocolPicker(context, effectiveProtocol)}}
-                </label>
-                <div class="form-grid">
-                    <label>{{T(context, "Name")}}
-                        <input name="name" value="{{A(server?.Name)}}" required>
+                <div class="stack">
+                    <label class="server-protocol-field">
+                        <span>{{T(context, "Protocol")}}</span>
+                        {{ServerProtocolPicker(context, effectiveProtocol)}}
                     </label>
-                    <label>{{T(context, "Scope")}}
-                        {{scopeControl}}
-                    </label>
-                    <label>{{T(context, "Server icon")}}
-                        <select name="iconKey">
-                            <option value=""{{Selected(string.IsNullOrWhiteSpace(iconKey))}}>{{T(context, "Default by connection type")}}</option>
-                            {{ServerIconOptions(iconKey)}}
-                        </select>
+                    <div class="form-grid">
+                        <label>{{T(context, "Name")}}
+                            <input name="name" value="{{A(server?.Name)}}" required>
+                        </label>
+                        <label>{{T(context, "Scope")}}
+                            {{scopeControl}}
+                        </label>
+                    </div>
+                    <label class="icon-picker-field">
+                        <span>{{T(context, "Server icon")}}</span>
+                        {{ServerIconPicker("iconKey", iconKey, T(context, "Default by connection type"), "Auto")}}
                     </label>
                 </div>
             </section>
             <section class="panel server-form-section">
                 <h2>{{T(context, "Folder")}}</h2>
                 <p class="muted">{{T(context, "Optional. Used for grouping in lists.")}}</p>
-                <div class="form-grid">
-                    <label>{{T(context, "Folder name")}}
-                        <input name="folderName" value="{{A(folderName)}}" placeholder="NAS, Work, Lab">
-                    </label>
-                    <label>{{T(context, "Folder icon")}}
-                        <select name="folderIconKey">
-                            <option value=""{{Selected(string.IsNullOrWhiteSpace(folderIconKey))}}>{{T(context, "Default folder icon")}}</option>
-                            {{ServerIconOptions(folderIconKey)}}
-                        </select>
+                <div class="stack">
+                    <div class="form-grid">
+                        <label>{{T(context, "Folder name")}}
+                            <input name="folderName" value="{{A(folderName)}}" placeholder="NAS, Work, Lab">
+                        </label>
+                    </div>
+                    <label class="icon-picker-field">
+                        <span>{{T(context, "Folder icon")}}</span>
+                        {{ServerIconPicker("folderIconKey", folderIconKey, T(context, "Default folder icon"), "Auto")}}
                     </label>
                 </div>
             </section>
@@ -12931,6 +12957,23 @@ public sealed class HtmlViews
                     else if (protocolInput.tagName === 'SELECT') {
                         protocolInput.addEventListener('change', update);
                     }
+
+                    // Visual icon pickers (server icon, folder icon): tile click -> hidden input.
+                    form.querySelectorAll('[data-icon-picker]').forEach((iconPicker) => {
+                        const iconInput = iconPicker.querySelector('[data-icon-input]');
+                        if (!iconInput) {
+                            return;
+                        }
+                        iconPicker.querySelectorAll('[data-icon-option]').forEach((option) => {
+                            option.addEventListener('click', () => {
+                                iconInput.value = option.dataset.iconOption;
+                                iconPicker.querySelectorAll('[data-icon-option]').forEach((other) => {
+                                    other.classList.toggle('active', other === option);
+                                });
+                            });
+                        });
+                    });
+
                     update();
                 })();
             </script>
@@ -13043,32 +13086,57 @@ public sealed class HtmlViews
             : protocol.ToString().ToUpperInvariant();
     }
 
-    private static string ServerIconOptions(string selectedIconKey)
+    private static string IconKeyLabel(string iconKey)
     {
-        return string.Join("", ServerEndpoint.IconKeys.Select(iconKey =>
+        return iconKey switch
         {
-            var label = iconKey switch
-            {
-                "rdp" => "RDP / Desktop",
-                "vnc" => "VNC / Desktop",
-                "ssh" => "SSH / Terminal",
-                "sftp" => "SFTP / Secure files",
-                "ftp" => "FTP / Transfer",
-                "smb" => "SMB / Share",
-                "server" => "Server",
-                "desktop" => "Desktop",
-                "terminal" => "Terminal",
-                "folder" => "Folder",
-                "database" => "Database",
-                "cloud" => "Cloud",
-                "shield" => "Shield",
-                "home" => "Home",
-                "globe" => "Website",
-                _ => iconKey
-            };
+            "rdp" => "RDP / Desktop",
+            "vnc" => "VNC / Desktop",
+            "ssh" => "SSH / Terminal",
+            "sftp" => "SFTP / Secure files",
+            "ftp" => "FTP / Transfer",
+            "smb" => "SMB / Share",
+            "server" => "Server",
+            "desktop" => "Desktop",
+            "terminal" => "Terminal",
+            "folder" => "Folder",
+            "database" => "Database",
+            "cloud" => "Cloud",
+            "shield" => "Shield",
+            "home" => "Home",
+            "globe" => "Website",
+            _ => iconKey
+        };
+    }
 
-            return $"""<option value="{A(iconKey)}"{Selected(string.Equals(selectedIconKey, iconKey, StringComparison.OrdinalIgnoreCase))}>{A(label)}</option>""";
+    // Visual icon picker: a wrapping grid of the actual icons (plus an "Auto" default tile) so the
+    // choice is obvious. Backed by a hidden input; the server form script wires the tiles.
+    private static string ServerIconPicker(string name, string? selectedKey, string defaultLabel, string defaultShort)
+    {
+        var selected = ServerEndpoint.NormalizeIconKey(selectedKey);
+        var autoTile = $$"""
+            <button type="button" class="icon-picker-option icon-picker-auto-option{{(string.IsNullOrWhiteSpace(selected) ? " active" : "")}}" data-icon-option="" title="{{A(defaultLabel)}}" aria-label="{{A(defaultLabel)}}">
+                <span class="icon-picker-auto">{{E(defaultShort)}}</span>
+            </button>
+            """;
+        var tiles = string.Join("", ServerEndpoint.IconKeys.Select(iconKey =>
+        {
+            var label = IconKeyLabel(iconKey);
+            var active = string.Equals(selected, iconKey, StringComparison.OrdinalIgnoreCase);
+            return $$"""
+                <button type="button" class="icon-picker-option{{(active ? " active" : "")}}" data-icon-option="{{A(iconKey)}}" title="{{A(label)}}" aria-label="{{A(label)}}">
+                    {{Icon(iconKey)}}
+                </button>
+                """;
         }));
+
+        return $$"""
+            <div class="icon-picker" data-icon-picker>
+                <input type="hidden" name="{{A(name)}}" value="{{A(selected)}}" data-icon-input>
+                {{autoTile}}
+                {{tiles}}
+            </div>
+            """;
     }
 
     private static string Csrf(HttpContext context)
