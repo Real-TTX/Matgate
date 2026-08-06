@@ -10316,6 +10316,9 @@ public sealed class HtmlViews
                         width: 24px;
                     }
                     .home2-qc-proto-icon .icon { height: 14px; width: 14px; }
+                    /* Server form: protocol picker reuses the quick-connect chip look. */
+                    .server-protocol-field { display: grid; gap: 8px; }
+                    .server-protocol-picker { display: flex; flex-wrap: wrap; gap: 8px; }
                     .home2-qc-label { display: grid; font-size: 13px; gap: 5px; }
                     .home2-qc-label > span { color: var(--muted); font-weight: 600; }
                     .home2-qc-label input {
@@ -12716,13 +12719,6 @@ public sealed class HtmlViews
         // For a new server (server is null) an optional preferred protocol preselects the dropdown;
         // if neither is set, RDP stays the default.
         var effectiveProtocol = server?.Protocol ?? preferredProtocol;
-        var selectedRdp = Selected(effectiveProtocol is null or ServerProtocol.Rdp or ServerProtocol.LegacyBrowser);
-        var selectedVnc = Selected(effectiveProtocol == ServerProtocol.Vnc);
-        var selectedSsh = Selected(effectiveProtocol == ServerProtocol.Ssh);
-        var selectedSftp = Selected(effectiveProtocol == ServerProtocol.Sftp);
-        var selectedFtp = Selected(effectiveProtocol == ServerProtocol.Ftp);
-        var selectedSmb = Selected(effectiveProtocol == ServerProtocol.Smb);
-        var selectedWebsite = Selected(effectiveProtocol == ServerProtocol.Website);
         var iconKey = ServerEndpoint.NormalizeIconKey(server?.IconKey);
         var folderName = Clean(server?.FolderName, "");
         var folderIconKey = string.IsNullOrWhiteSpace(folderName)
@@ -12765,23 +12761,16 @@ public sealed class HtmlViews
         var basicSection = $$"""
             <section class="panel server-form-section">
                 <h2>{{T(context, "Basics")}}</h2>
+                <label class="server-protocol-field">
+                    <span>{{T(context, "Protocol")}}</span>
+                    {{ServerProtocolPicker(context, effectiveProtocol)}}
+                </label>
                 <div class="form-grid">
                     <label>{{T(context, "Name")}}
                         <input name="name" value="{{A(server?.Name)}}" required>
                     </label>
                     <label>{{T(context, "Scope")}}
                         {{scopeControl}}
-                    </label>
-                    <label>{{T(context, "Protocol")}}
-                        <select name="protocol">
-                            <option value="Rdp"{{selectedRdp}}>RDP</option>
-                            <option value="Vnc"{{selectedVnc}}>VNC</option>
-                            <option value="Ssh"{{selectedSsh}}>SSH</option>
-                            <option value="Sftp"{{selectedSftp}}>SFTP</option>
-                            <option value="Ftp"{{selectedFtp}}>FTP</option>
-                            <option value="Smb"{{selectedSmb}}>SMB</option>
-                            <option value="Website"{{selectedWebsite}}>{{T(context, "Website (Beta)")}}</option>
-                        </select>
                     </label>
                     <label>{{T(context, "Server icon")}}
                         <select name="iconKey">
@@ -12904,8 +12893,9 @@ public sealed class HtmlViews
                         return;
                     }
 
-                    const protocolSelect = form.querySelector('select[name="protocol"]');
-                    if (!protocolSelect) {
+                    const picker = form.querySelector('[data-protocol-picker]');
+                    const protocolInput = form.querySelector('[data-protocol-input]') || form.querySelector('select[name="protocol"]');
+                    if (!protocolInput) {
                         return;
                     }
 
@@ -12913,7 +12903,7 @@ public sealed class HtmlViews
                     const normalize = (value) => (value || '').toString().trim().toLowerCase();
 
                     const update = () => {
-                        const current = normalize(protocolSelect.value);
+                        const current = normalize(protocolInput.value);
                         protocolTargets.forEach((element) => {
                             const allowed = (element.dataset.protocols || '')
                                 .split(',')
@@ -12927,10 +12917,55 @@ public sealed class HtmlViews
                         });
                     };
 
-                    protocolSelect.addEventListener('change', update);
+                    if (picker) {
+                        picker.querySelectorAll('[data-protocol-option]').forEach((option) => {
+                            option.addEventListener('click', () => {
+                                protocolInput.value = option.dataset.protocolOption;
+                                picker.querySelectorAll('[data-protocol-option]').forEach((other) => {
+                                    other.classList.toggle('active', other === option);
+                                });
+                                update();
+                            });
+                        });
+                    }
+                    else if (protocolInput.tagName === 'SELECT') {
+                        protocolInput.addEventListener('change', update);
+                    }
                     update();
                 })();
             </script>
+            """;
+    }
+
+    // Start-page-style protocol picker for the server form: coloured icon chips (matching the New Tab
+    // quick-connect chips) writing to a hidden protocol input. The form script wires chip clicks +
+    // per-protocol field visibility.
+    private static string ServerProtocolPicker(HttpContext context, ServerProtocol? effective)
+    {
+        var options = new (ServerProtocol Protocol, string Value, string Name, string IconKey, string Color)[]
+        {
+            (ServerProtocol.Rdp, "Rdp", "RDP", "rdp", "#4c8dff"),
+            (ServerProtocol.Vnc, "Vnc", "VNC", "vnc", "#b06cff"),
+            (ServerProtocol.Ssh, "Ssh", "SSH", "ssh", "#8a7cff"),
+            (ServerProtocol.Sftp, "Sftp", "SFTP", "sftp", "#f0a92b"),
+            (ServerProtocol.Ftp, "Ftp", "FTP", "ftp", "#e0863a"),
+            (ServerProtocol.Smb, "Smb", "SMB", "smb", "#35c07f"),
+            (ServerProtocol.Website, "Website", T(context, "Website (Beta)"), "globe", "#3aa0ff"),
+        };
+
+        var current = effective is null or ServerProtocol.LegacyBrowser ? ServerProtocol.Rdp : effective.Value;
+        var chips = string.Join("", options.Select(option => $$"""
+            <button type="button" class="home2-qc-proto server-proto-option{{(option.Protocol == current ? " active" : "")}}" data-protocol-option="{{option.Value}}" style="--proto: {{option.Color}}">
+                <span class="home2-qc-proto-icon">{{Icon(option.IconKey)}}</span>
+                <span>{{E(option.Name)}}</span>
+            </button>
+            """));
+
+        return $$"""
+            <div class="server-protocol-picker" data-protocol-picker>
+                <input type="hidden" name="protocol" value="{{A(current.ToString())}}" data-protocol-input>
+                {{chips}}
+            </div>
             """;
     }
 
