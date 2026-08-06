@@ -8627,6 +8627,18 @@ public sealed class HtmlViews
                 <meta name="theme-color" content="#176b5b">
                 <script>
                     try {
+                        // Any page rendered inside the shell's tab iframe must hide its own header.
+                        // Relying only on ?embed=1 breaks when an embedded page navigates internally or
+                        // is restored via back/bfcache and loses the query - then a second header shows.
+                        // Detecting the frame directly (same-origin) is robust in all those cases.
+                        if (window.self !== window.top) {
+                            document.documentElement.setAttribute('data-embedded', '1');
+                        }
+                    }
+                    catch (e) {
+                        // Cross-origin frame access can throw; ignore.
+                    }
+                    try {
                         if (document.documentElement.dataset.shellLayout === '1'
                             && localStorage.getItem('matgate.view.mode.v1') === 'minimal') {
                             document.documentElement.dataset.viewMode = 'minimal';
