@@ -1493,11 +1493,14 @@ public sealed class HtmlViews
                                     tprobe.style.cssText = 'position:fixed;left:0;right:0;bottom:0;height:0;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom);visibility:hidden;pointer-events:none';
                                     tw.document.body.appendChild(tprobe);
                                     const tcs = tw.getComputedStyle(tprobe);
+                                    const tstatus = tw.document.querySelector('.session-statusbar');
+                                    const tsRect = tstatus ? tstatus.getBoundingClientRect() : null;
                                     lines.push(
                                         '--- TOP window (app frame) ---',
                                         'TOP inner W x H          : ' + tw.innerWidth + ' x ' + tw.innerHeight,
                                         'TOP visualViewport       : ' + (tvv ? (Math.round(tvv.width) + ' x ' + Math.round(tvv.height) + ' (offsetTop ' + Math.round(tvv.offsetTop) + ', scale ' + tvv.scale.toFixed(2) + ')') : 'n/a'),
                                         'TOP body rect            : ' + Math.round(tbody.width) + ' x ' + Math.round(tbody.height) + ' (top ' + Math.round(tbody.top) + ')',
+                                        'TOP statusbar bottom     : ' + (tsRect ? (Math.round(tsRect.bottom) + ' (innerH - bottom = ' + Math.round(tw.innerHeight - tsRect.bottom) + ')') : 'n/a'),
                                         'TOP safe-area top/bottom : ' + tcs.paddingTop + ' / ' + tcs.paddingBottom,
                                         'TOP scrollY              : ' + Math.round(tw.scrollY),
                                         'TOP screen - innerHeight : ' + (tw.screen.height - tw.innerHeight) + 'px'
@@ -9871,8 +9874,13 @@ public sealed class HtmlViews
                     .matgate-shell {
                         background: var(--bg);
                         display: flex;
+                        /* Fill the flex parent (main.session-main) via flex growth, NOT height:100% -
+                           Safari fails to resolve percentage heights against flex-sized parents, which
+                           collapsed the shell to its content height on iOS and left a dead strip
+                           between the statusbar and the bottom of the screen. */
+                        flex: 1 1 auto;
                         flex-direction: column;
-                        height: 100%;
+                        height: auto;
                         min-height: 0;
                         overflow: hidden;
                         position: relative;
