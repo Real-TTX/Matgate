@@ -3454,11 +3454,26 @@ public sealed class HtmlViews
                 ensureFreshBootState();
 
                 const shellLayout = document.body.dataset.shellLayout === '1';
+                // Android/Chrome: let the on-screen keyboard OVERLAY the page instead of resizing the
+                // viewport, so an active remote session is never resized when the keyboard opens.
+                try {
+                    if (navigator.virtualKeyboard) {
+                        navigator.virtualKeyboard.overlaysContent = true;
+                    }
+                }
+                catch (e) {
+                    // Unsupported (iOS/Firefox) - handled below via visualViewport.
+                }
                 const updateViewportHeight = () => {
-                    // Prefer the visual viewport so the layout shrinks when the on-screen keyboard opens
-                    // (otherwise the bottom of the app is hidden behind the keyboard on iOS).
                     const vv = window.visualViewport;
-                    const height = vv ? vv.height : window.innerHeight;
+                    const visualHeight = vv ? vv.height : window.innerHeight;
+                    // In the session shell the on-screen keyboard must OVERLAY the remote view, not shrink
+                    // it: shrinking resizes the RDP/VNC session (Android) and leaves a scroll/gap (iOS).
+                    // window.innerHeight stays at the full height while the keyboard is open on iOS, so use
+                    // it for the shell. Scrolling form pages (shell-layout=0) keep shrinking so their
+                    // inputs stay above the keyboard.
+                    const keyboardOpen = (window.innerHeight - visualHeight) > 120;
+                    const height = (shellLayout && keyboardOpen) ? window.innerHeight : visualHeight;
                     document.documentElement.style.setProperty('--matgate-viewport-height', `${Math.round(height)}px`);
                     if (shellLayout) {
                         document.documentElement.style.overscrollBehavior = 'none';
@@ -9713,7 +9728,6 @@ public sealed class HtmlViews
                     /* Off-screen but focusable so tapping the keyboard button raises the native keyboard. */
                     .osk-input {
                         border: 0;
-                        bottom: 0;
                         height: 1px;
                         left: 0;
                         opacity: 0;
@@ -9721,6 +9735,7 @@ public sealed class HtmlViews
                         pointer-events: none;
                         position: absolute;
                         resize: none;
+                        top: 0;
                         width: 1px;
                         z-index: -1;
                     }
