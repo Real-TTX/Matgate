@@ -1455,6 +1455,44 @@ public sealed class HtmlViews
                     </div>
                     <p class="about-copyright muted">&copy; {{copyrightYear}} Matthias Schmoldt</p>
                 </section>
+                <section class="panel about-card">
+                    <h2>{{(Language(context) == "de" ? "Anzeige-Diagnose" : "Display diagnostics")}}</h2>
+                    <p class="muted">{{(Language(context) == "de" ? "Hilft bei Layout-Problemen (Screenshot davon genügt)." : "Helps debug layout issues (a screenshot of this is enough).")}}</p>
+                    <pre id="display-diagnostics" class="about-diagnostics">…</pre>
+                </section>
+                <script>
+                    (() => {
+                        const out = document.getElementById('display-diagnostics');
+                        if (!out) {
+                            return;
+                        }
+                        const probe = document.createElement('div');
+                        probe.style.cssText = 'position:fixed;left:0;right:0;bottom:0;height:0;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom);visibility:hidden;pointer-events:none';
+                        document.body.appendChild(probe);
+                        const render = () => {
+                            const cs = getComputedStyle(probe);
+                            const vv = window.visualViewport;
+                            const doc = (window.top && window.top !== window) ? null : document;
+                            const shellBody = doc ? doc.querySelector('body[data-shell-layout="1"]') : null;
+                            const lines = [
+                                'innerWidth x innerHeight : ' + window.innerWidth + ' x ' + window.innerHeight,
+                                'visualViewport           : ' + (vv ? (Math.round(vv.width) + ' x ' + Math.round(vv.height) + ' (offsetTop ' + Math.round(vv.offsetTop) + ')') : 'n/a'),
+                                'screen                   : ' + screen.width + ' x ' + screen.height,
+                                'devicePixelRatio         : ' + window.devicePixelRatio,
+                                'safe-area top / bottom   : ' + cs.paddingTop + ' / ' + cs.paddingBottom,
+                                'standalone (PWA)         : ' + (window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches || window.matchMedia('(display-mode: fullscreen)').matches),
+                                'embedded (iframe)        : ' + (window.self !== window.top),
+                                'body rect (this page)    : ' + Math.round(document.body.getBoundingClientRect().width) + ' x ' + Math.round(document.body.getBoundingClientRect().height)
+                            ];
+                            out.textContent = lines.join('\n');
+                        };
+                        render();
+                        window.addEventListener('resize', render, { passive: true });
+                        if (window.visualViewport) {
+                            window.visualViewport.addEventListener('resize', render, { passive: true });
+                        }
+                    })();
+                </script>
             </section>
             """;
     }
@@ -3479,6 +3517,17 @@ public sealed class HtmlViews
                     const keyboardOpen = (window.innerHeight - visualHeight) > 120;
                     const height = (shellLayout && keyboardOpen) ? window.innerHeight : visualHeight;
                     document.documentElement.style.setProperty('--matgate-viewport-height', `${Math.round(height)}px`);
+                    // iOS standalone-PWA bug: opening the keyboard pans the whole app upward and often
+                    // NEVER pans it back after dismissal - the app then sits shifted up with a dead black
+                    // strip at the physical bottom. Once the keyboard is closed, force the pan back.
+                    if (shellLayout && !keyboardOpen && (!vv || vv.scale <= 1.01)) {
+                        const panOffset = (vv ? vv.offsetTop : 0) || window.scrollY || document.documentElement.scrollTop || 0;
+                        if (panOffset > 0) {
+                            window.scrollTo(0, 0);
+                            document.documentElement.scrollTop = 0;
+                            document.body.scrollTop = 0;
+                        }
+                    }
                     if (shellLayout) {
                         document.documentElement.style.overscrollBehavior = 'none';
                         document.documentElement.style.overflow = 'hidden';
@@ -5249,7 +5298,9 @@ public sealed class HtmlViews
                                             tab.oskInput.blur();
                                         }
                                         else {
-                                            tab.oskInput.focus();
+                                            // preventScroll: iOS pans the whole standalone app up to
+                                            // "reveal" the (hidden) input and never pans back.
+                                            tab.oskInput.focus({ preventScroll: true });
                                         }
                                     },
                                     'tab-action-keep',
@@ -12400,6 +12451,18 @@ public sealed class HtmlViews
                     }
                     .about-head {
                         margin-bottom: 0;
+                    }
+                    .about-diagnostics {
+                        background: var(--surface-2);
+                        border: 1px solid var(--line);
+                        border-radius: var(--radius);
+                        font-family: Consolas, ui-monospace, monospace;
+                        font-size: 12px;
+                        line-height: 1.6;
+                        margin: 0;
+                        overflow-x: auto;
+                        padding: 10px 12px;
+                        white-space: pre;
                     }
                     .about-copy {
                         display: flex;
