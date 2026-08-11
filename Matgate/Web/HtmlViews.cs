@@ -6448,12 +6448,30 @@ public sealed class HtmlViews
                             oskInput.addEventListener('input', () => { oskInput.value = ''; });
                         }
 
+                        // Keys the touch keyboard's hidden input already delivers via beforeinput
+                        // (printable characters + Enter + Backspace). While that input is focused we must
+                        // NOT also forward the Guacamole.Keyboard event for them - Android emits real
+                        // keydowns too, which would double every typed character. Arrows / Tab / modifiers
+                        // are NOT bridged, so they still go through Guacamole.Keyboard.
+                        const isBridgedKeysym = keysym =>
+                            (keysym >= 0x20 && keysym <= 0xFF)
+                            || keysym >= 0x01000000
+                            || keysym === 0xFF0D
+                            || keysym === 0xFF08;
+                        const oskActive = () => tab.oskInput && document.activeElement === tab.oskInput;
+
                         tab.keyboard = new Guacamole.Keyboard(tab.panel);
                         tab.keyboard.onkeydown = keysym => {
+                            if (oskActive() && isBridgedKeysym(keysym)) {
+                                return false;
+                            }
                             client.sendKeyEvent(1, keysym);
                             return false;
                         };
                         tab.keyboard.onkeyup = keysym => {
+                            if (oskActive() && isBridgedKeysym(keysym)) {
+                                return false;
+                            }
                             client.sendKeyEvent(0, keysym);
                             return false;
                         };
