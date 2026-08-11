@@ -5479,6 +5479,8 @@ public sealed class HtmlViews
                     if (!container || !window.matchMedia('(max-width: 720px)').matches) {
                         return;
                     }
+                    // Drop any stale portaled panel from a previous toolbar build.
+                    document.querySelectorAll('body > .tab-action-overflow-panel').forEach(el => el.remove());
                     const buttons = Array.from(container.querySelectorAll('.tab-action-button'))
                         .filter(b => !b.classList.contains('tab-action-keep') && !b.classList.contains('tab-action-disconnect'));
                     if (buttons.length < 2) {
@@ -5492,7 +5494,7 @@ public sealed class HtmlViews
                     summary.setAttribute('aria-label', uiText.moreActions || 'More actions');
                     summary.innerHTML = actionIcons.more || '&#8943;';
                     const panel = document.createElement('div');
-                    panel.className = 'tab-action-more-panel';
+                    panel.className = 'tab-action-more-panel tab-action-overflow-panel';
                     buttons.forEach(btn => {
                         const label = btn.getAttribute('aria-label') || '';
                         if (label && !btn.querySelector('span')) {
@@ -5506,14 +5508,20 @@ public sealed class HtmlViews
                     });
                     panel.addEventListener('click', () => { details.open = false; });
                     details.addEventListener('toggle', () => {
-                        if (!details.open) {
-                            return;
+                        if (details.open) {
+                            // Portal the panel to <body>: iOS clips position:fixed elements inside
+                            // scrollable toolbars, so it must not stay inside the scroll container.
+                            const rect = summary.getBoundingClientRect();
+                            document.body.appendChild(panel);
+                            panel.style.top = Math.round(rect.bottom + 6) + 'px';
+                            panel.style.right = Math.max(8, Math.round(window.innerWidth - rect.right)) + 'px';
+                            panel.style.left = 'auto';
+                            panel.style.display = 'flex';
                         }
-                        const rect = summary.getBoundingClientRect();
-                        panel.style.top = Math.round(rect.bottom + 6) + 'px';
-                        // Clamp so the panel can never hang past the right edge (and its max-width
-                        // keeps it inside the left edge).
-                        panel.style.right = Math.max(8, Math.round(window.innerWidth - rect.right)) + 'px';
+                        else {
+                            panel.style.display = 'none';
+                            details.appendChild(panel);
+                        }
                     });
                     details.appendChild(summary);
                     details.appendChild(panel);
@@ -12723,9 +12731,8 @@ public sealed class HtmlViews
                         #connection-tab-actions { scrollbar-width: thin; }
                         #connection-tab-actions::-webkit-scrollbar { height: 4px; }
                         #connection-tab-actions::-webkit-scrollbar-thumb { background: var(--line); border-radius: 999px; }
-                        .shell-page-tabs {
-                            border-bottom: 1px solid var(--line);
-                        }
+                        /* No own border-bottom on the tab strip: the row already draws one - two lines
+                           stacked looked like a strange double strip when the actions bar is empty. */
                         #connection-tab-actions .tab-action-button,
                         #connection-tab-actions .tab-action-select {
                             min-height: 40px;
@@ -13364,14 +13371,23 @@ public sealed class HtmlViews
                                 });
                             };
                             mobileTabMenu.addEventListener('toggle', () => {
-                                if (!mobileTabMenu.open || !tabSummary || !tabPanel) {
+                                if (!tabSummary || !tabPanel) {
                                     return;
                                 }
-                                rebuildTabList();
-                                const rect = tabSummary.getBoundingClientRect();
-                                tabPanel.style.top = Math.round(rect.bottom + 6) + 'px';
-                                tabPanel.style.left = Math.max(8, Math.round(rect.left)) + 'px';
-                                tabPanel.style.right = 'auto';
+                                if (mobileTabMenu.open) {
+                                    rebuildTabList();
+                                    // Portal to <body> so no scrollable/sticky ancestor can clip it (iOS).
+                                    const rect = tabSummary.getBoundingClientRect();
+                                    document.body.appendChild(tabPanel);
+                                    tabPanel.style.top = Math.round(rect.bottom + 6) + 'px';
+                                    tabPanel.style.left = Math.max(8, Math.round(rect.left)) + 'px';
+                                    tabPanel.style.right = 'auto';
+                                    tabPanel.style.display = 'flex';
+                                }
+                                else {
+                                    tabPanel.style.display = 'none';
+                                    mobileTabMenu.appendChild(tabPanel);
+                                }
                             });
                             const tabsRoot = document.getElementById('session-tabs');
                             if (tabsRoot && window.MutationObserver) {
