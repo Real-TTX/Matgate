@@ -8981,6 +8981,7 @@ public sealed class HtmlViews
                         background: var(--surface);
                     }
                     body[data-shell-layout="1"] {
+                        background: var(--surface);
                         display: flex;
                         flex-direction: column;
                         height: var(--matgate-viewport-height, 100vh);
@@ -11433,7 +11434,7 @@ public sealed class HtmlViews
                        margins are black. The absolutely-positioned .app-view (inset:0) honours this
                        padding, and the reveal strip / toolbar sit above it (fixed/absolute). */
                     html.session-immersive .shell-page-panels {
-                        background: #000;
+                        background: var(--surface);
                         padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
                     }
                     /* Immersive/fullscreen: the toolbar slides up out of flow so the session fills the
