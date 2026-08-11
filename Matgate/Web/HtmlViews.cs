@@ -5430,7 +5430,9 @@ public sealed class HtmlViews
                         }
                         const rect = summary.getBoundingClientRect();
                         panel.style.top = Math.round(rect.bottom + 6) + 'px';
-                        panel.style.right = Math.round(window.innerWidth - rect.right) + 'px';
+                        // Clamp so the panel can never hang past the right edge (and its max-width
+                        // keeps it inside the left edge).
+                        panel.style.right = Math.max(8, Math.round(window.innerWidth - rect.right)) + 'px';
                     });
                     details.appendChild(summary);
                     details.appendChild(panel);
@@ -9040,8 +9042,12 @@ public sealed class HtmlViews
                         background: var(--surface);
                         display: flex;
                         flex-direction: column;
-                        height: 100vh;
-                        height: 100dvh;
+                        /* Pin the shell to all four screen edges. More reliable than any vh/dvh unit on
+                           iOS PWAs, where the reported viewport height sometimes comes up short and left
+                           a dead strip below the status bar. */
+                        position: fixed;
+                        inset: 0;
+                        height: auto;
                         overflow: hidden;
                         overscroll-behavior: none;
                     }
@@ -9990,8 +9996,14 @@ public sealed class HtmlViews
                         width: 28px;
                     }
                     /* Session toolbar overflow "..." menu (phones). */
-                    .tab-action-more { flex: 0 0 auto; position: relative; }
-                    .tab-action-more > summary { cursor: pointer; list-style: none; }
+                    .tab-action-more { align-items: stretch; display: flex; flex: 0 0 auto; position: relative; }
+                    .tab-action-more > summary {
+                        align-items: center;
+                        cursor: pointer;
+                        display: flex;
+                        justify-content: center;
+                        list-style: none;
+                    }
                     .tab-action-more > summary::-webkit-details-marker { display: none; }
                     .tab-action-more-panel {
                         background: var(--surface);
@@ -10002,12 +10014,14 @@ public sealed class HtmlViews
                         flex-direction: column;
                         gap: 2px;
                         max-height: 60vh;
+                        max-width: min(320px, calc(100vw - 16px));
                         min-width: 210px;
                         overflow-y: auto;
                         padding: 6px;
                         position: fixed;
                         right: 8px;
                         top: 56px;
+                        width: max-content;
                         z-index: 60;
                     }
                     .tab-action-more[open] > .tab-action-more-panel { display: flex; }
@@ -10017,7 +10031,13 @@ public sealed class HtmlViews
                         min-height: 42px;
                         width: 100%;
                     }
-                    .tab-action-menu-item span { display: inline; white-space: nowrap; }
+                    .tab-action-menu-item span {
+                        display: inline;
+                        min-width: 0;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        white-space: nowrap;
+                    }
                     .session-tab {
                         align-items: stretch;
                         background: var(--surface-3);
@@ -12750,6 +12770,24 @@ public sealed class HtmlViews
                             min-width: 40px;
                             width: 40px;
                         }
+                        /* Disconnect: icon-only on phones - the labelled button ate half the toolbar. */
+                        .tab-action-disconnect { justify-content: center; min-width: 40px; padding: 0 10px; }
+                        .tab-action-disconnect > span { display: none; }
+                        /* Compact tabs on phones: slimmer, no description line, own scrollable row. */
+                        .session-tab-main { min-height: 38px; min-width: 110px; }
+                        .session-tab--page .session-tab-main,
+                        .session-tab--connection .session-tab-main { min-width: 110px; }
+                        .session-tab-description { display: none; }
+                        #session-tabs {
+                            overflow-x: auto;
+                            overscroll-behavior-x: contain;
+                            scrollbar-width: none;
+                            -webkit-overflow-scrolling: touch;
+                        }
+                        #session-tabs::-webkit-scrollbar { display: none; }
+                        /* In compact (minimal) view the ACTION buttons merge into the header, but the
+                           tab strip keeps its own slim row - otherwise the tabs had no space at all. */
+                        html[data-view-mode="minimal"] .shell-page-row { display: flex; }
                         /* 16px avoids iOS auto-zoom when the select opens. */
                         .tab-action-select {
                             font-size: 16px;
@@ -12961,8 +12999,13 @@ public sealed class HtmlViews
                             if (!target) {
                                 return;
                             }
-                            if (viewSessionTabs && viewSessionTabs.parentElement !== target) {
-                                target.appendChild(viewSessionTabs);
+                            // Phones: only the action buttons merge into the header; the tab strip stays
+                            // in its own slim row (a CSS override keeps that row visible), because header
+                            // + actions + tabs never fit into one 375px-wide bar.
+                            const phone = window.matchMedia('(max-width: 720px)').matches;
+                            const tabsTarget = (minimal && phone && viewShellPageRow) ? viewShellPageRow : target;
+                            if (viewSessionTabs && viewSessionTabs.parentElement !== tabsTarget) {
+                                tabsTarget.appendChild(viewSessionTabs);
                             }
                             if (viewTabActions && viewTabActions.parentElement !== target) {
                                 target.appendChild(viewTabActions);
@@ -12993,6 +13036,11 @@ public sealed class HtmlViews
                             window.requestAnimationFrame(() => window.dispatchEvent(new Event('resize')));
                         };
                         applyViewMode(readStoredViewMode(), false);
+                        // Re-run the relocation on resize/rotation: the phone/desktop split above moves
+                        // the tab strip to a different home depending on the viewport width.
+                        window.addEventListener('resize', () => {
+                            relocateForViewMode(document.documentElement.dataset.viewMode === 'minimal');
+                        }, { passive: true });
                         const toggleViewMode = () => {
                             const next = document.documentElement.dataset.viewMode === 'minimal' ? 'normal' : 'minimal';
                             applyViewMode(next, true);
