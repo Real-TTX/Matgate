@@ -5475,24 +5475,51 @@ public sealed class HtmlViews
                 // On phones the session toolbar keeps only the primary buttons (fullscreen, keyboards)
                 // + disconnect inline and moves the rest into a "..." dropdown, so the tab strip stays
                 // visible. The panel is position:fixed to escape the toolbar's horizontal overflow.
+                // Overflow panels are plain divs toggled by plain buttons - NO <details>/<summary>,
+                // which is unreliable on iOS PWAs. Panels live under <body> (position:fixed), so no
+                // scrollable/sticky ancestor can clip them.
+                function showOverflowPanel(trigger, panel) {
+                    if (panel.parentElement !== document.body) {
+                        document.body.appendChild(panel);
+                    }
+                    const rect = trigger.getBoundingClientRect();
+                    panel.style.top = Math.round(rect.bottom + 6) + 'px';
+                    panel.style.left = 'auto';
+                    panel.style.display = 'flex';
+                    // Anchor to the trigger's right edge, then clamp BOTH ways using the real panel
+                    // width so it can never leave the screen regardless of where the trigger sits.
+                    const width = panel.getBoundingClientRect().width;
+                    let right = Math.max(8, Math.round(window.innerWidth - rect.right));
+                    right = Math.min(right, Math.max(8, Math.round(window.innerWidth - width - 8)));
+                    panel.style.right = right + 'px';
+                }
+
+                // Tap anywhere outside an open overflow panel (and not on its trigger) closes it.
+                document.addEventListener('click', event => {
+                    const target = event.target instanceof Element ? event.target : null;
+                    document.querySelectorAll('body > .tab-action-overflow-panel').forEach(panel => {
+                        if (panel.style.display !== 'flex') {
+                            return;
+                        }
+                        if (target && (panel.contains(target) || target.closest('.tab-action-more-trigger'))) {
+                            return;
+                        }
+                        panel.style.display = 'none';
+                    });
+                }, true);
+
                 function collapseConnectionActions(container) {
                     if (!container || !window.matchMedia('(max-width: 720px)').matches) {
                         return;
                     }
-                    // Drop any stale portaled panel from a previous toolbar build.
-                    document.querySelectorAll('body > .tab-action-overflow-panel').forEach(el => el.remove());
+                    // Drop any stale portaled panel from a previous toolbar build (but never the
+                    // header tab menu's panel, which persists across rebuilds).
+                    document.querySelectorAll('body > .tab-action-overflow-panel:not(.mobile-tab-menu-panel)').forEach(el => el.remove());
                     const buttons = Array.from(container.querySelectorAll('.tab-action-button'))
                         .filter(b => !b.classList.contains('tab-action-keep') && !b.classList.contains('tab-action-disconnect'));
                     if (buttons.length < 2) {
                         return;
                     }
-                    const details = document.createElement('details');
-                    details.className = 'tab-action-more';
-                    const summary = document.createElement('summary');
-                    summary.className = 'tab-action-button icon-only tab-action-more-trigger';
-                    summary.title = uiText.moreActions || 'More actions';
-                    summary.setAttribute('aria-label', uiText.moreActions || 'More actions');
-                    summary.innerHTML = actionIcons.more || '&#8943;';
                     const panel = document.createElement('div');
                     panel.className = 'tab-action-more-panel tab-action-overflow-panel';
                     buttons.forEach(btn => {
@@ -5506,31 +5533,26 @@ public sealed class HtmlViews
                         btn.classList.add('tab-action-menu-item');
                         panel.appendChild(btn);
                     });
-                    panel.addEventListener('click', () => { details.open = false; });
-                    details.addEventListener('toggle', () => {
-                        if (details.open) {
-                            // Portal the panel to <body>: iOS clips position:fixed elements inside
-                            // scrollable toolbars, so it must not stay inside the scroll container.
-                            const rect = summary.getBoundingClientRect();
-                            document.body.appendChild(panel);
-                            panel.style.top = Math.round(rect.bottom + 6) + 'px';
-                            panel.style.right = Math.max(8, Math.round(window.innerWidth - rect.right)) + 'px';
-                            panel.style.left = 'auto';
-                            panel.style.display = 'flex';
-                        }
-                        else {
-                            panel.style.display = 'none';
-                            details.appendChild(panel);
-                        }
-                    });
-                    details.appendChild(summary);
-                    details.appendChild(panel);
+                    panel.addEventListener('click', () => { panel.style.display = 'none'; });
+                    const trigger = createTabActionButton(
+                        actionIcons.more || '&#8943;',
+                        uiText.moreActions || 'More actions',
+                        () => {
+                            if (panel.style.display === 'flex') {
+                                panel.style.display = 'none';
+                            }
+                            else {
+                                showOverflowPanel(trigger, panel);
+                            }
+                        },
+                        'tab-action-more-trigger',
+                        true);
                     const disconnect = container.querySelector('.tab-action-disconnect');
                     if (disconnect) {
-                        container.insertBefore(details, disconnect);
+                        container.insertBefore(trigger, disconnect);
                     }
                     else {
-                        container.appendChild(details);
+                        container.appendChild(trigger);
                     }
                 }
 
@@ -8986,10 +9008,10 @@ public sealed class HtmlViews
         var mobileTabMenu = user is null || !string.Equals(mainClass, "session-main", StringComparison.OrdinalIgnoreCase)
             ? ""
             : $$"""
-                <details id="mobile-tab-menu" class="tab-action-more mobile-tab-menu" data-label-new="{{A(T(context, "New connection"))}}">
-                    <summary class="tab-action-button mobile-tab-menu-trigger" title="Tabs" aria-label="Tabs">{{Icon("copy")}}<span class="mobile-tab-count" data-mobile-tab-count>0</span></summary>
-                    <div class="tab-action-more-panel mobile-tab-menu-panel" data-mobile-tab-panel></div>
-                </details>
+                <div id="mobile-tab-menu" class="mobile-tab-menu" data-label-new="{{A(T(context, "New connection"))}}">
+                    <button type="button" class="tab-action-button mobile-tab-menu-trigger tab-action-more-trigger" title="Tabs" aria-label="Tabs">{{Icon("copy")}}<span class="mobile-tab-count" data-mobile-tab-count>0</span></button>
+                    <div class="tab-action-more-panel mobile-tab-menu-panel tab-action-overflow-panel" data-mobile-tab-panel></div>
+                </div>
                 """;
         var navigation = user is null ? "" : shellTabs;
         var pwaEnabled = !string.Equals(context.Request.Query["embed"].ToString(), "1", StringComparison.OrdinalIgnoreCase);
@@ -10110,16 +10132,8 @@ public sealed class HtmlViews
                     /* No actions for the active tab (e.g. the New Tab view): hide the bar entirely,
                        otherwise its background/border shows as a strange empty strip. */
                     #connection-tab-actions:empty { display: none; }
-                    /* Session toolbar overflow "..." menu (phones). */
-                    .tab-action-more { align-items: stretch; display: flex; flex: 0 0 auto; position: relative; }
-                    .tab-action-more > summary {
-                        align-items: center;
-                        cursor: pointer;
-                        display: flex;
-                        justify-content: center;
-                        list-style: none;
-                    }
-                    .tab-action-more > summary::-webkit-details-marker { display: none; }
+                    /* Session toolbar overflow "..." menu (phones): plain button trigger + a fixed
+                       panel portaled under <body>; visibility is controlled purely via inline style. */
                     .tab-action-more-panel {
                         background: var(--surface);
                         border: 1px solid var(--line);
@@ -10139,7 +10153,6 @@ public sealed class HtmlViews
                         width: max-content;
                         z-index: 60;
                     }
-                    .tab-action-more[open] > .tab-action-more-panel { display: flex; }
                     .tab-action-menu-item {
                         gap: 10px;
                         justify-content: flex-start;
@@ -10155,17 +10168,14 @@ public sealed class HtmlViews
                     }
                     /* Header tab-menu (compact view on phones): hidden everywhere else. */
                     .mobile-tab-menu { display: none; }
-                    .mobile-tab-menu > summary {
+                    .mobile-tab-menu-trigger {
                         align-items: center;
-                        cursor: pointer;
                         display: flex;
                         gap: 6px;
                         justify-content: center;
-                        list-style: none;
                         min-height: 34px;
                         padding: 0 10px;
                     }
-                    .mobile-tab-menu > summary::-webkit-details-marker { display: none; }
                     .mobile-tab-count {
                         background: var(--surface-2);
                         border: 1px solid var(--line);
@@ -13319,8 +13329,13 @@ public sealed class HtmlViews
                         const mobileTabMenu = document.getElementById('mobile-tab-menu');
                         if (mobileTabMenu) {
                             const tabPanel = mobileTabMenu.querySelector('[data-mobile-tab-panel]');
-                            const tabSummary = mobileTabMenu.querySelector('summary');
+                            const tabTrigger = mobileTabMenu.querySelector('.mobile-tab-menu-trigger');
                             const tabCount = mobileTabMenu.querySelector('[data-mobile-tab-count]');
+                            const hideTabPanel = () => {
+                                if (tabPanel) {
+                                    tabPanel.style.display = 'none';
+                                }
+                            };
                             const listSessionTabs = () => {
                                 const root = document.getElementById('session-tabs');
                                 return root ? Array.from(root.querySelectorAll('.session-tab')) : [];
@@ -13350,7 +13365,7 @@ public sealed class HtmlViews
                                     main.appendChild(label);
                                     main.addEventListener('click', () => {
                                         (tabEl.querySelector('.session-tab-main') || tabEl).click();
-                                        mobileTabMenu.removeAttribute('open');
+                                        hideTabPanel();
                                     });
                                     item.appendChild(main);
                                     const closeButton = tabEl.querySelector('.session-tab-close');
@@ -13370,25 +13385,26 @@ public sealed class HtmlViews
                                     tabPanel.appendChild(item);
                                 });
                             };
-                            mobileTabMenu.addEventListener('toggle', () => {
-                                if (!tabSummary || !tabPanel) {
-                                    return;
-                                }
-                                if (mobileTabMenu.open) {
+                            if (tabTrigger && tabPanel) {
+                                tabTrigger.addEventListener('click', () => {
+                                    if (tabPanel.style.display === 'flex') {
+                                        hideTabPanel();
+                                        return;
+                                    }
                                     rebuildTabList();
                                     // Portal to <body> so no scrollable/sticky ancestor can clip it (iOS).
-                                    const rect = tabSummary.getBoundingClientRect();
+                                    const rect = tabTrigger.getBoundingClientRect();
                                     document.body.appendChild(tabPanel);
                                     tabPanel.style.top = Math.round(rect.bottom + 6) + 'px';
-                                    tabPanel.style.left = Math.max(8, Math.round(rect.left)) + 'px';
                                     tabPanel.style.right = 'auto';
                                     tabPanel.style.display = 'flex';
-                                }
-                                else {
-                                    tabPanel.style.display = 'none';
-                                    mobileTabMenu.appendChild(tabPanel);
-                                }
-                            });
+                                    // Clamp both ways using the real width so the list stays on screen.
+                                    const width = tabPanel.getBoundingClientRect().width;
+                                    let left = Math.max(8, Math.round(rect.left));
+                                    left = Math.min(left, Math.max(8, Math.round(window.innerWidth - width - 8)));
+                                    tabPanel.style.left = left + 'px';
+                                });
+                            }
                             const tabsRoot = document.getElementById('session-tabs');
                             if (tabsRoot && window.MutationObserver) {
                                 new MutationObserver(updateTabCount).observe(tabsRoot, { childList: true });
