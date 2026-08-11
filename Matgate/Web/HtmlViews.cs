@@ -8973,6 +8973,16 @@ public sealed class HtmlViews
         var viewModeToggle = $$"""
             <button id="view-mode-toggle" type="button" class="view-mode-toggle" aria-pressed="false" data-label-compact="{{A(T(context, "Compact view"))}}" data-label-normal="{{A(T(context, "Normal view"))}}" title="{{A(T(context, "Compact view"))}}" aria-label="{{A(T(context, "Compact view"))}}"><span class="view-mode-icon view-mode-icon--compact">{{Icon("chevrons-down-up")}}</span><span class="view-mode-icon view-mode-icon--normal">{{Icon("chevrons-up-down")}}</span></button>
             """;
+        // Phones, compact view: the tab strip is hidden and this header button lists the open tabs
+        // instead (tap = switch, x = close, + = new tab). Hidden everywhere else via CSS.
+        var mobileTabMenu = user is null || !string.Equals(mainClass, "session-main", StringComparison.OrdinalIgnoreCase)
+            ? ""
+            : $$"""
+                <details id="mobile-tab-menu" class="tab-action-more mobile-tab-menu" data-label-new="{{A(T(context, "New connection"))}}">
+                    <summary class="tab-action-button mobile-tab-menu-trigger" title="Tabs" aria-label="Tabs">{{Icon("copy")}}<span class="mobile-tab-count" data-mobile-tab-count>0</span></summary>
+                    <div class="tab-action-more-panel mobile-tab-menu-panel" data-mobile-tab-panel></div>
+                </details>
+                """;
         var navigation = user is null ? "" : shellTabs;
         var pwaEnabled = !string.Equals(context.Request.Query["embed"].ToString(), "1", StringComparison.OrdinalIgnoreCase);
         var cacheControlMarkup = """<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0"><meta http-equiv="Pragma" content="no-cache"><meta http-equiv="Expires" content="0">""";
@@ -9214,10 +9224,13 @@ public sealed class HtmlViews
                         position: absolute;
                         /* iOS expands iframes to their content height (ignoring height:100%) - without a
                            scrollable wrapper the overflowing part hides behind the statusbar and is
-                           unreachable. Desktop iframes fit exactly, so this changes nothing there. */
+                           unreachable. Desktop iframes fit exactly, so this changes nothing there.
+                           No -webkit-overflow-scrolling:touch and no visible scrollbar: the legacy touch
+                           property clips fixed descendants on iOS and showed a stray scrollbar on load. */
                         overflow-y: auto;
-                        -webkit-overflow-scrolling: touch;
+                        scrollbar-width: none;
                     }
+                    .shell-page-panel::-webkit-scrollbar { display: none; }
                     .shell-page-panel iframe {
                         border: 0;
                         display: block;
@@ -10086,6 +10099,9 @@ public sealed class HtmlViews
                         padding: 0;
                         width: 28px;
                     }
+                    /* No actions for the active tab (e.g. the New Tab view): hide the bar entirely,
+                       otherwise its background/border shows as a strange empty strip. */
+                    #connection-tab-actions:empty { display: none; }
                     /* Session toolbar overflow "..." menu (phones). */
                     .tab-action-more { align-items: stretch; display: flex; flex: 0 0 auto; position: relative; }
                     .tab-action-more > summary {
@@ -10129,6 +10145,38 @@ public sealed class HtmlViews
                         text-overflow: ellipsis;
                         white-space: nowrap;
                     }
+                    /* Header tab-menu (compact view on phones): hidden everywhere else. */
+                    .mobile-tab-menu { display: none; }
+                    .mobile-tab-menu > summary {
+                        align-items: center;
+                        cursor: pointer;
+                        display: flex;
+                        gap: 6px;
+                        justify-content: center;
+                        list-style: none;
+                        min-height: 34px;
+                        padding: 0 10px;
+                    }
+                    .mobile-tab-menu > summary::-webkit-details-marker { display: none; }
+                    .mobile-tab-count {
+                        background: var(--surface-2);
+                        border: 1px solid var(--line);
+                        border-radius: 999px;
+                        font-size: 11px;
+                        font-weight: 700;
+                        line-height: 1.4;
+                        min-width: 18px;
+                        padding: 0 5px;
+                        text-align: center;
+                    }
+                    .mobile-tab-item { align-items: center; display: flex; gap: 4px; }
+                    .mobile-tab-item-main { flex: 1 1 auto; }
+                    .mobile-tab-item.active .mobile-tab-item-main {
+                        border-color: var(--accent);
+                        color: var(--accent);
+                        font-weight: 700;
+                    }
+                    .mobile-tab-item-close { flex: 0 0 auto; font-size: 17px; }
                     .session-tab {
                         align-items: stretch;
                         background: var(--surface-3);
@@ -12664,7 +12712,8 @@ public sealed class HtmlViews
                             overflow-x: auto;
                             overscroll-behavior-x: contain;
                             padding: 5px 8px;
-                            -webkit-overflow-scrolling: touch;
+                            /* NOTE: no -webkit-overflow-scrolling:touch here - it creates a clipping
+                               context on iOS that swallowed the position:fixed "..." dropdown panel. */
                             width: 100%;
                         }
                         #connection-tab-actions > * {
@@ -12888,9 +12937,10 @@ public sealed class HtmlViews
                             -webkit-overflow-scrolling: touch;
                         }
                         #session-tabs::-webkit-scrollbar { display: none; }
-                        /* In compact (minimal) view the ACTION buttons merge into the header, but the
-                           tab strip keeps its own slim row - otherwise the tabs had no space at all. */
-                        html[data-view-mode="minimal"] .shell-page-row { display: flex; }
+                        /* Compact (minimal) view on phones: the tab strip row stays hidden - the header
+                           tab-menu button (#mobile-tab-menu) lists/switches the open tabs instead, so the
+                           compact view is a true single bar. */
+                        html[data-view-mode="minimal"] .mobile-tab-menu { display: flex; }
                         /* 16px avoids iOS auto-zoom when the select opens. */
                         .tab-action-select {
                             font-size: 16px;
@@ -12943,6 +12993,7 @@ public sealed class HtmlViews
             <body data-shell-layout="{{(shellLayout ? "1" : "0")}}">
                 <header>
                     <a class="brand" href="/sessions" title="{{A(T(context, "New connection"))}}" aria-label="{{A(T(context, "New connection"))}}">{{Logo()}}</a>
+                    {{mobileTabMenu}}
                     <div id="shell-merge-slot" class="shell-merge-slot"></div>
                     {{navigation}}
                     {{burgerMenu}}
@@ -12952,7 +13003,7 @@ public sealed class HtmlViews
                 <script>
                     (() => {
                         const closeOpenMenus = (keepMenu) => {
-                            document.querySelectorAll('details.toolbar-menu[open], details.file-menu[open], details.shell-menu[open]').forEach((menu) => {
+                            document.querySelectorAll('details.toolbar-menu[open], details.file-menu[open], details.shell-menu[open], details.tab-action-more[open]').forEach((menu) => {
                                 if (menu !== keepMenu) {
                                     menu.removeAttribute('open');
                                 }
@@ -13256,13 +13307,86 @@ public sealed class HtmlViews
                             observer.observe(document.documentElement, { childList: true, subtree: true });
                         }
 
+                        // Compact-view tab menu (phones): lists the open session tabs; tapping an entry
+                        // clicks the corresponding (hidden) tab button, so all tab logic is reused.
+                        const mobileTabMenu = document.getElementById('mobile-tab-menu');
+                        if (mobileTabMenu) {
+                            const tabPanel = mobileTabMenu.querySelector('[data-mobile-tab-panel]');
+                            const tabSummary = mobileTabMenu.querySelector('summary');
+                            const tabCount = mobileTabMenu.querySelector('[data-mobile-tab-count]');
+                            const listSessionTabs = () => {
+                                const root = document.getElementById('session-tabs');
+                                return root ? Array.from(root.querySelectorAll('.session-tab')) : [];
+                            };
+                            const updateTabCount = () => {
+                                if (tabCount) {
+                                    tabCount.textContent = String(listSessionTabs().filter(el => el.getAttribute('data-tab-kind') !== 'add').length);
+                                }
+                            };
+                            const rebuildTabList = () => {
+                                if (!tabPanel) {
+                                    return;
+                                }
+                                tabPanel.replaceChildren();
+                                listSessionTabs().forEach(tabEl => {
+                                    const isAdd = tabEl.getAttribute('data-tab-kind') === 'add';
+                                    const titleText = isAdd
+                                        ? '+ ' + (mobileTabMenu.getAttribute('data-label-new') || 'New tab')
+                                        : ((tabEl.querySelector('.session-tab-title')?.textContent) || '').trim();
+                                    const item = document.createElement('div');
+                                    item.className = 'mobile-tab-item' + (tabEl.classList.contains('active') ? ' active' : '');
+                                    const main = document.createElement('button');
+                                    main.type = 'button';
+                                    main.className = 'tab-action-button tab-action-menu-item mobile-tab-item-main';
+                                    const label = document.createElement('span');
+                                    label.textContent = titleText;
+                                    main.appendChild(label);
+                                    main.addEventListener('click', () => {
+                                        (tabEl.querySelector('.session-tab-main') || tabEl).click();
+                                        mobileTabMenu.removeAttribute('open');
+                                    });
+                                    item.appendChild(main);
+                                    const closeButton = tabEl.querySelector('.session-tab-close');
+                                    if (closeButton && !isAdd) {
+                                        const x = document.createElement('button');
+                                        x.type = 'button';
+                                        x.className = 'tab-action-button icon-only mobile-tab-item-close';
+                                        x.setAttribute('aria-label', 'Close');
+                                        x.textContent = '×';
+                                        x.addEventListener('click', (ev) => {
+                                            ev.stopPropagation();
+                                            closeButton.click();
+                                            window.setTimeout(() => { rebuildTabList(); updateTabCount(); }, 60);
+                                        });
+                                        item.appendChild(x);
+                                    }
+                                    tabPanel.appendChild(item);
+                                });
+                            };
+                            mobileTabMenu.addEventListener('toggle', () => {
+                                if (!mobileTabMenu.open || !tabSummary || !tabPanel) {
+                                    return;
+                                }
+                                rebuildTabList();
+                                const rect = tabSummary.getBoundingClientRect();
+                                tabPanel.style.top = Math.round(rect.bottom + 6) + 'px';
+                                tabPanel.style.left = Math.max(8, Math.round(rect.left)) + 'px';
+                                tabPanel.style.right = 'auto';
+                            });
+                            const tabsRoot = document.getElementById('session-tabs');
+                            if (tabsRoot && window.MutationObserver) {
+                                new MutationObserver(updateTabCount).observe(tabsRoot, { childList: true });
+                            }
+                            updateTabCount();
+                        }
+
                         document.addEventListener('click', (event) => {
                             const target = event.target instanceof Element ? event.target : null;
                             if (!target) {
                                 return;
                             }
 
-                            const keepMenu = target.closest('details.toolbar-menu, details.file-menu, details.shell-menu');
+                            const keepMenu = target.closest('details.toolbar-menu, details.file-menu, details.shell-menu, details.tab-action-more');
                             closeOpenMenus(keepMenu);
                         });
 
