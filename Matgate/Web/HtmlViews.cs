@@ -3113,6 +3113,7 @@ public sealed class HtmlViews
             rightClick = Icon("menu"),
             keyboard = Icon("keyboard"),
             onScreenKeyboard = Icon("grid"),
+            more = Icon("more"),
             resolution = Icon("monitor"),
             zoomIn = Icon("zoom-in"),
             zoomOut = Icon("zoom-out"),
@@ -3152,6 +3153,7 @@ public sealed class HtmlViews
             rightClick = Language(context) == "de" ? "Rechtsklick (an Cursor-Position)" : "Right click (at cursor)",
             showKeyboard = Language(context) == "de" ? "Geraetetastatur ein-/ausblenden" : "Show/hide device keyboard",
             onScreenKeyboard = Language(context) == "de" ? "Bildschirmtastatur ein-/ausblenden" : "Show/hide on-screen keyboard",
+            moreActions = Language(context) == "de" ? "Weitere Aktionen" : "More actions",
             resolutionLabel = Language(context) == "de" ? "Aufloesung" : "Resolution",
             resolutionFitShort = Language(context) == "de" ? "Anpassen" : "Fit",
             zoomInLabel = Language(context) == "de" ? "Vergroessern" : "Zoom in",
@@ -5216,7 +5218,7 @@ public sealed class HtmlViews
                                     // Ignore fullscreen failures on browsers with partial support.
                                 }
                             },
-                            '',
+                            'tab-action-keep',
                             true);
 
                         connectionTabActions.appendChild(fullscreenButton);
@@ -5250,7 +5252,7 @@ public sealed class HtmlViews
                                             tab.oskInput.focus();
                                         }
                                     },
-                                    '',
+                                    'tab-action-keep',
                                     true);
                                 connectionTabActions.appendChild(keyboardButton);
                             }
@@ -5259,7 +5261,7 @@ public sealed class HtmlViews
                                 actionIcons.onScreenKeyboard,
                                 uiText.onScreenKeyboard || 'Show/hide on-screen keyboard',
                                 () => toggleSessionOsk(tab, oskButton),
-                                '',
+                                'tab-action-keep',
                                 true);
                             connectionTabActions.appendChild(oskButton);
 
@@ -5357,8 +5359,9 @@ public sealed class HtmlViews
                             actionIcons.disconnect,
                             uiText.disconnect || 'Disconnect',
                             () => closeTab(tab.id),
-                            'danger');
+                            'danger tab-action-disconnect');
                         connectionTabActions.appendChild(disconnectButton);
+                        collapseConnectionActions(connectionTabActions);
                     }
                     else if (shellTab) {
                         const copyUrl = getShellTabCopyUrl(shellTab);
@@ -5386,6 +5389,58 @@ public sealed class HtmlViews
                         : `${iconHtml || ''}<span>${escapeHtml(label)}</span>`;
                     button.addEventListener('click', onClick);
                     return button;
+                }
+
+                // On phones the session toolbar keeps only the primary buttons (fullscreen, keyboards)
+                // + disconnect inline and moves the rest into a "..." dropdown, so the tab strip stays
+                // visible. The panel is position:fixed to escape the toolbar's horizontal overflow.
+                function collapseConnectionActions(container) {
+                    if (!container || !window.matchMedia('(max-width: 720px)').matches) {
+                        return;
+                    }
+                    const buttons = Array.from(container.querySelectorAll('.tab-action-button'))
+                        .filter(b => !b.classList.contains('tab-action-keep') && !b.classList.contains('tab-action-disconnect'));
+                    if (buttons.length < 2) {
+                        return;
+                    }
+                    const details = document.createElement('details');
+                    details.className = 'tab-action-more';
+                    const summary = document.createElement('summary');
+                    summary.className = 'tab-action-button icon-only tab-action-more-trigger';
+                    summary.title = uiText.moreActions || 'More actions';
+                    summary.setAttribute('aria-label', uiText.moreActions || 'More actions');
+                    summary.innerHTML = actionIcons.more || '&#8943;';
+                    const panel = document.createElement('div');
+                    panel.className = 'tab-action-more-panel';
+                    buttons.forEach(btn => {
+                        const label = btn.getAttribute('aria-label') || '';
+                        if (label && !btn.querySelector('span')) {
+                            const labelSpan = document.createElement('span');
+                            labelSpan.textContent = label;
+                            btn.appendChild(labelSpan);
+                        }
+                        btn.classList.remove('icon-only');
+                        btn.classList.add('tab-action-menu-item');
+                        panel.appendChild(btn);
+                    });
+                    panel.addEventListener('click', () => { details.open = false; });
+                    details.addEventListener('toggle', () => {
+                        if (!details.open) {
+                            return;
+                        }
+                        const rect = summary.getBoundingClientRect();
+                        panel.style.top = Math.round(rect.bottom + 6) + 'px';
+                        panel.style.right = Math.round(window.innerWidth - rect.right) + 'px';
+                    });
+                    details.appendChild(summary);
+                    details.appendChild(panel);
+                    const disconnect = container.querySelector('.tab-action-disconnect');
+                    if (disconnect) {
+                        container.insertBefore(details, disconnect);
+                    }
+                    else {
+                        container.appendChild(details);
+                    }
                 }
 
                 function getTabEntry(tabId) {
@@ -9932,6 +9987,35 @@ public sealed class HtmlViews
                         padding: 0;
                         width: 28px;
                     }
+                    /* Session toolbar overflow "..." menu (phones). */
+                    .tab-action-more { flex: 0 0 auto; position: relative; }
+                    .tab-action-more > summary { cursor: pointer; list-style: none; }
+                    .tab-action-more > summary::-webkit-details-marker { display: none; }
+                    .tab-action-more-panel {
+                        background: var(--surface);
+                        border: 1px solid var(--line);
+                        border-radius: 12px;
+                        box-shadow: var(--shadow-strong);
+                        display: none;
+                        flex-direction: column;
+                        gap: 2px;
+                        max-height: 60vh;
+                        min-width: 210px;
+                        overflow-y: auto;
+                        padding: 6px;
+                        position: fixed;
+                        right: 8px;
+                        top: 56px;
+                        z-index: 60;
+                    }
+                    .tab-action-more[open] > .tab-action-more-panel { display: flex; }
+                    .tab-action-menu-item {
+                        gap: 10px;
+                        justify-content: flex-start;
+                        min-height: 42px;
+                        width: 100%;
+                    }
+                    .tab-action-menu-item span { display: inline; white-space: nowrap; }
                     .session-tab {
                         align-items: stretch;
                         background: var(--surface-3);
@@ -13763,6 +13847,7 @@ public sealed class HtmlViews
             "zoom-out" => """<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6"/>""",
             "globe" => """<circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15 15 0 0 1 0 20"/><path d="M12 2a15 15 0 0 0 0 20"/>""",
             "search" => """<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>""",
+            "more" => """<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>""",
             "clock" => """<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>""",
             "grid" => """<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>""",
             "chevron-right" => """<path d="m9 6 6 6-6 6"/>""",
