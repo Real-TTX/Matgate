@@ -9027,7 +9027,8 @@ public sealed class HtmlViews
                         -webkit-tap-highlight-color: transparent;
                     }
                     html[data-shell-layout="1"] {
-                        height: var(--matgate-viewport-height, 100vh);
+                        height: 100vh;
+                        height: 100dvh;
                         overflow: hidden;
                         overscroll-behavior: none;
                         /* Root canvas matches the chrome bars (header + statusbar are --surface) so any
@@ -9039,7 +9040,8 @@ public sealed class HtmlViews
                         background: var(--surface);
                         display: flex;
                         flex-direction: column;
-                        height: var(--matgate-viewport-height, 100vh);
+                        height: 100vh;
+                        height: 100dvh;
                         overflow: hidden;
                         overscroll-behavior: none;
                     }
