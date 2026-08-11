@@ -3112,6 +3112,7 @@ public sealed class HtmlViews
             pointer = Icon("pointer"),
             rightClick = Icon("menu"),
             keyboard = Icon("keyboard"),
+            onScreenKeyboard = Icon("grid"),
             resolution = Icon("monitor"),
             zoomIn = Icon("zoom-in"),
             zoomOut = Icon("zoom-out"),
@@ -3149,7 +3150,8 @@ public sealed class HtmlViews
             pointerTouchpad = Language(context) == "de" ? "Zeiger: Touchpad (wischen bewegt den Cursor)" : "Pointer: touchpad (swipe to move)",
             pointerDirect = Language(context) == "de" ? "Zeiger: Direkt (tippen = an diese Stelle)" : "Pointer: direct (tap to position)",
             rightClick = Language(context) == "de" ? "Rechtsklick (an Cursor-Position)" : "Right click (at cursor)",
-            showKeyboard = Language(context) == "de" ? "Tastatur ein-/ausblenden" : "Show/hide keyboard",
+            showKeyboard = Language(context) == "de" ? "Geraetetastatur ein-/ausblenden" : "Show/hide device keyboard",
+            onScreenKeyboard = Language(context) == "de" ? "Bildschirmtastatur ein-/ausblenden" : "Show/hide on-screen keyboard",
             resolutionLabel = Language(context) == "de" ? "Aufloesung" : "Resolution",
             resolutionFitShort = Language(context) == "de" ? "Anpassen" : "Fit",
             zoomInLabel = Language(context) == "de" ? "Vergroessern" : "Zoom in",
@@ -5055,6 +5057,137 @@ public sealed class HtmlViews
                     }, 60);
                 }
 
+                // In-app on-screen keyboard for touch sessions: a browser-rendered keyboard that sends
+                // X11 keysyms straight to the Guacamole client - an alternative to the device keyboard
+                // that never touches the viewport. Shift is one-shot; Ctrl/Alt are one-shot modifiers.
+                const OSK_ROWS = [
+                    [ { t: 'Esc', sym: 0xFF1B }, { t: 'Tab', sym: 0xFF09 }, { t: '←', sym: 0xFF51 }, { t: '↑', sym: 0xFF52 }, { t: '↓', sym: 0xFF54 }, { t: '→', sym: 0xFF53 }, { t: 'Entf', sym: 0xFFFF } ],
+                    [ { c: '1', s: '!' }, { c: '2', s: '"' }, { c: '3', s: '§' }, { c: '4', s: '$' }, { c: '5', s: '%' }, { c: '6', s: '&' }, { c: '7', s: '/' }, { c: '8', s: '(' }, { c: '9', s: ')' }, { c: '0', s: '=' }, { t: '⌫', sym: 0xFF08, cls: 'osk-wide' } ],
+                    [ 'q', 'w', 'e', 'r', 't', 'z', 'u', 'i', 'o', 'p', 'ü' ],
+                    [ 'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', 'ö', 'ä' ],
+                    [ { t: '⇧', mod: 'shift', cls: 'osk-wide' }, 'y', 'x', 'c', 'v', 'b', 'n', 'm', { c: ',', s: ';' }, { c: '.', s: ':' }, { t: '↵', sym: 0xFF0D, cls: 'osk-wide' } ],
+                    [ { t: 'Strg', mod: 'ctrl' }, { t: 'Alt', mod: 'alt' }, { c: '-', s: '_' }, { t: 'Leertaste', sym: 0x20, cls: 'osk-space' }, { c: '+', s: '*' }, { t: 'Strg+Alt+Entf', combo: true, cls: 'osk-wide' } ]
+                ];
+                const oskCharToKeysym = ch => {
+                    const cp = ch.codePointAt(0);
+                    return cp < 0x100 ? cp : 0x01000000 + cp;
+                };
+
+                function buildSessionOsk(tab) {
+                    const osk = document.createElement('div');
+                    osk.className = 'matgate-osk';
+                    const state = { shift: false, ctrl: false, alt: false };
+                    const modButtons = {};
+
+                    const applyShiftLabels = () => {
+                        osk.querySelectorAll('[data-osk-cap]').forEach(el => {
+                            el.textContent = state.shift ? el.getAttribute('data-osk-upper') : el.getAttribute('data-osk-lower');
+                        });
+                    };
+                    const refreshMods = () => {
+                        Object.keys(modButtons).forEach(name => modButtons[name].classList.toggle('active', !!state[name]));
+                    };
+                    const sendPress = keysym => {
+                        if (!tab.client) {
+                            return;
+                        }
+                        const held = [];
+                        if (state.ctrl) {
+                            held.push(0xFFE3);
+                        }
+                        if (state.alt) {
+                            held.push(0xFFE9);
+                        }
+                        held.forEach(m => tab.client.sendKeyEvent(1, m));
+                        tab.client.sendKeyEvent(1, keysym);
+                        tab.client.sendKeyEvent(0, keysym);
+                        held.slice().reverse().forEach(m => tab.client.sendKeyEvent(0, m));
+                        if (state.ctrl || state.alt) {
+                            state.ctrl = false;
+                            state.alt = false;
+                            refreshMods();
+                        }
+                    };
+                    const sendCombo = syms => {
+                        if (!tab.client) {
+                            return;
+                        }
+                        syms.forEach(s => tab.client.sendKeyEvent(1, s));
+                        syms.slice().reverse().forEach(s => tab.client.sendKeyEvent(0, s));
+                    };
+
+                    OSK_ROWS.forEach(row => {
+                        const rowEl = document.createElement('div');
+                        rowEl.className = 'matgate-osk-row';
+                        row.forEach(def => {
+                            const key = typeof def === 'string' ? { c: def } : def;
+                            const btn = document.createElement('button');
+                            btn.type = 'button';
+                            btn.className = 'matgate-osk-key' + (key.cls ? ' ' + key.cls : '');
+                            if (key.c !== undefined) {
+                                const upper = key.s !== undefined ? key.s : key.c.toUpperCase();
+                                btn.setAttribute('data-osk-cap', '1');
+                                btn.setAttribute('data-osk-lower', key.c);
+                                btn.setAttribute('data-osk-upper', upper);
+                                btn.textContent = key.c;
+                            }
+                            else {
+                                btn.textContent = key.t;
+                            }
+                            if (key.mod) {
+                                modButtons[key.mod] = btn;
+                            }
+                            btn.addEventListener('pointerdown', event => {
+                                event.preventDefault();
+                                if (key.mod) {
+                                    state[key.mod] = !state[key.mod];
+                                    if (key.mod === 'shift') {
+                                        applyShiftLabels();
+                                    }
+                                    refreshMods();
+                                    return;
+                                }
+                                if (key.combo) {
+                                    sendCombo([0xFFE3, 0xFFE9, 0xFFFF]);
+                                    return;
+                                }
+                                if (key.sym !== undefined) {
+                                    sendPress(key.sym);
+                                    return;
+                                }
+                                const ch = state.shift ? (key.s !== undefined ? key.s : key.c.toUpperCase()) : key.c;
+                                sendPress(oskCharToKeysym(ch));
+                                if (state.shift) {
+                                    state.shift = false;
+                                    applyShiftLabels();
+                                    refreshMods();
+                                }
+                            });
+                            rowEl.appendChild(btn);
+                        });
+                        osk.appendChild(rowEl);
+                    });
+                    return osk;
+                }
+
+                function toggleSessionOsk(tab, button) {
+                    if (!tab || !tab.client) {
+                        return;
+                    }
+                    if (!tab.osk) {
+                        tab.osk = buildSessionOsk(tab);
+                        tab.panel.appendChild(tab.osk);
+                    }
+                    const open = tab.osk.classList.toggle('open');
+                    if (button) {
+                        button.classList.toggle('active', open);
+                    }
+                    // Opening the in-app keyboard must not also raise the device keyboard.
+                    if (open && tab.oskInput && document.activeElement === tab.oskInput) {
+                        tab.oskInput.blur();
+                    }
+                }
+
                 function updateTabActions() {
                     if (!connectionTabActions) {
                         updateStatusBar();
@@ -5121,6 +5254,14 @@ public sealed class HtmlViews
                                     true);
                                 connectionTabActions.appendChild(keyboardButton);
                             }
+
+                            const oskButton = createTabActionButton(
+                                actionIcons.onScreenKeyboard,
+                                uiText.onScreenKeyboard || 'Show/hide on-screen keyboard',
+                                () => toggleSessionOsk(tab, oskButton),
+                                '',
+                                true);
+                            connectionTabActions.appendChild(oskButton);
 
                             if (supportsResolution(tab.protocol)) {
                                 const resolutionButton = createTabActionButton(
@@ -9739,6 +9880,47 @@ public sealed class HtmlViews
                         width: 1px;
                         z-index: -1;
                     }
+                    /* In-app on-screen keyboard (touch sessions), slides up over the session bottom. */
+                    .matgate-osk {
+                        background: rgba(20, 24, 22, .97);
+                        border-top: 1px solid var(--line);
+                        bottom: 0;
+                        display: flex;
+                        flex-direction: column;
+                        gap: 5px;
+                        left: 0;
+                        padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
+                        position: absolute;
+                        right: 0;
+                        transform: translateY(100%);
+                        transition: transform .2s ease;
+                        z-index: 30;
+                        -webkit-user-select: none;
+                        user-select: none;
+                    }
+                    .matgate-osk.open { transform: translateY(0); }
+                    .matgate-osk-row { display: flex; gap: 5px; }
+                    .matgate-osk-key {
+                        align-items: center;
+                        background: var(--surface-2);
+                        border: 1px solid var(--line);
+                        border-radius: 8px;
+                        color: var(--text);
+                        cursor: pointer;
+                        display: flex;
+                        flex: 1 1 0;
+                        font: inherit;
+                        font-size: 15px;
+                        justify-content: center;
+                        min-height: 42px;
+                        min-width: 0;
+                        padding: 2px;
+                        touch-action: manipulation;
+                    }
+                    .matgate-osk-key:active { background: var(--accent); border-color: var(--accent); color: #fff; }
+                    .matgate-osk-key.active { background: color-mix(in srgb, var(--accent) 30%, transparent); border-color: var(--accent); color: var(--accent); }
+                    .matgate-osk-key.osk-wide { flex: 1.6 1 0; font-size: 13px; }
+                    .matgate-osk-key.osk-space { flex: 4 1 0; }
                     .tab-action-button .icon {
                         height: 15px;
                         width: 15px;
