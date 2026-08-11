@@ -5147,7 +5147,7 @@ public sealed class HtmlViews
                     [ 'q', 'w', 'e', 'r', 't', 'z', 'u', 'i', 'o', 'p', 'ü' ],
                     [ 'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', 'ö', 'ä' ],
                     [ { t: '⇧', mod: 'shift', cls: 'osk-wide' }, 'y', 'x', 'c', 'v', 'b', 'n', 'm', { c: ',', s: ';' }, { c: '.', s: ':' }, { t: '↵', sym: 0xFF0D, cls: 'osk-wide' } ],
-                    [ { t: 'Strg', mod: 'ctrl' }, { t: 'Alt', mod: 'alt' }, { c: '-', s: '_' }, { t: 'Leertaste', sym: 0x20, cls: 'osk-space' }, { c: '+', s: '*' }, { t: 'Strg+Alt+Entf', combo: true, cls: 'osk-wide' } ]
+                    [ { t: 'CTRL', mod: 'ctrl' }, { t: 'Alt', mod: 'alt' }, { c: '-', s: '_' }, { t: 'Leertaste', sym: 0x20, cls: 'osk-space' }, { c: '+', s: '*' }, { html: '<svg class="icon osk-combo-icon" viewBox="0 0 46 24" aria-hidden="true"><rect x="1.5" y="6" width="12" height="12" rx="2.5"/><rect x="17" y="6" width="12" height="12" rx="2.5"/><rect x="32.5" y="6" width="12" height="12" rx="2.5"/></svg>', title: 'CTRL + Alt + Entf', combo: true, cls: 'osk-wide osk-combo' } ]
                 ];
                 const oskCharToKeysym = ch => {
                     const cp = ch.codePointAt(0);
@@ -5211,6 +5211,13 @@ public sealed class HtmlViews
                                 btn.setAttribute('data-osk-lower', key.c);
                                 btn.setAttribute('data-osk-upper', upper);
                                 btn.textContent = key.c;
+                            }
+                            else if (key.html !== undefined) {
+                                btn.innerHTML = key.html;
+                                if (key.title) {
+                                    btn.title = key.title;
+                                    btn.setAttribute('aria-label', key.title);
+                                }
                             }
                             else {
                                 btn.textContent = key.t;
@@ -10087,7 +10094,10 @@ public sealed class HtmlViews
                         flex-direction: column;
                         gap: 5px;
                         left: 0;
-                        padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
+                        /* No safe-area padding here: in normal mode the statusbar row below already
+                           clears the home indicator, and in immersive mode .shell-page-panel is inset
+                           by the safe areas - so an extra env() only left a dead gap above the bar. */
+                        padding: 6px;
                         position: absolute;
                         right: 0;
                         transform: translateY(100%);
@@ -10118,6 +10128,10 @@ public sealed class HtmlViews
                     .matgate-osk-key:active { background: var(--accent); border-color: var(--accent); color: #fff; }
                     .matgate-osk-key.active { background: color-mix(in srgb, var(--accent) 30%, transparent); border-color: var(--accent); color: var(--accent); }
                     .matgate-osk-key.osk-wide { flex: 1.6 1 0; font-size: 13px; }
+                    .matgate-osk-key.osk-combo { flex: 2 1 0; }
+                    .matgate-osk-key .osk-combo-icon { height: 20px; width: 40px; }
+                    .matgate-osk-key:active .osk-combo-icon,
+                    .matgate-osk-key.active .osk-combo-icon { stroke: currentColor; }
                     .matgate-osk-key.osk-space { flex: 4 1 0; }
                     .tab-action-button .icon {
                         height: 15px;
@@ -11698,7 +11712,18 @@ public sealed class HtmlViews
                        padding, and the reveal strip / toolbar sit above it (fixed/absolute). */
                     html.session-immersive .shell-page-panels {
                         background: var(--surface);
-                        padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+                    }
+                    /* Inset the session panel by the safe areas so the notch / Dynamic Island / home
+                       indicator / rounded corners never clip the remote view. This MUST sit on the
+                       absolutely-positioned .shell-page-panel itself: padding on the relative parent
+                       does nothing here, because a child with position:absolute; inset:0 fills the
+                       parent's PADDING box and ignores the padding. The revealed margin shows the
+                       panels' --surface background (matches the chrome bars). */
+                    html.session-immersive .shell-page-panel {
+                        top: env(safe-area-inset-top);
+                        right: env(safe-area-inset-right);
+                        bottom: env(safe-area-inset-bottom);
+                        left: env(safe-area-inset-left);
                     }
                     /* Immersive/fullscreen: the toolbar slides up out of flow so the session fills the
                        screen; the always-visible handle taps it back (plus edge-swipe from the top). */
