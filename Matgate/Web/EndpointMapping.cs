@@ -36,11 +36,11 @@ public static class EndpointMapping
           "id": "/",
           "start_url": "/",
           "scope": "/",
-          "display": "fullscreen",
-          "display_override": ["fullscreen", "standalone", "minimal-ui"],
+          "display": "standalone",
+          "display_override": ["standalone", "minimal-ui"],
           "orientation": "any",
-          "theme_color": "#176b5b",
-          "background_color": "#f4f6f4",
+          "theme_color": "#171d1a",
+          "background_color": "#171d1a",
           "icons": [
             {
               "src": "/icon-192.png",

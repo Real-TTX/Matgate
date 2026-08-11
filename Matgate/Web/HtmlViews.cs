@@ -1472,8 +1472,6 @@ public sealed class HtmlViews
                         const render = () => {
                             const cs = getComputedStyle(probe);
                             const vv = window.visualViewport;
-                            const doc = (window.top && window.top !== window) ? null : document;
-                            const shellBody = doc ? doc.querySelector('body[data-shell-layout="1"]') : null;
                             const lines = [
                                 'innerWidth x innerHeight : ' + window.innerWidth + ' x ' + window.innerHeight,
                                 'visualViewport           : ' + (vv ? (Math.round(vv.width) + ' x ' + Math.round(vv.height) + ' (offsetTop ' + Math.round(vv.offsetTop) + ')') : 'n/a'),
@@ -1481,9 +1479,35 @@ public sealed class HtmlViews
                                 'devicePixelRatio         : ' + window.devicePixelRatio,
                                 'safe-area top / bottom   : ' + cs.paddingTop + ' / ' + cs.paddingBottom,
                                 'standalone (PWA)         : ' + (window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches || window.matchMedia('(display-mode: fullscreen)').matches),
-                                'embedded (iframe)        : ' + (window.self !== window.top),
-                                'body rect (this page)    : ' + Math.round(document.body.getBoundingClientRect().width) + ' x ' + Math.round(document.body.getBoundingClientRect().height)
+                                'display-mode             : ' + (['fullscreen', 'standalone', 'minimal-ui', 'browser'].find(mode => window.matchMedia('(display-mode: ' + mode + ')').matches) || '?'),
+                                'embedded (iframe)        : ' + (window.self !== window.top)
                             ];
+                            // The page usually runs inside the shell's tab iframe - the numbers that
+                            // matter for the app frame are the TOP window's. Same-origin, so read them.
+                            try {
+                                if (window.top && window.top !== window) {
+                                    const tw = window.top;
+                                    const tvv = tw.visualViewport;
+                                    const tbody = tw.document.body.getBoundingClientRect();
+                                    const tprobe = tw.document.createElement('div');
+                                    tprobe.style.cssText = 'position:fixed;left:0;right:0;bottom:0;height:0;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom);visibility:hidden;pointer-events:none';
+                                    tw.document.body.appendChild(tprobe);
+                                    const tcs = tw.getComputedStyle(tprobe);
+                                    lines.push(
+                                        '--- TOP window (app frame) ---',
+                                        'TOP inner W x H          : ' + tw.innerWidth + ' x ' + tw.innerHeight,
+                                        'TOP visualViewport       : ' + (tvv ? (Math.round(tvv.width) + ' x ' + Math.round(tvv.height) + ' (offsetTop ' + Math.round(tvv.offsetTop) + ', scale ' + tvv.scale.toFixed(2) + ')') : 'n/a'),
+                                        'TOP body rect            : ' + Math.round(tbody.width) + ' x ' + Math.round(tbody.height) + ' (top ' + Math.round(tbody.top) + ')',
+                                        'TOP safe-area top/bottom : ' + tcs.paddingTop + ' / ' + tcs.paddingBottom,
+                                        'TOP scrollY              : ' + Math.round(tw.scrollY),
+                                        'TOP screen - innerHeight : ' + (tw.screen.height - tw.innerHeight) + 'px'
+                                    );
+                                    tprobe.remove();
+                                }
+                            }
+                            catch (e) {
+                                lines.push('TOP window                : not accessible');
+                            }
                             out.textContent = lines.join('\n');
                         };
                         render();
@@ -8965,7 +8989,7 @@ public sealed class HtmlViews
                 <meta charset="utf-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
                 {{cacheControlMarkup}}
-                <meta name="theme-color" content="#176b5b">
+                <meta name="theme-color" content="#171d1a">
                 <script>
                     try {
                         // Any page rendered inside the shell's tab iframe must hide its own header.
