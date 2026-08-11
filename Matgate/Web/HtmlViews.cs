@@ -1472,18 +1472,10 @@ public sealed class HtmlViews
                         const render = () => {
                             const cs = getComputedStyle(probe);
                             const vv = window.visualViewport;
-                            const lines = [
-                                'innerWidth x innerHeight : ' + window.innerWidth + ' x ' + window.innerHeight,
-                                'visualViewport           : ' + (vv ? (Math.round(vv.width) + ' x ' + Math.round(vv.height) + ' (offsetTop ' + Math.round(vv.offsetTop) + ')') : 'n/a'),
-                                'screen                   : ' + screen.width + ' x ' + screen.height,
-                                'devicePixelRatio         : ' + window.devicePixelRatio,
-                                'safe-area top / bottom   : ' + cs.paddingTop + ' / ' + cs.paddingBottom,
-                                'standalone (PWA)         : ' + (window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches || window.matchMedia('(display-mode: fullscreen)').matches),
-                                'display-mode             : ' + (['fullscreen', 'standalone', 'minimal-ui', 'browser'].find(mode => window.matchMedia('(display-mode: ' + mode + ')').matches) || '?'),
-                                'embedded (iframe)        : ' + (window.self !== window.top)
-                            ];
-                            // The page usually runs inside the shell's tab iframe - the numbers that
-                            // matter for the app frame are the TOP window's. Same-origin, so read them.
+                            const lines = [];
+                            // The numbers that matter for the app frame are the TOP window's (this page
+                            // usually runs inside the shell's tab iframe). Show them FIRST - iOS can make
+                            // scrolling to the bottom of this box impossible. Same-origin, so readable.
                             try {
                                 if (window.top && window.top !== window) {
                                     const tw = window.top;
@@ -1496,21 +1488,32 @@ public sealed class HtmlViews
                                     const tstatus = tw.document.querySelector('.session-statusbar');
                                     const tsRect = tstatus ? tstatus.getBoundingClientRect() : null;
                                     lines.push(
-                                        '--- TOP window (app frame) ---',
+                                        '--- APP-FENSTER (wichtig) ---',
                                         'TOP inner W x H          : ' + tw.innerWidth + ' x ' + tw.innerHeight,
+                                        'TOP screen - innerHeight : ' + (tw.screen.height - tw.innerHeight) + 'px',
+                                        'TOP statusbar bottom     : ' + (tsRect ? (Math.round(tsRect.bottom) + ' (innerH - bottom = ' + Math.round(tw.innerHeight - tsRect.bottom) + ')') : 'n/a'),
                                         'TOP visualViewport       : ' + (tvv ? (Math.round(tvv.width) + ' x ' + Math.round(tvv.height) + ' (offsetTop ' + Math.round(tvv.offsetTop) + ', scale ' + tvv.scale.toFixed(2) + ')') : 'n/a'),
                                         'TOP body rect            : ' + Math.round(tbody.width) + ' x ' + Math.round(tbody.height) + ' (top ' + Math.round(tbody.top) + ')',
-                                        'TOP statusbar bottom     : ' + (tsRect ? (Math.round(tsRect.bottom) + ' (innerH - bottom = ' + Math.round(tw.innerHeight - tsRect.bottom) + ')') : 'n/a'),
                                         'TOP safe-area top/bottom : ' + tcs.paddingTop + ' / ' + tcs.paddingBottom,
                                         'TOP scrollY              : ' + Math.round(tw.scrollY),
-                                        'TOP screen - innerHeight : ' + (tw.screen.height - tw.innerHeight) + 'px'
+                                        '--- diese Seite (iframe) ---'
                                     );
                                     tprobe.remove();
                                 }
                             }
                             catch (e) {
-                                lines.push('TOP window                : not accessible');
+                                lines.push('TOP window               : not accessible');
                             }
+                            lines.push(
+                                'innerWidth x innerHeight : ' + window.innerWidth + ' x ' + window.innerHeight,
+                                'visualViewport           : ' + (vv ? (Math.round(vv.width) + ' x ' + Math.round(vv.height) + ' (offsetTop ' + Math.round(vv.offsetTop) + ')') : 'n/a'),
+                                'screen                   : ' + screen.width + ' x ' + screen.height,
+                                'devicePixelRatio         : ' + window.devicePixelRatio,
+                                'safe-area top / bottom   : ' + cs.paddingTop + ' / ' + cs.paddingBottom,
+                                'standalone (PWA)         : ' + (window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches || window.matchMedia('(display-mode: fullscreen)').matches),
+                                'display-mode             : ' + (['fullscreen', 'standalone', 'minimal-ui', 'browser'].find(mode => window.matchMedia('(display-mode: ' + mode + ')').matches) || '?'),
+                                'embedded (iframe)        : ' + (window.self !== window.top)
+                            );
                             out.textContent = lines.join('\n');
                         };
                         render();
@@ -9209,6 +9212,11 @@ public sealed class HtmlViews
                     .shell-page-panel {
                         inset: 0;
                         position: absolute;
+                        /* iOS expands iframes to their content height (ignoring height:100%) - without a
+                           scrollable wrapper the overflowing part hides behind the statusbar and is
+                           unreachable. Desktop iframes fit exactly, so this changes nothing there. */
+                        overflow-y: auto;
+                        -webkit-overflow-scrolling: touch;
                     }
                     .shell-page-panel iframe {
                         border: 0;
