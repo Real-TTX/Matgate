@@ -5271,7 +5271,7 @@ public sealed class HtmlViews
                         button.classList.toggle('active', open);
                     }
                     // Opening the in-app keyboard must not also raise the device keyboard.
-                    if (open && tab.oskInput && document.activeElement === tab.oskInput) {
+                    if (open && tab.oskInput && tab.deviceKbOpen) {
                         tab.oskInput.blur();
                     }
                 }
@@ -5331,7 +5331,10 @@ public sealed class HtmlViews
                                     actionIcons.keyboard,
                                     uiText.showKeyboard || 'Show/hide keyboard',
                                     () => {
-                                        if (document.activeElement === tab.oskInput) {
+                                        // Use the explicit state, NOT document.activeElement: on Android
+                                        // the tap focuses this button first, which flipped the old check
+                                        // and re-opened the keyboard, making it impossible to close.
+                                        if (tab.deviceKbOpen) {
                                             tab.oskInput.blur();
                                         }
                                         else {
@@ -5339,9 +5342,14 @@ public sealed class HtmlViews
                                             // "reveal" the (hidden) input and never pans back.
                                             tab.oskInput.focus({ preventScroll: true });
                                         }
+                                        keyboardButton.classList.toggle('active', tab.deviceKbOpen);
                                     },
                                     'tab-action-keep',
                                     true);
+                                // Don't let the tap steal focus from oskInput (Android would otherwise
+                                // blur it before the handler runs, desyncing the toggle).
+                                keyboardButton.addEventListener('mousedown', event => event.preventDefault());
+                                keyboardButton.classList.toggle('active', !!tab.deviceKbOpen);
                                 connectionTabActions.appendChild(keyboardButton);
                             }
 
@@ -5351,6 +5359,7 @@ public sealed class HtmlViews
                                 () => toggleSessionOsk(tab, oskButton),
                                 'tab-action-keep',
                                 true);
+                            oskButton.addEventListener('mousedown', event => event.preventDefault());
                             connectionTabActions.appendChild(oskButton);
 
                             if (supportsResolution(tab.protocol)) {
@@ -6758,6 +6767,13 @@ public sealed class HtmlViews
                             oskInput.tabIndex = -1;
                             tab.panel.appendChild(oskInput);
                             tab.oskInput = oskInput;
+                            tab.deviceKbOpen = false;
+                            // Track the soft-keyboard state from the input itself (the source of truth):
+                            // the system can dismiss it (back gesture, tapping the session) without going
+                            // through our button, and Android focuses a tapped <button> before its click
+                            // handler runs - so we must NOT infer open/closed from document.activeElement.
+                            oskInput.addEventListener('focus', () => { tab.deviceKbOpen = true; });
+                            oskInput.addEventListener('blur', () => { tab.deviceKbOpen = false; });
                             const sendKeysym = keysym => {
                                 client.sendKeyEvent(1, keysym);
                                 client.sendKeyEvent(0, keysym);
