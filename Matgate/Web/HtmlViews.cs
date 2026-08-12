@@ -2926,15 +2926,16 @@ public sealed class HtmlViews
             $"""<button type="button" class="primary workspace-open-button connection-choice-open" data-server-id="{server.Id}">{Icon("play")}{T(context, server.Protocol == ServerProtocol.Website ? "Open" : "Connect")}</button>"""
         };
 
-        if (canEdit)
-        {
-            // Gear -> the connection's settings page (own server, or any for admins/managers).
-            actions.Add($"""<a class="button connection-choice-settings icon-only" href="/admin/servers/{server.Id}" title="{A(T(context, "Settings"))}" aria-label="{A(T(context, "Settings"))}">{Icon("settings")}</a>""");
-        }
+        // Gear -> the connection's settings page (own server, or any for admins/managers). It sits in
+        // the top-right corner just LEFT of the favourite star, in the exact same size/look (same
+        // <button> tag + favorite-toggle class, so the styling is identical; a GET form navigates).
+        var settingsCorner = canEdit
+            ? $$"""<form method="get" action="/admin/servers/{{server.Id}}" class="favorite-toggle-form connection-choice-settings-form"><button type="submit" class="favorite-toggle connection-choice-settings-corner" title="{{A(T(context, "Settings"))}}" aria-label="{{A(T(context, "Settings"))}}">{{Icon("settings")}}</button></form>"""
+            : "";
 
         return $$"""
-            <article class="connection-choice" data-home2-card="1" data-fav="{{(IsFavoriteServer(user, server.Id) ? "1" : "0")}}" data-folder="{{A(FolderFilterKey(server.FolderName))}}" data-search="{{A(searchIndex)}}" style="--proto: {{ProtocolAccent(server.Protocol)}}">
-                {{FavoriteToggleForm(context, user, server, returnUrl)}}
+            <article class="connection-choice{{(canEdit ? " has-corner-settings" : "")}}" data-home2-card="1" data-fav="{{(IsFavoriteServer(user, server.Id) ? "1" : "0")}}" data-folder="{{A(FolderFilterKey(server.FolderName))}}" data-search="{{A(searchIndex)}}" style="--proto: {{ProtocolAccent(server.Protocol)}}">
+                <div class="connection-choice-corner">{{settingsCorner}}{{FavoriteToggleForm(context, user, server, returnUrl)}}</div>
                 <div class="connection-choice-body">
                     <div class="server-title connection-choice-title">
                         {{ServerIcon(server)}}
@@ -11628,6 +11629,26 @@ public sealed class HtmlViews
                     .favorite-toggle .icon {
                         height: 15px;
                         width: 15px;
+                    }
+                    /* Top-right corner cluster: settings gear (left) + favourite star (right), same size. */
+                    .connection-choice-corner {
+                        align-items: center;
+                        display: flex;
+                        gap: 6px;
+                        position: absolute;
+                        right: 10px;
+                        top: 10px;
+                        z-index: 2;
+                    }
+                    .connection-choice-corner .favorite-toggle-form {
+                        position: static;
+                        right: auto;
+                        top: auto;
+                        z-index: auto;
+                    }
+                    /* Reserve room on the right so the title/target never runs under both buttons. */
+                    .connection-choice.has-corner-settings {
+                        padding-right: 88px;
                     }
                     .connection-choice-actions {
                         align-items: stretch;
