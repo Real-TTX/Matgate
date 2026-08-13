@@ -10792,8 +10792,12 @@ public sealed class HtmlViews
                         margin: -20px 0;
                         overflow-x: auto;
                         padding: 20px 0;
-                        scrollbar-width: thin;
+                        /* Hide the scrollbar on ALL platforms: Android paints a resting thin bar for
+                           scrollbar-width:thin, while iOS/WebKit hides it until you scroll - which is why
+                           it only showed on Android. Still fully swipeable. */
+                        scrollbar-width: none;
                     }
+                    .home2-quick-row::-webkit-scrollbar { display: none; }
                     .home2-proto-chip {
                         align-items: center;
                         background: var(--surface);
@@ -11006,9 +11010,10 @@ public sealed class HtmlViews
                         margin: -20px 0;
                         overflow-x: auto;
                         padding: 20px 0;
-                        scrollbar-width: thin;
+                        scrollbar-width: none;
                         -webkit-overflow-scrolling: touch;
                     }
+                    .home2-folder-grid::-webkit-scrollbar { display: none; }
                     .home2-folder-tile {
                         align-items: center;
                         background: var(--surface);
