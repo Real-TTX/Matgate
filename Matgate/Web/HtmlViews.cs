@@ -622,8 +622,88 @@ public sealed class HtmlViews
             </tr>
             """));
         var serverHeaders = $$"""<th data-sortable>{{T(context, "Name")}}</th><th data-sortable>{{T(context, "Scope")}}</th><th data-sortable>{{T(context, "Folder")}}</th><th data-sortable>{{T(context, "Type")}}</th><th data-sortable>{{T(context, "Target")}}</th><th data-sortable>{{T(context, "Status")}}</th><th class="table-actions">{{T(context, "Actions")}}</th>""";
-        var serverTable = DataTable(de ? "Server suchen..." : "Search servers...", serverHeaders, serverRows, T(context, "No servers yet."), 7, 15, "",
-            $$"""<a class="button primary" href="/admin/servers/new">{{Icon("plus")}}{{(de ? "Neuer Server" : "New server")}}</a>""");
+        var serverTable = DataTable(de ? "Server suchen..." : "Search servers...", serverHeaders, serverRows, T(context, "No servers yet."), 7, 15, "", "");
+
+        // Gallery view: the same connection cards as the start page (icon, badges, name, target),
+        // with admin actions (edit gear top-right, open + delete below). Toggle List/Gallery below.
+        var serverCards = servers.Count == 0
+            ? $"""<p class="muted">{E(T(context, "No servers yet."))}</p>"""
+            : string.Join("", servers.Select(server => $$"""
+                <article class="connection-choice has-corner-settings" style="--proto: {{ProtocolAccent(server.Protocol)}}">
+                    <div class="connection-choice-corner">
+                        <form method="get" action="/admin/servers/{{server.Id}}" class="favorite-toggle-form connection-choice-settings-form"><button type="submit" class="favorite-toggle connection-choice-settings-corner" title="{{A(editLabel)}}" aria-label="{{A(editLabel)}}">{{Icon("settings")}}</button></form>
+                    </div>
+                    <div class="connection-choice-body">
+                        <div class="server-title connection-choice-title">
+                            {{ServerIcon(server)}}
+                            <div class="connection-choice-copy">
+                                <div class="connection-choice-badges">
+                                    <span class="badge">{{E(ServerProtocolLabel(server.Protocol))}}</span>
+                                    {{(string.IsNullOrWhiteSpace(server.FolderName) ? "" : ServerFolderBadge(context, server))}}
+                                    {{ServerScopeBadge(context, server, users)}}
+                                    {{(server.IsEnabled ? "" : $"<span class=\"badge muted\">{E(T(context, "Off"))}</span>")}}
+                                </div>
+                                <h3>{{E(server.Name)}}</h3>
+                                <p class="target">{{E(ServerTargetValue(server))}}</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="connection-choice-actions">
+                        <a class="button primary" href="/connect/{{server.Id}}" data-shell-open-tab="1" data-shell-title="{{A(server.Name)}}" data-shell-description="{{A(T(context, "Connection"))}}">{{Icon("play")}}{{T(context, server.Protocol == ServerProtocol.Website ? "Open" : "Connect")}}</a>
+                        <form method="post" action="/admin/servers/{{server.Id}}/delete" data-confirm="{{A(confirmDelete)}}">{{Csrf(context)}}<button type="submit" class="danger icon-only" title="{{A(deleteLabel)}}" aria-label="{{A(deleteLabel)}}">{{Icon("trash")}}</button></form>
+                    </div>
+                </article>
+                """));
+
+        // Plain (non-interpolated) raw string: keeps all JS braces literal.
+        var serverViewScript = """
+            <script>
+                (() => {
+                    const root = document.querySelector('[data-server-view-switch]');
+                    if (!root) { return; }
+                    const KEY = 'matgate-server-view';
+                    const panels = {
+                        gallery: document.querySelector('[data-server-view-panel="gallery"]'),
+                        list: document.querySelector('[data-server-view-panel="list"]')
+                    };
+                    const buttons = root.querySelectorAll('[data-server-view]');
+                    const apply = (view) => {
+                        if (view !== 'list') { view = 'gallery'; }
+                        Object.keys(panels).forEach((key) => {
+                            if (panels[key]) { panels[key].hidden = key !== view; }
+                        });
+                        buttons.forEach((b) => {
+                            const on = b.getAttribute('data-server-view') === view;
+                            b.classList.toggle('active', on);
+                            b.setAttribute('aria-pressed', on ? 'true' : 'false');
+                        });
+                    };
+                    buttons.forEach((b) => b.addEventListener('click', () => {
+                        const view = b.getAttribute('data-server-view');
+                        try { localStorage.setItem(KEY, view); } catch (e) { /* ignore */ }
+                        apply(view);
+                    }));
+                    let stored = 'gallery';
+                    try { stored = localStorage.getItem(KEY) || 'gallery'; } catch (e) { /* ignore */ }
+                    apply(stored);
+                })();
+            </script>
+            """;
+
+        var serversPanel = $$"""
+            <section class="panel">
+                <div class="server-view-bar">
+                    <div class="view-switch" data-server-view-switch role="group" aria-label="{{A(de ? "Ansicht" : "View")}}">
+                        <button type="button" class="view-switch-btn" data-server-view="gallery">{{Icon("grid")}}<span>{{(de ? "Galerie" : "Gallery")}}</span></button>
+                        <button type="button" class="view-switch-btn" data-server-view="list">{{Icon("list")}}<span>{{(de ? "Liste" : "List")}}</span></button>
+                    </div>
+                    <a class="button primary" href="/admin/servers/new">{{Icon("plus")}}{{(de ? "Neuer Server" : "New server")}}</a>
+                </div>
+                <div class="server-view-panel home2-card-grid server-gallery" data-server-view-panel="gallery">{{serverCards}}</div>
+                <div class="server-view-panel" data-server-view-panel="list" hidden>{{serverTable}}</div>
+                {{serverViewScript}}
+            </section>
+            """;
 
         var userRows = string.Join("", users.OrderBy(u => u.UserName).Select(u => $$"""
             <tr>
@@ -656,7 +736,7 @@ public sealed class HtmlViews
 
         var tabs = new List<TabItem>
         {
-            new("servers", T(context, "Servers"), Icon("server"), $"""<section class="panel">{serverTable}</section>""")
+            new("servers", T(context, "Servers"), Icon("server"), serversPanel)
         };
         if (currentUser.IsAdmin)
         {
@@ -11063,6 +11143,48 @@ public sealed class HtmlViews
                         display: grid;
                         gap: 12px;
                         grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+                    }
+                    /* Admin server view: List/Gallery switch. Gallery reuses the start-page cards. */
+                    .server-view-bar {
+                        align-items: center;
+                        display: flex;
+                        flex-wrap: wrap;
+                        gap: 12px;
+                        justify-content: space-between;
+                        margin-bottom: 16px;
+                    }
+                    .view-switch {
+                        background: var(--surface-2);
+                        border: 1px solid var(--line);
+                        border-radius: 999px;
+                        display: inline-flex;
+                        gap: 2px;
+                        padding: 3px;
+                    }
+                    .view-switch-btn {
+                        align-items: center;
+                        background: transparent;
+                        border: 0;
+                        border-radius: 999px;
+                        color: var(--muted);
+                        cursor: pointer;
+                        display: inline-flex;
+                        font: inherit;
+                        font-size: 14px;
+                        gap: 7px;
+                        min-height: 0;
+                        padding: 7px 14px;
+                    }
+                    .view-switch-btn .icon { height: 16px; width: 16px; }
+                    .view-switch-btn.active {
+                        background: var(--surface);
+                        box-shadow: 0 1px 2px rgb(0 0 0 / 8%);
+                        color: var(--text);
+                    }
+                    .server-view-panel[hidden] { display: none; }
+                    .server-gallery .connection-choice .server-icon {
+                        background: color-mix(in srgb, var(--proto, var(--accent)) 16%, transparent);
+                        color: var(--proto, var(--accent));
                     }
                     .home2 .connection-choice .server-icon {
                         background: color-mix(in srgb, var(--proto, var(--accent)) 16%, transparent);
