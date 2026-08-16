@@ -3612,6 +3612,20 @@ public sealed class HtmlViews
                 try {
                     if (navigator.virtualKeyboard) {
                         navigator.virtualKeyboard.overlaysContent = true;
+                        // Android can dismiss the soft keyboard WITHOUT blurring the focused input
+                        // (back gesture, the keyboard's own hide key) - focus/blur tracking alone then
+                        // reports "open" forever and the toolbar toggle needs a dead tap. When the
+                        // keyboard geometry collapses to zero, blur the hidden session input so the
+                        // open/closed state (tab.deviceKbOpen) and the button highlight resync.
+                        if (typeof navigator.virtualKeyboard.addEventListener === 'function') {
+                            navigator.virtualKeyboard.addEventListener('geometrychange', () => {
+                                const kbRect = navigator.virtualKeyboard.boundingRect;
+                                const active = document.activeElement;
+                                if (kbRect && kbRect.height === 0 && active && active.classList && active.classList.contains('osk-input')) {
+                                    active.blur();
+                                }
+                            });
+                        }
                     }
                 }
                 catch (e) {
@@ -5423,7 +5437,6 @@ public sealed class HtmlViews
                                             // "reveal" the (hidden) input and never pans back.
                                             tab.oskInput.focus({ preventScroll: true });
                                         }
-                                        keyboardButton.classList.toggle('active', tab.deviceKbOpen);
                                     },
                                     'tab-action-keep',
                                     true);
@@ -5431,6 +5444,9 @@ public sealed class HtmlViews
                                 // blur it before the handler runs, desyncing the toggle).
                                 keyboardButton.addEventListener('mousedown', event => event.preventDefault());
                                 keyboardButton.classList.toggle('active', !!tab.deviceKbOpen);
+                                // The oskInput focus/blur listeners keep this button's highlight in
+                                // sync (incl. system-side keyboard dismissals via geometrychange).
+                                tab.keyboardButton = keyboardButton;
                                 connectionTabActions.appendChild(keyboardButton);
                             }
 
@@ -5576,6 +5592,16 @@ public sealed class HtmlViews
                 // which is unreliable on iOS PWAs. Panels live under <body> (position:fixed), so no
                 // scrollable/sticky ancestor can clip them.
                 function showOverflowPanel(trigger, panel) {
+                    // Single-open policy: opening one overflow panel closes every other one, so two
+                    // triggers (toolbar "..." + header tab menu) can never stack overlapping panels.
+                    document.querySelectorAll('body > .tab-action-overflow-panel').forEach(other => {
+                        if (other !== panel) {
+                            other.style.display = 'none';
+                        }
+                    });
+                    // Remember the owning trigger so the outside-close handler can exempt exactly
+                    // this panel's trigger (and not every trigger, which kept foreign panels open).
+                    panel.matgateTrigger = trigger;
                     if (panel.parentElement !== document.body) {
                         document.body.appendChild(panel);
                     }
@@ -5591,27 +5617,53 @@ public sealed class HtmlViews
                     panel.style.right = right + 'px';
                 }
 
-                // Tap anywhere outside an open overflow panel (and not on its trigger) closes it.
-                document.addEventListener('click', event => {
-                    const target = event.target instanceof Element ? event.target : null;
+                // Anything outside an open overflow panel (and not on ITS OWN trigger) closes it.
+                // Wired to pointerdown AND click: Guacamole preventDefaults touchstart on the remote
+                // display, which suppresses synthesized clicks - pointerdown still fires, so tapping
+                // the session dismisses the menu on touch devices too. click stays as a fallback for
+                // browsers without PointerEvent and for synthetic .click() calls.
+                const closeOverflowPanelsOutside = (target) => {
                     document.querySelectorAll('body > .tab-action-overflow-panel').forEach(panel => {
                         if (panel.style.display !== 'flex') {
                             return;
                         }
-                        if (target && (panel.contains(target) || target.closest('.tab-action-more-trigger'))) {
+                        if (target && (panel.contains(target)
+                            || (panel.matgateTrigger && panel.matgateTrigger.contains(target)))) {
                             return;
                         }
                         panel.style.display = 'none';
                     });
+                };
+                document.addEventListener('pointerdown', event => {
+                    closeOverflowPanelsOutside(event.target instanceof Element ? event.target : null);
+                }, true);
+                document.addEventListener('click', event => {
+                    closeOverflowPanelsOutside(event.target instanceof Element ? event.target : null);
                 }, true);
 
+                // Rebuild the toolbar when the viewport crosses the phone breakpoint (rotation,
+                // window resize): collapseConnectionActions samples the media query at build time
+                // only, so without this a landscape-built toolbar kept ~10 loose icons after
+                // rotating to portrait (and vice versa).
+                try {
+                    const collapseBreakpoint = window.matchMedia('(max-width: 720px)');
+                    if (typeof collapseBreakpoint.addEventListener === 'function') {
+                        collapseBreakpoint.addEventListener('change', () => updateTabActions());
+                    }
+                }
+                catch {
+                    // matchMedia change events unsupported: the toolbar still rebuilds on tab switches.
+                }
+
                 function collapseConnectionActions(container) {
+                    // Drop any stale portaled panel from a previous toolbar build (but never the
+                    // header tab menu's panel, which persists across rebuilds). This must run BEFORE
+                    // the media-query gate: a rebuild while >720px must also clean up a panel that was
+                    // portaled while the viewport was narrow.
+                    document.querySelectorAll('body > .tab-action-overflow-panel:not(.mobile-tab-menu-panel)').forEach(el => el.remove());
                     if (!container || !window.matchMedia('(max-width: 720px)').matches) {
                         return;
                     }
-                    // Drop any stale portaled panel from a previous toolbar build (but never the
-                    // header tab menu's panel, which persists across rebuilds).
-                    document.querySelectorAll('body > .tab-action-overflow-panel:not(.mobile-tab-menu-panel)').forEach(el => el.remove());
                     const buttons = Array.from(container.querySelectorAll('.tab-action-button'))
                         .filter(b => !b.classList.contains('tab-action-keep') && !b.classList.contains('tab-action-disconnect'));
                     if (buttons.length < 2) {
@@ -6853,8 +6905,14 @@ public sealed class HtmlViews
                             // the system can dismiss it (back gesture, tapping the session) without going
                             // through our button, and Android focuses a tapped <button> before its click
                             // handler runs - so we must NOT infer open/closed from document.activeElement.
-                            oskInput.addEventListener('focus', () => { tab.deviceKbOpen = true; });
-                            oskInput.addEventListener('blur', () => { tab.deviceKbOpen = false; });
+                            oskInput.addEventListener('focus', () => {
+                                tab.deviceKbOpen = true;
+                                tab.keyboardButton?.classList.add('active');
+                            });
+                            oskInput.addEventListener('blur', () => {
+                                tab.deviceKbOpen = false;
+                                tab.keyboardButton?.classList.remove('active');
+                            });
                             const sendKeysym = keysym => {
                                 client.sendKeyEvent(1, keysym);
                                 client.sendKeyEvent(0, keysym);
@@ -11698,8 +11756,14 @@ public sealed class HtmlViews
                         flex-direction: column;
                         gap: 12px;
                         min-height: 190px;
-                        padding: 14px 46px 14px 14px;
+                        /* 56px right: the corner star is 40px wide at right:10px on phones. */
+                        padding: 14px 56px 14px 14px;
                         position: relative;
+                    }
+                    /* Phones grow the corner buttons to 40px (touch targets): 10 + 40 + 6 + 40 = 96px
+                       cluster, so the desktop 88px reservation is too small here. */
+                    .connection-choice.has-corner-settings {
+                        padding-right: 102px;
                     }
                     .connection-choice-body {
                         display: grid;
@@ -11877,13 +11941,16 @@ public sealed class HtmlViews
                     html.session-immersive .shell-page-panels {
                         background: var(--surface);
                     }
-                    /* Inset the session panel by the safe areas so the notch / Dynamic Island / home
-                       indicator / rounded corners never clip the remote view. This MUST sit on the
-                       absolutely-positioned .shell-page-panel itself: padding on the relative parent
-                       does nothing here, because a child with position:absolute; inset:0 fills the
-                       parent's PADDING box and ignores the padding. The revealed margin shows the
-                       panels' --surface background (matches the chrome bars). */
-                    html.session-immersive .shell-page-panel {
+                    /* Inset the visible view by the safe areas so the notch / Dynamic Island / home
+                       indicator / rounded corners never clip the content. This MUST sit on the
+                       absolutely-positioned children themselves: padding on the relative parent does
+                       nothing here, because a child with position:absolute; inset:0 fills the parent's
+                       PADDING box and ignores the padding. Two kinds of children exist: .app-view
+                       (#home-view - hosts the REMOTE SESSIONS, the only view that can enter immersive
+                       mode) and .shell-page-panel (embedded page tabs). Both are covered; the revealed
+                       margin shows the panels' --surface background (matches the chrome bars). */
+                    html.session-immersive .shell-page-panel,
+                    html.session-immersive .app-view {
                         top: env(safe-area-inset-top);
                         right: env(safe-area-inset-right);
                         bottom: env(safe-area-inset-bottom);
@@ -13367,7 +13434,15 @@ public sealed class HtmlViews
                             if (viewSessionTabs && viewSessionTabs.parentElement !== tabsTarget) {
                                 tabsTarget.appendChild(viewSessionTabs);
                             }
-                            if (viewTabActions && viewTabActions.parentElement !== target) {
+                            // Keep the canonical order [tabs, actions] when both share a container:
+                            // after a rotation the tabs can arrive later and would otherwise land
+                            // AFTER the already-resident actions, flipping the merged header layout.
+                            const actionsOutOfOrder = viewTabActions
+                                && viewSessionTabs
+                                && viewSessionTabs.parentElement === target
+                                && viewTabActions.parentElement === target
+                                && !!(viewSessionTabs.compareDocumentPosition(viewTabActions) & Node.DOCUMENT_POSITION_PRECEDING);
+                            if (viewTabActions && (viewTabActions.parentElement !== target || actionsOutOfOrder)) {
                                 target.appendChild(viewTabActions);
                             }
                         };
@@ -13567,7 +13642,16 @@ public sealed class HtmlViews
                                         x.addEventListener('click', (ev) => {
                                             ev.stopPropagation();
                                             closeButton.click();
-                                            window.setTimeout(() => { rebuildTabList(); updateTabCount(); }, 60);
+                                            // The synthetic click above bubbles through the document
+                                            // and the generic outside-close handler hides this panel
+                                            // (the tab strip is not "inside" it) - the list must stay
+                                            // open so several tabs can be closed in a row.
+                                            tabPanel.style.display = 'flex';
+                                            window.setTimeout(() => {
+                                                rebuildTabList();
+                                                updateTabCount();
+                                                tabPanel.style.display = 'flex';
+                                            }, 60);
                                         });
                                         item.appendChild(x);
                                     }
@@ -13581,6 +13665,12 @@ public sealed class HtmlViews
                                         return;
                                     }
                                     rebuildTabList();
+                                    // Single-open + per-panel trigger binding: the session script's
+                                    // outside-close handler exempts only the panel's OWN trigger.
+                                    document.querySelectorAll('body > .tab-action-overflow-panel').forEach(other => {
+                                        if (other !== tabPanel) { other.style.display = 'none'; }
+                                    });
+                                    tabPanel.matgateTrigger = tabTrigger;
                                     // Portal to <body> so no scrollable/sticky ancestor can clip it (iOS).
                                     const rect = tabTrigger.getBoundingClientRect();
                                     document.body.appendChild(tabPanel);

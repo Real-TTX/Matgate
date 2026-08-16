@@ -1,4 +1,8 @@
-FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+# --platform=$BUILDPLATFORM: run restore/publish natively on the build host even when the
+# target is another arch (arm64 CI job). The publish output is framework-dependent IL
+# (UseAppHost=false), so it is architecture-neutral; only the tiny runtime stage below is
+# emulated. Running the .NET SDK itself under QEMU is unsupported, slow and flaky.
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 ARG MATGATE_VERSION=
 
