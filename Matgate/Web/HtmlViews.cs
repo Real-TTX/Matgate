@@ -629,7 +629,7 @@ public sealed class HtmlViews
         var serverCards = servers.Count == 0
             ? $"""<p class="muted">{E(T(context, "No servers yet."))}</p>"""
             : string.Join("", servers.Select(server => $$"""
-                <article class="connection-choice has-corner-settings" style="--proto: {{ProtocolAccent(server.Protocol)}}">
+                <article class="connection-choice has-corner-settings" data-admin-card="1" data-search="{{A($"{server.Name} {ServerTargetValue(server)} {server.FolderName} {ServerProtocolLabel(server.Protocol)}".ToLowerInvariant())}}" style="--proto: {{ProtocolAccent(server.Protocol)}}">
                     <div class="connection-choice-corner">
                         <form method="get" action="/admin/servers/{{server.Id}}" class="favorite-toggle-form connection-choice-settings-form"><button type="submit" class="favorite-toggle connection-choice-settings-corner" title="{{A(editLabel)}}" aria-label="{{A(editLabel)}}">{{Icon("settings")}}</button></form>
                     </div>
@@ -686,6 +686,22 @@ public sealed class HtmlViews
                     let stored = 'gallery';
                     try { stored = localStorage.getItem(KEY) || 'gallery'; } catch (e) { /* ignore */ }
                     apply(stored);
+
+                    // Live search over the gallery cards (same data-search matching as the start page).
+                    const gallerySearch = document.querySelector('[data-admin-gallery-search]');
+                    const galleryEmpty = document.querySelector('[data-admin-gallery-empty]');
+                    if (gallerySearch) {
+                        gallerySearch.addEventListener('input', () => {
+                            const term = gallerySearch.value.trim().toLowerCase();
+                            let visible = 0;
+                            document.querySelectorAll('[data-admin-card]').forEach((card) => {
+                                const match = !term || (card.getAttribute('data-search') || '').includes(term);
+                                card.hidden = !match;
+                                if (match) { visible++; }
+                            });
+                            if (galleryEmpty) { galleryEmpty.hidden = visible > 0; }
+                        });
+                    }
                 })();
             </script>
             """;
@@ -699,7 +715,14 @@ public sealed class HtmlViews
                     </div>
                     <a class="button primary" href="/admin/servers/new">{{Icon("plus")}}{{(de ? "Neuer Server" : "New server")}}</a>
                 </div>
-                <div class="server-view-panel home2-card-grid server-gallery" data-server-view-panel="gallery">{{serverCards}}</div>
+                <div class="server-view-panel" data-server-view-panel="gallery">
+                    <label class="home2-search server-gallery-search">
+                        <span class="home2-search-icon">{{Icon("search")}}</span>
+                        <input type="search" class="home2-search-input" data-admin-gallery-search placeholder="{{A(de ? "Server suchen..." : "Search servers...")}}" aria-label="{{A(de ? "Server suchen..." : "Search servers...")}}">
+                    </label>
+                    <div class="home2-card-grid server-gallery">{{serverCards}}</div>
+                    <p class="muted server-gallery-empty" data-admin-gallery-empty hidden>{{(de ? "Keine Treffer." : "No matches.")}}</p>
+                </div>
                 <div class="server-view-panel" data-server-view-panel="list" hidden>{{serverTable}}</div>
                 {{serverViewScript}}
             </section>
@@ -11240,6 +11263,8 @@ public sealed class HtmlViews
                         color: var(--text);
                     }
                     .server-view-panel[hidden] { display: none; }
+                    .server-gallery-search { margin-bottom: 14px; }
+                    .server-gallery-empty { margin: 8px 0 0; }
                     .server-gallery .connection-choice .server-icon {
                         background: color-mix(in srgb, var(--proto, var(--accent)) 16%, transparent);
                         color: var(--proto, var(--accent));
