@@ -276,6 +276,11 @@ public static class EndpointMapping
         app.MapPost("/login", SignInAsync).RequireRateLimiting("login");
         app.MapPost("/logout", SignOutAsync).RequireAuthorization();
 
+        // First-run setup wizard: only reachable while NO user exists (see the gate in Program.cs
+        // and the guards in the handlers); creates the admin account interactively.
+        app.MapGet("/setup", SetupAsync);
+        app.MapPost("/setup", SetupSubmitAsync).RequireRateLimiting("login");
+
         // Cookie-only auth probe for the edge proxy's forward_auth on /guacamole* (returns 200/401,
         // never a redirect) so the Guacamole webapp is only reachable by a signed-in Matgate user.
         app.MapMethods("/internal/guac-authz", new[] { "GET", "HEAD" }, async (HttpContext context, JsonDataStore store) =>
@@ -434,7 +439,8 @@ public static class EndpointMapping
         var form = await context.Request.ReadFormAsync(context.RequestAborted);
         var userName = form["username"].ToString();
         var password = form["password"].ToString();
-        var user = await store.FindUserByNameAsync(userName, context.RequestAborted);
+        // The field accepts the username OR the account's email address.
+        var user = await store.FindUserByNameOrEmailAsync(userName, context.RequestAborted);
 
         if (user is null || !user.IsEnabled || !hasher.Verify(password, user.PasswordHash))
         {
@@ -462,6 +468,111 @@ public static class EndpointMapping
             });
 
         return Results.Redirect(returnUrl);
+    }
+
+    // Basic sanity check for email addresses (MailAddress accepts the practically valid forms).
+    private static bool IsValidEmail(string email)
+    {
+        return email.Length is > 2 and <= 200
+            && !email.Contains(' ')
+            && System.Net.Mail.MailAddress.TryCreate(email, out _);
+    }
+
+    private static async Task<IResult> SetupAsync(HttpContext context, JsonDataStore store, HtmlViews views)
+    {
+        if (await store.HasUsersAsync(context.RequestAborted))
+        {
+            return Results.Redirect("/login");
+        }
+
+        return Results.Content(views.Setup(context), "text/html");
+    }
+
+    private static async Task<IResult> SetupSubmitAsync(
+        HttpContext context,
+        JsonDataStore store,
+        PasswordHasher hasher,
+        GuacamoleConfigWriter configWriter,
+        HtmlViews views)
+    {
+        if (await store.HasUsersAsync(context.RequestAborted))
+        {
+            return Results.Redirect("/login");
+        }
+
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        var userName = PasswordHasher.NormalizeUserName(form["username"].ToString());
+        var email = form["email"].ToString().Trim();
+        var password = form["password"].ToString();
+        var passwordConfirm = form["passwordConfirm"].ToString();
+
+        string? error = null;
+        if (!PasswordHasher.IsValidUserName(userName))
+        {
+            error = HtmlViews.Translate(context, "Please choose a username (3-64 characters).");
+        }
+        else if (!IsValidEmail(email))
+        {
+            error = HtmlViews.Translate(context, "Please enter a valid email address.");
+        }
+        else if (password.Length < 10)
+        {
+            error = HtmlViews.Translate(context, "The password must be at least 10 characters long.");
+        }
+        else if (!string.Equals(password, passwordConfirm, StringComparison.Ordinal))
+        {
+            error = HtmlViews.Translate(context, "The passwords do not match.");
+        }
+
+        if (error is not null)
+        {
+            return Results.Content(views.Setup(context, error, userName, email), "text/html");
+        }
+
+        // Atomic create: the store gate serializes updates, and the inner count check makes a
+        // concurrent double-submit a no-op for the loser.
+        MatgateUser? created = null;
+        await store.UpdateUsersAsync(users =>
+        {
+            if (users.Count > 0)
+            {
+                return;
+            }
+
+            var now = DateTimeOffset.UtcNow;
+            created = new MatgateUser
+            {
+                UserName = userName,
+                Email = email,
+                DisplayName = userName,
+                PasswordHash = hasher.Hash(password),
+                GuacamolePassword = hasher.GenerateSecret(),
+                IsAdmin = true,
+                CanManageServers = true,
+                CanCreateServers = true,
+                CanQuickConnect = true,
+                PreferredLanguage = HtmlViews.Language(context) == "de" ? "de" : "en",
+                IsEnabled = true,
+                CreatedAt = now,
+                UpdatedAt = now
+            };
+            users.Add(created);
+        }, context.RequestAborted);
+
+        if (created is null)
+        {
+            return Results.Redirect("/login");
+        }
+
+        await configWriter.SynchronizeAsync(context.RequestAborted);
+
+        // Sign the fresh admin in right away and land on the home page.
+        await context.SignInAsync(
+            CookieAuthenticationDefaults.AuthenticationScheme,
+            BuildPrincipal(created, hasher.GenerateSecret(24), created.PreferredLanguage, created.PreferredTheme, true),
+            BuildAuthProperties(true));
+        AppendRememberLoginCookie(context, true);
+        return Results.Redirect("/");
     }
 
     private static async Task<IResult> SignOutAsync(HttpContext context, JsonDataStore store, HtmlViews views)
@@ -2442,6 +2553,7 @@ public static class EndpointMapping
 
         var userName = PasswordHasher.NormalizeUserName(form["username"].ToString());
         var password = form["password"].ToString();
+        var email = form["email"].ToString().Trim();
         if (!PasswordHasher.IsValidUserName(userName) || password.Length < 10)
         {
             return Results.Content(views.Message(
@@ -2451,11 +2563,24 @@ public static class EndpointMapping
                 HtmlViews.Translate(context, "Username or password is invalid.")), "text/html");
         }
 
+        if (email.Length > 0 && !IsValidEmail(email))
+        {
+            return Results.Content(views.Message(
+                context,
+                currentUser,
+                HtmlViews.Translate(context, "Invalid data"),
+                HtmlViews.Translate(context, "Please enter a valid email address.")), "text/html");
+        }
+
         var exists = false;
+        var emailTaken = false;
         await store.UpdateUsersAsync(users =>
         {
             exists = users.Any(user => string.Equals(user.UserName, userName, StringComparison.OrdinalIgnoreCase));
-            if (exists)
+            emailTaken = email.Length > 0 && users.Any(user =>
+                !string.IsNullOrWhiteSpace(user.Email)
+                && string.Equals(user.Email.Trim(), email, StringComparison.OrdinalIgnoreCase));
+            if (exists || emailTaken)
             {
                 return;
             }
@@ -2464,6 +2589,7 @@ public static class EndpointMapping
             users.Add(new MatgateUser
             {
                 UserName = userName,
+                Email = email,
                 DisplayName = Clean(form["displayName"].ToString(), userName),
                 PasswordHash = hasher.Hash(password),
                 GuacamolePassword = hasher.GenerateSecret(),
@@ -2487,6 +2613,15 @@ public static class EndpointMapping
                 currentUser,
                 HtmlViews.Translate(context, "User already exists"),
                 HtmlViews.Translate(context, "This username is already taken.")), "text/html");
+        }
+
+        if (emailTaken)
+        {
+            return Results.Content(views.Message(
+                context,
+                currentUser,
+                HtmlViews.Translate(context, "Invalid data"),
+                HtmlViews.Translate(context, "This email address is already in use.")), "text/html");
         }
 
         await configWriter.SynchronizeAsync(context.RequestAborted);
@@ -2539,7 +2674,18 @@ public static class EndpointMapping
             return BadRequest(context, currentUser, views);
         }
 
+        var email = form["email"].ToString().Trim();
+        if (email.Length > 0 && !IsValidEmail(email))
+        {
+            return Results.Content(views.Message(
+                context,
+                currentUser,
+                HtmlViews.Translate(context, "Invalid data"),
+                HtmlViews.Translate(context, "Please enter a valid email address.")), "text/html");
+        }
+
         var removingLastAdmin = false;
+        var emailTaken = false;
         MatgateUser? updatedSelfUser = null;
         await store.UpdateUsersAsync(users =>
         {
@@ -2554,11 +2700,17 @@ public static class EndpointMapping
                 && !nextIsAdmin
                 && users.Count(candidate => candidate.IsAdmin && candidate.IsEnabled) <= 1;
 
-            if (removingLastAdmin)
+            emailTaken = email.Length > 0 && users.Any(candidate =>
+                candidate.Id != id
+                && !string.IsNullOrWhiteSpace(candidate.Email)
+                && string.Equals(candidate.Email.Trim(), email, StringComparison.OrdinalIgnoreCase));
+
+            if (removingLastAdmin || emailTaken)
             {
                 return;
             }
 
+            user.Email = email;
             user.DisplayName = Clean(form["displayName"].ToString(), user.UserName);
             user.IsEnabled = IsChecked(form, "isEnabled");
             user.IsAdmin = nextIsAdmin;
@@ -2582,6 +2734,15 @@ public static class EndpointMapping
                 currentUser,
                 HtmlViews.Translate(context, "Not saved"),
                 HtmlViews.Translate(context, "The last active administrator cannot be removed.")), "text/html");
+        }
+
+        if (emailTaken)
+        {
+            return Results.Content(views.Message(
+                context,
+                currentUser,
+                HtmlViews.Translate(context, "Not saved"),
+                HtmlViews.Translate(context, "This email address is already in use.")), "text/html");
         }
 
         if (updatedSelfUser is not null)
@@ -2774,6 +2935,17 @@ public static class EndpointMapping
             return BadRequest(context, user, views);
         }
 
+        var accountEmail = form["email"].ToString().Trim();
+        if (accountEmail.Length > 0 && !IsValidEmail(accountEmail))
+        {
+            return Results.Content(views.Message(
+                context,
+                user,
+                HtmlViews.Translate(context, "Invalid data"),
+                HtmlViews.Translate(context, "Please enter a valid email address.")), "text/html");
+        }
+
+        var accountEmailTaken = false;
         MatgateUser? updatedUser = null;
         await store.UpdateUsersAsync(users =>
         {
@@ -2783,6 +2955,16 @@ public static class EndpointMapping
                 return;
             }
 
+            accountEmailTaken = accountEmail.Length > 0 && users.Any(candidate =>
+                candidate.Id != current.Id
+                && !string.IsNullOrWhiteSpace(candidate.Email)
+                && string.Equals(candidate.Email.Trim(), accountEmail, StringComparison.OrdinalIgnoreCase));
+            if (accountEmailTaken)
+            {
+                return;
+            }
+
+            current.Email = accountEmail;
             current.DisplayName = Clean(form["displayName"].ToString(), current.DisplayName);
             current.PreferredLanguage = NormalizeLanguage(form["preferredLanguage"].ToString());
             current.PreferredTheme = NormalizeTheme(form["preferredTheme"].ToString());
@@ -2790,6 +2972,15 @@ public static class EndpointMapping
             current.UpdatedAt = DateTimeOffset.UtcNow;
             updatedUser = current;
         }, context.RequestAborted);
+
+        if (accountEmailTaken)
+        {
+            return Results.Content(views.Message(
+                context,
+                user,
+                HtmlViews.Translate(context, "Not saved"),
+                HtmlViews.Translate(context, "This email address is already in use.")), "text/html");
+        }
 
         if (updatedUser is not null)
         {

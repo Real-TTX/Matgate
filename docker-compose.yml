@@ -45,8 +45,13 @@ services:
     environment:
       ASPNETCORE_URLS: http://+:8080
       MATGATE_DATA_DIR: /data
-      MATGATE_ADMIN_USER: ${MATGATE_ADMIN_USER:-admin}
-      MATGATE_ADMIN_PASSWORD: ${MATGATE_ADMIN_PASSWORD:-change-me-now}
+      # Leave these EMPTY (default) for the first-run setup wizard: on a fresh install the web UI
+      # asks for username, email and password of the admin account. Set them explicitly (via .env)
+      # only for unattended/automated deployments - then the admin is seeded from the environment
+      # and the wizard is skipped.
+      MATGATE_ADMIN_USER: ${MATGATE_ADMIN_USER:-}
+      MATGATE_ADMIN_PASSWORD: ${MATGATE_ADMIN_PASSWORD:-}
+      MATGATE_ADMIN_EMAIL: ${MATGATE_ADMIN_EMAIL:-}
       MATGATE_REQUIRE_HTTPS: ${MATGATE_REQUIRE_HTTPS:-false}
       # Secrets: an explicit .env value wins; otherwise matgate itself generates the key on first
       # start and writes it into the shared secrets volume (see MATGATE_*_FILE below). The at-rest key

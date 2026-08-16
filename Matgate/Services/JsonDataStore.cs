@@ -128,6 +128,33 @@ public sealed class JsonDataStore
             .FirstOrDefault(user => string.Equals(user.UserName, normalized, StringComparison.OrdinalIgnoreCase));
     }
 
+    // Sign-in accepts the username OR the (optional) email address in the same field.
+    public async Task<MatgateUser?> FindUserByNameOrEmailAsync(string input, CancellationToken cancellationToken = default)
+    {
+        var users = await GetUsersAsync(cancellationToken);
+        var normalized = PasswordHasher.NormalizeUserName(input);
+        var byName = users.FirstOrDefault(user => string.Equals(user.UserName, normalized, StringComparison.OrdinalIgnoreCase));
+        if (byName is not null)
+        {
+            return byName;
+        }
+
+        var email = (input ?? "").Trim();
+        if (email.Length == 0 || !email.Contains('@'))
+        {
+            return null;
+        }
+
+        return users.FirstOrDefault(user =>
+            !string.IsNullOrWhiteSpace(user.Email)
+            && string.Equals(user.Email.Trim(), email, StringComparison.OrdinalIgnoreCase));
+    }
+
+    public async Task<bool> HasUsersAsync(CancellationToken cancellationToken = default)
+    {
+        return (await GetUsersAsync(cancellationToken)).Count > 0;
+    }
+
     public async Task<ServerEndpoint?> FindServerByIdAsync(Guid id, CancellationToken cancellationToken = default)
     {
         return (await GetServersAsync(cancellationToken)).FirstOrDefault(server => server.Id == id);
@@ -199,9 +226,19 @@ public sealed class JsonDataStore
             return;
         }
 
+        // Seeding via environment is for automated deployments only. Without an explicit
+        // MATGATE_ADMIN_PASSWORD the first-run setup wizard (/setup) creates the admin account
+        // interactively (username + email + password).
+        var password = Environment.GetEnvironmentVariable("MATGATE_ADMIN_PASSWORD");
+        if (string.IsNullOrWhiteSpace(password))
+        {
+            logger.LogInformation("No users and no MATGATE_ADMIN_PASSWORD set - the setup wizard will run on first visit.");
+            return;
+        }
+
         var userName = PasswordHasher.NormalizeUserName(
             Environment.GetEnvironmentVariable("MATGATE_ADMIN_USER") ?? "admin");
-        var password = Environment.GetEnvironmentVariable("MATGATE_ADMIN_PASSWORD") ?? "change-me-now";
+        var email = (Environment.GetEnvironmentVariable("MATGATE_ADMIN_EMAIL") ?? "").Trim();
 
         await UpdateUsersAsync(current =>
         {
@@ -214,6 +251,7 @@ public sealed class JsonDataStore
             current.Add(new MatgateUser
             {
                 UserName = userName,
+                Email = email,
                 DisplayName = "Administrator",
                 PasswordHash = hasher.Hash(password),
                 GuacamolePassword = hasher.GenerateSecret(),
@@ -227,9 +265,7 @@ public sealed class JsonDataStore
             });
         }, cancellationToken);
 
-        logger.LogWarning(
-            "Seed admin user '{UserName}' was created. Change the default password immediately if MATGATE_ADMIN_PASSWORD was not set.",
-            userName);
+        logger.LogWarning("Seed admin user '{UserName}' was created from MATGATE_ADMIN_* environment variables.", userName);
     }
 
     public async Task EnsureGuacamoleSecretsAsync(PasswordHasher hasher, CancellationToken cancellationToken = default)

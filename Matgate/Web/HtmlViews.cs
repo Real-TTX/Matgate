@@ -92,6 +92,18 @@ public sealed class HtmlViews
         ["Version"] = "Version",
         ["Global"] = "Global",
         ["Username"] = "Benutzername",
+        ["Username or email"] = "Benutzername oder E-Mail",
+        ["Email"] = "E-Mail",
+        ["Email (optional)"] = "E-Mail (optional)",
+        ["Initial setup"] = "Ersteinrichtung",
+        ["Welcome to Matgate! Create the administrator account to get started."] = "Willkommen bei Matgate! Lege zum Start das Administrator-Konto an.",
+        ["Confirm password"] = "Passwort bestaetigen",
+        ["Create admin account"] = "Admin-Konto erstellen",
+        ["Please choose a username (3-64 characters)."] = "Bitte einen Benutzernamen waehlen (3-64 Zeichen).",
+        ["Please enter a valid email address."] = "Bitte eine gueltige E-Mail-Adresse eingeben.",
+        ["The password must be at least 10 characters long."] = "Das Passwort muss mindestens 10 Zeichen lang sein.",
+        ["The passwords do not match."] = "Die Passwoerter stimmen nicht ueberein.",
+        ["This email address is already in use."] = "Diese E-Mail-Adresse wird bereits verwendet.",
         ["Password"] = "Passwort",
         ["Sign in"] = "Einloggen",
         ["Dashboard"] = "Dashboard",
@@ -321,7 +333,7 @@ public sealed class HtmlViews
                 <form method="post" action="/login" class="stack">
                     {{returnUrlField}}
                     {{errorHtml}}
-                    <label>{{T(context, "Username")}}
+                    <label>{{T(context, "Username or email")}}
                         <input name="username" autocomplete="username" required autofocus>
                     </label>
                     <label>{{T(context, "Password")}}
@@ -333,6 +345,43 @@ public sealed class HtmlViews
             """;
 
         return Layout(context, null, "Login", body);
+    }
+
+    // First-run setup wizard: shown only while no user exists (see /setup endpoints); creates the
+    // administrator account with username + email + password.
+    public string Setup(HttpContext context, string? error = null, string? userName = null, string? email = null)
+    {
+        var errorHtml = string.IsNullOrWhiteSpace(error)
+            ? ""
+            : $"""<div class="notice error">{E(error)}</div>""";
+
+        var body = $$"""
+            <section class="auth-panel">
+                <div>
+                    <p class="eyebrow">Matgate</p>
+                    <h1>{{T(context, "Initial setup")}}</h1>
+                    <p class="muted">{{T(context, "Welcome to Matgate! Create the administrator account to get started.")}}</p>
+                </div>
+                <form method="post" action="/setup" class="stack">
+                    {{errorHtml}}
+                    <label>{{T(context, "Username")}}
+                        <input name="username" autocomplete="username" required autofocus minlength="3" maxlength="64" value="{{A(userName ?? "")}}">
+                    </label>
+                    <label>{{T(context, "Email")}}
+                        <input name="email" type="email" autocomplete="email" required maxlength="200" value="{{A(email ?? "")}}">
+                    </label>
+                    <label>{{T(context, "Password")}}
+                        <input name="password" type="password" autocomplete="new-password" minlength="10" required>
+                    </label>
+                    <label>{{T(context, "Confirm password")}}
+                        <input name="passwordConfirm" type="password" autocomplete="new-password" minlength="10" required>
+                    </label>
+                    <button type="submit" class="primary">{{Icon("key")}}{{T(context, "Create admin account")}}</button>
+                </form>
+            </section>
+            """;
+
+        return Layout(context, null, T(context, "Initial setup"), body);
     }
 
     public string Dashboard(HttpContext context, MatgateUser user, IReadOnlyList<ServerEndpoint> servers)
@@ -424,6 +473,9 @@ public sealed class HtmlViews
                     <div class="form-grid">
                         <label>{{T(context, "Username")}}
                             <input name="username" required minlength="3" maxlength="64">
+                        </label>
+                        <label>{{T(context, "Email (optional)")}}
+                            <input name="email" type="email" maxlength="200">
                         </label>
                         <label>{{T(context, "Display name")}}
                             <input name="displayName">
@@ -519,6 +571,9 @@ public sealed class HtmlViews
                     <div class="form-grid">
                         <label>{{T(context, "Display name")}}
                             <input name="displayName" value="{{A(editedUser.DisplayName)}}">
+                        </label>
+                        <label>{{T(context, "Email (optional)")}}
+                            <input name="email" type="email" maxlength="200" value="{{A(editedUser.Email)}}">
                         </label>
                         <label>{{T(context, "Preferred language")}}
                             <select name="preferredLanguage">
@@ -731,14 +786,15 @@ public sealed class HtmlViews
         var userRows = string.Join("", users.OrderBy(u => u.UserName).Select(u => $$"""
             <tr>
                 <td><a href="/admin/users/{{u.Id}}">{{E(u.UserName)}}</a></td>
+                <td>{{(string.IsNullOrWhiteSpace(u.Email) ? "<span class=\"muted\">-</span>" : E(u.Email))}}</td>
                 <td>{{E(u.DisplayName)}}</td>
                 <td>{{RoleLabels(context, u)}}</td>
                 <td>{{(u.IsEnabled ? T(context, "Active") : T(context, "Locked"))}}</td>
                 <td class="table-actions"><div class="row-actions">{{EditLink($"/admin/users/{u.Id}")}}{{(u.Id == currentUser.Id ? "" : DeleteForm($"/admin/users/{u.Id}/delete"))}}</div></td>
             </tr>
             """));
-        var userHeaders = $$"""<th data-sortable>{{T(context, "Name")}}</th><th data-sortable>{{T(context, "Display")}}</th><th data-sortable>{{T(context, "Roles")}}</th><th data-sortable>{{T(context, "Status")}}</th><th class="table-actions">{{T(context, "Actions")}}</th>""";
-        var userTable = DataTable(de ? "Benutzer suchen..." : "Search users...", userHeaders, userRows, T(context, "No users created yet."), 5, 15, "",
+        var userHeaders = $$"""<th data-sortable>{{T(context, "Name")}}</th><th data-sortable>{{T(context, "Email")}}</th><th data-sortable>{{T(context, "Display")}}</th><th data-sortable>{{T(context, "Roles")}}</th><th data-sortable>{{T(context, "Status")}}</th><th class="table-actions">{{T(context, "Actions")}}</th>""";
+        var userTable = DataTable(de ? "Benutzer suchen..." : "Search users...", userHeaders, userRows, T(context, "No users created yet."), 6, 15, "",
             $$"""<a class="button primary" href="/admin/users/new">{{Icon("plus")}}{{T(context, "Create user")}}</a>""");
 
         var workspaceRows = string.Join("", workspaces
@@ -914,6 +970,9 @@ public sealed class HtmlViews
                                 {{Csrf(context)}}
                                 <label>{{T(context, "Display name")}}
                                     <input name="displayName" value="{{A(user.DisplayName)}}">
+                                </label>
+                                <label>{{T(context, "Email (optional)")}}
+                                    <input name="email" type="email" maxlength="200" value="{{A(user.Email)}}">
                                 </label>
                                 <label>{{T(context, "Preferred language")}}
                                     <select name="preferredLanguage">

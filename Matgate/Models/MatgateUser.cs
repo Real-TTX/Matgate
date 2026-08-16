@@ -6,6 +6,10 @@ public sealed class MatgateUser
 
     public string UserName { get; set; } = "";
 
+    // Optional contact/login address: sign-in accepts the username OR this email. Unique across
+    // users when set; legacy users (created before the field existed) simply have it empty.
+    public string Email { get; set; } = "";
+
     public string DisplayName { get; set; } = "";
 
     public string PasswordHash { get; set; } = "";

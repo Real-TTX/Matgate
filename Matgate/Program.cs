@@ -167,6 +167,30 @@ if (requireHttps)
 }
 app.UseWebSockets();
 app.UseRateLimiter();
+
+// First-run setup gate: while NO user exists at all, every page routes to the setup wizard,
+// where the admin account (username + email + password) is created. Runs BEFORE the auth
+// middlewares so protected pages redirect straight to /setup instead of bouncing via /login.
+// Asset-ish paths (contain a dot: manifest, icons) and internal auth checks stay untouched;
+// once a user exists the check is a cheap in-memory count.
+app.Use(async (context, next) =>
+{
+    var path = context.Request.Path.Value ?? "/";
+    if (!path.StartsWith("/setup", StringComparison.OrdinalIgnoreCase)
+        && !path.StartsWith("/internal/", StringComparison.OrdinalIgnoreCase)
+        && !path.Contains('.'))
+    {
+        var dataStore = context.RequestServices.GetRequiredService<JsonDataStore>();
+        if (!await dataStore.HasUsersAsync(context.RequestAborted))
+        {
+            context.Response.Redirect("/setup");
+            return;
+        }
+    }
+
+    await next();
+});
+
 app.UseAuthentication();
 app.UseAuthorization();
 
