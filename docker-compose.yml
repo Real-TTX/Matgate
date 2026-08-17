@@ -63,6 +63,12 @@ services:
       MATGATE_SECRET_KEY_FILE: /run/matgate-secrets/master.key
       Guacamole__PublicBasePath: /guacamole
       Guacamole__DirectLaunch: "true"
+      # Optional "via Chromium/Firefox VNC" websites: point Matgate at the browser-farm sidecar.
+      # If the farm profile is not started, these do nothing and only "Native" websites are offered.
+      BrowserFarm__BaseUrl: ${MATGATE_BROWSER_FARM_URL:-http://browser-farm:8090}
+      BrowserFarm__VncHost: ${MATGATE_BROWSER_FARM_VNC_HOST:-browser-farm}
+      MATGATE_BROWSER_FARM_TOKEN: ${MATGATE_BROWSER_FARM_TOKEN:-}
+      MATGATE_BROWSER_FARM_TOKEN_FILE: /run/matgate-secrets/farm.key
     volumes:
       - ./data:/data
       - matgate-secrets:/run/matgate-secrets
@@ -108,6 +114,29 @@ services:
     volumes:
       - ./data:/etc/guacamole
       - matgate-secrets:/run/matgate-secrets:ro
+    restart: unless-stopped
+
+  # OPTIONAL sidecar: a pool of isolated Chromium/Firefox sessions (each on its own VNC port) for
+  # "via Chromium VNC" / "via Firefox VNC" websites - a fallback for pages the native reverse proxy
+  # can't render. Start it with:  docker compose --profile browser up -d
+  # Without this profile Matgate simply offers "Native" websites only.
+  browser-farm:
+    <<: *home-dns
+    image: ghcr.io/real-ttx/matgate-browser-farm:latest
+    profiles: ["browser"]
+    init: true
+    depends_on:
+      matgate:
+        condition: service_healthy
+    environment:
+      FARM_POOL_SIZE: ${MATGATE_BROWSER_FARM_POOL_SIZE:-10}
+      FARM_GEOMETRY: ${MATGATE_BROWSER_FARM_GEOMETRY:-1280x800x24}
+      # Shares the control token with Matgate via the secrets volume (matgate writes farm.key).
+      FARM_TOKEN: ${MATGATE_BROWSER_FARM_TOKEN:-}
+      FARM_TOKEN_FILE: /run/matgate-secrets/farm.key
+    volumes:
+      - matgate-secrets:/run/matgate-secrets:ro
+    # guacd reaches the VNC ports (5901+) over the internal network; no host ports needed.
     restart: unless-stopped
 
 volumes:
