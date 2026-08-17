@@ -92,6 +92,9 @@ public sealed class HtmlViews
         ["Version"] = "Version",
         ["Global"] = "Global",
         ["Username"] = "Benutzername",
+        ["Open as"] = "Oeffnen als",
+        ["The browser service is not available."] = "Der Browser-Dienst ist nicht verfuegbar.",
+        ["No free browser session is available right now."] = "Aktuell ist keine freie Browser-Sitzung verfuegbar.",
         ["Username or email"] = "Benutzername oder E-Mail",
         ["Email"] = "E-Mail",
         ["Email (optional)"] = "E-Mail (optional)",
@@ -654,7 +657,8 @@ public sealed class HtmlViews
         MatgateUser currentUser,
         IReadOnlyList<ServerEndpoint> servers,
         IReadOnlyList<MatgateUser> users,
-        IReadOnlyList<WorkspaceDefinition> workspaces)
+        IReadOnlyList<WorkspaceDefinition> workspaces,
+        BrowserAdminData? browser = null)
     {
         var de = Language(context) == "de";
         var openLabel = T(context, "Open");
@@ -823,6 +827,11 @@ public sealed class HtmlViews
         }
         tabs.Add(new("workspaces", T(context, "Workspaces"), Icon("briefcase"), $"""<section class="panel">{workspaceTable}</section>"""));
 
+        if (browser is not null)
+        {
+            tabs.Add(new("browser", de ? "Browser" : "Browser", Icon("globe"), BrowserAdminPanel(context, browser, de)));
+        }
+
         var tabParam = context.Request.Query["tab"].ToString().ToLowerInvariant();
         var activeKey = tabs.Any(t => t.Key == tabParam) ? tabParam : tabs[0].Key;
 
@@ -837,6 +846,84 @@ public sealed class HtmlViews
             """;
 
         return Layout(context, currentUser, T(context, "Administration"), body);
+    }
+
+    private static string BrowserAdminPanel(HttpContext context, BrowserAdminData browser, bool de)
+    {
+        static string Duration(DateTimeOffset from, DateTimeOffset to)
+        {
+            var seconds = Math.Max(0, (to - from).TotalSeconds);
+            return seconds < 90 ? $"{(int)seconds}s" : $"{(int)(seconds / 60)}m";
+        }
+
+        var status = browser.Status;
+        var statusBadge = status is null
+            ? $"""<span class="badge" style="border-color:#efc7c7">{E(de ? "Farm nicht erreichbar" : "Browser farm unreachable")}</span>"""
+            : $"""<span class="badge">{E((de ? "Pool" : "Pool") + $": {status.Busy}/{status.PoolSize} " + (de ? "belegt" : "in use"))}</span>""";
+
+        var activeRows = browser.Active.Count == 0
+            ? $"""<tr><td colspan="5" class="muted">{E(de ? "Keine aktiven Sitzungen." : "No active sessions.")}</td></tr>"""
+            : string.Join("", browser.Active.Select(s => $$"""
+                <tr>
+                    <td>{{E(s.UserName)}}</td>
+                    <td><strong>{{E(s.ServerName)}}</strong><br><span class="muted">{{E(s.Url)}}</span></td>
+                    <td><span class="badge">{{E(s.Browser)}}</span></td>
+                    <td title="{{A(s.StartedAt.ToString("u"))}}">{{E(Duration(s.StartedAt, DateTimeOffset.UtcNow))}}</td>
+                    <td class="table-actions"><form method="post" action="/admin/browser/{{s.Id}}/release" data-confirm="{{A(de ? "Sitzung freigeben?" : "Release this session?")}}">{{Csrf(context)}}<button type="submit" class="icon-button danger-action" title="{{A(de ? "Freigeben" : "Release")}}" aria-label="{{A(de ? "Freigeben" : "Release")}}">{{Icon("trash")}}</button></form></td>
+                </tr>
+                """));
+
+        var historyRows = browser.History.Count == 0
+            ? $"""<tr><td colspan="6" class="muted">{E(de ? "Noch kein Verlauf." : "No history yet.")}</td></tr>"""
+            : string.Join("", browser.History.Take(50).Select(h => $$"""
+                <tr>
+                    <td>{{E(h.UserName)}}</td>
+                    <td><strong>{{E(h.ServerName)}}</strong><br><span class="muted">{{E(h.Url)}}</span></td>
+                    <td><span class="badge">{{E(h.Browser)}}</span></td>
+                    <td title="{{A(h.StartedAt.ToString("u"))}}">{{E(h.StartedAt.ToString("yyyy-MM-dd HH:mm"))}}</td>
+                    <td>{{E(Duration(h.StartedAt, h.EndedAt))}}</td>
+                    <td><span class="muted">{{E(h.Reason)}}</span></td>
+                </tr>
+                """));
+
+        return $$"""
+            <section class="panel">
+                <div class="server-view-bar">
+                    <h2 style="margin:0">{{E(de ? "Browser-Dienst" : "Browser service")}}</h2>
+                    {{statusBadge}}
+                </div>
+                <p class="muted">{{E(de
+                    ? "Sitzungen fuer \"via Chromium/Firefox VNC\"-Websites. Jede belegt einen Slot im Pool und wird beim Schliessen (oder nach Timeout) automatisch freigegeben."
+                    : "Sessions for \"via Chromium/Firefox VNC\" websites. Each uses one pool slot and is released automatically on close (or after a timeout).")}}</p>
+                <h3>{{E(de ? "Aktive Sitzungen" : "Active sessions")}}</h3>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr>
+                            <th>{{T(context, "User")}}</th>
+                            <th>{{E(de ? "Website" : "Website")}}</th>
+                            <th>{{E(de ? "Browser" : "Browser")}}</th>
+                            <th>{{E(de ? "Laeuft seit" : "Running")}}</th>
+                            <th class="table-actions">{{T(context, "Actions")}}</th>
+                        </tr></thead>
+                        <tbody>{{activeRows}}</tbody>
+                    </table>
+                </div>
+                <h3 style="margin-top:22px">{{E(de ? "Verlauf" : "History")}}</h3>
+                <div class="table-wrap">
+                    <table>
+                        <thead><tr>
+                            <th>{{T(context, "User")}}</th>
+                            <th>{{E(de ? "Website" : "Website")}}</th>
+                            <th>{{E(de ? "Browser" : "Browser")}}</th>
+                            <th>{{E(de ? "Start" : "Started")}}</th>
+                            <th>{{E(de ? "Dauer" : "Duration")}}</th>
+                            <th>{{E(de ? "Ende" : "Reason")}}</th>
+                        </tr></thead>
+                        <tbody>{{historyRows}}</tbody>
+                    </table>
+                </div>
+            </section>
+            """;
     }
 
     public string Servers(HttpContext context, MatgateUser currentUser, IReadOnlyList<ServerEndpoint> servers, IReadOnlyList<MatgateUser> users)
@@ -3309,7 +3396,11 @@ public sealed class HtmlViews
             protocol = server.Protocol.ToString().ToUpperInvariant(),
             iconKey = ServerEndpoint.EffectiveIconKey(server.Protocol, server.IconKey),
             iconHtml = Icon(ServerEndpoint.EffectiveIconKey(server.Protocol, server.IconKey)),
-            target = ServerTargetValue(server)
+            target = ServerTargetValue(server),
+            // "native" | "chromiumvnc" | "firefoxvnc" - farm modes open a VNC session instead of a proxy tab.
+            renderMode = server.Protocol == ServerProtocol.Website
+                ? server.WebsiteRenderMode.ToString().ToLowerInvariant()
+                : "native"
         }), new JsonSerializerOptions(JsonSerializerDefaults.Web));
         var initialOpenServerId = JsonSerializer.Serialize(openServerId?.ToString() ?? "");
         var csrfToken = JsonSerializer.Serialize(context.User.FindFirstValue("csrf") ?? "");
@@ -3811,6 +3902,10 @@ public sealed class HtmlViews
                 updateViewportHeight();
                 window.addEventListener('resize', updateViewportHeight, { passive: true });
                 window.addEventListener('orientationchange', updateViewportHeight);
+                // Release any held browser-farm slots if the whole app is closed/backgrounded.
+                window.addEventListener('pagehide', () => {
+                    tabs.forEach(tab => releaseBrowserFarm(tab));
+                });
                 if (window.visualViewport) {
                     window.visualViewport.addEventListener('resize', updateViewportHeight, { passive: true });
                     window.visualViewport.addEventListener('scroll', updateViewportHeight, { passive: true });
@@ -5026,6 +5121,15 @@ public sealed class HtmlViews
                     return (protocol || '').toUpperCase() === 'WEBSITE';
                 }
 
+                // A website whose render mode routes it through the browser-farm (opened as a VNC
+                // session) instead of the native reverse-proxy tab.
+                function isFarmWebsiteServer(server) {
+                    return !!server
+                        && isWebsiteProtocol(server.protocol)
+                        && !!server.renderMode
+                        && server.renderMode !== 'native';
+                }
+
                 function protocolLabel(protocol) {
                     switch ((protocol || '').toUpperCase()) {
                         case 'WEBSITE': return uiText.websiteBeta || 'Website (Beta)';
@@ -6005,7 +6109,10 @@ public sealed class HtmlViews
 
                 function createTab(server, options = {}) {
                     const tabId = options.tabId || newTabId();
-                    const isWebsite = isWebsiteProtocol(server.protocol);
+                    // Farm-website tabs render like a VNC guac session (the browser runs remotely),
+                    // so they use the guac path, not the native website iframe.
+                    const farmWebsite = isFarmWebsiteServer(server);
+                    const isWebsite = isWebsiteProtocol(server.protocol) && !farmWebsite;
                     const tabButton = document.createElement('div');
                     tabButton.className = 'session-tab session-tab--connection';
                     tabButton.setAttribute('role', 'tab');
@@ -6101,7 +6208,10 @@ public sealed class HtmlViews
                         id: tabId,
                         serverId: server.id,
                         name: server.name,
-                        protocol: server.protocol,
+                        protocol: farmWebsite ? 'VNC' : server.protocol,
+                        farmWebsite,
+                        browserSessionId: '',
+                        browserFarmTimer: null,
                         iconKey: server.iconKey,
                         iconHtml: server.iconHtml,
                         target: server.target,
@@ -6262,12 +6372,53 @@ public sealed class HtmlViews
                     saveWorkspaceTabs();
                 }
 
+                // Keep the browser-farm slot reserved while a farm-website tab is open.
+                function startBrowserFarmKeepalive(tab) {
+                    stopBrowserFarmKeepalive(tab);
+                    tab.browserFarmTimer = window.setInterval(() => {
+                        if (!tab.browserSessionId) {
+                            return;
+                        }
+
+                        fetch(`/api/browser-sessions/${tab.browserSessionId}/keepalive`, { method: 'POST', keepalive: true })
+                            .catch(() => {});
+                    }, 30000);
+                }
+
+                function stopBrowserFarmKeepalive(tab) {
+                    if (tab.browserFarmTimer) {
+                        window.clearInterval(tab.browserFarmTimer);
+                        tab.browserFarmTimer = null;
+                    }
+                }
+
+                // Free the pool slot when the tab closes (sendBeacon survives page unload).
+                function releaseBrowserFarm(tab) {
+                    stopBrowserFarmKeepalive(tab);
+                    const sessionId = tab.browserSessionId;
+                    if (!sessionId) {
+                        return;
+                    }
+
+                    tab.browserSessionId = '';
+                    const url = `/api/browser-sessions/${sessionId}/close`;
+                    try {
+                        if (!navigator.sendBeacon || !navigator.sendBeacon(url)) {
+                            fetch(url, { method: 'POST', keepalive: true }).catch(() => {});
+                        }
+                    }
+                    catch {
+                        fetch(url, { method: 'POST', keepalive: true }).catch(() => {});
+                    }
+                }
+
                 function closeTab(tabId) {
                     const tab = tabs.get(tabId);
                     if (!tab) {
                         return;
                     }
 
+                    releaseBrowserFarm(tab);
                     tab.terminal = true;
                     window.clearInterval(tab.watchdog);
                     if (tab.client) {
@@ -6921,6 +7072,12 @@ public sealed class HtmlViews
                         const launch = await fetchLaunch(tab);
                         tab.connectionName = launch.connectionName;
                         tab.encryptedData = launch.encryptedData;
+                        // Farm-website launch hands back a session id; keep it alive while the tab is
+                        // open so the pool slot is held, and release it when the tab closes.
+                        if (launch.browserSessionId) {
+                            tab.browserSessionId = launch.browserSessionId;
+                            startBrowserFarmKeepalive(tab);
+                        }
 
                         const auth = await authenticate(tab);
                         const dataSource = auth.dataSource || 'json';
@@ -14003,6 +14160,14 @@ public sealed class HtmlViews
                 <div class="form-grid">
                     <label>{{T(context, "Website URL")}}
                         <input name="websiteUrl" value="{{A(websiteUrl)}}" placeholder="https://nas.local/admin/" required>
+                    </label>
+                    <label>{{T(context, "Open as")}}
+                        <select name="websiteRenderMode">
+                            <option value="native"{{((server?.WebsiteRenderMode ?? WebsiteRenderMode.Native) == WebsiteRenderMode.Native ? " selected" : "")}}>{{(Language(context) == "de" ? "Nativ (Reverse-Proxy)" : "Native (reverse proxy)")}}</option>
+                            <option value="chromiumvnc"{{(server?.WebsiteRenderMode == WebsiteRenderMode.ChromiumVnc ? " selected" : "")}}>{{(Language(context) == "de" ? "via Chromium VNC" : "via Chromium VNC")}}</option>
+                            <option value="firefoxvnc"{{(server?.WebsiteRenderMode == WebsiteRenderMode.FirefoxVnc ? " selected" : "")}}>{{(Language(context) == "de" ? "via Firefox VNC" : "via Firefox VNC")}}</option>
+                        </select>
+                        <small class="muted">{{(Language(context) == "de" ? "\"via ... VNC\" oeffnet die Seite in einem echten Browser (Browser-Dienst noetig) - Fallback fuer Seiten, die der Proxy nicht darstellt." : "\"via ... VNC\" opens the page in a real browser (requires the browser service) - a fallback for pages the proxy can't render.")}}</small>
                     </label>
                     <label class="check"><input type="checkbox" name="ignoreCertificate"{{Checked(server?.IgnoreCertificate ?? true)}}> {{T(context, "Ignore certificate")}}</label>
                 </div>

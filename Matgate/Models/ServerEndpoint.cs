@@ -48,6 +48,9 @@ public sealed class ServerEndpoint
 
     public string WebsiteUrl { get; set; } = "";
 
+    // For Website servers: how it is opened (native proxy vs. a browser-farm VNC session).
+    public WebsiteRenderMode WebsiteRenderMode { get; set; } = WebsiteRenderMode.Native;
+
     public string KeyboardLayout { get; set; } = DefaultKeyboardLayout;
 
     public int TerminalFontSize { get; set; } = DefaultTerminalFontSize;

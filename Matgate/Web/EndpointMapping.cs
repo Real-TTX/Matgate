@@ -343,6 +343,9 @@ public static class EndpointMapping
         app.MapPost("/api/tools/download", ToolsDownloadAsync).RequireAuthorization();
         app.MapPost("/api/connections/{id:guid}/launch", LaunchConnectionAsync).RequireAuthorization();
         app.MapPost("/api/quick-connect", QuickConnectAsync).RequireAuthorization();
+        app.MapPost("/api/browser-sessions/{id:guid}/keepalive", BrowserSessionKeepaliveAsync).RequireAuthorization();
+        app.MapPost("/api/browser-sessions/{id:guid}/close", BrowserSessionCloseAsync).RequireAuthorization();
+        app.MapPost("/admin/browser/{id:guid}/release", BrowserSessionAdminReleaseAsync).RequireAuthorization();
         app.MapGet("/files/{id:guid}/view", FileViewerAsync).RequireAuthorization();
         app.MapGet("/api/files/{id:guid}/list", ListFilesAsync).RequireAuthorization();
         app.MapGet("/api/files/{id:guid}/download", DownloadFileAsync).RequireAuthorization();
@@ -1767,12 +1770,40 @@ public static class EndpointMapping
         return fallback;
     }
 
+    // Record a connection in the user's recently-used history (most recent first, capped). No-op for
+    // ephemeral/ad-hoc ids that would never resolve again.
+    private static async Task RecordRecentConnectionAsync(JsonDataStore store, Guid userId, Guid serverId, CancellationToken cancellationToken)
+    {
+        if (await store.FindServerByIdAsync(serverId, cancellationToken) is null)
+        {
+            return;
+        }
+
+        await store.UpdateUsersAsync(users =>
+        {
+            var current = users.FirstOrDefault(candidate => candidate.Id == userId);
+            if (current is null)
+            {
+                return;
+            }
+
+            current.RecentConnections ??= [];
+            current.RecentConnections.RemoveAll(entry => entry.ServerId == serverId);
+            current.RecentConnections.Insert(0, new RecentConnectionEntry { ServerId = serverId, UsedAt = DateTimeOffset.UtcNow });
+            if (current.RecentConnections.Count > 12)
+            {
+                current.RecentConnections.RemoveRange(12, current.RecentConnections.Count - 12);
+            }
+        }, cancellationToken);
+    }
+
     private static async Task<IResult> LaunchConnectionAsync(
         Guid id,
         HttpContext context,
         JsonDataStore store,
         GuacamoleConfigWriter configWriter,
-        GuacamoleLauncher launcher)
+        GuacamoleLauncher launcher,
+        BrowserFarmSessionManager farmSessions)
     {
         var user = await RequireUserAsync(context, store);
         if (user is null)
@@ -1791,6 +1822,45 @@ public static class EndpointMapping
             return Results.NotFound(new { error = HtmlViews.Translate(context, "This server is not shared with you.") });
         }
 
+        // "via Chromium/Firefox VNC" website: open the page in a browser-farm slot and hand the client
+        // a VNC guac session pointed at it (instead of the native reverse-proxy tab).
+        if (ServerEndpoint.IsWebsiteProtocol(server.Protocol) && server.WebsiteRenderMode != WebsiteRenderMode.Native)
+        {
+            if (!farmSessions.IsConfigured)
+            {
+                return Results.BadRequest(new { error = HtmlViews.Translate(context, "The browser service is not available.") });
+            }
+
+            var session = await farmSessions.OpenAsync(user, server, context.RequestAborted);
+            if (session is null)
+            {
+                return Results.BadRequest(new { error = HtmlViews.Translate(context, "No free browser session is available right now.") });
+            }
+
+            var vncEndpoint = farmSessions.BuildVncEndpoint(session, server);
+            var vncLaunch = await launcher.CreateLaunchAsync(user, vncEndpoint, context.RequestAborted);
+            if (!vncLaunch.Success || string.IsNullOrWhiteSpace(vncLaunch.Url))
+            {
+                await farmSessions.CloseAsync(session.Id, "launch failed", context.RequestAborted);
+                return Results.BadRequest(new { error = vncLaunch.Error ?? HtmlViews.Translate(context, "The connection could not be started.") });
+            }
+
+            await RecordRecentConnectionAsync(store, user.Id, id, context.RequestAborted);
+            return Results.Json(new
+            {
+                server = new
+                {
+                    id = server.Id,
+                    name = server.Name,
+                    protocol = "VNC",
+                    target = string.IsNullOrWhiteSpace(server.WebsiteUrl) ? server.Host : server.WebsiteUrl,
+                },
+                encryptedData = vncLaunch.EncryptedData,
+                connectionName = vncLaunch.ConnectionName,
+                browserSessionId = session.Id,
+            });
+        }
+
         await configWriter.SynchronizeAsync(context.RequestAborted);
         var launch = await launcher.CreateLaunchAsync(user, server, context.RequestAborted);
         if (!launch.Success || string.IsNullOrWhiteSpace(launch.Url))
@@ -1798,28 +1868,7 @@ public static class EndpointMapping
             return Results.BadRequest(new { error = launch.Error ?? HtmlViews.Translate(context, "The connection could not be started.") });
         }
 
-        // Record this connection in the user's recently-used history (most recent first, capped).
-        // Skip ad-hoc quick-connect sessions: their ids are ephemeral and would never resolve again.
-        var isPersisted = await store.FindServerByIdAsync(id, context.RequestAborted) is not null;
-        if (isPersisted)
-        {
-            await store.UpdateUsersAsync(users =>
-            {
-                var current = users.FirstOrDefault(candidate => candidate.Id == user.Id);
-                if (current is null)
-                {
-                    return;
-                }
-
-                current.RecentConnections ??= [];
-                current.RecentConnections.RemoveAll(entry => entry.ServerId == id);
-                current.RecentConnections.Insert(0, new RecentConnectionEntry { ServerId = id, UsedAt = DateTimeOffset.UtcNow });
-                if (current.RecentConnections.Count > 12)
-                {
-                    current.RecentConnections.RemoveRange(12, current.RecentConnections.Count - 12);
-                }
-            }, context.RequestAborted);
-        }
+        await RecordRecentConnectionAsync(store, user.Id, id, context.RequestAborted);
 
         return Results.Json(new
         {
@@ -1835,6 +1884,61 @@ public static class EndpointMapping
             encryptedData = launch.EncryptedData,
             connectionName = launch.ConnectionName
         });
+    }
+
+    // Client heartbeat while a farm-website tab is open (fetch). Owner-scoped; releases nothing.
+    private static async Task<IResult> BrowserSessionKeepaliveAsync(
+        Guid id, HttpContext context, JsonDataStore store, BrowserFarmSessionManager farmSessions)
+    {
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        if (farmSessions.OwnerOf(id) == user.Id)
+        {
+            farmSessions.Keepalive(id);
+        }
+
+        return Results.Ok();
+    }
+
+    // Client sends this on tab close (sendBeacon, so no CSRF header) - only frees the caller's own slot.
+    private static async Task<IResult> BrowserSessionCloseAsync(
+        Guid id, HttpContext context, JsonDataStore store, BrowserFarmSessionManager farmSessions)
+    {
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        if (farmSessions.OwnerOf(id) == user.Id)
+        {
+            await farmSessions.CloseAsync(id, "closed", context.RequestAborted);
+        }
+
+        return Results.Ok();
+    }
+
+    private static async Task<IResult> BrowserSessionAdminReleaseAsync(
+        Guid id, HttpContext context, JsonDataStore store, HtmlViews views, BrowserFarmSessionManager farmSessions)
+    {
+        var currentUser = await RequireAdminAsync(context, store);
+        if (currentUser is null)
+        {
+            return Results.Redirect("/forbidden");
+        }
+
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        if (!ValidateCsrf(context, form))
+        {
+            return BadRequest(context, currentUser, views);
+        }
+
+        await farmSessions.ForceReleaseAsync(id, context.RequestAborted);
+        return Results.Redirect(EmbedAwareRedirect(context, "/admin?tab=browser"));
     }
 
     private static async Task<IResult> ListFilesAsync(
@@ -3265,7 +3369,8 @@ public static class EndpointMapping
         HttpContext context,
         JsonDataStore store,
         HtmlViews views,
-        WorkspaceService workspaceService)
+        WorkspaceService workspaceService,
+        BrowserFarmSessionManager farmSessions)
     {
         var user = await RequireServerManagerAsync(context, store);
         if (user is null)
@@ -3282,7 +3387,18 @@ public static class EndpointMapping
         var users = await store.GetUsersAsync(context.RequestAborted);
         var workspaces = VisibleWorkspacesForUser(user, await workspaceService.GetWorkspacesAsync(context.RequestAborted));
 
-        return Results.Content(views.AdminHome(context, user, servers, users, workspaces), "text/html");
+        // The Browser tab is only offered to admins when the farm is configured; fetch a status
+        // snapshot only when it will actually be shown.
+        BrowserAdminData? browser = null;
+        if (user.IsAdmin && farmSessions.IsConfigured)
+        {
+            browser = new BrowserAdminData(
+                await farmSessions.GetFarmStatusAsync(context.RequestAborted),
+                farmSessions.ActiveSessions,
+                farmSessions.History);
+        }
+
+        return Results.Content(views.AdminHome(context, user, servers, users, workspaces, browser), "text/html");
     }
 
     private static async Task<IResult> ServersAsync(HttpContext context, JsonDataStore store, HtmlViews views)
@@ -3445,6 +3561,7 @@ public static class EndpointMapping
             storedServer.Host = updated.Host;
             storedServer.Port = updated.Port;
             storedServer.WebsiteUrl = updated.WebsiteUrl;
+            storedServer.WebsiteRenderMode = updated.WebsiteRenderMode;
             storedServer.UserName = updated.UserName;
             storedServer.Domain = updated.Domain;
             storedServer.FileRootPath = updated.FileRootPath;
@@ -3982,6 +4099,14 @@ public static class EndpointMapping
         var websiteUrl = protocol == ServerProtocol.Website
             ? ServerEndpoint.NormalizeWebsiteUrl(form["websiteUrl"].ToString(), existing?.WebsiteUrl ?? existing?.Host ?? "")
             : existing?.WebsiteUrl ?? "";
+        var websiteRenderMode = protocol == ServerProtocol.Website
+            ? (form["websiteRenderMode"].ToString().ToLowerInvariant() switch
+            {
+                "chromiumvnc" => WebsiteRenderMode.ChromiumVnc,
+                "firefoxvnc" => WebsiteRenderMode.FirefoxVnc,
+                _ => WebsiteRenderMode.Native,
+            })
+            : WebsiteRenderMode.Native;
 
         return new ServerEndpoint
         {
@@ -3996,6 +4121,7 @@ public static class EndpointMapping
             Host = Clean(form["host"].ToString(), existing?.Host ?? ""),
             Port = port,
             WebsiteUrl = websiteUrl,
+            WebsiteRenderMode = websiteRenderMode,
             UserName = Clean(form["targetUserName"].ToString(), ""),
             Password = form["targetPassword"].ToString(),
             Domain = Clean(form["domain"].ToString(), ""),
