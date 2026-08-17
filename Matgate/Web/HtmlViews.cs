@@ -3706,6 +3706,7 @@ public sealed class HtmlViews
                                 if (kbRect && kbRect.height === 0 && active && active.classList && active.classList.contains('osk-input')) {
                                     active.blur();
                                 }
+                                updateSessionKeyboardShift();
                             });
                         }
                     }
@@ -3713,6 +3714,64 @@ public sealed class HtmlViews
                 catch (e) {
                     // Unsupported (iOS/Firefox) - handled below via visualViewport.
                 }
+                // "See what you type": when a soft keyboard (the device keyboard OR the in-app
+                // on-screen keyboard) covers the lower part of the session, slide the remote view UP so
+                // the spot the user last tapped (where the text cursor lands) stays visible just above
+                // the keyboard. Pure visual translate - it never resizes the remote (no RDP/VNC
+                // resolution change), matching the "keyboard overlays, not resizes" behaviour.
+                function keyboardCoverTopY(tab) {
+                    // In-app on-screen keyboard (a DOM panel pinned to the bottom of the session).
+                    if (tab && tab.osk && tab.osk.classList.contains('open')) {
+                        return tab.osk.getBoundingClientRect().top;
+                    }
+                    // Android: the system keyboard reports its own rectangle (overlaysContent = true, so
+                    // visualViewport does NOT shrink and cannot be used here).
+                    const vk = navigator.virtualKeyboard;
+                    if (vk && vk.boundingRect && vk.boundingRect.height > 0) {
+                        return vk.boundingRect.top;
+                    }
+                    // iOS / others: the visual viewport shrinks from the bottom by the keyboard height.
+                    const vv = window.visualViewport;
+                    if (vv) {
+                        const visibleBottom = vv.offsetTop + vv.height;
+                        if (window.innerHeight - visibleBottom > 120) {
+                            return visibleBottom;
+                        }
+                    }
+                    return null;
+                }
+                function updateSessionKeyboardShift() {
+                    if (!shellLayout) {
+                        return;
+                    }
+                    const tab = tabs.get(activeTabId);
+                    if (!tab || !tab.displayRoot || !tab.client || tab.terminal) {
+                        return;
+                    }
+                    const kbTop = keyboardCoverTopY(tab);
+                    if (kbTop === null) {
+                        if (tab.keyboardShift) {
+                            tab.displayRoot.style.transform = '';
+                            tab.keyboardShift = 0;
+                        }
+                        return;
+                    }
+                    const shift = tab.keyboardShift || 0;
+                    const rect = tab.displayRoot.getBoundingClientRect();
+                    // rect.top already reflects the current shift; the anchor is stored un-shifted.
+                    const unshiftedTop = rect.top + shift;
+                    const margin = 28;
+                    const anchor = (typeof tab.lastTouchUnshiftedY === 'number')
+                        ? tab.lastTouchUnshiftedY
+                        : unshiftedTop + rect.height * 0.62;
+                    const maxShift = Math.max(0, Math.round(rect.height - 120));
+                    const delta = Math.max(0, Math.min(Math.round(anchor - (kbTop - margin)), maxShift));
+                    if (delta !== shift) {
+                        tab.keyboardShift = delta;
+                        tab.displayRoot.style.transform = delta > 0 ? `translateY(${-delta}px)` : '';
+                    }
+                }
+
                 const updateViewportHeight = () => {
                     const vv = window.visualViewport;
                     const visualHeight = vv ? vv.height : window.innerHeight;
@@ -3747,6 +3806,7 @@ public sealed class HtmlViews
                         document.body.style.overscrollBehavior = '';
                         document.body.style.overflow = '';
                     }
+                    updateSessionKeyboardShift();
                 };
                 updateViewportHeight();
                 window.addEventListener('resize', updateViewportHeight, { passive: true });
@@ -5451,6 +5511,10 @@ public sealed class HtmlViews
                     if (open && tab.oskInput && tab.deviceKbOpen) {
                         tab.oskInput.blur();
                     }
+                    // Slide the remote view up so the last-tapped spot stays above the in-app keyboard
+                    // (the panel has a slide-in transition, so re-check after it settles too).
+                    updateSessionKeyboardShift();
+                    window.setTimeout(updateSessionKeyboardShift, 230);
                 }
 
                 function updateTabActions() {
@@ -5519,6 +5583,9 @@ public sealed class HtmlViews
                                             // "reveal" the (hidden) input and never pans back.
                                             tab.oskInput.focus({ preventScroll: true });
                                         }
+                                        // Fallback in case neither visualViewport nor virtualKeyboard
+                                        // fires promptly: re-evaluate the keyboard-avoidance shift.
+                                        window.setTimeout(updateSessionKeyboardShift, 300);
                                     },
                                     'tab-action-keep',
                                     true);
@@ -6190,6 +6257,7 @@ public sealed class HtmlViews
                     activeTab.panel.focus();
                     activeTab.tabButton.scrollIntoView({ block: 'nearest', inline: 'nearest' });
                     updateTabActions();
+                    updateSessionKeyboardShift();
                     saveTabOrder();
                     saveWorkspaceTabs();
                 }
@@ -6965,6 +7033,13 @@ public sealed class HtmlViews
                             const touchpad = new Guacamole.Mouse.Touchpad(display.getElement());
                             touchpad.onmousedown = touchpad.onmouseup = touchpad.onmousemove = forwardTouch('touchpad');
                         }
+
+                        // Remember where the user last tapped/clicked on the remote view (screen Y,
+                        // stored in the display's un-shifted space) so the keyboard-avoidance shift knows
+                        // which spot to keep visible above the keyboard.
+                        display.getElement().addEventListener('pointerdown', event => {
+                            tab.lastTouchUnshiftedY = event.clientY + (tab.keyboardShift || 0);
+                        }, { passive: true });
 
                         // Two-finger pinch to zoom / pan the remote view (touch devices only).
                         setupPinchZoom(tab);
@@ -11997,6 +12072,8 @@ public sealed class HtmlViews
                         justify-content: center;
                         overflow: hidden;
                         width: 100%;
+                        /* Keyboard-avoidance shift (translateY set from JS) animates smoothly. */
+                        transition: transform .18s ease;
                         touch-action: none;
                         -webkit-touch-callout: none;
                         -webkit-user-select: none;
