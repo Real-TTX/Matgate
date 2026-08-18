@@ -13244,7 +13244,11 @@ public sealed class HtmlViews
                         position: absolute;
                         z-index: 3;
                         opacity: 1;
-                        transition: opacity .2s ease, display .2s ease allow-discrete;
+                        /* Only fade opacity; do NOT transition `display`. A discrete display transition
+                           (allow-discrete) could get stuck holding display:flex when the overlay is
+                           shown and hidden in quick succession (fast local VNC), leaving the "Opening"
+                           overlay permanently over a working session. */
+                        transition: opacity .2s ease;
                         -webkit-touch-callout: none;
                         -webkit-user-select: none;
                         user-select: none;
