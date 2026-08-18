@@ -346,6 +346,7 @@ public static class EndpointMapping
         app.MapPost("/api/browser-sessions/{id:guid}/keepalive", BrowserSessionKeepaliveAsync).RequireAuthorization();
         app.MapPost("/api/browser-sessions/{id:guid}/close", BrowserSessionCloseAsync).RequireAuthorization();
         app.MapPost("/admin/browser/{id:guid}/release", BrowserSessionAdminReleaseAsync).RequireAuthorization();
+        app.MapPost("/admin/browser/settings", BrowserSettingsAsync).RequireAuthorization();
         app.MapGet("/files/{id:guid}/view", FileViewerAsync).RequireAuthorization();
         app.MapGet("/api/files/{id:guid}/list", ListFilesAsync).RequireAuthorization();
         app.MapGet("/api/files/{id:guid}/download", DownloadFileAsync).RequireAuthorization();
@@ -1941,6 +1942,26 @@ public static class EndpointMapping
         return Results.Redirect(EmbedAwareRedirect(context, "/admin?tab=browser"));
     }
 
+    private static async Task<IResult> BrowserSettingsAsync(
+        HttpContext context, JsonDataStore store, HtmlViews views, BrowserFarmSessionManager farmSessions)
+    {
+        var currentUser = await RequireAdminAsync(context, store);
+        if (currentUser is null)
+        {
+            return Results.Redirect("/forbidden");
+        }
+
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        if (!ValidateCsrf(context, form))
+        {
+            return BadRequest(context, currentUser, views);
+        }
+
+        var poolSize = int.TryParse(form["poolSize"].ToString(), out var parsed) ? parsed : 0;
+        await farmSessions.UpdateSettingsAsync(poolSize, form["geometry"].ToString(), context.RequestAborted);
+        return Results.Redirect(EmbedAwareRedirect(context, "/admin?tab=browser"));
+    }
+
     private static async Task<IResult> ListFilesAsync(
         Guid id,
         string? path,
@@ -3395,7 +3416,8 @@ public static class EndpointMapping
             browser = new BrowserAdminData(
                 await farmSessions.GetFarmStatusAsync(context.RequestAborted),
                 farmSessions.ActiveSessions,
-                farmSessions.History);
+                farmSessions.History,
+                farmSessions.Settings);
         }
 
         return Results.Content(views.AdminHome(context, user, servers, users, workspaces, browser), "text/html");

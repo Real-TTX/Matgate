@@ -50,9 +50,6 @@ static void EnsureSecretFile(string envName, string fileEnvName, int byteCount)
 
 EnsureSecretFile("MATGATE_GUACAMOLE_JSON_SECRET_KEY", "MATGATE_GUACAMOLE_JSON_SECRET_KEY_FILE", 16);
 EnsureSecretFile("MATGATE_SECRET_KEY", "MATGATE_SECRET_KEY_FILE", 32);
-// Shared control token for the optional browser-farm sidecar (written like guac.key; the farm reads
-// the same file from the shared secrets volume). Harmless if the farm is not deployed.
-EnsureSecretFile("MATGATE_BROWSER_FARM_TOKEN", "MATGATE_BROWSER_FARM_TOKEN_FILE", 24);
 
 var builder = WebApplication.CreateBuilder(args);
 var configuredDataDirectory = Environment.GetEnvironmentVariable("MATGATE_DATA_DIR")

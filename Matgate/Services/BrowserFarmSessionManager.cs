@@ -14,6 +14,8 @@ public sealed class BrowserFarmSessionManager
     private readonly object _historyGate = new();
     private readonly List<BrowserFarmHistoryEntry> _history = [];
     private readonly string _historyPath;
+    private readonly string _settingsPath;
+    private BrowserFarmSettings _settings = new();
     private const int MaxHistory = 300;
 
     // A session with no keepalive for this long is assumed abandoned (tab closed/crashed) and released.
@@ -30,10 +32,87 @@ public sealed class BrowserFarmSessionManager
         }
 
         _historyPath = Path.Combine(dataDir, "browser-farm-history.json");
+        _settingsPath = Path.Combine(dataDir, "browser-farm-settings.json");
         LoadHistory();
+        LoadSettings();
     }
 
     public bool IsConfigured => _farm.IsConfigured;
+
+    public BrowserFarmSettings Settings => _settings;
+
+    // Persist the admin-chosen pool size / geometry and push them to the farm immediately.
+    public async Task UpdateSettingsAsync(int poolSize, string geometry, CancellationToken cancellationToken)
+    {
+        _settings = new BrowserFarmSettings
+        {
+            PoolSize = Math.Clamp(poolSize, 1, 50),
+            Geometry = NormalizeGeometry(geometry),
+        };
+        SaveSettings();
+        await _farm.ConfigureAsync(_settings.PoolSize, _settings.Geometry, cancellationToken);
+    }
+
+    // Re-push the desired config if the farm drifted (e.g. it restarted back to its env defaults).
+    public async Task ReconcileSettingsAsync(CancellationToken cancellationToken)
+    {
+        if (_settings.PoolSize <= 0)
+        {
+            return;
+        }
+
+        var status = await _farm.GetStatusAsync(cancellationToken);
+        if (status is null)
+        {
+            return;
+        }
+
+        var geometryMismatch = !string.IsNullOrWhiteSpace(_settings.Geometry)
+            && !string.Equals(status.Geometry, _settings.Geometry, StringComparison.OrdinalIgnoreCase);
+        if (status.PoolSize != _settings.PoolSize || geometryMismatch)
+        {
+            await _farm.ConfigureAsync(_settings.PoolSize, _settings.Geometry, cancellationToken);
+        }
+    }
+
+    private static string NormalizeGeometry(string geometry)
+    {
+        geometry = (geometry ?? "").Trim().ToLowerInvariant();
+        return System.Text.RegularExpressions.Regex.IsMatch(geometry, @"^\d+x\d+x\d+$") ? geometry : "";
+    }
+
+    private void LoadSettings()
+    {
+        try
+        {
+            if (File.Exists(_settingsPath))
+            {
+                _settings = JsonSerializer.Deserialize<BrowserFarmSettings>(File.ReadAllText(_settingsPath)) ?? new BrowserFarmSettings();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not load browser-farm settings from {Path}.", _settingsPath);
+        }
+    }
+
+    private void SaveSettings()
+    {
+        try
+        {
+            var directory = Path.GetDirectoryName(_settingsPath);
+            if (!string.IsNullOrEmpty(directory))
+            {
+                Directory.CreateDirectory(directory);
+            }
+
+            File.WriteAllText(_settingsPath, JsonSerializer.Serialize(_settings));
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not persist browser-farm settings to {Path}.", _settingsPath);
+        }
+    }
 
     public IReadOnlyList<BrowserFarmSession> ActiveSessions =>
         _active.Values.OrderByDescending(session => session.StartedAt).ToList();
@@ -209,11 +288,20 @@ public sealed class BrowserFarmSessionManager
     }
 }
 
+// Admin-configurable farm settings (pushed to the farm live). PoolSize 0 = leave the farm's own
+// FARM_POOL_SIZE default in effect.
+public sealed class BrowserFarmSettings
+{
+    public int PoolSize { get; set; }
+    public string Geometry { get; set; } = "";
+}
+
 // Snapshot passed to the admin "Browser" view.
 public sealed record BrowserAdminData(
     FarmStatus? Status,
     IReadOnlyList<BrowserFarmSession> Active,
-    IReadOnlyList<BrowserFarmHistoryEntry> History);
+    IReadOnlyList<BrowserFarmHistoryEntry> History,
+    BrowserFarmSettings Settings);
 
 public sealed class BrowserFarmSession
 {
@@ -258,6 +346,7 @@ public sealed class BrowserFarmReaper(BrowserFarmSessionManager manager) : Backg
             {
                 await Task.Delay(TimeSpan.FromSeconds(30), stoppingToken);
                 await manager.ReapAsync(stoppingToken);
+                await manager.ReconcileSettingsAsync(stoppingToken);
             }
             catch (OperationCanceledException)
             {

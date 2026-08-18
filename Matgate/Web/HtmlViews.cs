@@ -886,6 +886,13 @@ public sealed class HtmlViews
                 </tr>
                 """));
 
+        var poolValue = browser.Settings.PoolSize > 0
+            ? browser.Settings.PoolSize
+            : (status?.PoolSize ?? 10);
+        var geometryValue = string.IsNullOrWhiteSpace(browser.Settings.Geometry)
+            ? (status?.Geometry ?? "1280x800x24")
+            : browser.Settings.Geometry;
+
         return $$"""
             <section class="panel">
                 <div class="server-view-bar">
@@ -895,6 +902,19 @@ public sealed class HtmlViews
                 <p class="muted">{{E(de
                     ? "Sitzungen fuer \"via Chromium/Firefox VNC\"-Websites. Jede belegt einen Slot im Pool und wird beim Schliessen (oder nach Timeout) automatisch freigegeben."
                     : "Sessions for \"via Chromium/Firefox VNC\" websites. Each uses one pool slot and is released automatically on close (or after a timeout).")}}</p>
+                <form method="post" action="/admin/browser/settings" class="form-grid" style="margin-bottom:8px">
+                    {{Csrf(context)}}
+                    <label>{{E(de ? "Pool-Groesse (parallele Sitzungen)" : "Pool size (parallel sessions)")}}
+                        <input name="poolSize" type="number" min="1" max="50" value="{{A(poolValue.ToString())}}">
+                    </label>
+                    <label>{{E(de ? "Aufloesung (BreitexHoehexTiefe)" : "Resolution (widthxheightxdepth)")}}
+                        <input name="geometry" value="{{A(geometryValue)}}" placeholder="1280x800x24">
+                    </label>
+                    <div class="actions"><button type="submit" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button></div>
+                    <p class="muted" style="grid-column:1/-1">{{E(de
+                        ? "Wird live an den Browser-Dienst uebergeben. Eine kleinere Pool-Groesse betrifft nur neue Sitzungen; eine neue Aufloesung gilt fuer neu geoeffnete Sitzungen."
+                        : "Applied to the browser service live. A smaller pool only affects new sessions; a new resolution applies to newly opened sessions.")}}</p>
+                </form>
                 <h3>{{E(de ? "Aktive Sitzungen" : "Active sessions")}}</h3>
                 <div class="table-wrap">
                     <table>

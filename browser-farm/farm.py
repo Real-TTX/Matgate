@@ -25,6 +25,7 @@ Environment:
 import json
 import os
 import pwd
+import re
 import shutil
 import signal
 import subprocess
@@ -89,27 +90,61 @@ class Slot:
 
 
 class Farm:
+    MAX_POOL_SIZE = 50
+
     def __init__(self):
         self.lock = threading.RLock()
-        self.slots = [Slot(i) for i in range(POOL_SIZE)]
+        self.pool_size = max(1, min(POOL_SIZE, self.MAX_POOL_SIZE))
+        self.geometry = GEOMETRY
+        # Slots are created lazily so the pool can grow/shrink at runtime (see configure()).
+        self.slots = {}
+
+    def _get_slot(self, index):
+        slot = self.slots.get(index)
+        if slot is None:
+            slot = Slot(index)
+            self.slots[index] = slot
+        return slot
 
     def status(self):
         with self.lock:
+            indices = sorted(set(range(self.pool_size)) | {i for i, s in self.slots.items() if s.busy})
+            slots = [self._get_slot(i).info() for i in indices]
+            busy = sum(1 for s in self.slots.values() if s.busy)
             return {
-                "poolSize": POOL_SIZE,
+                "poolSize": self.pool_size,
                 "vncBasePort": VNC_BASE_PORT,
-                "geometry": GEOMETRY,
-                "busy": sum(1 for s in self.slots if s.busy),
-                "free": sum(1 for s in self.slots if not s.busy),
-                "slots": [s.info() for s in self.slots],
+                "geometry": self.geometry,
+                "busy": busy,
+                "free": max(0, self.pool_size - busy),
+                "slots": slots,
             }
+
+    # Live pool/geometry reconfiguration (Matgate pushes this from the admin UI). Shrinking only
+    # affects NEW acquires; busy slots beyond the new size keep running until released. A new
+    # geometry applies to sessions started afterwards.
+    def configure(self, pool_size=None, geometry=None):
+        with self.lock:
+            if pool_size is not None:
+                try:
+                    self.pool_size = max(1, min(int(pool_size), self.MAX_POOL_SIZE))
+                except (TypeError, ValueError):
+                    pass
+            if geometry and re.match(r"^\d+x\d+x\d+$", str(geometry)):
+                self.geometry = str(geometry)
+        return self.status()
 
     def acquire(self, url, browser):
         browser = (browser or "chromium").lower()
         if browser not in BROWSERS:
             browser = "chromium"
         with self.lock:
-            slot = next((s for s in self.slots if not s.busy), None)
+            slot = None
+            for i in range(self.pool_size):
+                candidate = self._get_slot(i)
+                if not candidate.busy:
+                    slot = candidate
+                    break
             if slot is None:
                 return None
             # Reserve immediately so a concurrent acquire cannot grab the same slot.
@@ -133,10 +168,10 @@ class Farm:
     def release(self, index=None, port=None):
         with self.lock:
             slot = None
-            if index is not None and 0 <= index < POOL_SIZE:
+            if index is not None and index in self.slots:
                 slot = self.slots[index]
             elif port is not None:
-                slot = next((s for s in self.slots if s.port == port), None)
+                slot = next((s for s in self.slots.values() if s.port == port), None)
             if slot is None or not slot.busy:
                 return False
         self._teardown_slot(slot)
@@ -154,7 +189,7 @@ class Farm:
         cutoff = time.time() - SESSION_MAX_MINUTES * 60
         stale = []
         with self.lock:
-            for slot in self.slots:
+            for slot in self.slots.values():
                 if slot.busy and slot.started_at and slot.started_at < cutoff:
                     stale.append(slot.index)
         for index in stale:
@@ -197,8 +232,9 @@ class Farm:
             slot.procs.append(proc)
             return proc
 
+        geometry = self.geometry
         # 1) Virtual X server (-ac: allow the unprivileged slot user to connect to this display).
-        spawn(["Xvfb", display, "-screen", "0", GEOMETRY, "-nolisten", "tcp", "-ac"])
+        spawn(["Xvfb", display, "-screen", "0", geometry, "-nolisten", "tcp", "-ac"])
         self._wait_for_x(slot.display, timeout=10.0)
 
         # 2) Minimal window manager so the browser fills the screen.
@@ -214,7 +250,7 @@ class Farm:
         self._wait_for_port(slot.port, timeout=10.0)
 
         # 4) The browser, opening the requested URL, isolated per slot + run as the slot user.
-        width, height = GEOMETRY.split("x")[0], GEOMETRY.split("x")[1]
+        width, height = geometry.split("x")[0], geometry.split("x")[1]
         run_as = [
             "runuser", "-u", user, "--",
             "env", f"DISPLAY={display}", f"HOME={profile}",
@@ -389,8 +425,9 @@ class Handler(BaseHTTPRequestHandler):
     def _authorized(self):
         token = read_token()
         if not token:
-            # No token configured yet -> deny mutating calls (fail closed).
-            return False
+            # No token configured -> the farm is internal-only (no host ports), so allow. Set
+            # FARM_TOKEN / FARM_TOKEN_FILE to require the shared token instead.
+            return True
         provided = self.headers.get("X-Farm-Token", "")
         # Constant-time compare.
         if len(provided) != len(token):
@@ -447,6 +484,9 @@ class Handler(BaseHTTPRequestHandler):
                 port=data.get("port") if isinstance(data.get("port"), int) else None,
             )
             self._send(200, {"released": released})
+            return
+        if self.path == "/configure":
+            self._send(200, FARM.configure(pool_size=data.get("poolSize"), geometry=data.get("geometry")))
             return
         self._send(404, {"error": "not_found"})
 

@@ -114,6 +114,24 @@ public sealed class BrowserFarmClient
         }
     }
 
+    public async Task ConfigureAsync(int poolSize, string geometry, CancellationToken cancellationToken)
+    {
+        if (!IsConfigured)
+        {
+            return;
+        }
+
+        try
+        {
+            using var response = await _http.SendAsync(
+                Build(HttpMethod.Post, "/configure", new { poolSize, geometry }), cancellationToken);
+        }
+        catch
+        {
+            // Best effort - reconciled again on the next reaper tick.
+        }
+    }
+
     public async Task<FarmStatus?> GetStatusAsync(CancellationToken cancellationToken)
     {
         if (!IsConfigured)
@@ -151,6 +169,7 @@ public sealed class FarmStatus
 {
     public int PoolSize { get; set; }
     public int VncBasePort { get; set; }
+    public string Geometry { get; set; } = "";
     public int Busy { get; set; }
     public int Free { get; set; }
     public List<FarmSlotInfo> Slots { get; set; } = [];

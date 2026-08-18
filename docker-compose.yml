@@ -65,10 +65,11 @@ services:
       Guacamole__DirectLaunch: "true"
       # Optional "via Chromium/Firefox VNC" websites: point Matgate at the browser-farm sidecar.
       # If the farm profile is not started, these do nothing and only "Native" websites are offered.
+      # No auth token is needed - the farm is internal-only (no host ports). Set
+      # MATGATE_BROWSER_FARM_TOKEN on both services if you want to require the shared token anyway.
       BrowserFarm__BaseUrl: ${MATGATE_BROWSER_FARM_URL:-http://browser-farm:8090}
       BrowserFarm__VncHost: ${MATGATE_BROWSER_FARM_VNC_HOST:-browser-farm}
       MATGATE_BROWSER_FARM_TOKEN: ${MATGATE_BROWSER_FARM_TOKEN:-}
-      MATGATE_BROWSER_FARM_TOKEN_FILE: /run/matgate-secrets/farm.key
     volumes:
       - ./data:/data
       - matgate-secrets:/run/matgate-secrets
@@ -122,20 +123,19 @@ services:
   # Without this profile Matgate simply offers "Native" websites only.
   browser-farm:
     <<: *home-dns
+    # Pull the prebuilt image, or build locally with:  docker compose --profile browser up -d --build
     image: ghcr.io/real-ttx/matgate-browser-farm:latest
+    build:
+      context: ./browser-farm
     profiles: ["browser"]
     init: true
-    depends_on:
-      matgate:
-        condition: service_healthy
     environment:
+      # Initial pool size / resolution. Both are also live-configurable in Administration -> Browser.
       FARM_POOL_SIZE: ${MATGATE_BROWSER_FARM_POOL_SIZE:-10}
       FARM_GEOMETRY: ${MATGATE_BROWSER_FARM_GEOMETRY:-1280x800x24}
-      # Shares the control token with Matgate via the secrets volume (matgate writes farm.key).
+      # No auth by default (internal-only). To require the shared token, set MATGATE_BROWSER_FARM_TOKEN
+      # here and on matgate.
       FARM_TOKEN: ${MATGATE_BROWSER_FARM_TOKEN:-}
-      FARM_TOKEN_FILE: /run/matgate-secrets/farm.key
-    volumes:
-      - matgate-secrets:/run/matgate-secrets:ro
     # guacd reaches the VNC ports (5901+) over the internal network; no host ports needed.
     restart: unless-stopped
 
