@@ -6986,6 +6986,22 @@ public sealed class HtmlViews
                     return guacLoadPromise;
                 }
 
+                // Visible connection diagnostics: builds a breadcrumb trail (lib -> launch -> auth ->
+                // connect -> state) shown in the connection overlay + console, so a stuck/failed
+                // connection screenshot pinpoints the exact stage. Enabled for browser-farm sessions.
+                function pushDiag(tab, step) {
+                    if (!tab || !tab.farmWebsite) {
+                        return;
+                    }
+
+                    tab.diagTrail = tab.diagTrail || [];
+                    tab.diagTrail.push(step);
+                    try { console.log('[matgate-conn]', tab.name || '', step); } catch (e) { /* ignore */ }
+                    if (tab.overlayMessage) {
+                        tab.overlayMessage.textContent = 'Diagnose: ' + tab.diagTrail.join('  -  ');
+                    }
+                }
+
                 function tunnelStateName(state) {
                     if (!window.Guacamole) {
                         return 'Unbekannt';
@@ -7107,9 +7123,11 @@ public sealed class HtmlViews
                         return;
                     }
 
+                    pushDiag(tab, window.Guacamole ? 'lib:ok' : 'lib:reloading');
                     if (!window.Guacamole) {
                         setOverlay(tab, ui('opening'), ui('preparing'), false);
                         const ready = await ensureGuacamoleLoaded();
+                        pushDiag(tab, ready ? 'lib:reloaded-ok' : 'lib:FAILED');
                         if (!ready) {
                             finishTab(tab, uiText.connectionUnavailable || 'Connection unavailable', uiText.guacClientMissing || 'The Guacamole web client could not be loaded.');
                             return;
@@ -7128,9 +7146,11 @@ public sealed class HtmlViews
                     setOverlay(tab, ui('opening'), `${tab.name} ${uiText.isOpening || 'is opening'}.`, false);
 
                     try {
+                        pushDiag(tab, 'launch:start');
                         const launch = await fetchLaunch(tab);
                         tab.connectionName = launch.connectionName;
                         tab.encryptedData = launch.encryptedData;
+                        pushDiag(tab, 'launch:ok(' + (launch.server?.protocol || '?') + ')');
                         // Farm-website launch hands back a session id; keep it alive while the tab is
                         // open so the pool slot is held, and release it when the tab closes.
                         if (launch.browserSessionId) {
@@ -7138,7 +7158,9 @@ public sealed class HtmlViews
                             startBrowserFarmKeepalive(tab);
                         }
 
+                        pushDiag(tab, 'auth:start');
                         const auth = await authenticate(tab);
+                        pushDiag(tab, 'auth:ok');
                         const dataSource = auth.dataSource || 'json';
                         const websocketTunnel = new Guacamole.WebSocketTunnel('/guacamole/websocket-tunnel');
                         websocketTunnel.receiveTimeout = 8000;
@@ -7182,11 +7204,13 @@ public sealed class HtmlViews
                         tunnel.onerror = status => {
                             tab.lastError = normalizeStatus(status, uiText.tunnelInterrupted || 'The Guacamole tunnel was interrupted.');
                             tab.lastMessage = tab.lastError;
+                            pushDiag(tab, 'tunnel:ERROR(' + (status && status.code !== undefined ? status.code : '?') + ') ' + tab.lastError);
                             updateStatusBar();
                         };
 
                         client.onerror = status => {
                             tab.lastError = normalizeStatus(status, uiText.connectionFailedDetail || 'The connection failed.');
+                            pushDiag(tab, 'client:ERROR(' + (status && status.code !== undefined ? status.code : '?') + ') ' + tab.lastError);
                             finishTab(tab, ui('failed'), tab.lastError);
                         };
 
@@ -7204,6 +7228,7 @@ public sealed class HtmlViews
                         };
                         client.onstatechange = state => {
                             setStatus(tab, statusName(state));
+                            pushDiag(tab, 'state:' + statusName(state));
                             if (state === Guacamole.Client.State.CONNECTED) {
                                 tab.connectedAt ??= Date.now();
                                 tab.lastMessage = uiText.remoteConnected || 'Remote session is connected.';
@@ -7376,6 +7401,7 @@ public sealed class HtmlViews
                         });
 
                         setStatus(tab, ui('connecting'));
+                        pushDiag(tab, 'connect:sent');
                         client.connect(parameters.toString());
                         tab.watchdog = window.setInterval(() => {
                             if (!tabs.has(tab.id) || tab.terminal) {
@@ -7386,6 +7412,7 @@ public sealed class HtmlViews
                         }, 1000);
                     }
                     catch (error) {
+                        pushDiag(tab, 'EXCEPTION: ' + (error instanceof Error ? error.message : String(error)));
                         finishTab(tab, ui('failed'), error instanceof Error ? error.message : (uiText.connectionStartFailed || 'The connection could not be started.'));
                     }
                 }
@@ -8498,6 +8525,12 @@ public sealed class HtmlViews
                     tab.terminal = true;
                     window.clearInterval(tab.watchdog);
                     setStatus(tab, ui('disconnected'));
+                    // For browser-farm sessions, keep the diagnostic breadcrumb visible with the error
+                    // so a screenshot of the failed box shows exactly which stage failed.
+                    if (tab.farmWebsite && tab.diagTrail && tab.diagTrail.length) {
+                        text = (text || '') + '   ||   Diagnose: ' + tab.diagTrail.join('  -  ');
+                    }
+
                     setOverlay(tab, headline, text, true);
                     updateTabActions();
                 }
