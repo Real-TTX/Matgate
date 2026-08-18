@@ -6951,6 +6951,41 @@ public sealed class HtmlViews
                     updateStatusBar();
                 }
 
+                // The Guacamole client library is loaded via a <script> that proxies through the edge's
+                // forward_auth to the guacamole webapp. If that request failed transiently (e.g. matgate
+                // was mid-restart -> 502) or a broken response got cached, window.Guacamole is missing.
+                // Re-fetch it on demand (cache-busted) instead of failing the whole connection.
+                let guacLoadPromise = null;
+                function ensureGuacamoleLoaded() {
+                    if (window.Guacamole) {
+                        return Promise.resolve(true);
+                    }
+
+                    if (guacLoadPromise) {
+                        return guacLoadPromise;
+                    }
+
+                    guacLoadPromise = new Promise(resolve => {
+                        let settled = false;
+                        const finish = () => {
+                            if (settled) {
+                                return;
+                            }
+
+                            settled = true;
+                            guacLoadPromise = null;
+                            resolve(!!window.Guacamole);
+                        };
+                        const script = document.createElement('script');
+                        script.src = '/guacamole/guacamole-common-js/all.min.js?reload=' + Date.now();
+                        script.addEventListener('load', finish);
+                        script.addEventListener('error', finish);
+                        document.head.appendChild(script);
+                        window.setTimeout(finish, 8000);
+                    });
+                    return guacLoadPromise;
+                }
+
                 function tunnelStateName(state) {
                     if (!window.Guacamole) {
                         return 'Unbekannt';
@@ -7073,8 +7108,12 @@ public sealed class HtmlViews
                     }
 
                     if (!window.Guacamole) {
-                        finishTab(tab, uiText.connectionUnavailable || 'Connection unavailable', uiText.guacClientMissing || 'The Guacamole web client could not be loaded.');
-                        return;
+                        setOverlay(tab, ui('opening'), ui('preparing'), false);
+                        const ready = await ensureGuacamoleLoaded();
+                        if (!ready) {
+                            finishTab(tab, uiText.connectionUnavailable || 'Connection unavailable', uiText.guacClientMissing || 'The Guacamole web client could not be loaded.');
+                            return;
+                        }
                     }
 
                     tab.terminal = false;
