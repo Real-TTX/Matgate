@@ -133,7 +133,7 @@ public sealed class BrowserFarmSessionManager
 
     // Acquire a farm slot for a website server; returns the session (with the VNC port) or null if the
     // farm is absent / the pool is exhausted.
-    public async Task<BrowserFarmSession?> OpenAsync(MatgateUser user, ServerEndpoint server, CancellationToken cancellationToken)
+    public async Task<BrowserFarmSession?> OpenAsync(MatgateUser user, ServerEndpoint server, int width, int height, CancellationToken cancellationToken)
     {
         if (!_farm.IsConfigured)
         {
@@ -142,7 +142,11 @@ public sealed class BrowserFarmSessionManager
 
         var browser = server.WebsiteRenderMode == WebsiteRenderMode.FirefoxVnc ? "firefox" : "chromium";
         var url = string.IsNullOrWhiteSpace(server.WebsiteUrl) ? server.Host : server.WebsiteUrl;
-        var acquired = await _farm.AcquireAsync(url, browser, cancellationToken);
+        // Auto-size the browser to the client's viewport (RDP-style), so the page renders at the real
+        // session resolution instead of a fixed default. The farm clamps and validates; when the client
+        // sends no usable size we pass null and the farm falls back to its configured default geometry.
+        var geometry = width > 0 && height > 0 ? $"{width}x{height}x24" : null;
+        var acquired = await _farm.AcquireAsync(url, browser, geometry, cancellationToken);
         if (acquired is null)
         {
             return null;
@@ -155,6 +159,7 @@ public sealed class BrowserFarmSessionManager
             Port = acquired.Port,
             Browser = browser,
             Url = url,
+            Geometry = string.IsNullOrWhiteSpace(acquired.Geometry) ? (geometry ?? "") : acquired.Geometry,
             ServerId = server.Id,
             ServerName = server.Name,
             UserId = user.Id,
@@ -310,6 +315,7 @@ public sealed class BrowserFarmSession
     public int Port { get; set; }
     public string Browser { get; set; } = "";
     public string Url { get; set; } = "";
+    public string Geometry { get; set; } = "";
     public Guid ServerId { get; set; }
     public string ServerName { get; set; } = "";
     public Guid UserId { get; set; }

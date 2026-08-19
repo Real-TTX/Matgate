@@ -6590,7 +6590,19 @@ public sealed class HtmlViews
                 }
 
                 async function fetchLaunch(tab) {
-                    const response = await fetch(`/api/connections/${tab.serverId}/launch`, {
+                    // Farm-website (VNC) sessions: send the client's viewport so the farm browser renders
+                    // at the session's real resolution (RDP-style auto-size). The farm clamps the values.
+                    let launchQuery = '';
+                    if (tab.farmWebsite) {
+                        const rect = tab.panel ? tab.panel.getBoundingClientRect() : null;
+                        const w = Math.round(rect && rect.width ? rect.width : window.innerWidth);
+                        const h = Math.round(rect && rect.height ? rect.height : window.innerHeight);
+                        if (w > 0 && h > 0) {
+                            launchQuery = `?w=${w}&h=${h}`;
+                        }
+                    }
+
+                    const response = await fetch(`/api/connections/${tab.serverId}/launch${launchQuery}`, {
                         method: 'POST',
                         headers: { 'X-Matgate-Csrf': csrfToken }
                     });

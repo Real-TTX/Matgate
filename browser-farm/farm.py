@@ -70,6 +70,7 @@ class Slot:
         self.busy = False
         self.browser = ""
         self.url = ""
+        self.geometry = ""
         self.started_at = 0.0
         self.procs = []  # list[subprocess.Popen]
 
@@ -81,6 +82,7 @@ class Slot:
             "busy": self.busy,
             "browser": self.browser,
             "url": self.url,
+            "geometry": self.geometry,
             "startedAt": (
                 datetime.fromtimestamp(self.started_at, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
                 if self.started_at else None
@@ -134,10 +136,28 @@ class Farm:
                 self.geometry = str(geometry)
         return self.status()
 
-    def acquire(self, url, browser):
+    @staticmethod
+    def _sanitize_geometry(value):
+        """Validate a WxHxDepth string and clamp to sane bounds; return None if invalid/empty."""
+        if not value:
+            return None
+        m = re.match(r"^(\d+)x(\d+)(?:x(\d+))?$", str(value).strip())
+        if not m:
+            return None
+        w = max(640, min(int(m.group(1)), 3840))
+        h = max(480, min(int(m.group(2)), 2160))
+        d = int(m.group(3)) if m.group(3) else 24
+        if d not in (16, 24, 32):
+            d = 24
+        return f"{w}x{h}x{d}"
+
+    def acquire(self, url, browser, geometry=None):
         browser = (browser or "chromium").lower()
         if browser not in BROWSERS:
             browser = "chromium"
+        # Per-acquire geometry (Matgate passes the client's viewport so the browser renders at the
+        # session's real size, RDP-style); falls back to the pool default when absent/invalid.
+        wanted = self._sanitize_geometry(geometry) or self.geometry
         with self.lock:
             slot = None
             for i in range(self.pool_size):
@@ -151,6 +171,7 @@ class Farm:
             slot.busy = True
             slot.browser = browser
             slot.url = url
+            slot.geometry = wanted
             slot.started_at = time.time()
         try:
             self._start_slot(slot, url, browser)
@@ -161,6 +182,7 @@ class Farm:
                 slot.busy = False
                 slot.browser = ""
                 slot.url = ""
+                slot.geometry = ""
                 slot.started_at = 0.0
             raise
         return slot.info()
@@ -179,6 +201,7 @@ class Farm:
             slot.busy = False
             slot.browser = ""
             slot.url = ""
+            slot.geometry = ""
             slot.started_at = 0.0
             slot.procs = []
         return True
@@ -232,7 +255,7 @@ class Farm:
             slot.procs.append(proc)
             return proc
 
-        geometry = self.geometry
+        geometry = slot.geometry or self.geometry
         # 1) Virtual X server (-ac: allow the unprivileged slot user to connect to this display).
         spawn(["Xvfb", display, "-screen", "0", geometry, "-nolisten", "tcp", "-ac"])
         self._wait_for_x(slot.display, timeout=10.0)
@@ -469,7 +492,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(400, {"error": "invalid_url"})
                 return
             try:
-                info = FARM.acquire(url, data.get("browser"))
+                info = FARM.acquire(url, data.get("browser"), data.get("geometry"))
             except Exception as exc:  # noqa: BLE001 - report start failures to Matgate
                 self._send(500, {"error": "start_failed", "detail": str(exc)})
                 return

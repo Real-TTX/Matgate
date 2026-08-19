@@ -1832,7 +1832,11 @@ public static class EndpointMapping
                 return Results.BadRequest(new { error = HtmlViews.Translate(context, "The browser service is not available.") });
             }
 
-            var session = await farmSessions.OpenAsync(user, server, context.RequestAborted);
+            // The client sends its viewport (?w=&h=) so the farm browser renders at the session's real
+            // size (RDP-style auto-resolution). Bad/oversized values are clamped/ignored by the farm.
+            _ = int.TryParse(context.Request.Query["w"].ToString(), out var farmWidth);
+            _ = int.TryParse(context.Request.Query["h"].ToString(), out var farmHeight);
+            var session = await farmSessions.OpenAsync(user, server, farmWidth, farmHeight, context.RequestAborted);
             if (session is null)
             {
                 return Results.BadRequest(new { error = HtmlViews.Translate(context, "No free browser session is available right now.") });

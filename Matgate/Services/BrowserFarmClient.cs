@@ -69,7 +69,7 @@ public sealed class BrowserFarmClient
         return request;
     }
 
-    public async Task<FarmAcquireResult?> AcquireAsync(string url, string browser, CancellationToken cancellationToken)
+    public async Task<FarmAcquireResult?> AcquireAsync(string url, string browser, string? geometry, CancellationToken cancellationToken)
     {
         if (!IsConfigured)
         {
@@ -79,7 +79,7 @@ public sealed class BrowserFarmClient
         try
         {
             using var response = await _http.SendAsync(
-                Build(HttpMethod.Post, "/acquire", new { url, browser }), cancellationToken);
+                Build(HttpMethod.Post, "/acquire", new { url, browser, geometry }), cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
                 var detail = await response.Content.ReadAsStringAsync(cancellationToken);
@@ -163,6 +163,7 @@ public sealed class FarmAcquireResult
     public int Port { get; set; }
     public string Browser { get; set; } = "";
     public string Url { get; set; } = "";
+    public string Geometry { get; set; } = "";
 }
 
 public sealed class FarmStatus
@@ -182,6 +183,7 @@ public sealed class FarmSlotInfo
     public bool Busy { get; set; }
     public string Browser { get; set; } = "";
     public string Url { get; set; } = "";
+    public string Geometry { get; set; } = "";
     [JsonPropertyName("ageSeconds")]
     public int AgeSeconds { get; set; }
 }
