@@ -6595,10 +6595,18 @@ public sealed class HtmlViews
                     let launchQuery = '';
                     if (tab.farmWebsite) {
                         const rect = tab.panel ? tab.panel.getBoundingClientRect() : null;
-                        const w = Math.round(rect && rect.width ? rect.width : window.innerWidth);
-                        const h = Math.round(rect && rect.height ? rect.height : window.innerHeight);
+                        const rawW = Math.round(rect && rect.width ? rect.width : window.innerWidth);
+                        const rawH = Math.round(rect && rect.height ? rect.height : window.innerHeight);
+                        // Xvfb rounds the framebuffer UP to a multiple of 64; request a multiple of 64
+                        // that is <= the panel so the remote size never exceeds (and clips) the display.
+                        const floor64 = v => Math.max(64, Math.floor(v / 64) * 64);
+                        const w = floor64(rawW);
+                        const h = floor64(rawH);
                         if (w > 0 && h > 0) {
                             launchQuery = `?w=${w}&h=${h}`;
+                            // Remember the RAW panel size this farm session was opened at, so a later
+                            // window resize can smart-reconnect at the new size (VNC has no live resize).
+                            tab.farmSize = { width: rawW, height: rawH };
                         }
                     }
 
@@ -6915,8 +6923,17 @@ public sealed class HtmlViews
                     const scale = Math.min(1, rect.width / width, rect.height / height);
                     display.scale(Math.max(0.1, scale));
                     if (tab.displayScaler) {
-                        tab.displayScaler.style.width = '';
-                        tab.displayScaler.style.height = '';
+                        if (tab.farmWebsite) {
+                            // Farm VNC: the guac display element does not report an intrinsic size here,
+                            // so the flex-centered scaler would collapse to 0x0 and the canvas would spill
+                            // out from the centre and get clipped by the display's overflow:hidden. Pin the
+                            // scaler to the (scaled) framebuffer so it centres and the canvas stays inside.
+                            tab.displayScaler.style.width = Math.round(width * scale) + 'px';
+                            tab.displayScaler.style.height = Math.round(height * scale) + 'px';
+                        } else {
+                            tab.displayScaler.style.width = '';
+                            tab.displayScaler.style.height = '';
+                        }
                     }
                     clampPinchPan(tab);
                     applyPinchTransform(tab);
@@ -6944,6 +6961,40 @@ public sealed class HtmlViews
                 function scheduleResize() {
                     window.clearTimeout(resizeTimer);
                     resizeTimer = window.setTimeout(() => sendDisplaySize(tabs.get(activeTabId)), 200);
+                    const active = tabs.get(activeTabId);
+                    if (active && active.farmWebsite) {
+                        scheduleFarmReconnect(active);
+                    }
+                }
+
+                // Smart-reconnect for browser-farm (VNC) sessions: VNC cannot renegotiate the remote
+                // resolution live like RDP, so when the viewport changes enough we transparently release
+                // the slot and reconnect - the farm then renders the page at the new size. Debounced so
+                // it only fires once the user stops resizing.
+                function scheduleFarmReconnect(tab) {
+                    window.clearTimeout(tab.farmReconnectTimer);
+                    tab.farmReconnectTimer = window.setTimeout(() => {
+                        if (!tab || !tab.farmWebsite || tab.terminal || !tab.client) {
+                            return;
+                        }
+
+                        if (tabs.get(activeTabId) !== tab) {
+                            return;
+                        }
+
+                        const rect = tab.panel ? tab.panel.getBoundingClientRect() : null;
+                        const w = Math.round(rect && rect.width ? rect.width : window.innerWidth);
+                        const h = Math.round(rect && rect.height ? rect.height : window.innerHeight);
+                        const prev = tab.farmSize || { width: 0, height: 0 };
+                        // Ignore sub-threshold jitter (toolbar reflow, scrollbar, address-bar show/hide).
+                        if (Math.abs(w - prev.width) < 32 && Math.abs(h - prev.height) < 32) {
+                            return;
+                        }
+
+                        setOverlay(tab, ui('opening'), `${tab.name} ${uiText.isOpening || 'is opening'}.`, false);
+                        releaseBrowserFarm(tab);
+                        restartTab(tab);
+                    }, 900);
                 }
 
                 async function measureGatewayLatency() {
@@ -7146,6 +7197,10 @@ public sealed class HtmlViews
                     if (isWebsiteProtocol(tab.protocol)) {
                         startWebsiteTab(tab);
                         return;
+                    }
+
+                    if (tab.farmWebsite) {
+                        tab.diagTrail = [];
                     }
 
                     pushDiag(tab, window.Guacamole ? 'lib:ok' : 'lib:reloading');
