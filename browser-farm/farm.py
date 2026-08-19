@@ -72,6 +72,7 @@ class Slot:
         self.url = ""
         self.geometry = ""
         self.toolbar = False  # show the browser's own toolbar instead of the default kiosk view
+        self.scale = 1.0      # browser device-scale (Fit=1 / Fit75=0.75 / Fit50=0.5)
         self.started_at = 0.0
         self.procs = []  # list[subprocess.Popen]
 
@@ -152,13 +153,22 @@ class Farm:
             d = 24
         return f"{w}x{h}x{d}"
 
-    def acquire(self, url, browser, geometry=None, toolbar=False):
+    @staticmethod
+    def _sanitize_scale(value):
+        try:
+            s = float(value)
+        except (TypeError, ValueError):
+            return 1.0
+        return s if 0.25 <= s <= 3.0 else 1.0
+
+    def acquire(self, url, browser, geometry=None, toolbar=False, scale=None):
         browser = (browser or "chromium").lower()
         if browser not in BROWSERS:
             browser = "chromium"
         # Per-acquire geometry (Matgate passes the client's viewport so the browser renders at the
         # session's real size, RDP-style); falls back to the pool default when absent/invalid.
         wanted = self._sanitize_geometry(geometry) or self.geometry
+        wanted_scale = self._sanitize_scale(scale)
         with self.lock:
             slot = None
             for i in range(self.pool_size):
@@ -174,6 +184,7 @@ class Farm:
             slot.url = url
             slot.geometry = wanted
             slot.toolbar = bool(toolbar)
+            slot.scale = wanted_scale
             slot.started_at = time.time()
         try:
             self._start_slot(slot, url, browser)
@@ -186,6 +197,7 @@ class Farm:
                 slot.url = ""
                 slot.geometry = ""
                 slot.toolbar = False
+                slot.scale = 1.0
                 slot.started_at = 0.0
             raise
         return slot.info()
@@ -206,6 +218,7 @@ class Farm:
             slot.url = ""
             slot.geometry = ""
             slot.toolbar = False
+            slot.scale = 1.0
             slot.started_at = 0.0
             slot.procs = []
         return True
@@ -291,9 +304,19 @@ class Farm:
             f"XDG_CONFIG_HOME={profile}", f"XDG_CACHE_HOME={profile}",
         ]
         # Kiosk by default (just the page, no browser chrome); the toolbar flag opts back into the
-        # normal windowed browser with address bar + tabs.
+        # normal windowed browser with address bar + tabs. scale = page device-scale (Fit75/Fit50).
         toolbar = bool(slot.toolbar)
+        scale = slot.scale if slot.scale else 1.0
         if browser == "firefox":
+            # Firefox has no --force-device-scale-factor; set the device pixel ratio via a profile pref.
+            if abs(scale - 1.0) > 0.001:
+                try:
+                    userjs = os.path.join(profile, "user.js")
+                    with open(userjs, "w") as fh:
+                        fh.write('user_pref("layout.css.devPixelsPerPx", "%s");\n' % scale)
+                    os.chown(userjs, pw.pw_uid, pw.pw_gid)
+                except OSError:
+                    pass
             args = ["firefox-esr", "--no-remote", "--new-instance", "--profile", profile]
             args += ["--width", width, "--height", height] if toolbar else ["--kiosk"]
             spawn(run_as + args + [url])
@@ -305,6 +328,7 @@ class Farm:
                 "--disable-infobars", "--disable-features=Translate,TranslateUI",
                 "--disable-dev-shm-usage", "--disable-session-crashed-bubble",
                 "--disable-notifications", "--noerrdialogs",
+                f"--force-device-scale-factor={scale}",
                 f"--window-size={width},{height}", "--window-position=0,0",
                 f"--user-data-dir={profile}",
             ]
@@ -510,7 +534,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(400, {"error": "invalid_url"})
                 return
             try:
-                info = FARM.acquire(url, data.get("browser"), data.get("geometry"), data.get("toolbar"))
+                info = FARM.acquire(url, data.get("browser"), data.get("geometry"), data.get("toolbar"), data.get("scale"))
             except Exception as exc:  # noqa: BLE001 - report start failures to Matgate
                 self._send(500, {"error": "start_failed", "detail": str(exc)})
                 return

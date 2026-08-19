@@ -1836,7 +1836,8 @@ public static class EndpointMapping
             // size (RDP-style auto-resolution). Bad/oversized values are clamped/ignored by the farm.
             _ = int.TryParse(context.Request.Query["w"].ToString(), out var farmWidth);
             _ = int.TryParse(context.Request.Query["h"].ToString(), out var farmHeight);
-            var session = await farmSessions.OpenAsync(user, server, farmWidth, farmHeight, context.RequestAborted);
+            _ = double.TryParse(context.Request.Query["scale"].ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var farmScale);
+            var session = await farmSessions.OpenAsync(user, server, farmWidth, farmHeight, farmScale, context.RequestAborted);
             if (session is null)
             {
                 return Results.BadRequest(new { error = HtmlViews.Translate(context, "No free browser session is available right now.") });

@@ -133,7 +133,7 @@ public sealed class BrowserFarmSessionManager
 
     // Acquire a farm slot for a website server; returns the session (with the VNC port) or null if the
     // farm is absent / the pool is exhausted.
-    public async Task<BrowserFarmSession?> OpenAsync(MatgateUser user, ServerEndpoint server, int width, int height, CancellationToken cancellationToken)
+    public async Task<BrowserFarmSession?> OpenAsync(MatgateUser user, ServerEndpoint server, int width, int height, double scale, CancellationToken cancellationToken)
     {
         if (!_farm.IsConfigured)
         {
@@ -146,7 +146,9 @@ public sealed class BrowserFarmSessionManager
         // session resolution instead of a fixed default. The farm clamps and validates; when the client
         // sends no usable size we pass null and the farm falls back to its configured default geometry.
         var geometry = width > 0 && height > 0 ? $"{width}x{height}x24" : null;
-        var acquired = await _farm.AcquireAsync(url, browser, geometry, server.WebsiteFarmToolbar, cancellationToken);
+        // "Screen" preset -> browser device-scale (Fit=1 / Fit75=0.75 / Fit50=0.5); clamp defensively.
+        var deviceScale = scale is >= 0.25 and <= 3 ? scale : 1.0;
+        var acquired = await _farm.AcquireAsync(url, browser, geometry, server.WebsiteFarmToolbar, deviceScale, cancellationToken);
         if (acquired is null)
         {
             return null;

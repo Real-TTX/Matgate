@@ -838,7 +838,6 @@ public sealed class HtmlViews
         var body = $$"""
             <section class="page-head">
                 <div>
-                    <p class="eyebrow">{{T(context, "Administration")}}</p>
                     <h1>{{T(context, "Administration")}}</h1>
                 </div>
             </section>
@@ -1272,7 +1271,6 @@ public sealed class HtmlViews
         var body = $$"""
             <section class="page-head">
                 <div>
-                    <p class="eyebrow">{{T(context, "Workspaces")}}</p>
                     <h1>{{T(context, "Workspaces")}}</h1>
                 </div>
             </section>
@@ -2446,7 +2444,7 @@ public sealed class HtmlViews
             : "";
         var createButtons = canCreate
             ? $$"""
-                <a class="button{{(canQuick ? "" : " primary")}} home2-new-folder" href="/admin/servers/new">{{Icon("plus")}}<span>{{(de ? "Neue Verbindung" : "New connection")}}</span></a>
+                <a class="button{{(canQuick ? "" : " primary")}} home2-new-folder" href="/admin/servers/new" data-shell-open-tab="1" data-shell-title="{{A(de ? "Neue Verbindung" : "New connection")}}">{{Icon("plus")}}<span>{{(de ? "Neue Verbindung" : "New connection")}}</span></a>
                 """
             : "";
         var headerActions = (canQuick || canCreate)
@@ -2467,7 +2465,7 @@ public sealed class HtmlViews
         if (servers.Count == 0)
         {
             var createButton = canCreate
-                ? $"""<a class="button primary" href="/admin/servers/new">{Icon("plus")}{T(context, "Create own server")}</a>"""
+                ? $"""<a class="button primary" href="/admin/servers/new" data-shell-open-tab="1" data-shell-title="{A(T(context, "Create server"))}">{Icon("plus")}{T(context, "Create own server")}</a>"""
                 : "";
             return $$"""
                 <section class="home2" data-home2="1">
@@ -3099,7 +3097,7 @@ public sealed class HtmlViews
                         <h3>{{E(group.Title)}}</h3>
                         <p class="muted">{{E(group.EmptyMessage)}}</p>
                     </div>
-                    {{(group.ShowCreateAction ? $"""<a class="button primary" href="/admin/servers/new">{Icon("plus")}{T(context, "Create own server")}</a>""" : "")}}
+                    {{(group.ShowCreateAction ? $"""<a class="button primary" href="/admin/servers/new" data-shell-open-tab="1" data-shell-title="{A(T(context, "Create server"))}">{Icon("plus")}{T(context, "Create own server")}</a>""" : "")}}
                 </div>
                 """
             : $"""<section class="connection-picker-grid home-browser-grid">{cards}</section>""";
@@ -3197,9 +3195,10 @@ public sealed class HtmlViews
 
         // Gear -> the connection's settings page (own server, or any for admins/managers). It sits in
         // the top-right corner just LEFT of the favourite star, in the exact same size/look (same
-        // <button> tag + favorite-toggle class, so the styling is identical; a GET form navigates).
+        // favorite-toggle class). data-shell-open-tab makes it open inside the shell as its own tab
+        // instead of a full-page navigation away from the home screen.
         var settingsCorner = canEdit
-            ? $$"""<form method="get" action="/admin/servers/{{server.Id}}" class="favorite-toggle-form connection-choice-settings-form"><button type="submit" class="favorite-toggle connection-choice-settings-corner" title="{{A(T(context, "Settings"))}}" aria-label="{{A(T(context, "Settings"))}}">{{Icon("settings")}}</button></form>"""
+            ? $$"""<a class="button favorite-toggle connection-choice-settings-corner" href="/admin/servers/{{server.Id}}" data-shell-open-tab="1" data-shell-title="{{A(server.Name)}}" data-shell-description="{{A(T(context, "Settings"))}}" title="{{A(T(context, "Settings"))}}" aria-label="{{A(T(context, "Settings"))}}">{{Icon("settings")}}</a>"""
             : "";
 
         return $$"""
@@ -6603,10 +6602,14 @@ public sealed class HtmlViews
                         const w = floor64(rawW);
                         const h = floor64(rawH);
                         if (w > 0 && h > 0) {
-                            launchQuery = `?w=${w}&h=${h}`;
+                            // Scale = the "Screen" preset (Fit=1 / Fit75=0.75 / Fit50=0.5): the farm
+                            // renders the page at that device-scale so 75/50% shows more content.
+                            const scale = fitScaleFor(tab.displayRes);
+                            launchQuery = `?w=${w}&h=${h}&scale=${scale}`;
                             // Remember the RAW panel size this farm session was opened at, so a later
                             // window resize can smart-reconnect at the new size (VNC has no live resize).
                             tab.farmSize = { width: rawW, height: rawH };
+                            tab.farmScale = scale;
                         }
                     }
 
@@ -8804,7 +8807,15 @@ public sealed class HtmlViews
                     resetPinchZoom(tab);
                     saveResForServer(tab.serverId, value);
                     applyDisplayMode(tab);
-                    sendDisplaySize(tab);
+                    if (tab.farmWebsite && tab.client && !tab.terminal) {
+                        // Farm VNC can't rescale live - re-render the browser at the new scale.
+                        setOverlay(tab, ui('opening'), `${tab.name} ${uiText.isOpening || 'is opening'}.`, false);
+                        releaseBrowserFarm(tab);
+                        restartTab(tab);
+                    }
+                    else {
+                        sendDisplaySize(tab);
+                    }
                     updateTabActions();
                 }
                 function resolutionOptionLabel(preset) {

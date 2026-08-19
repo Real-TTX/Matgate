@@ -69,7 +69,7 @@ public sealed class BrowserFarmClient
         return request;
     }
 
-    public async Task<FarmAcquireResult?> AcquireAsync(string url, string browser, string? geometry, bool toolbar, CancellationToken cancellationToken)
+    public async Task<FarmAcquireResult?> AcquireAsync(string url, string browser, string? geometry, bool toolbar, double scale, CancellationToken cancellationToken)
     {
         if (!IsConfigured)
         {
@@ -79,7 +79,7 @@ public sealed class BrowserFarmClient
         try
         {
             using var response = await _http.SendAsync(
-                Build(HttpMethod.Post, "/acquire", new { url, browser, geometry, toolbar }), cancellationToken);
+                Build(HttpMethod.Post, "/acquire", new { url, browser, geometry, toolbar, scale }), cancellationToken);
             if (!response.IsSuccessStatusCode)
             {
                 var detail = await response.Content.ReadAsStringAsync(cancellationToken);
