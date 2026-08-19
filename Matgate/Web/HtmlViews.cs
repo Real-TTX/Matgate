@@ -14345,6 +14345,7 @@ public sealed class HtmlViews
                         </select>
                         <small class="muted">{{(Language(context) == "de" ? "\"via ... VNC\" oeffnet die Seite in einem echten Browser (Browser-Dienst noetig) - Fallback fuer Seiten, die der Proxy nicht darstellt." : "\"via ... VNC\" opens the page in a real browser (requires the browser service) - a fallback for pages the proxy can't render.")}}</small>
                     </label>
+                    <label class="check"><input type="checkbox" name="websiteFarmToolbar"{{Checked(server?.WebsiteFarmToolbar ?? false)}}> {{(Language(context) == "de" ? "Browser-Bedienleiste zeigen (sonst Kiosk-Vollbild) – nur VNC-Modi" : "Show browser toolbar (otherwise kiosk fullscreen) – VNC modes only")}}</label>
                     <label class="check"><input type="checkbox" name="ignoreCertificate"{{Checked(server?.IgnoreCertificate ?? true)}}> {{T(context, "Ignore certificate")}}</label>
                 </div>
             </section>

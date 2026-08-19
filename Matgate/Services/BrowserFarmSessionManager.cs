@@ -146,7 +146,7 @@ public sealed class BrowserFarmSessionManager
         // session resolution instead of a fixed default. The farm clamps and validates; when the client
         // sends no usable size we pass null and the farm falls back to its configured default geometry.
         var geometry = width > 0 && height > 0 ? $"{width}x{height}x24" : null;
-        var acquired = await _farm.AcquireAsync(url, browser, geometry, cancellationToken);
+        var acquired = await _farm.AcquireAsync(url, browser, geometry, server.WebsiteFarmToolbar, cancellationToken);
         if (acquired is null)
         {
             return null;

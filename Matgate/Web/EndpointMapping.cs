@@ -3588,6 +3588,7 @@ public static class EndpointMapping
             storedServer.Port = updated.Port;
             storedServer.WebsiteUrl = updated.WebsiteUrl;
             storedServer.WebsiteRenderMode = updated.WebsiteRenderMode;
+            storedServer.WebsiteFarmToolbar = updated.WebsiteFarmToolbar;
             storedServer.UserName = updated.UserName;
             storedServer.Domain = updated.Domain;
             storedServer.FileRootPath = updated.FileRootPath;
@@ -4148,6 +4149,7 @@ public static class EndpointMapping
             Port = port,
             WebsiteUrl = websiteUrl,
             WebsiteRenderMode = websiteRenderMode,
+            WebsiteFarmToolbar = protocol == ServerProtocol.Website && IsChecked(form, "websiteFarmToolbar"),
             UserName = Clean(form["targetUserName"].ToString(), ""),
             Password = form["targetPassword"].ToString(),
             Domain = Clean(form["domain"].ToString(), ""),

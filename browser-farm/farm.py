@@ -71,6 +71,7 @@ class Slot:
         self.browser = ""
         self.url = ""
         self.geometry = ""
+        self.toolbar = False  # show the browser's own toolbar instead of the default kiosk view
         self.started_at = 0.0
         self.procs = []  # list[subprocess.Popen]
 
@@ -151,7 +152,7 @@ class Farm:
             d = 24
         return f"{w}x{h}x{d}"
 
-    def acquire(self, url, browser, geometry=None):
+    def acquire(self, url, browser, geometry=None, toolbar=False):
         browser = (browser or "chromium").lower()
         if browser not in BROWSERS:
             browser = "chromium"
@@ -172,6 +173,7 @@ class Farm:
             slot.browser = browser
             slot.url = url
             slot.geometry = wanted
+            slot.toolbar = bool(toolbar)
             slot.started_at = time.time()
         try:
             self._start_slot(slot, url, browser)
@@ -183,6 +185,7 @@ class Farm:
                 slot.browser = ""
                 slot.url = ""
                 slot.geometry = ""
+                slot.toolbar = False
                 slot.started_at = 0.0
             raise
         return slot.info()
@@ -202,6 +205,7 @@ class Farm:
             slot.browser = ""
             slot.url = ""
             slot.geometry = ""
+            slot.toolbar = False
             slot.started_at = 0.0
             slot.procs = []
         return True
@@ -260,8 +264,15 @@ class Farm:
         spawn(["Xvfb", display, "-screen", "0", geometry, "-nolisten", "tcp", "-ac"])
         self._wait_for_x(slot.display, timeout=10.0)
 
-        # 2) Minimal window manager so the browser fills the screen.
-        spawn(["fluxbox"])
+        # 2) Minimal window manager so the browser fills the screen. Hide fluxbox's toolbar/taskbar
+        #    so nothing overlays the page (kiosk look).
+        fbrc = "/tmp/farm-fluxbox-init"
+        try:
+            with open(fbrc, "w") as fh:
+                fh.write("session.screen0.toolbar.visible:\tfalse\n")
+        except OSError:
+            fbrc = None
+        spawn(["fluxbox", "-rc", fbrc] if fbrc else ["fluxbox"])
         time.sleep(0.4)
 
         # 3) VNC server exposing this display (internal network only -> no VNC password). Run in the
@@ -279,19 +290,26 @@ class Farm:
             "env", f"DISPLAY={display}", f"HOME={profile}",
             f"XDG_CONFIG_HOME={profile}", f"XDG_CACHE_HOME={profile}",
         ]
+        # Kiosk by default (just the page, no browser chrome); the toolbar flag opts back into the
+        # normal windowed browser with address bar + tabs.
+        toolbar = bool(slot.toolbar)
         if browser == "firefox":
-            spawn(run_as + [
-                "firefox-esr", "--no-remote", "--new-instance",
-                "--profile", profile, "--width", width, "--height", height, url,
-            ])
+            args = ["firefox-esr", "--no-remote", "--new-instance", "--profile", profile]
+            args += ["--width", width, "--height", height] if toolbar else ["--kiosk"]
+            spawn(run_as + args + [url])
         else:
-            spawn(run_as + [
-                "chromium", "--no-sandbox", "--disable-gpu", "--no-first-run",
+            # --test-type suppresses the "--no-sandbox is unsupported" warning bar; the rest keep the
+            # view clean (no first-run screen, infobars, crash/restore bubbles, notifications).
+            args = [
+                "chromium", "--no-sandbox", "--test-type", "--disable-gpu", "--no-first-run",
                 "--disable-infobars", "--disable-features=Translate,TranslateUI",
-                "--disable-dev-shm-usage",
-                "--start-maximized", f"--window-size={width},{height}",
-                "--window-position=0,0", f"--user-data-dir={profile}", url,
-            ])
+                "--disable-dev-shm-usage", "--disable-session-crashed-bubble",
+                "--disable-notifications", "--noerrdialogs",
+                f"--window-size={width},{height}", "--window-position=0,0",
+                f"--user-data-dir={profile}",
+            ]
+            args += ["--start-maximized"] if toolbar else ["--kiosk"]
+            spawn(run_as + args + [url])
 
     def _teardown_slot(self, slot):
         # Build the target PID set while the tree is still intact: (a) every tracked process AND all
@@ -492,7 +510,7 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(400, {"error": "invalid_url"})
                 return
             try:
-                info = FARM.acquire(url, data.get("browser"), data.get("geometry"))
+                info = FARM.acquire(url, data.get("browser"), data.get("geometry"), data.get("toolbar"))
             except Exception as exc:  # noqa: BLE001 - report start failures to Matgate
                 self._send(500, {"error": "start_failed", "detail": str(exc)})
                 return

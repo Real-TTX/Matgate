@@ -51,6 +51,11 @@ public sealed class ServerEndpoint
     // For Website servers: how it is opened (native proxy vs. a browser-farm VNC session).
     public WebsiteRenderMode WebsiteRenderMode { get; set; } = WebsiteRenderMode.Native;
 
+    // For browser-farm (Chromium/Firefox VNC) websites: show the browser's own toolbar (address bar,
+    // tabs) instead of the default clean full-screen kiosk view. Only relevant when WebsiteRenderMode
+    // is a VNC mode.
+    public bool WebsiteFarmToolbar { get; set; }
+
     public string KeyboardLayout { get; set; } = DefaultKeyboardLayout;
 
     public int TerminalFontSize { get; set; } = DefaultTerminalFontSize;
