@@ -115,6 +115,13 @@ services:
     volumes:
       - ./data:/etc/guacamole
       - matgate-secrets:/run/matgate-secrets:ro
+      # Raise Tomcat's maxHttpHeaderSize (stock default 8 KB). Cookies are scoped by host, NOT port,
+      # so every other service running on `localhost:*` also sends its cookies to `localhost:8088`.
+      # On a busy host the combined Cookie header on /guacamole/api/tokens can exceed 8 KB, which
+      # makes Tomcat reject the request ("Request header is too large") and the Matgate client report
+      # "Guacamole rejected the start token". This is a copy of the image's server.xml with only
+      # maxHttpHeaderSize="65536" added to the 8080 connector (pinned to guacamole/guacamole:1.6.0).
+      - ./guacamole/server.xml:/usr/local/tomcat/conf/server.xml:ro
     restart: unless-stopped
 
   # OPTIONAL sidecar: a pool of isolated Chromium/Firefox sessions (each on its own VNC port) for
