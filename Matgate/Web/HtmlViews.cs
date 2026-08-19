@@ -6965,24 +6965,37 @@ public sealed class HtmlViews
                         return guacLoadPromise;
                     }
 
-                    guacLoadPromise = new Promise(resolve => {
-                        let settled = false;
-                        const finish = () => {
-                            if (settled) {
-                                return;
+                    // The guac client library is served by the Guacamole webapp through the edge's
+                    // forward_auth. During a gateway restart that subrequest can briefly return
+                    // 502/401, so retry a few times before giving up - this self-heals a short
+                    // bounce instead of surfacing "The Guacamole web client could not be loaded".
+                    guacLoadPromise = (async () => {
+                        const attempts = 4;
+                        for (let i = 0; i < attempts && !window.Guacamole; i++) {
+                            if (i > 0) {
+                                await new Promise(r => window.setTimeout(r, 2000));
                             }
 
-                            settled = true;
-                            guacLoadPromise = null;
-                            resolve(!!window.Guacamole);
-                        };
-                        const script = document.createElement('script');
-                        script.src = '/guacamole/guacamole-common-js/all.min.js?reload=' + Date.now();
-                        script.addEventListener('load', finish);
-                        script.addEventListener('error', finish);
-                        document.head.appendChild(script);
-                        window.setTimeout(finish, 8000);
-                    });
+                            await new Promise(resolve => {
+                                let settled = false;
+                                const finish = () => {
+                                    if (!settled) {
+                                        settled = true;
+                                        resolve();
+                                    }
+                                };
+                                const script = document.createElement('script');
+                                script.src = '/guacamole/guacamole-common-js/all.min.js?reload=' + Date.now() + '-' + i;
+                                script.addEventListener('load', finish);
+                                script.addEventListener('error', finish);
+                                document.head.appendChild(script);
+                                window.setTimeout(finish, 6000);
+                            });
+                        }
+
+                        guacLoadPromise = null;
+                        return !!window.Guacamole;
+                    })();
                     return guacLoadPromise;
                 }
 
