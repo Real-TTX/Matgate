@@ -327,27 +327,37 @@ public sealed class HtmlViews
             : $"""<div class="notice error">{E(error)}</div>""";
 
         var body = $$"""
-            <section class="auth-panel">
-                <div>
-                    <p class="eyebrow">Matgate</p>
-                    <h1>{{T(context, "Home Network Gateway")}}</h1>
-                    <p class="muted">{{T(context, "Local login for RDP, VNC, SSH, websites and file access in your home network.")}}</p>
-                </div>
-                <form method="post" action="/login" class="stack">
-                    {{returnUrlField}}
+            <section class="login-shell">
+                <div class="login-card">
+                    <div class="login-brand">
+                        <span class="login-glyph" aria-hidden="true"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><path d="M17 48 V16 H47 V48 H40 V23 H24 V48 Z" fill="currentColor"/></svg></span>
+                        <span class="login-word"><span>MAT</span>GATE</span>
+                    </div>
+                    <h1 class="login-title">{{T(context, "Home Network Gateway")}}</h1>
+                    <p class="login-sub">{{T(context, "Local login for RDP, VNC, SSH, websites and file access in your home network.")}}</p>
                     {{errorHtml}}
-                    <label>{{T(context, "Username or email")}}
-                        <input name="username" autocomplete="username" required autofocus>
-                    </label>
-                    <label>{{T(context, "Password")}}
-                        <input name="password" type="password" autocomplete="current-password" required>
-                    </label>
-                    <button type="submit" class="primary">{{Icon("key")}}{{T(context, "Sign in")}}</button>
-                </form>
+                    <form method="post" action="/login" class="login-form">
+                        {{returnUrlField}}
+                        <label class="login-field"><span>{{T(context, "Username or email")}}</span>
+                            <span class="login-input-wrap">{{Icon("user")}}<input name="username" autocomplete="username" required autofocus></span>
+                        </label>
+                        <label class="login-field"><span>{{T(context, "Password")}}</span>
+                            <span class="login-input-wrap">{{Icon("key")}}<input name="password" type="password" autocomplete="current-password" required></span>
+                        </label>
+                        <button type="submit" class="login-submit">{{Icon("arrow-right")}}{{T(context, "Sign in")}}</button>
+                    </form>
+                    <div class="login-protos">
+                        <span class="login-proto">{{Icon("rdp")}}RDP</span>
+                        <span class="login-proto">{{Icon("vnc")}}VNC</span>
+                        <span class="login-proto">{{Icon("ssh")}}SSH</span>
+                        <span class="login-proto">{{Icon("globe")}}Web</span>
+                        <span class="login-proto">{{Icon("folder")}}Files</span>
+                    </div>
+                </div>
             </section>
             """;
 
-        return Layout(context, null, "Login", body);
+        return Layout(context, null, "Login", body, "login-main");
     }
 
     // First-run setup wizard: shown only while no user exists (see /setup endpoints); creates the
@@ -10628,6 +10638,102 @@ public sealed class HtmlViews
                     .wide { grid-column: 1 / -1; }
                     .inline { display: inline; margin: 0; }
                     .auth-panel { display: grid; gap: 26px; grid-template-columns: minmax(0, 1fr) minmax(280px, 380px); margin: 10vh auto 0; max-width: 880px; }
+                    /* --- Login / setup: centered branded card ------------------------------------ */
+                    html:has(main.login-main) header { display: none; }
+                    main.login-main { padding: 0; }
+                    .login-shell {
+                        display: grid;
+                        place-items: center;
+                        min-height: 100vh;
+                        min-height: 100dvh;
+                        padding: 28px 18px calc(28px + env(safe-area-inset-bottom));
+                        position: relative;
+                        overflow: hidden;
+                    }
+                    .login-shell::before {
+                        content: "";
+                        position: absolute;
+                        inset: 0;
+                        z-index: 0;
+                        pointer-events: none;
+                        background:
+                            radial-gradient(60% 55% at 12% 8%, color-mix(in srgb, var(--accent) 26%, transparent), transparent 70%),
+                            radial-gradient(55% 50% at 92% 96%, color-mix(in srgb, var(--accent-2) 26%, transparent), transparent 72%);
+                    }
+                    .login-card {
+                        position: relative;
+                        z-index: 1;
+                        width: 100%;
+                        max-width: 410px;
+                        background: var(--surface);
+                        border: 1px solid var(--line);
+                        border-radius: 20px;
+                        padding: 36px 32px 26px;
+                        box-shadow: var(--shadow-strong);
+                        text-align: center;
+                    }
+                    .login-brand { display: inline-flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+                    .login-glyph {
+                        display: inline-grid;
+                        place-items: center;
+                        width: 54px;
+                        height: 54px;
+                        border-radius: 15px;
+                        color: #fff;
+                        background: linear-gradient(135deg, var(--accent), var(--accent-2));
+                        box-shadow: 0 10px 22px color-mix(in srgb, var(--accent) 40%, transparent);
+                    }
+                    .login-glyph svg { width: 30px; height: 30px; }
+                    .login-word { font-weight: 800; letter-spacing: .14em; font-size: 21px; color: var(--text); }
+                    .login-word span { color: var(--accent); }
+                    .login-title { margin: 8px 0 6px; font-size: 22px; line-height: 1.2; }
+                    .login-sub { color: var(--muted); margin: 0 0 22px; font-size: 13.5px; line-height: 1.55; }
+                    .login-form { display: grid; gap: 15px; text-align: left; }
+                    .login-field { display: grid; gap: 7px; font-weight: 600; font-size: 13px; color: var(--text); }
+                    .login-input-wrap { position: relative; display: flex; align-items: center; }
+                    .login-input-wrap > .icon { position: absolute; left: 13px; width: 17px; height: 17px; color: var(--muted); pointer-events: none; }
+                    .login-input-wrap input {
+                        width: 100%;
+                        padding: 12px 14px 12px 40px;
+                        border: 1px solid var(--line);
+                        border-radius: 11px;
+                        background: var(--surface-2);
+                        color: var(--text);
+                        font: inherit;
+                        transition: border-color .12s ease, box-shadow .12s ease, background .12s ease;
+                    }
+                    .login-input-wrap input:focus {
+                        outline: none;
+                        border-color: var(--accent);
+                        background: var(--surface);
+                        box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+                    }
+                    .login-submit {
+                        margin-top: 4px;
+                        width: 100%;
+                        display: inline-flex;
+                        align-items: center;
+                        justify-content: center;
+                        gap: 8px;
+                        padding: 13px;
+                        border: 0;
+                        border-radius: 11px;
+                        cursor: pointer;
+                        color: #fff;
+                        background: linear-gradient(135deg, var(--accent), var(--accent-2));
+                        font: inherit;
+                        font-weight: 700;
+                        font-size: 15px;
+                        box-shadow: 0 10px 20px color-mix(in srgb, var(--accent) 34%, transparent);
+                        transition: transform .12s ease, box-shadow .12s ease, filter .12s ease;
+                    }
+                    .login-submit:hover { filter: brightness(1.06); box-shadow: 0 12px 24px color-mix(in srgb, var(--accent) 42%, transparent); }
+                    .login-submit:active { transform: translateY(1px); }
+                    .login-submit .icon { width: 18px; height: 18px; }
+                    .login-protos { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--line); }
+                    .login-proto { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 600; color: var(--muted); background: var(--surface-2); border: 1px solid var(--line); border-radius: 999px; padding: 5px 11px; }
+                    .login-proto .icon { width: 13px; height: 13px; }
+                    .login-card .notice { margin-bottom: 15px; text-align: left; }
                     .notice { border-radius: var(--radius); padding: 10px 12px; }
                     .error { background: #fff1f1; border: 1px solid #f0caca; color: #7d2424; }
                     .badge { background: var(--surface-2); border-radius: var(--radius); color: var(--accent); display: inline-block; font-size: 12px; font-weight: 800; padding: 3px 7px; }
