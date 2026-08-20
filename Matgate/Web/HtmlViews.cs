@@ -4618,6 +4618,35 @@ public sealed class HtmlViews
                         catch {
                             // Ignore wiring failures in embedded documents.
                         }
+
+                        // Keep the tab header + stored URL in sync when the user navigates INSIDE the
+                        // embedded page (back links, in-page links) - otherwise the tab title goes stale.
+                        try {
+                            const doc = iframe.contentDocument;
+                            const newTitle = (doc && doc.title ? doc.title : '').replace(/\s*[-–]\s*Matgate\s*$/i, '').trim();
+                            if (newTitle && newTitle !== entry.title) {
+                                entry.title = newTitle;
+                                const titleSpan = button.querySelector('.session-tab-title > span:last-child');
+                                if (titleSpan) {
+                                    titleSpan.textContent = newTitle;
+                                }
+                                iframe.title = newTitle;
+                                if (activeShellTabId === entry.id) {
+                                    document.title = `${newTitle} - Matgate`;
+                                }
+                            }
+
+                            const loc = iframe.contentWindow ? iframe.contentWindow.location : null;
+                            if (loc && loc.pathname) {
+                                const u = new URL(loc.href);
+                                u.searchParams.delete('embed');
+                                entry.url = `${u.pathname}${u.search}${u.hash}`;
+                            }
+                            saveShellTabs();
+                        }
+                        catch {
+                            // Cross-document / navigation timing edge cases - ignore.
+                        }
                     });
                     main.addEventListener('click', event => {
                         if (suppressTabClicks) {
