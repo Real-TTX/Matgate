@@ -4325,6 +4325,14 @@ public sealed class HtmlViews
                             }
                         });
                         resultSections.forEach(section => {
+                            // "Recently used" only makes sense with no folder/favourites filter active -
+                            // when the user filters by a folder, hide Recent entirely (its cards aren't
+                            // part of the filtered set).
+                            if (section.hasAttribute('data-home2-recent') && activeFilter !== null) {
+                                section.hidden = true;
+                                return;
+                            }
+
                             section.hidden = section.querySelector('[data-home2-card]:not([hidden])') === null;
                         });
                         if (quickSection) {
