@@ -333,8 +333,6 @@ public sealed class HtmlViews
                         <span class="login-glyph" aria-hidden="true"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><path d="M17 48 V16 H47 V48 H40 V23 H24 V48 Z" fill="currentColor"/></svg></span>
                         <span class="login-word"><span>MAT</span>GATE</span>
                     </div>
-                    <h1 class="login-title">{{T(context, "Home Network Gateway")}}</h1>
-                    <p class="login-sub">{{T(context, "Local login for RDP, VNC, SSH, websites and file access in your home network.")}}</p>
                     {{errorHtml}}
                     <form method="post" action="/login" class="login-form">
                         {{returnUrlField}}
@@ -346,13 +344,6 @@ public sealed class HtmlViews
                         </label>
                         <button type="submit" class="login-submit">{{Icon("arrow-right")}}{{T(context, "Sign in")}}</button>
                     </form>
-                    <div class="login-protos">
-                        <span class="login-proto">{{Icon("rdp")}}RDP</span>
-                        <span class="login-proto">{{Icon("vnc")}}VNC</span>
-                        <span class="login-proto">{{Icon("ssh")}}SSH</span>
-                        <span class="login-proto">{{Icon("globe")}}Web</span>
-                        <span class="login-proto">{{Icon("folder")}}Files</span>
-                    </div>
                 </div>
             </section>
             """;
@@ -10640,7 +10631,7 @@ public sealed class HtmlViews
                     .auth-panel { display: grid; gap: 26px; grid-template-columns: minmax(0, 1fr) minmax(280px, 380px); margin: 10vh auto 0; max-width: 880px; }
                     /* --- Login / setup: centered branded card ------------------------------------ */
                     html:has(main.login-main) header { display: none; }
-                    main.login-main { padding: 0; }
+                    main.login-main { width: 100%; max-width: none; margin: 0; padding: 0; }
                     .login-shell {
                         display: grid;
                         place-items: center;
@@ -10672,7 +10663,7 @@ public sealed class HtmlViews
                         box-shadow: var(--shadow-strong);
                         text-align: center;
                     }
-                    .login-brand { display: inline-flex; align-items: center; gap: 12px; margin-bottom: 18px; }
+                    .login-brand { display: inline-flex; align-items: center; gap: 12px; margin-bottom: 26px; }
                     .login-glyph {
                         display: inline-grid;
                         place-items: center;
