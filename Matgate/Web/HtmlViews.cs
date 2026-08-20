@@ -5805,9 +5805,11 @@ public sealed class HtmlViews
                             connectionTabActions.appendChild(oskButton);
 
                             if (supportsResolution(tab.protocol)) {
+                                const resScaleOnly = isScaleOnlyTab(tab);
+                                const resLabelWord = resScaleOnly ? (uiText.scaleLabel || 'Scale') : (uiText.resolutionLabel || 'Resolution');
                                 const resolutionButton = createTabActionButton(
                                     actionIcons.resolution,
-                                    `${uiText.resolutionLabel || 'Resolution'}: ${resolutionOptionLabel(tab.displayRes)}`,
+                                    `${resLabelWord}: ${resolutionOptionLabel(tab.displayRes, resScaleOnly)}`,
                                     () => openResolutionDialog(),
                                     isDesktopDisplayMode(tab) ? 'active' : '',
                                     true);
@@ -7243,8 +7245,9 @@ public sealed class HtmlViews
                     statusSync.textContent = `Sync: ${formatAge(tab.lastSyncAt)}`;
                     statusMessage.textContent = tab.lastError || tab.lastMessage || '-';
                     if (statusResolution) {
+                        const stScaleOnly = isScaleOnlyTab(tab);
                         statusResolution.textContent = supportsResolution(tab.protocol)
-                            ? `Screen: ${resolutionOptionLabel(tab.displayRes)}`
+                            ? `${stScaleOnly ? 'Scale' : 'Screen'}: ${resolutionOptionLabel(tab.displayRes, stScaleOnly)}`
                             : '';
                     }
                 }
@@ -8891,7 +8894,18 @@ public sealed class HtmlViews
                     }
                     updateTabActions();
                 }
-                function resolutionOptionLabel(preset) {
+                function isScaleOnlyTab(tab) {
+                    // VNC (incl. browser-farm websites) has no fixed remote resolution - it is always
+                    // auto-sized to the viewport - so the picker only offers a scale, not fixed sizes.
+                    return !!tab && (tab.protocol || '').toUpperCase() === 'VNC';
+                }
+                function resolutionOptionLabel(preset, scaleStyle) {
+                    if (scaleStyle) {
+                        // Auto-resolution sessions: express the fit presets as a plain scale.
+                        if (preset === 'fit') return uiText.scaleAuto || 'Auto (100%)';
+                        if (preset === 'fit75') return '75%';
+                        if (preset === 'fit50') return '50%';
+                    }
                     const fit = uiText.resolutionFitShort || 'Fit';
                     if (preset === 'fit') return fit;
                     if (preset === 'fit75') return fit + ' 75%';
@@ -8903,12 +8917,14 @@ public sealed class HtmlViews
                     if (!resolutionDialog || !resolutionOptions || !tab) {
                         return;
                     }
+                    const scaleOnly = isScaleOnlyTab(tab);
+                    const presets = scaleOnly ? ['fit', 'fit75', 'fit50'] : displayResPresets;
                     resolutionOptions.replaceChildren();
-                    for (const preset of displayResPresets) {
+                    for (const preset of presets) {
                         const option = document.createElement('button');
                         option.type = 'button';
                         option.className = 'resolution-option' + (preset === tab.displayRes ? ' active' : '');
-                        option.textContent = resolutionOptionLabel(preset);
+                        option.textContent = resolutionOptionLabel(preset, scaleOnly);
                         option.addEventListener('click', () => {
                             setDisplayRes(preset);
                             closeResolutionDialog();
