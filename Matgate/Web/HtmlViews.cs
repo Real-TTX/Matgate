@@ -4793,6 +4793,42 @@ public sealed class HtmlViews
                         activateNewConnectionTab();
                     });
 
+                    // Safety net: on the shell, NO internal navigation may replace the page - that would
+                    // tear down every live session. Any internal <a> that isn't already a shell-tab link,
+                    // a download, or an external/_blank link is intercepted and opened as a shell tab
+                    // instead; links back to the shell itself just focus the New-connection tab. Runs
+                    // after the per-link data-shell-open-tab handlers (which set defaultPrevented).
+                    document.addEventListener('click', event => {
+                        if (event.defaultPrevented || event.button !== 0
+                            || event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) {
+                            return;
+                        }
+
+                        const anchor = event.target.closest ? event.target.closest('a[href]') : null;
+                        if (!anchor || anchor.hasAttribute('data-shell-open-tab') || anchor.hasAttribute('download')) {
+                            return;
+                        }
+
+                        const target = anchor.getAttribute('target');
+                        if (target && target !== '_self') {
+                            return;
+                        }
+
+                        const href = anchor.getAttribute('href') || '';
+                        if (!href.startsWith('/') || href.startsWith('//')) {
+                            return; // external, protocol-relative or in-page anchor - leave it alone
+                        }
+
+                        event.preventDefault();
+                        if (href === '/' || href === '/sessions' || href.startsWith('/sessions?') || href.startsWith('/sessions#')) {
+                            activateNewConnectionTab();
+                            return;
+                        }
+
+                        const title = anchor.getAttribute('data-shell-title') || (anchor.textContent || '').trim() || href;
+                        openShellTab(href, title);
+                    });
+
                     window.addEventListener('popstate', () => {
                         showView('home', false);
                     });
