@@ -7151,10 +7151,8 @@ public sealed class HtmlViews
 
                     tab.diagTrail = tab.diagTrail || [];
                     tab.diagTrail.push(step);
+                    // Console-only breadcrumb for troubleshooting; not shown in the UI.
                     try { console.log('[matgate-conn]', tab.name || '', step); } catch (e) { /* ignore */ }
-                    if (tab.overlayMessage) {
-                        tab.overlayMessage.textContent = 'Diagnose: ' + tab.diagTrail.join('  -  ');
-                    }
                 }
 
                 function tunnelStateName(state) {
@@ -8685,12 +8683,6 @@ public sealed class HtmlViews
                     tab.terminal = true;
                     window.clearInterval(tab.watchdog);
                     setStatus(tab, ui('disconnected'));
-                    // For browser-farm sessions, keep the diagnostic breadcrumb visible with the error
-                    // so a screenshot of the failed box shows exactly which stage failed.
-                    if (tab.farmWebsite && tab.diagTrail && tab.diagTrail.length) {
-                        text = (text || '') + '   ||   Diagnose: ' + tab.diagTrail.join('  -  ');
-                    }
-
                     setOverlay(tab, headline, text, true);
                     updateTabActions();
                 }
