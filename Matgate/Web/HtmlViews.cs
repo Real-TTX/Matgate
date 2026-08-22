@@ -360,32 +360,35 @@ public sealed class HtmlViews
             : $"""<div class="notice error">{E(error)}</div>""";
 
         var body = $$"""
-            <section class="auth-panel">
-                <div>
-                    <p class="eyebrow">Matgate</p>
-                    <h1>{{T(context, "Initial setup")}}</h1>
-                    <p class="muted">{{T(context, "Welcome to Matgate! Create the administrator account to get started.")}}</p>
-                </div>
-                <form method="post" action="/setup" class="stack">
+            <section class="login-shell">
+                <div class="login-card login-card-wide">
+                    <div class="login-brand">
+                        <span class="login-glyph" aria-hidden="true"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><path d="M17 48 V16 H47 V48 H40 V23 H24 V48 Z" fill="currentColor"/></svg></span>
+                        <span class="login-word"><span>MAT</span>GATE</span>
+                    </div>
+                    <h1 class="login-title">{{T(context, "Initial setup")}}</h1>
+                    <p class="login-sub">{{T(context, "Welcome to Matgate! Create the administrator account to get started.")}}</p>
                     {{errorHtml}}
-                    <label>{{T(context, "Username")}}
-                        <input name="username" autocomplete="username" required autofocus minlength="3" maxlength="64" value="{{A(userName ?? "")}}">
-                    </label>
-                    <label>{{T(context, "Email")}}
-                        <input name="email" type="email" autocomplete="email" required maxlength="200" value="{{A(email ?? "")}}">
-                    </label>
-                    <label>{{T(context, "Password")}}
-                        <input name="password" type="password" autocomplete="new-password" minlength="10" required>
-                    </label>
-                    <label>{{T(context, "Confirm password")}}
-                        <input name="passwordConfirm" type="password" autocomplete="new-password" minlength="10" required>
-                    </label>
-                    <button type="submit" class="primary">{{Icon("key")}}{{T(context, "Create admin account")}}</button>
-                </form>
+                    <form method="post" action="/setup" class="login-form">
+                        <label class="login-field"><span>{{T(context, "Username")}}</span>
+                            <span class="login-input-wrap">{{Icon("user")}}<input name="username" autocomplete="username" required autofocus minlength="3" maxlength="64" value="{{A(userName ?? "")}}"></span>
+                        </label>
+                        <label class="login-field"><span>{{T(context, "Email")}}</span>
+                            <span class="login-input-wrap">{{Icon("mail")}}<input name="email" type="email" autocomplete="email" required maxlength="200" value="{{A(email ?? "")}}"></span>
+                        </label>
+                        <label class="login-field"><span>{{T(context, "Password")}}</span>
+                            <span class="login-input-wrap">{{Icon("key")}}<input name="password" type="password" autocomplete="new-password" minlength="10" required></span>
+                        </label>
+                        <label class="login-field"><span>{{T(context, "Confirm password")}}</span>
+                            <span class="login-input-wrap">{{Icon("key")}}<input name="passwordConfirm" type="password" autocomplete="new-password" minlength="10" required></span>
+                        </label>
+                        <button type="submit" class="login-submit">{{Icon("arrow-right")}}{{T(context, "Create admin account")}}</button>
+                    </form>
+                </div>
             </section>
             """;
 
-        return Layout(context, null, T(context, "Initial setup"), body);
+        return Layout(context, null, T(context, "Initial setup"), body, "login-main");
     }
 
     public string Dashboard(HttpContext context, MatgateUser user, IReadOnlyList<ServerEndpoint> servers)
@@ -10655,6 +10658,7 @@ public sealed class HtmlViews
                         box-shadow: var(--shadow-strong);
                         text-align: center;
                     }
+                    .login-card-wide { max-width: 460px; }
                     .login-brand { display: inline-flex; align-items: center; gap: 12px; margin-bottom: 26px; }
                     .login-glyph {
                         display: inline-grid;
@@ -15074,6 +15078,7 @@ public sealed class HtmlViews
             "server" => """<rect x="4" y="4" width="16" height="6" rx="2"/><rect x="4" y="14" width="16" height="6" rx="2"/><path d="M8 7h.01"/><path d="M8 17h.01"/>""",
             "wrench" => """<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18v3h3l6.3-6.3a4 4 0 0 0 5.4-5.4l-2 2-2.3-.6-.6-2.3z"/>""",
             "user" => """<circle cx="12" cy="8" r="4"/><path d="M4 21v-1a8 8 0 0 1 16 0v1"/>""",
+            "mail" => """<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>""",
             "chevron-down" => """<path d="m6 9 6 6 6-6"/>""",
             "info" => """<circle cx="12" cy="12" r="9"/><path d="M12 17v-6"/><path d="M12 8h.01"/>""",
             "rdp" => """<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/><path d="M8 8h3v3H8z"/><path d="M13 8h3v3h-3z"/><path d="M8 13h3v1H8z"/><path d="M13 13h3v1h-3z"/>""",

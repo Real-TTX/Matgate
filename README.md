@@ -60,14 +60,21 @@ usable from a laptop or a phone – installable as a PWA.
 
 ## Screenshots
 
-### One login, then everything as tiles
+### First run, then one login
 
-| Sign in | Quick connect |
+| Setup wizard | Sign in |
 |---|---|
-| ![The redesigned sign-in card](docs/images/login.png) | ![Quick-connect dialog for ad-hoc sessions](docs/images/quick-connect.png) |
+| ![First-run setup wizard that creates the admin account](docs/images/setup.png) | ![The sign-in card](docs/images/login.png) |
 
-The connections screen groups your machines into folders, keeps favorites on top and searches
-across names and hosts. **Quick connect** starts a one-off session without saving a server.
+On the very first start a **setup wizard** creates your administrator account; after that it is a
+single sign-in. From there every machine is a tile, grouped into folders with favorites on top and
+a search across names and hosts.
+
+### Ad-hoc without saving anything
+
+![Quick-connect dialog for one-off sessions](docs/images/quick-connect.png)
+
+**Quick connect** starts a one-off RDP/VNC/SSH/website session without creating a saved server.
 
 ### A live session
 
@@ -114,7 +121,22 @@ Prebuilt images are published to the GitHub Container Registry:
 | `ghcr.io/real-ttx/matgate-browser-farm` | `latest` | the optional browser farm |
 
 Matgate needs Guacamole + `guacd` for RDP/VNC/SSH and a small edge proxy that keeps `/guacamole`
-behind the login. Copy this into `docker-compose.yml` and start it:
+behind the login. Two ready-made stacks live in this repo — grab one and run it, no build required:
+
+| File | What you get |
+|---|---|
+| [`docker-compose.simple.yml`](docker-compose.simple.yml) | RDP, VNC, SSH, files and **native** websites — the minimal stack |
+| [`docker-compose.browser.yml`](docker-compose.browser.yml) | the same **plus the browser farm** ("via Chromium / Firefox VNC" websites) |
+
+```bash
+docker compose -f docker-compose.simple.yml up -d      # minimal
+# or: everything, including the browser farm
+docker compose -f docker-compose.browser.yml up -d
+```
+
+Open **http://localhost:8088** — the first start shows a **setup wizard** that creates your
+administrator account (username, email, password). Both files are self-contained and use the
+prebuilt images; `docker-compose.simple.yml` looks like this:
 
 ```yaml
 name: matgate
@@ -192,17 +214,11 @@ volumes:
   matgate-secrets:
 ```
 
-```bash
-docker compose up -d
-```
+After the first admin is created you add your first server and connect.
 
-Open **http://localhost:8088**. On first start Matgate has no users yet and shows a **setup
-wizard** that creates your administrator account (username, email, password). After that you add
-your first server and connect.
-
-> The full stack in this repository (`docker-compose.yml`) additionally wires the optional
-> **browser farm**, home-DNS resolution and a larger Tomcat header limit. Start the browser farm
-> with `docker compose --profile browser up -d`.
+> Prefer building from source, or want home-DNS resolution and a larger Tomcat header limit? The
+> repository's `docker-compose.yml` builds Matgate locally and wires those extras; add the browser
+> farm to it with `docker compose --profile browser up -d`.
 
 ### Pin your keys (recommended)
 
