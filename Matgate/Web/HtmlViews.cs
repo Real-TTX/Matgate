@@ -2427,6 +2427,37 @@ public sealed class HtmlViews
             """;
     }
 
+    // The client-side "availableServers" entry for one server (used by openServer / quick-connect
+    // and to rebuild the New-connection panel live after a server is added/changed).
+    private static object ServerChoicePayload(ServerEndpoint server) => new
+    {
+        id = server.Id.ToString(),
+        name = server.Name,
+        protocol = server.Protocol.ToString().ToUpperInvariant(),
+        iconKey = ServerEndpoint.EffectiveIconKey(server.Protocol, server.IconKey),
+        iconHtml = Icon(ServerEndpoint.EffectiveIconKey(server.Protocol, server.IconKey)),
+        target = ServerTargetValue(server),
+        // "native" | "chromiumvnc" | "firefoxvnc" - farm modes open a VNC session instead of a proxy tab.
+        renderMode = server.Protocol == ServerProtocol.Website
+            ? server.WebsiteRenderMode.ToString().ToLowerInvariant()
+            : "native"
+    };
+
+    // JSON payload for the live refresh of the New-connection panel: the rendered HTML plus the
+    // updated availableServers list, so the shell can swap it in without a full page reload.
+    public string ConnectionsPanelPayload(
+        HttpContext context,
+        MatgateUser user,
+        IReadOnlyList<ServerEndpoint> servers,
+        IReadOnlyList<WorkspaceDefinition> workspaces)
+    {
+        return JsonSerializer.Serialize(new
+        {
+            html = ConnectionChoiceSections(context, user, servers, workspaces, true),
+            servers = servers.Select(ServerChoicePayload)
+        }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+    }
+
     // The logged-in home / "New Tab" page: a single, scrollable column of sections
     // (header, search, quick-connect, folders, recently used, favorites, all connections).
     private static string ConnectionChoiceSections(
@@ -3412,19 +3443,9 @@ public sealed class HtmlViews
         IReadOnlyList<WorkspaceDefinition> workspaces,
         Guid? openServerId)
     {
-        var availableServers = JsonSerializer.Serialize(servers.Select(server => new
-        {
-            id = server.Id.ToString(),
-            name = server.Name,
-            protocol = server.Protocol.ToString().ToUpperInvariant(),
-            iconKey = ServerEndpoint.EffectiveIconKey(server.Protocol, server.IconKey),
-            iconHtml = Icon(ServerEndpoint.EffectiveIconKey(server.Protocol, server.IconKey)),
-            target = ServerTargetValue(server),
-            // "native" | "chromiumvnc" | "firefoxvnc" - farm modes open a VNC session instead of a proxy tab.
-            renderMode = server.Protocol == ServerProtocol.Website
-                ? server.WebsiteRenderMode.ToString().ToLowerInvariant()
-                : "native"
-        }), new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        var availableServers = JsonSerializer.Serialize(
+            servers.Select(ServerChoicePayload),
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
         var initialOpenServerId = JsonSerializer.Serialize(openServerId?.ToString() ?? "");
         var csrfToken = JsonSerializer.Serialize(context.User.FindFirstValue("csrf") ?? "");
         var version = ApplicationVersion();
@@ -4301,6 +4322,28 @@ public sealed class HtmlViews
                 }
 
                 // Home / New Tab page: live search + folder filtering over the connection cards.
+                // Re-fetch the New-connection panel (HTML + availableServers) and swap it in, so a
+                // server created/edited/deleted in an embedded admin tab shows up without a full reload.
+                async function refreshConnectionsPanel() {
+                    try {
+                        const res = await fetch('/api/connections/panel', { headers: { 'X-Matgate-Csrf': csrfToken }, cache: 'no-store' });
+                        if (!res.ok) { return; }
+                        const data = await res.json();
+                        const inner = document.querySelector('#new-connection-panel .connection-picker-inner');
+                        if (inner && typeof data.html === 'string') {
+                            inner.innerHTML = data.html;
+                        }
+                        if (Array.isArray(data.servers)) {
+                            availableServers.length = 0;
+                            availableServers.push(...data.servers);
+                        }
+                        wireHome2();
+                        wireOpenControls(inner || document);
+                    }
+                    catch (e) { /* ignore refresh failures */ }
+                }
+
+                let home2KeydownWired = false;
                 function wireHome2() {
                     const root = document.querySelector('[data-home2]');
                     if (!root) {
@@ -4507,19 +4550,25 @@ public sealed class HtmlViews
                         setQcProtocol('rdp');
                     }
 
-                    document.addEventListener('keydown', event => {
-                        if ((event.ctrlKey || event.metaKey) && (event.key === 'k' || event.key === 'K')) {
-                            if (searchInput) {
-                                event.preventDefault();
-                                searchInput.focus();
-                                searchInput.select();
+                    // Bind the global search shortcut only once, and query the (possibly re-rendered)
+                    // search field live so it keeps working after the panel is refreshed.
+                    if (!home2KeydownWired) {
+                        home2KeydownWired = true;
+                        document.addEventListener('keydown', event => {
+                            const si = document.querySelector('[data-home2-search]');
+                            if ((event.ctrlKey || event.metaKey) && (event.key === 'k' || event.key === 'K')) {
+                                if (si) {
+                                    event.preventDefault();
+                                    si.focus();
+                                    si.select();
+                                }
                             }
-                        }
-                        else if (event.key === 'Escape' && searchInput && document.activeElement === searchInput && searchInput.value) {
-                            searchInput.value = '';
-                            apply();
-                        }
-                    });
+                            else if (event.key === 'Escape' && si && document.activeElement === si && si.value) {
+                                si.value = '';
+                                si.dispatchEvent(new Event('input', { bubbles: true }));
+                            }
+                        });
+                    }
 
                     apply();
                 }
@@ -4662,6 +4711,13 @@ public sealed class HtmlViews
                                 const u = new URL(loc.href);
                                 u.searchParams.delete('embed');
                                 entry.url = `${u.pathname}${u.search}${u.hash}`;
+                                // A server or workspace may have changed in this admin/workspaces tab
+                                // (create/edit/delete redirect to /admin?tab=servers or /admin/servers,
+                                // and workspaces to /workspaces*) - refresh the New-connection panel so a
+                                // newly created connection shows up immediately, without a full reload.
+                                if (/^\/admin(\/|$)|^\/workspaces(\/|$)/.test(u.pathname)) {
+                                    refreshConnectionsPanel();
+                                }
                             }
                             saveShellTabs();
                         }
@@ -4808,14 +4864,22 @@ public sealed class HtmlViews
                     }
                 }
 
-                function wireShellNavigation() {
-                    document.querySelectorAll('.workspace-open-button').forEach(button => {
+                // Idempotent per-element wiring for the open buttons + shell-tab links. Safe to call
+                // again after part of the DOM is re-rendered (guards already-wired elements), so the
+                // live-refreshed New-connection panel gets working buttons without double-binding.
+                function wireOpenControls(root) {
+                    const scope = (root && root.querySelectorAll) ? root : document;
+                    scope.querySelectorAll('.workspace-open-button').forEach(button => {
+                        if (button.dataset.openWired) { return; }
+                        button.dataset.openWired = '1';
                         button.addEventListener('click', () => {
                             openServer(button.getAttribute('data-server-id') || '');
                         });
                     });
 
-                    document.querySelectorAll('[data-shell-open-tab="1"]').forEach(anchor => {
+                    scope.querySelectorAll('[data-shell-open-tab="1"]').forEach(anchor => {
+                        if (anchor.dataset.openWired) { return; }
+                        anchor.dataset.openWired = '1';
                         anchor.addEventListener('click', event => {
                             if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button !== 0) {
                                 return;
@@ -4833,6 +4897,10 @@ public sealed class HtmlViews
                             openShellTab(url, title, iconHtml, description);
                         });
                     });
+                }
+
+                function wireShellNavigation() {
+                    wireOpenControls(document);
 
                     newConnectionTab.addEventListener('click', event => {
                         if (suppressTabClicks) {

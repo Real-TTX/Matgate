@@ -289,6 +289,7 @@ public static class EndpointMapping
             return user is null ? Results.Unauthorized() : Results.Ok();
         });
         app.MapGet("/", HomeAsync).RequireAuthorization();
+        app.MapGet("/api/connections/panel", ConnectionsPanelAsync).RequireAuthorization();
         app.MapGet("/forbidden", ForbiddenAsync).RequireAuthorization();
         app.MapGet("/connect/{id:guid}", ConnectAsync).RequireAuthorization();
         app.MapGet("/website/{id:guid}", WebsiteAsync).RequireAuthorization();
@@ -629,6 +630,36 @@ public static class EndpointMapping
         return Results.Content(
             views.SessionsWorkspace(context, user, servers, visibleWorkspaces, openServerId),
             "text/html");
+    }
+
+    // Live data for the New-connection panel (HTML + availableServers), so the shell can refresh it
+    // after a server/workspace change without a full page reload.
+    private static async Task<IResult> ConnectionsPanelAsync(
+        HttpContext context,
+        JsonDataStore store,
+        HtmlViews views,
+        WorkspaceService workspaceService)
+    {
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        var allServers = await store.GetServersAsync(context.RequestAborted);
+        var servers = allServers
+            .Where(server => server.IsEnabled && CanAccessServer(user, server))
+            .OrderBy(server => server.OwnerUserId is null ? 0 : 1)
+            .ThenBy(server => server.FolderName)
+            .ThenBy(server => server.Name)
+            .ToList();
+
+        var allWorkspaces = await workspaceService.GetWorkspacesAsync(context.RequestAborted);
+        var visibleWorkspaces = VisibleWorkspacesForUser(user, allWorkspaces);
+
+        return Results.Content(
+            views.ConnectionsPanelPayload(context, user, servers, visibleWorkspaces),
+            "application/json");
     }
 
     private static IReadOnlyList<WorkspaceDefinition> VisibleWorkspacesForUser(
