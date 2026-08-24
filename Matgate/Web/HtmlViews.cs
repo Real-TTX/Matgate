@@ -3462,6 +3462,8 @@ public sealed class HtmlViews
             resolution = Icon("monitor"),
             zoomIn = Icon("zoom-in"),
             zoomOut = Icon("zoom-out"),
+            popOut = Icon("external-link"),
+            reattach = Icon("arrow-left"),
             disconnect = Icon("logout")
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
         var websiteIcons = JsonSerializer.Serialize(new
@@ -3482,6 +3484,9 @@ public sealed class HtmlViews
             workspace = T(context, "Workspace"),
             page = T(context, "Page"),
             fullscreen = T(context, "Fullscreen"),
+            openInNewWindow = Language(context) == "de" ? "In neuem Fenster öffnen" : "Open in a new window",
+            reattachToMain = Language(context) == "de" ? "Zurück ins Hauptfenster" : "Re-attach to main window",
+            popupBlocked = Language(context) == "de" ? "Pop-ups erlauben, um dies in einem neuen Fenster zu öffnen." : "Allow pop-ups to open this in a new window.",
             clipboard = T(context, "Clipboard"),
             copyToClipboard = T(context, "Copy to clipboard"),
             copyUrlToClipboard = T(context, "Copy URL to clipboard"),
@@ -3684,6 +3689,9 @@ public sealed class HtmlViews
             (() => {
                 const availableServers = {{availableServers}};
                 const initialOpenServerId = {{initialOpenServerId}};
+                // This window was popped out of another (a tab opened in its own window). It shows a
+                // "re-attach" control instead of "pop out", and re-attach hands the session back.
+                const isPoppedWindow = (() => { try { return new URL(location.href).searchParams.get('popped') === '1'; } catch (e) { return false; } })();
                 const csrfToken = {{csrfToken}};
                 const uiText = {{uiText}};
                 const fileIcons = {{fileIcons}};
@@ -4528,6 +4536,7 @@ public sealed class HtmlViews
                 }
 
                 function saveShellTabs() {
+                    if (isPoppedWindow) { return; }
                     try {
                         localStorage.setItem(shellTabStorageKey, JSON.stringify({
                             tabs: Array.from(shellTabs.values()).map(tab => ({
@@ -5750,6 +5759,27 @@ public sealed class HtmlViews
 
                         connectionTabActions.appendChild(fullscreenButton);
 
+                        // Pop the session out into its own window (or, in a popped window, hand it back
+                        // to the main window). Moving a live session reconnects it in the target window.
+                        if (isPoppedWindow) {
+                            const reattachButton = createTabActionButton(
+                                actionIcons.reattach,
+                                uiText.reattachToMain || 'Re-attach to main window',
+                                () => reattachTab(tab),
+                                'tab-action-keep',
+                                true);
+                            connectionTabActions.appendChild(reattachButton);
+                        }
+                        else {
+                            const popOutButton = createTabActionButton(
+                                actionIcons.popOut,
+                                uiText.openInNewWindow || 'Open in a new window',
+                                () => popOutTab(tab),
+                                'tab-action-keep',
+                                true);
+                            connectionTabActions.appendChild(popOutButton);
+                        }
+
                         if (isTouchDevice && tab.client && !tab.terminal) {
                             const pointerButton = createTabActionButton(
                                 actionIcons.pointer,
@@ -6074,6 +6104,7 @@ public sealed class HtmlViews
                 }
 
                 function saveTabOrder() {
+                    if (isPoppedWindow) { return; }
                     try {
                         localStorage.setItem(tabOrderStorageKey, JSON.stringify({
                             order: Array.from(tabsRoot.querySelectorAll('.session-tab[data-tab-id]'))
@@ -6550,6 +6581,52 @@ public sealed class HtmlViews
                     saveWorkspaceTabs();
                 }
 
+                // --- Pop a session out into its own window, and hand it back ----------------------
+                // A live session (WebSocket + canvas) is bound to its window and can't be teleported,
+                // so popping out / re-attaching re-opens the server in the target window (a brief
+                // reconnect). Pop-out closes the tab here; re-attach asks the opener to re-open it.
+                function popOutTab(tab) {
+                    if (!tab || !tab.serverId) {
+                        return;
+                    }
+
+                    const url = '/?open=' + encodeURIComponent(tab.serverId) + '&popped=1';
+                    const win = window.open(url, 'matgate-pop-' + tab.serverId + '-' + Date.now(), 'popup,width=1280,height=860');
+                    if (win) {
+                        closeTab(tab.id);
+                    }
+                    else {
+                        flashStatus(tab, uiText.popupBlocked || 'Allow pop-ups to open this in a new window.');
+                    }
+                }
+
+                function reattachTab(tab) {
+                    const serverId = tab && tab.serverId;
+                    try {
+                        if (serverId && window.opener && !window.opener.closed) {
+                            window.opener.postMessage({ type: 'matgate-reattach', kind: 'session', serverId: serverId }, location.origin);
+                            if (typeof window.opener.focus === 'function') {
+                                window.opener.focus();
+                            }
+                        }
+                    }
+                    catch (e) { /* ignore cross-window errors */ }
+                    window.close();
+                }
+
+                // Main window: a popped-out window asks to hand its session back.
+                window.addEventListener('message', event => {
+                    if (event.origin !== location.origin) {
+                        return;
+                    }
+
+                    const data = event.data;
+                    if (data && data.type === 'matgate-reattach' && data.kind === 'session' && data.serverId) {
+                        openServer(data.serverId);
+                        try { window.focus(); } catch (e) { /* ignore */ }
+                    }
+                });
+
                 function openServer(serverId, filePath = '', tabId = '') {
                     const server = findServer(serverId);
                     if (server) {
@@ -6620,6 +6697,7 @@ public sealed class HtmlViews
                 }
 
                 function saveWorkspaceTabs() {
+                    if (isPoppedWindow) { return; }
                     try {
                         const activeTab = tabs.get(activeTabId);
                         const orderedTabs = orderedSessionTabs();
@@ -9257,11 +9335,15 @@ public sealed class HtmlViews
                 wireHomeBrowser();
                 restoreHomeBrowser();
                 wireHome2();
-                restoreShellTabs();
+                // A popped-out window shows ONLY its one session - don't restore the main window's
+                // tabs (and it shares localStorage, so it must not clobber them either).
+                if (!isPoppedWindow) {
+                    restoreShellTabs();
+                }
                 measureGatewayLatency();
                 window.setInterval(measureGatewayLatency, 5000);
 
-                const restoredWorkspace = loadWorkspaceTabs();
+                const restoredWorkspace = isPoppedWindow ? { tabs: [], activeTabId: '', activeServerId: '' } : loadWorkspaceTabs();
                 const tabStatesToOpen = [...restoredWorkspace.tabs];
                 if (initialOpenServerId && !tabStatesToOpen.some(tab => tab.serverId === initialOpenServerId)) {
                     tabStatesToOpen.push({ serverId: initialOpenServerId, filePath: '' });
@@ -9288,7 +9370,7 @@ public sealed class HtmlViews
                 restoreTabOrder();
                 saveTabOrder();
 
-                if (initialOpenServerId) {
+                if (initialOpenServerId && !isPoppedWindow) {
                     history.replaceState({ view: 'home' }, '', '/');
                 }
             })();

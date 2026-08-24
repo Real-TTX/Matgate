@@ -32,6 +32,7 @@ usable from a laptop or a phone – installable as a PWA.
 **Remote sessions**
 - **RDP, VNC and SSH** in the browser through Guacamole, no client install
 - Several sessions open at once as **draggable tabs**, with session restore
+- **Pop a session out into its own window** and re-attach it later (great for multi-monitor)
 - **Real fullscreen / immersive mode** (safe-area aware on iPhone), clipboard sync, a live status bar
 - Per-session **scale** for VNC (Auto / 75% / 50%) so more fits on screen
 
