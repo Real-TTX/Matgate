@@ -13,17 +13,20 @@ Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
 // Auto-generate persistent secrets into their "*_FILE" path when nothing else provides them, so a
 // bare `docker compose up` works with no init container and no manual .env. An explicit env value
 // always wins; an existing non-empty file is kept.
-static void EnsureSecretFile(string envName, string fileEnvName, int byteCount)
+static void EnsureSecretFile(string envName, string fileEnvName, string defaultPath, int byteCount)
 {
     if (!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable(envName)))
     {
         return;
     }
 
+    // Fall back to a sensible default path so Matgate generates + persists the key on its own,
+    // without the compose having to spell out every *_FILE path. Mount a volume at
+    // /run/matgate-secrets to keep the keys (and to share the guac key with the guacamole container).
     var path = Environment.GetEnvironmentVariable(fileEnvName);
     if (string.IsNullOrWhiteSpace(path))
     {
-        return;
+        path = defaultPath;
     }
 
     try
@@ -48,8 +51,8 @@ static void EnsureSecretFile(string envName, string fileEnvName, int byteCount)
     }
 }
 
-EnsureSecretFile("MATGATE_GUACAMOLE_JSON_SECRET_KEY", "MATGATE_GUACAMOLE_JSON_SECRET_KEY_FILE", 16);
-EnsureSecretFile("MATGATE_SECRET_KEY", "MATGATE_SECRET_KEY_FILE", 32);
+EnsureSecretFile("MATGATE_GUACAMOLE_JSON_SECRET_KEY", "MATGATE_GUACAMOLE_JSON_SECRET_KEY_FILE", "/run/matgate-secrets/guac.key", 16);
+EnsureSecretFile("MATGATE_SECRET_KEY", "MATGATE_SECRET_KEY_FILE", "/run/matgate-secrets/master.key", 32);
 
 var builder = WebApplication.CreateBuilder(args);
 var configuredDataDirectory = Environment.GetEnvironmentVariable("MATGATE_DATA_DIR")

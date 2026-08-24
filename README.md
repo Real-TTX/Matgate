@@ -136,8 +136,9 @@ docker compose -f docker-compose.browser.yml up -d
 ```
 
 Open **http://localhost:8088** — the first start shows a **setup wizard** that creates your
-administrator account (username, email, password). Both files are self-contained and use the
-prebuilt images; `docker-compose.simple.yml` looks like this:
+administrator account (username, email, password). Both files are self-contained and use the prebuilt images. **Matgate generates and persists its
+own keys** (the Guacamole key and the at-rest key) into the `matgate-secrets` volume — nothing to
+configure by hand. For reference, the whole `docker-compose.simple.yml`:
 
 ```yaml
 name: matgate
@@ -168,19 +169,11 @@ services:
 
   matgate:
     image: ghcr.io/real-ttx/matgate:latest
-    environment:
-      ASPNETCORE_URLS: http://+:8080
-      MATGATE_DATA_DIR: /data
-      Guacamole__PublicBasePath: /guacamole
-      Guacamole__DirectLaunch: "true"
-      # Keys: taken from .env if set, otherwise generated into the volume on first start.
-      Guacamole__JsonSecretKey: ${MATGATE_GUACAMOLE_JSON_SECRET_KEY:-}
-      MATGATE_GUACAMOLE_JSON_SECRET_KEY_FILE: /run/matgate-secrets/guac.key
-      MATGATE_SECRET_KEY: ${MATGATE_SECRET_KEY:-}
-      MATGATE_SECRET_KEY_FILE: /run/matgate-secrets/master.key
     volumes:
       - ./data:/data
       - matgate-secrets:/run/matgate-secrets
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     healthcheck:
       test: ["CMD-SHELL", "test -s /run/matgate-secrets/guac.key"]
       interval: 3s
@@ -201,11 +194,10 @@ services:
       GUACD_HOSTNAME: guacd
       GUACD_PORT: "4822"
       JSON_ENABLED: "true"
-      JSON_SECRET_KEY: ${MATGATE_GUACAMOLE_JSON_SECRET_KEY:-}
     entrypoint:
       - /bin/sh
       - -c
-      - export JSON_SECRET_KEY="$${JSON_SECRET_KEY:-$$(cat /run/matgate-secrets/guac.key)}"; exec /opt/guacamole/bin/entrypoint.sh
+      - export JSON_SECRET_KEY="$$(cat /run/matgate-secrets/guac.key)"; exec /opt/guacamole/bin/entrypoint.sh
     volumes:
       - ./data:/etc/guacamole
       - matgate-secrets:/run/matgate-secrets:ro

@@ -41,7 +41,8 @@ public sealed class GuacamoleLauncher
             Environment.GetEnvironmentVariable("JSON_SECRET_KEY"),
             SecretUtil.ReadSecretFile(
                 Environment.GetEnvironmentVariable("MATGATE_GUACAMOLE_JSON_SECRET_KEY_FILE")
-                ?? _configuration["Guacamole:JsonSecretKeyFile"]));
+                ?? _configuration["Guacamole:JsonSecretKeyFile"]
+                ?? "/run/matgate-secrets/guac.key"));
 
         if (!TryReadHexKey(secret, out var key))
         {

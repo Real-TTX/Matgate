@@ -25,7 +25,8 @@ public sealed class SecretProtector
         var raw = SecretUtil.FirstNonEmpty(
             Environment.GetEnvironmentVariable("MATGATE_SECRET_KEY"),
             configuration["Matgate:SecretKey"],
-            SecretUtil.ReadSecretFile(Environment.GetEnvironmentVariable("MATGATE_SECRET_KEY_FILE")));
+            SecretUtil.ReadSecretFile(Environment.GetEnvironmentVariable("MATGATE_SECRET_KEY_FILE")
+                ?? "/run/matgate-secrets/master.key"));
 
         if (!string.IsNullOrWhiteSpace(raw))
         {

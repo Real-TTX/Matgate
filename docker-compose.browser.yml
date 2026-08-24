@@ -1,9 +1,9 @@
-# Matgate - full stack INCLUDING the browser farm (the "via Chromium / Firefox VNC" website mode).
-# Ready to use with the prebuilt images:  docker compose -f docker-compose.browser.yml up -d
-# Open http://localhost:8088  (first start shows the setup wizard).
-# The browser farm is a pool of isolated Chromium/Firefox sessions streamed over VNC; it needs no
-# host ports and no auth (internal-only). Pool size / resolution are configurable in
-# Administration -> Browser.
+# Matgate - full stack INCLUDING the browser farm ("via Chromium / Firefox VNC" websites).
+#   docker compose -f docker-compose.browser.yml up -d
+# Open http://localhost:8088 - the first start shows a setup wizard.
+#
+# Same as docker-compose.simple.yml, plus a browser-farm sidecar. Matgate still handles all its
+# keys itself; the only farm setting is the one BrowserFarm__BaseUrl line that points at the farm.
 name: matgate
 
 services:
@@ -34,20 +34,8 @@ services:
   matgate:
     image: ghcr.io/real-ttx/matgate:latest
     environment:
-      ASPNETCORE_URLS: http://+:8080
-      MATGATE_DATA_DIR: /data
-      Guacamole__PublicBasePath: /guacamole
-      Guacamole__DirectLaunch: "true"
-      MATGATE_ADMIN_USER: ${MATGATE_ADMIN_USER:-}
-      MATGATE_ADMIN_PASSWORD: ${MATGATE_ADMIN_PASSWORD:-}
-      MATGATE_ADMIN_EMAIL: ${MATGATE_ADMIN_EMAIL:-}
-      Guacamole__JsonSecretKey: ${MATGATE_GUACAMOLE_JSON_SECRET_KEY:-}
-      MATGATE_GUACAMOLE_JSON_SECRET_KEY_FILE: /run/matgate-secrets/guac.key
-      MATGATE_SECRET_KEY: ${MATGATE_SECRET_KEY:-}
-      MATGATE_SECRET_KEY_FILE: /run/matgate-secrets/master.key
-      # Point Matgate at the browser farm below.
+      # The only extra setting: turn the browser farm on by pointing Matgate at it.
       BrowserFarm__BaseUrl: http://browser-farm:8090
-      BrowserFarm__VncHost: browser-farm
     volumes:
       - ./data:/data
       - matgate-secrets:/run/matgate-secrets
@@ -62,8 +50,6 @@ services:
 
   guacd:
     image: guacamole/guacd:1.6.0
-    volumes:
-      - ./data/guac-drives:/drive
     restart: unless-stopped
 
   guacamole:
@@ -77,11 +63,10 @@ services:
       GUACD_HOSTNAME: guacd
       GUACD_PORT: "4822"
       JSON_ENABLED: "true"
-      JSON_SECRET_KEY: ${MATGATE_GUACAMOLE_JSON_SECRET_KEY:-}
     entrypoint:
       - /bin/sh
       - -c
-      - export JSON_SECRET_KEY="$${JSON_SECRET_KEY:-$$(cat /run/matgate-secrets/guac.key)}"; exec /opt/guacamole/bin/entrypoint.sh
+      - export JSON_SECRET_KEY="$$(cat /run/matgate-secrets/guac.key)"; exec /opt/guacamole/bin/entrypoint.sh
     volumes:
       - ./data:/etc/guacamole
       - matgate-secrets:/run/matgate-secrets:ro
@@ -90,9 +75,6 @@ services:
   browser-farm:
     image: ghcr.io/real-ttx/matgate-browser-farm:latest
     init: true
-    environment:
-      FARM_POOL_SIZE: ${MATGATE_BROWSER_FARM_POOL_SIZE:-10}
-      FARM_GEOMETRY: ${MATGATE_BROWSER_FARM_GEOMETRY:-1280x800x24}
     restart: unless-stopped
 
 volumes:

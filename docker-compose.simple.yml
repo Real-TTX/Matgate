@@ -1,8 +1,9 @@
 # Matgate - minimal stack (RDP / VNC / SSH / files / native websites).
-# Ready to use with the prebuilt image:  docker compose -f docker-compose.simple.yml up -d
-# Open http://localhost:8088  (first start shows the setup wizard).
-# Tip: pin your keys in a .env (see README -> "Pin your keys") so a lost volume never
-# invalidates your stored device passwords.
+#   docker compose -f docker-compose.simple.yml up -d
+# Open http://localhost:8088 - the first start shows a setup wizard.
+#
+# Matgate generates and persists its own keys (guac + at-rest) into the matgate-secrets volume;
+# the guacamole container reads the shared guac key from there. Nothing to configure by hand.
 name: matgate
 
 services:
@@ -32,20 +33,6 @@ services:
 
   matgate:
     image: ghcr.io/real-ttx/matgate:latest
-    environment:
-      ASPNETCORE_URLS: http://+:8080
-      MATGATE_DATA_DIR: /data
-      Guacamole__PublicBasePath: /guacamole
-      Guacamole__DirectLaunch: "true"
-      # Optional: seed the admin unattended (otherwise the first-run setup wizard asks).
-      MATGATE_ADMIN_USER: ${MATGATE_ADMIN_USER:-}
-      MATGATE_ADMIN_PASSWORD: ${MATGATE_ADMIN_PASSWORD:-}
-      MATGATE_ADMIN_EMAIL: ${MATGATE_ADMIN_EMAIL:-}
-      # Keys: taken from .env if set, otherwise generated into the volume on first start.
-      Guacamole__JsonSecretKey: ${MATGATE_GUACAMOLE_JSON_SECRET_KEY:-}
-      MATGATE_GUACAMOLE_JSON_SECRET_KEY_FILE: /run/matgate-secrets/guac.key
-      MATGATE_SECRET_KEY: ${MATGATE_SECRET_KEY:-}
-      MATGATE_SECRET_KEY_FILE: /run/matgate-secrets/master.key
     volumes:
       - ./data:/data
       - matgate-secrets:/run/matgate-secrets
@@ -60,8 +47,6 @@ services:
 
   guacd:
     image: guacamole/guacd:1.6.0
-    volumes:
-      - ./data/guac-drives:/drive
     restart: unless-stopped
 
   guacamole:
@@ -75,11 +60,10 @@ services:
       GUACD_HOSTNAME: guacd
       GUACD_PORT: "4822"
       JSON_ENABLED: "true"
-      JSON_SECRET_KEY: ${MATGATE_GUACAMOLE_JSON_SECRET_KEY:-}
     entrypoint:
       - /bin/sh
       - -c
-      - export JSON_SECRET_KEY="$${JSON_SECRET_KEY:-$$(cat /run/matgate-secrets/guac.key)}"; exec /opt/guacamole/bin/entrypoint.sh
+      - export JSON_SECRET_KEY="$$(cat /run/matgate-secrets/guac.key)"; exec /opt/guacamole/bin/entrypoint.sh
     volumes:
       - ./data:/etc/guacamole
       - matgate-secrets:/run/matgate-secrets:ro

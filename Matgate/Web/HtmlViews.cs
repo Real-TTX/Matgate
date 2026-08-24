@@ -10761,9 +10761,11 @@ public sealed class HtmlViews
                     .login-field { display: grid; gap: 7px; font-weight: 600; font-size: 13px; color: var(--text); }
                     .login-input-wrap { position: relative; display: flex; align-items: center; }
                     .login-input-wrap > .icon { position: absolute; left: 13px; width: 17px; height: 17px; color: var(--muted); pointer-events: none; }
-                    .login-input-wrap input {
+                    /* :not() guards match the base input rule's specificity so this padding-left wins
+                       (otherwise the icon and the typed text overlap). */
+                    .login-input-wrap input:not([type="checkbox"]):not([type="radio"]) {
                         width: 100%;
-                        padding: 12px 14px 12px 40px;
+                        padding: 12px 14px 12px 42px;
                         border: 1px solid var(--line);
                         border-radius: 11px;
                         background: var(--surface-2);
