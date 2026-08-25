@@ -692,10 +692,7 @@ public sealed class HtmlViews
         var serverCards = servers.Count == 0
             ? $"""<p class="muted">{E(T(context, "No servers yet."))}</p>"""
             : string.Join("", servers.Select(server => $$"""
-                <article class="connection-choice has-corner-settings" data-admin-card="1" data-search="{{A($"{server.Name} {ServerTargetValue(server)} {server.FolderName} {ServerProtocolLabel(server.Protocol)}".ToLowerInvariant())}}" style="--proto: {{ProtocolAccent(server.Protocol)}}">
-                    <div class="connection-choice-corner">
-                        <form method="get" action="/admin/servers/{{server.Id}}" class="favorite-toggle-form connection-choice-settings-form"><button type="submit" class="favorite-toggle connection-choice-settings-corner" title="{{A(editLabel)}}" aria-label="{{A(editLabel)}}">{{Icon("settings")}}</button></form>
-                    </div>
+                <article class="connection-choice" data-admin-card="1" data-search="{{A($"{server.Name} {ServerTargetValue(server)} {server.FolderName} {ServerProtocolLabel(server.Protocol)}".ToLowerInvariant())}}" style="--proto: {{ProtocolAccent(server.Protocol)}}">
                     <div class="connection-choice-body">
                         <div class="server-title connection-choice-title">
                             {{ServerIcon(server)}}
@@ -708,6 +705,9 @@ public sealed class HtmlViews
                                 </div>
                                 <h3>{{E(server.Name)}}</h3>
                                 <p class="target">{{E(ServerTargetValue(server))}}</p>
+                            </div>
+                            <div class="connection-choice-corner">
+                                <form method="get" action="/admin/servers/{{server.Id}}" class="favorite-toggle-form connection-choice-settings-form"><button type="submit" class="favorite-toggle connection-choice-settings-corner" title="{{A(editLabel)}}" aria-label="{{A(editLabel)}}">{{Icon("settings")}}</button></form>
                             </div>
                         </div>
                     </div>
@@ -3237,8 +3237,7 @@ public sealed class HtmlViews
             : "";
 
         return $$"""
-            <article class="connection-choice{{(canEdit ? " has-corner-settings" : "")}}" data-home2-card="1" data-fav="{{(IsFavoriteServer(user, server.Id) ? "1" : "0")}}" data-folder="{{A(FolderFilterKey(server.FolderName))}}" data-search="{{A(searchIndex)}}" style="--proto: {{ProtocolAccent(server.Protocol)}}">
-                <div class="connection-choice-corner">{{settingsCorner}}{{FavoriteToggleForm(context, user, server, returnUrl)}}</div>
+            <article class="connection-choice" data-home2-card="1" data-fav="{{(IsFavoriteServer(user, server.Id) ? "1" : "0")}}" data-folder="{{A(FolderFilterKey(server.FolderName))}}" data-search="{{A(searchIndex)}}" style="--proto: {{ProtocolAccent(server.Protocol)}}">
                 <div class="connection-choice-body">
                     <div class="server-title connection-choice-title">
                         {{ServerIcon(server)}}
@@ -3252,6 +3251,7 @@ public sealed class HtmlViews
                             <p class="target">{{E(ServerTargetValue(server))}}</p>
                             {{extraHtml}}
                         </div>
+                        <div class="connection-choice-corner">{{settingsCorner}}{{FavoriteToggleForm(context, user, server, returnUrl)}}</div>
                     </div>
                     {{(string.IsNullOrWhiteSpace(server.Notes) ? "" : $"""<p class="muted connection-choice-notes">{E(server.Notes)}</p>""")}}
                 </div>
@@ -12589,14 +12589,8 @@ public sealed class HtmlViews
                         flex-direction: column;
                         gap: 12px;
                         min-height: 190px;
-                        /* 56px right: the corner star is 40px wide at right:10px on phones. */
-                        padding: 14px 56px 14px 14px;
+                        padding: 14px;
                         position: relative;
-                    }
-                    /* Phones grow the corner buttons to 40px (touch targets): 10 + 40 + 6 + 40 = 96px
-                       cluster, so the desktop 88px reservation is too small here. */
-                    .connection-choice.has-corner-settings {
-                        padding-right: 102px;
                     }
                     .connection-choice-body {
                         display: grid;
@@ -12608,6 +12602,7 @@ public sealed class HtmlViews
                     }
                     .connection-choice-copy {
                         display: grid;
+                        flex: 1 1 auto;
                         gap: 4px;
                         min-width: 0;
                     }
@@ -12654,25 +12649,21 @@ public sealed class HtmlViews
                         height: 15px;
                         width: 15px;
                     }
-                    /* Top-right corner cluster: settings gear (left) + favourite star (right), same size. */
+                    /* Corner cluster (settings gear + favourite star) rides the first content row,
+                       flush right, so the card body uses the full width. */
                     .connection-choice-corner {
                         align-items: center;
+                        align-self: flex-start;
                         display: flex;
+                        flex: 0 0 auto;
                         gap: 6px;
-                        position: absolute;
-                        right: 10px;
-                        top: 10px;
-                        z-index: 2;
+                        margin-left: auto;
                     }
                     .connection-choice-corner .favorite-toggle-form {
                         position: static;
                         right: auto;
                         top: auto;
                         z-index: auto;
-                    }
-                    /* Reserve room on the right so the title/target never runs under both buttons. */
-                    .connection-choice.has-corner-settings {
-                        padding-right: 88px;
                     }
                     .connection-choice-actions {
                         align-items: stretch;
