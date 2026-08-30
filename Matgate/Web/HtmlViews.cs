@@ -5398,6 +5398,8 @@ public sealed class HtmlViews
                     tab.lastMessage = text;
                     tab.overlayActions.classList.toggle('hidden', !showActions);
                     tab.overlay.classList.remove('hidden');
+                    // A covering message means no keyboard should stay up over the session.
+                    closeSessionKeyboards(tab);
                     updateStatusBar();
                 }
 
@@ -5794,6 +5796,36 @@ public sealed class HtmlViews
                     window.setTimeout(updateSessionKeyboardShift, 230);
                 }
 
+                // Force both soft keyboards down. Called whenever the session gets covered by an overlay
+                // (disconnect, error, "opening", credentials submitted, ...): once the tab is terminal its
+                // toolbar keyboard buttons are gone, so a still-open device keyboard or in-app on-screen
+                // keyboard would float over the dead session with no way to dismiss it.
+                function closeSessionKeyboards(tab) {
+                    if (!tab) {
+                        return;
+                    }
+                    // Device (OS) keyboard: blurring the hidden input dismisses it and, via the input's
+                    // own blur handler, resets tab.deviceKbOpen + the toolbar highlight.
+                    if (tab.oskInput) {
+                        try { tab.oskInput.blur(); }
+                        catch { /* input already detached */ }
+                    }
+                    // In-app on-screen keyboard panel + its toolbar button highlight.
+                    if (tab.osk) {
+                        tab.osk.classList.remove('open');
+                    }
+                    if (tab.oskButton) {
+                        tab.oskButton.classList.remove('active');
+                    }
+                    // Drop any keyboard-avoidance shift so the remote view isn't left translated (the
+                    // normal shift updater bails out once the tab is terminal, so reset it directly).
+                    if (tab.displayRoot && tab.keyboardShift) {
+                        tab.displayRoot.style.transform = '';
+                        tab.keyboardShift = 0;
+                    }
+                    updateSessionKeyboardShift();
+                }
+
                 function updateTabActions() {
                     if (!connectionTabActions) {
                         updateStatusBar();
@@ -5904,6 +5936,10 @@ public sealed class HtmlViews
                                 'tab-action-keep',
                                 true);
                             oskButton.addEventListener('mousedown', event => event.preventDefault());
+                            // Reflect the current panel state and keep a handle so closeSessionKeyboards()
+                            // can clear the highlight when the session is covered by an overlay.
+                            oskButton.classList.toggle('active', !!(tab.osk && tab.osk.classList.contains('open')));
+                            tab.oskButton = oskButton;
                             connectionTabActions.appendChild(oskButton);
 
                             if (supportsResolution(tab.protocol)) {
@@ -7637,6 +7673,11 @@ public sealed class HtmlViews
                                 }
                             });
                             oskInput.addEventListener('input', () => { oskInput.value = ''; });
+                            // The first updateTabActions() ran before oskInput existed, so the device-
+                            // keyboard button was skipped. Re-render now that it exists - otherwise it only
+                            // ever appeared for protocols that trigger a later re-render (RDP/VNC via drive
+                            // redirection), never for SSH and other terminal sessions.
+                            updateTabActions();
                         }
 
                         // Keys the touch keyboard's hidden input already delivers via beforeinput
