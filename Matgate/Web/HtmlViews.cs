@@ -5657,24 +5657,66 @@ public sealed class HtmlViews
                 // In-app on-screen keyboard for touch sessions: a browser-rendered keyboard that sends
                 // X11 keysyms straight to the Guacamole client - an alternative to the device keyboard
                 // that never touches the viewport. Shift is one-shot; Ctrl/Alt are one-shot modifiers.
-                const OSK_ROWS = [
-                    [ { t: 'Esc', sym: 0xFF1B }, { t: 'Tab', sym: 0xFF09 }, { t: '←', sym: 0xFF51 }, { t: '↑', sym: 0xFF52 }, { t: '↓', sym: 0xFF54 }, { t: '→', sym: 0xFF53 }, { t: 'Entf', sym: 0xFFFF } ],
-                    [ { c: '1', s: '!' }, { c: '2', s: '"' }, { c: '3', s: '§' }, { c: '4', s: '$' }, { c: '5', s: '%' }, { c: '6', s: '&' }, { c: '7', s: '/' }, { c: '8', s: '(' }, { c: '9', s: ')' }, { c: '0', s: '=' }, { t: '⌫', sym: 0xFF08, cls: 'osk-wide' } ],
-                    [ 'q', 'w', 'e', 'r', 't', 'z', 'u', 'i', 'o', 'p', 'ü' ],
-                    [ 'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', 'ö', 'ä' ],
-                    [ { t: '⇧', mod: 'shift', cls: 'osk-wide' }, 'y', 'x', 'c', 'v', 'b', 'n', 'm', { c: ',', s: ';' }, { c: '.', s: ':' }, { t: '↵', sym: 0xFF0D, cls: 'osk-wide' } ],
-                    [ { t: 'CTRL', mod: 'ctrl' }, { t: 'Alt', mod: 'alt' }, { c: '-', s: '_' }, { t: 'Leertaste', sym: 0x20, cls: 'osk-space' }, { c: '+', s: '*' }, { html: '<svg class="icon osk-combo-icon" viewBox="0 0 46 24" aria-hidden="true"><rect x="1.5" y="6" width="12" height="12" rx="2.5"/><rect x="17" y="6" width="12" height="12" rx="2.5"/><rect x="32.5" y="6" width="12" height="12" rx="2.5"/></svg>', title: 'CTRL + Alt + Entf', combo: true, cls: 'osk-wide osk-combo' } ]
-                ];
+                //
+                // Two full layouts are offered (QWERTZ/German + QWERTY/US) with a live toggle key. The
+                // layout is purely VISUAL: every key sends the keysym of the character it is labelled with,
+                // so the remote types exactly that character regardless of the remote's own keymap. That
+                // is also why "?" simply lives on the key it belongs to per layout (Shift+ß on QWERTZ,
+                // Shift+/ on QWERTY). Special keys (Esc, Tab, arrows, Del, Strg+Alt+Entf) sit in the top
+                // function row; Enter sits at the bottom-right like a physical keyboard.
                 const oskCharToKeysym = ch => {
                     const cp = ch.codePointAt(0);
                     return cp < 0x100 ? cp : 0x01000000 + cp;
                 };
+                const OSK_COMBO_ICON = '<svg class="icon osk-combo-icon" viewBox="0 0 46 24" aria-hidden="true"><rect x="1.5" y="6" width="12" height="12" rx="2.5"/><rect x="17" y="6" width="12" height="12" rx="2.5"/><rect x="32.5" y="6" width="12" height="12" rx="2.5"/></svg>';
+                // Shared special keys (identical on both layouts).
+                const OSK_FN_ROW = [
+                    { t: 'Esc', sym: 0xFF1B }, { t: 'Tab', sym: 0xFF09 },
+                    { t: '←', sym: 0xFF51 }, { t: '↑', sym: 0xFF52 }, { t: '↓', sym: 0xFF54 }, { t: '→', sym: 0xFF53 },
+                    { t: 'Entf', sym: 0xFFFF },
+                    { html: OSK_COMBO_ICON, title: 'Strg + Alt + Entf', combo: true, cls: 'osk-combo' }
+                ];
+                const OSK_SHIFT = { t: '⇧', mod: 'shift', cls: 'osk-wide' };
+                const OSK_BSP = { t: '⌫', sym: 0xFF08, cls: 'osk-wide' };
+                const OSK_CTRL = { t: 'Strg', mod: 'ctrl' };
+                const OSK_ALT = { t: 'Alt', mod: 'alt' };
+                const OSK_LAYOUT_KEY = { toggleLayout: true, cls: 'osk-layout' };
+                const OSK_SPACE = { t: 'Leertaste', sym: 0x20, cls: 'osk-space' };
+                const OSK_ENTER = { t: '↵', sym: 0xFF0D, cls: 'osk-enter' };
+                const OSK_LAYOUTS = {
+                    de: {
+                        label: 'DE',
+                        rows: [
+                            OSK_FN_ROW,
+                            [ { c: '1', s: '!' }, { c: '2', s: '"' }, { c: '3', s: '§' }, { c: '4', s: '$' }, { c: '5', s: '%' }, { c: '6', s: '&' }, { c: '7', s: '/' }, { c: '8', s: '(' }, { c: '9', s: ')' }, { c: '0', s: '=' }, { c: 'ß', s: '?' }, OSK_BSP ],
+                            [ 'q', 'w', 'e', 'r', 't', 'z', 'u', 'i', 'o', 'p', 'ü' ],
+                            [ 'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', 'ö', 'ä' ],
+                            [ OSK_SHIFT, 'y', 'x', 'c', 'v', 'b', 'n', 'm', { c: ',', s: ';' }, { c: '.', s: ':' }, { c: '-', s: '_' } ],
+                            [ OSK_CTRL, OSK_ALT, OSK_LAYOUT_KEY, { c: '#', s: '\'' }, OSK_SPACE, { c: '+', s: '*' }, OSK_ENTER ]
+                        ]
+                    },
+                    us: {
+                        label: 'EN',
+                        rows: [
+                            OSK_FN_ROW,
+                            [ { c: '1', s: '!' }, { c: '2', s: '@' }, { c: '3', s: '#' }, { c: '4', s: '$' }, { c: '5', s: '%' }, { c: '6', s: '^' }, { c: '7', s: '&' }, { c: '8', s: '*' }, { c: '9', s: '(' }, { c: '0', s: ')' }, { c: '-', s: '_' }, OSK_BSP ],
+                            [ 'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', { c: '[', s: '{' } ],
+                            [ 'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', { c: ';', s: ':' }, { c: '\'', s: '"' } ],
+                            [ OSK_SHIFT, 'z', 'x', 'c', 'v', 'b', 'n', 'm', { c: ',', s: '<' }, { c: '.', s: '>' }, { c: '/', s: '?' } ],
+                            [ OSK_CTRL, OSK_ALT, OSK_LAYOUT_KEY, { c: '=', s: '+' }, OSK_SPACE, { c: '\\', s: '|' }, OSK_ENTER ]
+                        ]
+                    }
+                };
+                let oskLayout = (() => {
+                    try { return localStorage.getItem('matgate-osk-layout') === 'us' ? 'us' : 'de'; }
+                    catch { return 'de'; }
+                })();
 
                 function buildSessionOsk(tab) {
                     const osk = document.createElement('div');
                     osk.className = 'matgate-osk';
                     const state = { shift: false, ctrl: false, alt: false };
-                    const modButtons = {};
+                    let modButtons = {};
 
                     const applyShiftLabels = () => {
                         osk.querySelectorAll('[data-osk-cap]').forEach(el => {
@@ -5713,64 +5755,84 @@ public sealed class HtmlViews
                         syms.slice().reverse().forEach(s => tab.client.sendKeyEvent(0, s));
                     };
 
-                    OSK_ROWS.forEach(row => {
-                        const rowEl = document.createElement('div');
-                        rowEl.className = 'matgate-osk-row';
-                        row.forEach(def => {
-                            const key = typeof def === 'string' ? { c: def } : def;
-                            const btn = document.createElement('button');
-                            btn.type = 'button';
-                            btn.className = 'matgate-osk-key' + (key.cls ? ' ' + key.cls : '');
-                            if (key.c !== undefined) {
-                                const upper = key.s !== undefined ? key.s : key.c.toUpperCase();
-                                btn.setAttribute('data-osk-cap', '1');
-                                btn.setAttribute('data-osk-lower', key.c);
-                                btn.setAttribute('data-osk-upper', upper);
-                                btn.textContent = key.c;
-                            }
-                            else if (key.html !== undefined) {
-                                btn.innerHTML = key.html;
-                                if (key.title) {
-                                    btn.title = key.title;
-                                    btn.setAttribute('aria-label', key.title);
+                    const renderLayout = () => {
+                        osk.replaceChildren();
+                        modButtons = {};
+                        const layout = OSK_LAYOUTS[oskLayout] || OSK_LAYOUTS.de;
+                        layout.rows.forEach(row => {
+                            const rowEl = document.createElement('div');
+                            rowEl.className = 'matgate-osk-row';
+                            row.forEach(def => {
+                                const key = typeof def === 'string' ? { c: def } : def;
+                                const btn = document.createElement('button');
+                                btn.type = 'button';
+                                btn.className = 'matgate-osk-key' + (key.cls ? ' ' + key.cls : '');
+                                if (key.toggleLayout) {
+                                    btn.textContent = layout.label;
+                                    btn.title = 'Tastaturlayout wechseln (QWERTZ / QWERTY)';
+                                    btn.setAttribute('aria-label', btn.title);
                                 }
-                            }
-                            else {
-                                btn.textContent = key.t;
-                            }
-                            if (key.mod) {
-                                modButtons[key.mod] = btn;
-                            }
-                            btn.addEventListener('pointerdown', event => {
-                                event.preventDefault();
-                                if (key.mod) {
-                                    state[key.mod] = !state[key.mod];
-                                    if (key.mod === 'shift') {
-                                        applyShiftLabels();
+                                else if (key.c !== undefined) {
+                                    const upper = key.s !== undefined ? key.s : key.c.toUpperCase();
+                                    btn.setAttribute('data-osk-cap', '1');
+                                    btn.setAttribute('data-osk-lower', key.c);
+                                    btn.setAttribute('data-osk-upper', upper);
+                                    btn.textContent = state.shift ? upper : key.c;
+                                }
+                                else if (key.html !== undefined) {
+                                    btn.innerHTML = key.html;
+                                    if (key.title) {
+                                        btn.title = key.title;
+                                        btn.setAttribute('aria-label', key.title);
                                     }
-                                    refreshMods();
-                                    return;
                                 }
-                                if (key.combo) {
-                                    sendCombo([0xFFE3, 0xFFE9, 0xFFFF]);
-                                    return;
+                                else {
+                                    btn.textContent = key.t;
                                 }
-                                if (key.sym !== undefined) {
-                                    sendPress(key.sym);
-                                    return;
+                                if (key.mod) {
+                                    modButtons[key.mod] = btn;
                                 }
-                                const ch = state.shift ? (key.s !== undefined ? key.s : key.c.toUpperCase()) : key.c;
-                                sendPress(oskCharToKeysym(ch));
-                                if (state.shift) {
-                                    state.shift = false;
-                                    applyShiftLabels();
-                                    refreshMods();
-                                }
+                                btn.addEventListener('pointerdown', event => {
+                                    event.preventDefault();
+                                    if (key.toggleLayout) {
+                                        oskLayout = oskLayout === 'de' ? 'us' : 'de';
+                                        try { localStorage.setItem('matgate-osk-layout', oskLayout); }
+                                        catch { /* private mode: keep the choice for this session only */ }
+                                        renderLayout();
+                                        return;
+                                    }
+                                    if (key.mod) {
+                                        state[key.mod] = !state[key.mod];
+                                        if (key.mod === 'shift') {
+                                            applyShiftLabels();
+                                        }
+                                        refreshMods();
+                                        return;
+                                    }
+                                    if (key.combo) {
+                                        sendCombo([0xFFE3, 0xFFE9, 0xFFFF]);
+                                        return;
+                                    }
+                                    if (key.sym !== undefined) {
+                                        sendPress(key.sym);
+                                        return;
+                                    }
+                                    const ch = state.shift ? (key.s !== undefined ? key.s : key.c.toUpperCase()) : key.c;
+                                    sendPress(oskCharToKeysym(ch));
+                                    if (state.shift) {
+                                        state.shift = false;
+                                        applyShiftLabels();
+                                        refreshMods();
+                                    }
+                                });
+                                rowEl.appendChild(btn);
                             });
-                            rowEl.appendChild(btn);
+                            osk.appendChild(rowEl);
                         });
-                        osk.appendChild(rowEl);
-                    });
+                        refreshMods();
+                    };
+
+                    renderLayout();
                     return osk;
                 }
 
@@ -7658,21 +7720,43 @@ public sealed class HtmlViews
                                 client.sendKeyEvent(1, keysym);
                                 client.sendKeyEvent(0, keysym);
                             };
+                            // Enter and Backspace/Delete leave no character behind, so catch them here and
+                            // preventDefault so they don't disturb the (always-empty) field. Printable text
+                            // is deliberately NOT read from event.data: iOS predictive text, autocomplete and
+                            // dictation often insert via inputTypes other than a clean "insertText" (or with
+                            // event.data === null), which is why some characters silently went missing. The
+                            // 'input' handler below instead forwards whatever actually landed in the value -
+                            // reliable across every mobile browser.
                             oskInput.addEventListener('beforeinput', event => {
-                                if (event.inputType === 'insertText' && event.data) {
-                                    for (const ch of event.data) {
-                                        const cp = ch.codePointAt(0);
-                                        sendKeysym(cp < 0x100 ? cp : 0x01000000 + cp);
-                                    }
-                                }
-                                else if (event.inputType === 'insertLineBreak') {
+                                const t = event.inputType || '';
+                                if (t === 'insertLineBreak' || t === 'insertParagraph') {
+                                    event.preventDefault();
                                     sendKeysym(0xFF0D);
                                 }
-                                else if (event.inputType === 'deleteContentBackward') {
+                                else if (t === 'deleteContentForward') {
+                                    event.preventDefault();
+                                    sendKeysym(0xFFFF);
+                                }
+                                else if (t.indexOf('delete') === 0) {
+                                    event.preventDefault();
                                     sendKeysym(0xFF08);
                                 }
                             });
-                            oskInput.addEventListener('input', () => { oskInput.value = ''; });
+                            oskInput.addEventListener('input', () => {
+                                const text = oskInput.value;
+                                for (const ch of text) {
+                                    const cp = ch.codePointAt(0);
+                                    // A stray newline that slipped past beforeinput still means Enter.
+                                    if (cp === 0x0A || cp === 0x0D) {
+                                        sendKeysym(0xFF0D);
+                                    }
+                                    else {
+                                        sendKeysym(cp < 0x100 ? cp : 0x01000000 + cp);
+                                    }
+                                }
+                                // Clear so the field never accumulates and stays a stable target.
+                                oskInput.value = '';
+                            });
                             // The first updateTabActions() ran before oskInput existed, so the device-
                             // keyboard button was skipped. Re-render now that it exists - otherwise it only
                             // ever appeared for protocols that trigger a later re-render (RDP/VNC via drive
@@ -11160,6 +11244,10 @@ public sealed class HtmlViews
                     .matgate-osk-key:active .osk-combo-icon,
                     .matgate-osk-key.active .osk-combo-icon { stroke: currentColor; }
                     .matgate-osk-key.osk-space { flex: 4 1 0; }
+                    /* Enter sits bottom-right like a physical keyboard, tinted so it reads as the primary key. */
+                    .matgate-osk-key.osk-enter { flex: 2 1 0; background: color-mix(in srgb, var(--accent) 20%, var(--surface-2)); border-color: var(--accent); font-size: 18px; }
+                    /* Layout toggle (DE / EN) - compact, emphasised text. */
+                    .matgate-osk-key.osk-layout { flex: 1.2 1 0; font-size: 12px; font-weight: 700; letter-spacing: .04em; }
                     .tab-action-button .icon {
                         height: 15px;
                         width: 15px;
