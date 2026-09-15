@@ -7720,33 +7720,10 @@ public sealed class HtmlViews
                                 client.sendKeyEvent(1, keysym);
                                 client.sendKeyEvent(0, keysym);
                             };
-                            // Enter and Backspace/Delete leave no character behind, so catch them here and
-                            // preventDefault so they don't disturb the (always-empty) field. Printable text
-                            // is deliberately NOT read from event.data: iOS predictive text, autocomplete and
-                            // dictation often insert via inputTypes other than a clean "insertText" (or with
-                            // event.data === null), which is why some characters silently went missing. The
-                            // 'input' handler below instead forwards whatever actually landed in the value -
-                            // reliable across every mobile browser.
-                            oskInput.addEventListener('beforeinput', event => {
-                                const t = event.inputType || '';
-                                if (t === 'insertLineBreak' || t === 'insertParagraph') {
-                                    event.preventDefault();
-                                    sendKeysym(0xFF0D);
-                                }
-                                else if (t === 'deleteContentForward') {
-                                    event.preventDefault();
-                                    sendKeysym(0xFFFF);
-                                }
-                                else if (t.indexOf('delete') === 0) {
-                                    event.preventDefault();
-                                    sendKeysym(0xFF08);
-                                }
-                            });
-                            oskInput.addEventListener('input', () => {
-                                const text = oskInput.value;
+                            const sendText = text => {
                                 for (const ch of text) {
                                     const cp = ch.codePointAt(0);
-                                    // A stray newline that slipped past beforeinput still means Enter.
+                                    // A newline means Enter, not a literal line feed.
                                     if (cp === 0x0A || cp === 0x0D) {
                                         sendKeysym(0xFF0D);
                                     }
@@ -7754,7 +7731,50 @@ public sealed class HtmlViews
                                         sendKeysym(cp < 0x100 ? cp : 0x01000000 + cp);
                                     }
                                 }
-                                // Clear so the field never accumulates and stays a stable target.
+                            };
+                            // PRIMARY path (proven on iOS + Android): forward the character(s) straight from
+                            // beforeinput.data, plus Enter/Backspace/Delete. This is what actually reaches the
+                            // remote for normal typing - do NOT move it to the 'input' event (iOS did not fire
+                            // 'input' reliably for the hidden field, which broke device typing entirely).
+                            // 'handledHere' then tells the 'input' fallback below to stay out of the way so a
+                            // character is never sent twice.
+                            let handledHere = false;
+                            oskInput.addEventListener('beforeinput', event => {
+                                handledHere = false;
+                                const t = event.inputType || '';
+                                if (t === 'insertLineBreak' || t === 'insertParagraph') {
+                                    event.preventDefault();
+                                    sendKeysym(0xFF0D);
+                                    handledHere = true;
+                                }
+                                else if (t === 'deleteContentForward') {
+                                    event.preventDefault();
+                                    sendKeysym(0xFFFF);
+                                    handledHere = true;
+                                }
+                                else if (t.indexOf('delete') === 0) {
+                                    event.preventDefault();
+                                    sendKeysym(0xFF08);
+                                    handledHere = true;
+                                }
+                                else if (t === 'insertText' && event.data) {
+                                    // The normal keystroke case: send exactly what was typed.
+                                    sendText(event.data);
+                                    handledHere = true;
+                                }
+                                // Everything else (insertReplacementText, composition/IME, predictive text
+                                // without clean data) is left for the 'input' fallback, which reads the final
+                                // committed value - so we never send partial composition characters.
+                            });
+                            // FALLBACK: iOS predictive text / autocomplete / dictation sometimes insert without
+                            // a clean beforeinput.data. Whatever slipped through then still lands in the value -
+                            // forward it here (skipped when beforeinput already handled this edit).
+                            oskInput.addEventListener('input', () => {
+                                const text = oskInput.value;
+                                if (!handledHere && text) {
+                                    sendText(text);
+                                }
+                                handledHere = false;
                                 oskInput.value = '';
                             });
                             // The first updateTabActions() ran before oskInput existed, so the device-
