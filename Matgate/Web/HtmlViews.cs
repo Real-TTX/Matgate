@@ -1136,9 +1136,8 @@ public sealed class HtmlViews
                                 {{Toggle("edgePanning", prefs.EdgePanning, "Maus-Rand-Panning", "Mouse-edge panning", "Maus an den Fensterrand -> Ausschnitt wandert (wie auf einer Karte).", "Move the mouse to the window edge -> the view pans (like a map).")}}
                                 {{Toggle("dragPanning", prefs.DragPanning, "Ziehen mit Maustaste", "Drag to pan", "Ausschnitt mit gedrueckter mittlerer Maustaste verschieben.", "Pan the view by holding the middle mouse button.")}}
                                 {{Toggle("stretchToWindow", prefs.StretchToWindow, "Stretch auf Fenster", "Stretch to window", "Remote-Bild fuellt das ganze Fenster (kann leicht verzerren).", "Stretch the remote image to fill the window (may distort).")}}
-                                <h3 class="session-prefs-group">{{(de ? "Tastatur & Zwischenablage" : "Keyboard & clipboard")}}</h3>
-                                {{Toggle("autoClipboard", prefs.AutoClipboard, "Strg+C / Strg+V automatisch", "Auto Ctrl+C / Ctrl+V", "Zwischenablage automatisch beidseitig synchronisieren.", "Keep the clipboard in sync both ways automatically.")}}
-                                {{Toggle("systemCombos", prefs.SystemCombos, "System-Combos", "System combos", "Windows-Taste, Alt+Tab und Alt+F4 als Toolbar-Buttons.", "Windows key, Alt+Tab and Alt+F4 as toolbar buttons.")}}
+                                <h3 class="session-prefs-group">{{(de ? "Tastatur" : "Keyboard")}}</h3>
+                                {{Toggle("systemCombos", prefs.SystemCombos, "Browser-Tasten durchreichen (Vollbild)", "Pass browser keys through (fullscreen)", "Im Vollbild Windows-Taste, Alt+Tab, Alt+F4, Strg+W/T usw. an die Session statt an den Browser.", "In fullscreen, send Windows key, Alt+Tab, Alt+F4, Ctrl+W/T etc. to the session instead of the browser.")}}
                                 {{Toggle("functionKeys", prefs.FunctionKeys, "Funktionstasten F1-F12", "Function keys F1-F12", "Zusaetzliche F-Tasten-Reihe auf der Bildschirmtastatur.", "Extra F-key row on the on-screen keyboard.")}}
                                 {{Toggle("ctrlAltDelHotkey", prefs.CtrlAltDelHotkey, "Strg+Alt+Entf als Button", "Ctrl+Alt+Del button", "Zusaetzlich zur Bildschirmtastatur auch als Toolbar-Button.", "In addition to the on-screen keyboard, also as a toolbar button.")}}
                                 <div class="actions"><button type="submit" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button></div>
@@ -3742,7 +3741,7 @@ public sealed class HtmlViews
             <script>
             (() => {
                 const availableServers = {{availableServers}};
-                const sessionPrefs = Object.assign({ edgePanning: true, dragPanning: true, stretchToWindow: false, autoClipboard: true, systemCombos: true, functionKeys: false, ctrlAltDelHotkey: true }, {{sessionPrefs}});
+                const sessionPrefs = Object.assign({ edgePanning: true, dragPanning: true, stretchToWindow: false, systemCombos: true, functionKeys: false, ctrlAltDelHotkey: true }, {{sessionPrefs}});
                 const initialOpenServerId = {{initialOpenServerId}};
                 // This window was popped out of another (a tab opened in its own window). It shows a
                 // "re-attach" control instead of "pop out", and re-attach hands the session back.
@@ -7790,6 +7789,17 @@ public sealed class HtmlViews
                             }
                         };
 
+                        // Don't let the extra mouse buttons (4/5 = back/forward) navigate the browser while
+                        // in a session - that leaves the page and kills the connection. (Guacamole's mouse
+                        // protocol has no X-buttons, so they can't be forwarded to the remote; blocking the
+                        // navigation is the point.)
+                        ['mousedown', 'mouseup', 'auxclick', 'pointerdown', 'pointerup'].forEach(type =>
+                            tab.panel.addEventListener(type, event => {
+                                if (event.button === 3 || event.button === 4) {
+                                    event.preventDefault();
+                                }
+                            }, true));
+
                         // Per-user "drag to pan": hold the MIDDLE mouse button and drag to move the visible
                         // cut-out (fixed-resolution mode only). Handled on the container in the capture phase
                         // so Guacamole.Mouse never sees the middle button - it is pure local panning, never
@@ -7984,24 +7994,9 @@ public sealed class HtmlViews
                             return false;
                         };
 
-                        // Auto-clipboard local -> remote: the moment a Ctrl/Cmd combo starts (i.e. before the
-                        // V of Ctrl+V), push the current local clipboard to the remote, so the paste lands the
-                        // right text. Doing it on the modifier keydown (not on V) wins the race without having
-                        // to intercept/replay the paste keystroke. Reading the clipboard needs the one-time
-                        // browser "clipboard" permission; silently skipped if not granted (manual button stays).
-                        tab.panel.addEventListener('keydown', event => {
-                            if (sessionPrefs.autoClipboard && !event.repeat
-                                && (event.key === 'Control' || event.key === 'Meta')) {
-                                syncLocalClipboardToRemote(tab, true);
-                            }
-                        }, true);
-                        // Also refresh when the session regains focus, so a copy made in another app is ready
-                        // even before the first keypress.
-                        tab.panel.addEventListener('focus', () => {
-                            if (sessionPrefs.autoClipboard) {
-                                syncLocalClipboardToRemote(tab, false);
-                            }
-                        });
+                        // Clipboard local <-> remote is handled by the toolbar clipboard button (and the
+                        // remote's own Ctrl+C/V, whose keystrokes we forward). No automatic browser-clipboard
+                        // sync - it needs a permission prompt and a secure context and is unreliable.
 
                         // Drag & drop files onto the session to copy them into the redirected drive.
                         tab.panel.addEventListener('dragover', event => {

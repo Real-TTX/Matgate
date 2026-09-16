@@ -70,11 +70,9 @@ public sealed class SessionPreferences
     // Stretch the remote image to fill the whole window (may distort the aspect ratio).
     public bool StretchToWindow { get; set; }
 
-    // --- Keyboard / clipboard helpers ---
-    // Keep the local and remote clipboard in sync automatically so Ctrl+C / Ctrl+V just work.
-    public bool AutoClipboard { get; set; } = true;
-
-    // Offer Windows, Alt+Tab and Alt+F4 as toolbar buttons (the browser swallows these otherwise).
+    // --- Keyboard helpers ---
+    // In fullscreen, capture browser-reserved shortcuts (Windows, Alt+Tab, Alt+F4, Ctrl+W/T, Escape)
+    // via the Keyboard Lock API and send them to the session instead of the browser.
     public bool SystemCombos { get; set; } = true;
 
     // Add an F1-F12 row to the on-screen keyboard.

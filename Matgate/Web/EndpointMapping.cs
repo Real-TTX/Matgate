@@ -3203,7 +3203,6 @@ public static class EndpointMapping
             current.Session.EdgePanning = Checked(form, "edgePanning");
             current.Session.DragPanning = Checked(form, "dragPanning");
             current.Session.StretchToWindow = Checked(form, "stretchToWindow");
-            current.Session.AutoClipboard = Checked(form, "autoClipboard");
             current.Session.SystemCombos = Checked(form, "systemCombos");
             current.Session.FunctionKeys = Checked(form, "functionKeys");
             current.Session.CtrlAltDelHotkey = Checked(form, "ctrlAltDelHotkey");
