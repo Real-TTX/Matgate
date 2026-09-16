@@ -3511,6 +3511,7 @@ public sealed class HtmlViews
             resolution = Icon("monitor"),
             zoomIn = Icon("zoom-in"),
             zoomOut = Icon("zoom-out"),
+            autoResize = Icon("refresh"),
             systemKeys = Icon("command"),
             popOut = Icon("external-link"),
             reattach = Icon("arrow-left"),
@@ -6072,6 +6073,20 @@ public sealed class HtmlViews
                                 isDesktopDisplayMode(tab) ? 'active' : '',
                                 true);
                             connectionTabActions.appendChild(resolutionButton);
+
+                            // Auto-resize toggle, right next to the resolution button (fit modes on protocols
+                            // that CAN renegotiate, i.e. RDP; not VNC/farm which have a fixed remote size).
+                            // On (highlighted) = resize renegotiates the remote (sharp, RDP reconnects); off =
+                            // the image stretches to fill on resize (no reconnect).
+                            if (isFitMode(tab) && !tab.farmWebsite && !resScaleOnly) {
+                                const autoResizeButton = createTabActionButton(
+                                    actionIcons.autoResize,
+                                    `${uiText.autoResize || 'Auto-resize'}: ${tab.autoResize ? (uiText.onLabel || 'On') : (uiText.offLabel || 'Off')}`,
+                                    () => setAutoResize(!tab.autoResize),
+                                    tab.autoResize ? 'active' : '',
+                                    true);
+                                connectionTabActions.appendChild(autoResizeButton);
+                            }
 
                             if (isDesktopDisplayMode(tab)) {
                                 const zoomOutButton = createTabActionButton(
