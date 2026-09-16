@@ -3755,6 +3755,29 @@ public sealed class HtmlViews
                 // This window was popped out of another (a tab opened in its own window). It shows a
                 // "re-attach" control instead of "pop out", and re-attach hands the session back.
                 const isPoppedWindow = (() => { try { return new URL(location.href).searchParams.get('popped') === '1'; } catch (e) { return false; } })();
+                // Device-keyboard diagnostics: open a session with ?kbdebug=1 to make the hidden input
+                // visible and show a live log of the keyboard events (to debug iOS "keyboard opens but sends
+                // nothing"). Purely a diagnostic aid; no effect without the query flag.
+                const kbDebug = (() => {
+                    try {
+                        const p = new URL(location.href).searchParams.get('kbdebug');
+                        if (p === '1') { sessionStorage.setItem('matgate.kbdebug', '1'); return true; }
+                        if (p === '0') { sessionStorage.removeItem('matgate.kbdebug'); return false; }
+                        return sessionStorage.getItem('matgate.kbdebug') === '1';
+                    } catch (e) { return false; }
+                })();
+                let kbLogBox = null;
+                function kbLog(msg) {
+                    if (!kbDebug) { return; }
+                    if (!kbLogBox) {
+                        kbLogBox = document.createElement('div');
+                        kbLogBox.style.cssText = 'position:fixed;left:4px;bottom:64px;z-index:99999;max-width:78vw;max-height:42vh;overflow:auto;background:rgba(0,0,0,.88);color:#0f0;font:11px/1.35 monospace;padding:6px 8px;border-radius:6px;white-space:pre-wrap;pointer-events:none;';
+                        document.body.appendChild(kbLogBox);
+                    }
+                    const t = new Date();
+                    const stamp = String(t.getSeconds()).padStart(2, '0') + '.' + String(t.getMilliseconds()).padStart(3, '0');
+                    kbLogBox.textContent = (stamp + '  ' + msg + '\n' + kbLogBox.textContent).split('\n').slice(0, 60).join('\n');
+                }
                 const csrfToken = {{csrfToken}};
                 const uiText = {{uiText}};
                 const fileIcons = {{fileIcons}};
@@ -7923,6 +7946,13 @@ public sealed class HtmlViews
                             tab.panel.appendChild(oskInput);
                             tab.oskInput = oskInput;
                             tab.deviceKbOpen = false;
+                            if (kbDebug) {
+                                // Make the hidden capture field visible so we can see if iOS actually routes
+                                // keystrokes into it. Tap it directly OR use the keyboard button.
+                                oskInput.style.cssText = 'position:fixed;left:4px;bottom:8px;width:200px;height:44px;opacity:1;z-index:99999;border:2px solid lime;background:#111;color:#0f0;font:16px monospace;pointer-events:auto;';
+                                oskInput.setAttribute('placeholder', 'kbdebug: tap + type');
+                                kbLog('oskInput created; touch=' + isTouchDevice);
+                            }
                             // Track the soft-keyboard state from the input itself (the source of truth):
                             // the system can dismiss it (back gesture, tapping the session) without going
                             // through our button, and Android focuses a tapped <button> before its click
@@ -7930,14 +7960,17 @@ public sealed class HtmlViews
                             oskInput.addEventListener('focus', () => {
                                 tab.deviceKbOpen = true;
                                 tab.keyboardButton?.classList.add('active');
+                                kbLog('focus (activeEl=' + (document.activeElement === oskInput ? 'oskInput' : (document.activeElement && document.activeElement.tagName)) + ')');
                             });
                             oskInput.addEventListener('blur', () => {
                                 tab.deviceKbOpen = false;
                                 tab.keyboardButton?.classList.remove('active');
+                                kbLog('blur');
                             });
                             const sendKeysym = keysym => {
                                 client.sendKeyEvent(1, keysym);
                                 client.sendKeyEvent(0, keysym);
+                                kbLog('  -> sendKeysym 0x' + keysym.toString(16));
                             };
                             const sendText = text => {
                                 for (const ch of text) {
@@ -7961,6 +7994,7 @@ public sealed class HtmlViews
                             oskInput.addEventListener('beforeinput', event => {
                                 handledHere = false;
                                 const t = event.inputType || '';
+                                kbLog('beforeinput type=' + t + ' data=' + JSON.stringify(event.data));
                                 if (t === 'insertLineBreak' || t === 'insertParagraph') {
                                     event.preventDefault();
                                     sendKeysym(0xFF0D);
@@ -7988,14 +8022,19 @@ public sealed class HtmlViews
                             // FALLBACK: iOS predictive text / autocomplete / dictation sometimes insert without
                             // a clean beforeinput.data. Whatever slipped through then still lands in the value -
                             // forward it here (skipped when beforeinput already handled this edit).
-                            oskInput.addEventListener('input', () => {
+                            oskInput.addEventListener('input', event => {
                                 const text = oskInput.value;
+                                kbLog('input type=' + (event && event.inputType) + ' value=' + JSON.stringify(text) + ' handled=' + handledHere);
                                 if (!handledHere && text) {
                                     sendText(text);
                                 }
                                 handledHere = false;
                                 oskInput.value = '';
                             });
+                            if (kbDebug) {
+                                // iOS soft keyboards may also emit real keydowns - log them to see everything.
+                                oskInput.addEventListener('keydown', e => kbLog('keydown key=' + JSON.stringify(e.key) + ' code=' + e.code));
+                            }
                             // The first updateTabActions() ran before oskInput existed, so the device-
                             // keyboard button was skipped. Re-render now that it exists - otherwise it only
                             // ever appeared for protocols that trigger a later re-render (RDP/VNC via drive
