@@ -1054,11 +1054,19 @@ public sealed class HtmlViews
                 </tr>
                 """));
         var tab = context.Request.Query["tab"].ToString().ToLowerInvariant();
-        if (tab is not ("security" or "favorites"))
+        if (tab is not ("security" or "favorites" or "session"))
         {
             tab = "profile";
         }
         var de = Language(context) == "de";
+        var prefs = user.Session;
+        string Toggle(string name, bool on, string titleDe, string titleEn, string descDe, string descEn) => $$"""
+            <label class="toggle-row">
+                <input type="checkbox" name="{{name}}"{{(on ? " checked" : "")}}>
+                <span class="toggle-switch" aria-hidden="true"></span>
+                <span class="toggle-copy"><strong>{{E(de ? titleDe : titleEn)}}</strong><small>{{E(de ? descDe : descEn)}}</small></span>
+            </label>
+            """;
         var body = $$"""
             <section class="page-head">
                 <div>
@@ -1070,6 +1078,7 @@ public sealed class HtmlViews
                 <div class="tab-strip" role="tablist">
                     <a class="tab-button{{(tab == "profile" ? " active" : "")}}" href="?tab=profile" data-tab-target="profile" role="tab" aria-selected="{{(tab == "profile" ? "true" : "false")}}">{{Icon("user")}}<span>{{(de ? "Profil" : "Profile")}}</span></a>
                     <a class="tab-button{{(tab == "security" ? " active" : "")}}" href="?tab=security" data-tab-target="security" role="tab" aria-selected="{{(tab == "security" ? "true" : "false")}}">{{Icon("key")}}<span>{{(de ? "Sicherheit" : "Security")}}</span></a>
+                    <a class="tab-button{{(tab == "session" ? " active" : "")}}" href="?tab=session" data-tab-target="session" role="tab" aria-selected="{{(tab == "session" ? "true" : "false")}}">{{Icon("monitor")}}<span>{{(de ? "Sitzung" : "Session")}}</span></a>
                     <a class="tab-button{{(tab == "favorites" ? " active" : "")}}" href="?tab=favorites" data-tab-target="favorites" role="tab" aria-selected="{{(tab == "favorites" ? "true" : "false")}}">{{Icon("star")}}<span>{{(de ? "Favoriten" : "Favorites")}}</span></a>
                 </div>
                 <div class="tab-panels">
@@ -1114,6 +1123,25 @@ public sealed class HtmlViews
                                     <input type="password" name="confirmPassword" autocomplete="new-password" minlength="8" required>
                                 </label>
                                 <div class="actions"><button type="submit" class="primary">{{Icon("key")}}{{(de ? "Passwort aendern" : "Change password")}}</button></div>
+                            </form>
+                        </section>
+                    </div>
+                    <div class="tab-panel{{(tab == "session" ? "" : " hidden")}}" data-tab-panel="session">
+                        <section class="panel">
+                            <h2>{{(de ? "Sitzungs-Einstellungen" : "Session settings")}}</h2>
+                            <p class="muted">{{(de ? "Gelten fuer alle deine Remote-Sitzungen (RDP/VNC/SSH), auf jedem Geraet." : "Apply to all your remote sessions (RDP/VNC/SSH), on every device.")}}</p>
+                            <form method="post" action="/account/session" class="session-prefs">
+                                {{Csrf(context)}}
+                                <h3 class="session-prefs-group">{{(de ? "Anzeige (bei fester Aufloesung)" : "Display (in fixed-resolution mode)")}}</h3>
+                                {{Toggle("edgePanning", prefs.EdgePanning, "Maus-Rand-Panning", "Mouse-edge panning", "Maus an den Fensterrand -> Ausschnitt wandert (wie auf einer Karte).", "Move the mouse to the window edge -> the view pans (like a map).")}}
+                                {{Toggle("dragPanning", prefs.DragPanning, "Ziehen mit Maustaste", "Drag to pan", "Ausschnitt mit gedrueckter mittlerer Maustaste verschieben.", "Pan the view by holding the middle mouse button.")}}
+                                {{Toggle("stretchToWindow", prefs.StretchToWindow, "Stretch auf Fenster", "Stretch to window", "Remote-Bild fuellt das ganze Fenster (kann leicht verzerren).", "Stretch the remote image to fill the window (may distort).")}}
+                                <h3 class="session-prefs-group">{{(de ? "Tastatur & Zwischenablage" : "Keyboard & clipboard")}}</h3>
+                                {{Toggle("autoClipboard", prefs.AutoClipboard, "Strg+C / Strg+V automatisch", "Auto Ctrl+C / Ctrl+V", "Zwischenablage automatisch beidseitig synchronisieren.", "Keep the clipboard in sync both ways automatically.")}}
+                                {{Toggle("systemCombos", prefs.SystemCombos, "System-Combos", "System combos", "Windows-Taste, Alt+Tab und Alt+F4 als Toolbar-Buttons.", "Windows key, Alt+Tab and Alt+F4 as toolbar buttons.")}}
+                                {{Toggle("functionKeys", prefs.FunctionKeys, "Funktionstasten F1-F12", "Function keys F1-F12", "Zusaetzliche F-Tasten-Reihe auf der Bildschirmtastatur.", "Extra F-key row on the on-screen keyboard.")}}
+                                {{Toggle("ctrlAltDelHotkey", prefs.CtrlAltDelHotkey, "Strg+Alt+Entf als Button", "Ctrl+Alt+Del button", "Zusaetzlich zur Bildschirmtastatur auch als Toolbar-Button.", "In addition to the on-screen keyboard, also as a toolbar button.")}}
+                                <div class="actions"><button type="submit" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button></div>
                             </form>
                         </section>
                     </div>
@@ -3448,6 +3476,7 @@ public sealed class HtmlViews
             new JsonSerializerOptions(JsonSerializerDefaults.Web));
         var initialOpenServerId = JsonSerializer.Serialize(openServerId?.ToString() ?? "");
         var csrfToken = JsonSerializer.Serialize(context.User.FindFirstValue("csrf") ?? "");
+        var sessionPrefs = JsonSerializer.Serialize(user.Session, new JsonSerializerOptions(JsonSerializerDefaults.Web));
         var version = ApplicationVersion();
         var aboutTitle = $"MATGATE {version}";
         var fileIcons = JsonSerializer.Serialize(new
@@ -3483,6 +3512,7 @@ public sealed class HtmlViews
             resolution = Icon("monitor"),
             zoomIn = Icon("zoom-in"),
             zoomOut = Icon("zoom-out"),
+            systemKeys = Icon("command"),
             popOut = Icon("external-link"),
             reattach = Icon("arrow-left"),
             disconnect = Icon("logout")
@@ -3525,6 +3555,9 @@ public sealed class HtmlViews
             showKeyboard = Language(context) == "de" ? "Geraetetastatur ein-/ausblenden" : "Show/hide device keyboard",
             onScreenKeyboard = Language(context) == "de" ? "Bildschirmtastatur ein-/ausblenden" : "Show/hide on-screen keyboard",
             moreActions = Language(context) == "de" ? "Weitere Aktionen" : "More actions",
+            specialKeys = Language(context) == "de" ? "Sondertasten" : "Special keys",
+            comboCtrlAltDel = "Strg+Alt+Entf",
+            comboWin = Language(context) == "de" ? "Windows-Taste" : "Windows key",
             resolutionLabel = Language(context) == "de" ? "Aufloesung" : "Resolution",
             resolutionFitShort = Language(context) == "de" ? "Anpassen" : "Fit",
             zoomInLabel = Language(context) == "de" ? "Vergroessern" : "Zoom in",
@@ -3709,6 +3742,7 @@ public sealed class HtmlViews
             <script>
             (() => {
                 const availableServers = {{availableServers}};
+                const sessionPrefs = Object.assign({ edgePanning: true, dragPanning: true, stretchToWindow: false, autoClipboard: true, systemCombos: true, functionKeys: false, ctrlAltDelHotkey: true }, {{sessionPrefs}});
                 const initialOpenServerId = {{initialOpenServerId}};
                 // This window was popped out of another (a tab opened in its own window). It shows a
                 // "re-attach" control instead of "pop out", and re-attach hands the session back.
@@ -5707,6 +5741,14 @@ public sealed class HtmlViews
                         ]
                     }
                 };
+                // Optional F1-F12 row (per-user toggle), prepended to whichever layout is active.
+                const OSK_FKEY_ROW = (() => {
+                    const row = [];
+                    for (let i = 1; i <= 12; i++) {
+                        row.push({ t: 'F' + i, sym: 0xFFBD + i, cls: 'osk-fkey' });
+                    }
+                    return row;
+                })();
                 let oskLayout = (() => {
                     try { return localStorage.getItem('matgate-osk-layout') === 'us' ? 'us' : 'de'; }
                     catch { return 'de'; }
@@ -5759,7 +5801,8 @@ public sealed class HtmlViews
                         osk.replaceChildren();
                         modButtons = {};
                         const layout = OSK_LAYOUTS[oskLayout] || OSK_LAYOUTS.de;
-                        layout.rows.forEach(row => {
+                        const rows = sessionPrefs.functionKeys ? [OSK_FKEY_ROW, ...layout.rows] : layout.rows;
+                        rows.forEach(row => {
                             const rowEl = document.createElement('div');
                             rowEl.className = 'matgate-osk-row';
                             row.forEach(def => {
@@ -6003,35 +6046,38 @@ public sealed class HtmlViews
                             oskButton.classList.toggle('active', !!(tab.osk && tab.osk.classList.contains('open')));
                             tab.oskButton = oskButton;
                             connectionTabActions.appendChild(oskButton);
+                        }
 
-                            if (supportsResolution(tab.protocol)) {
-                                const resScaleOnly = isScaleOnlyTab(tab);
-                                const resLabelWord = resScaleOnly ? (uiText.scaleLabel || 'Scale') : (uiText.resolutionLabel || 'Resolution');
-                                const resolutionButton = createTabActionButton(
-                                    actionIcons.resolution,
-                                    `${resLabelWord}: ${resolutionOptionLabel(tab.displayRes, resScaleOnly)}`,
-                                    () => openResolutionDialog(),
-                                    isDesktopDisplayMode(tab) ? 'active' : '',
+                        // Resolution / scale picker (+ zoom in fixed mode): on ALL devices, not just touch,
+                        // so the fixed-resolution desktop mode and the per-user panning/stretch behaviours
+                        // are reachable with a mouse too.
+                        if (tab.client && !tab.terminal && supportsResolution(tab.protocol)) {
+                            const resScaleOnly = isScaleOnlyTab(tab);
+                            const resLabelWord = resScaleOnly ? (uiText.scaleLabel || 'Scale') : (uiText.resolutionLabel || 'Resolution');
+                            const resolutionButton = createTabActionButton(
+                                actionIcons.resolution,
+                                `${resLabelWord}: ${resolutionOptionLabel(tab.displayRes, resScaleOnly)}`,
+                                () => openResolutionDialog(),
+                                isDesktopDisplayMode(tab) ? 'active' : '',
+                                true);
+                            connectionTabActions.appendChild(resolutionButton);
+
+                            if (isDesktopDisplayMode(tab)) {
+                                const zoomOutButton = createTabActionButton(
+                                    actionIcons.zoomOut,
+                                    uiText.zoomOutLabel || 'Zoom out',
+                                    () => adjustZoom(-0.25),
+                                    '',
                                     true);
-                                connectionTabActions.appendChild(resolutionButton);
+                                connectionTabActions.appendChild(zoomOutButton);
 
-                                if (isDesktopDisplayMode(tab)) {
-                                    const zoomOutButton = createTabActionButton(
-                                        actionIcons.zoomOut,
-                                        uiText.zoomOutLabel || 'Zoom out',
-                                        () => adjustZoom(-0.25),
-                                        '',
-                                        true);
-                                    connectionTabActions.appendChild(zoomOutButton);
-
-                                    const zoomInButton = createTabActionButton(
-                                        actionIcons.zoomIn,
-                                        uiText.zoomInLabel || 'Zoom in',
-                                        () => adjustZoom(0.25),
-                                        '',
-                                        true);
-                                    connectionTabActions.appendChild(zoomInButton);
-                                }
+                                const zoomInButton = createTabActionButton(
+                                    actionIcons.zoomIn,
+                                    uiText.zoomInLabel || 'Zoom in',
+                                    () => adjustZoom(0.25),
+                                    '',
+                                    true);
+                                connectionTabActions.appendChild(zoomInButton);
                             }
                         }
 
@@ -6071,6 +6117,43 @@ public sealed class HtmlViews
                                 '',
                                 true);
                             connectionTabActions.appendChild(clipboardButton);
+                        }
+
+                        // Per-user "special keys": one toolbar button opening a small menu of chords the
+                        // browser would otherwise swallow (Ctrl+Alt+Del, Windows, Alt+Tab, Alt+F4). Desktop
+                        // protocols only; available on desktop AND touch (unlike the on-screen keyboard).
+                        const combos = enabledSessionCombos(tab);
+                        if (combos.length) {
+                            const sysButton = createTabActionButton(
+                                actionIcons.systemKeys,
+                                uiText.specialKeys || 'Special keys',
+                                () => {},
+                                '',
+                                true);
+                            const panel = document.createElement('div');
+                            panel.className = 'tab-action-more-panel tab-action-overflow-panel special-keys-panel';
+                            combos.forEach(combo => {
+                                const item = document.createElement('button');
+                                item.type = 'button';
+                                item.className = 'tab-action-button tab-action-menu-item';
+                                const span = document.createElement('span');
+                                span.textContent = combo.label();
+                                item.appendChild(span);
+                                item.addEventListener('click', () => {
+                                    sendSessionCombo(tab, combo.syms);
+                                    panel.style.display = 'none';
+                                });
+                                panel.appendChild(item);
+                            });
+                            sysButton.addEventListener('click', () => {
+                                if (panel.style.display === 'flex') {
+                                    panel.style.display = 'none';
+                                }
+                                else {
+                                    showOverflowPanel(sysButton, panel);
+                                }
+                            });
+                            connectionTabActions.appendChild(sysButton);
                         }
 
                         if (tab.filesystem && !tab.terminal) {
@@ -7233,6 +7316,30 @@ public sealed class HtmlViews
                         return;
                     }
 
+                    // Per-user "stretch to window": in fixed-resolution mode, fill the whole panel with the
+                    // remote (X and Y scaled independently, may distort) instead of the 1:1 pannable desktop.
+                    // Auto-fit already matches the viewport, and farm VNC re-renders at the viewport size, so
+                    // neither needs stretching.
+                    const stretch = sessionPrefs.stretchToWindow && isDesktopDisplayMode(tab) && !tab.farmWebsite;
+                    if (stretch) {
+                        const rect = tab.panel.getBoundingClientRect();
+                        display.scale(1);
+                        if (tab.displayScaler) {
+                            tab.displayScaler.style.width = '';
+                            tab.displayScaler.style.height = '';
+                            tab.displayScaler.style.transformOrigin = 'top left';
+                            tab.displayScaler.style.transform = `scale(${rect.width / width}, ${rect.height / height})`;
+                        }
+                        tab.displayRoot.classList.remove('scrollable');
+                        tab.displayRoot.classList.add('display-stretch');
+                        return;
+                    }
+                    tab.displayRoot.classList.remove('display-stretch');
+                    tab.displayRoot.classList.toggle('scrollable', isDesktopDisplayMode(tab));
+                    if (tab.displayScaler) {
+                        tab.displayScaler.style.transformOrigin = '';
+                    }
+
                     if (isDesktopDisplayMode(tab)) {
                         const scale = Math.max(0.25, tab.zoom || 1);
                         display.scale(scale);
@@ -7657,7 +7764,54 @@ public sealed class HtmlViews
                         mouse.onmousedown = mouse.onmouseup = mouse.onmousemove = state => {
                             tab.lastPointer = { x: state.x, y: state.y };
                             client.sendMouseState(state, true);
+                            // Per-user "mouse-edge panning": in the fixed-resolution desktop mode, nudge the
+                            // scroll so the cursor never hides behind the window edge - move to the edge and
+                            // the visible cut-out follows, like panning a map.
+                            if (sessionPrefs.edgePanning) {
+                                edgeScrollToCursor(tab, state.x, state.y);
+                            }
                         };
+
+                        // Per-user "drag to pan": hold the MIDDLE mouse button and drag to move the visible
+                        // cut-out (fixed-resolution mode only). Handled on the container in the capture phase
+                        // so Guacamole.Mouse never sees the middle button - it is pure local panning, never
+                        // forwarded to the remote. Uses physical clientX/Y deltas (not remote coords, which
+                        // would feed back as the container scrolls).
+                        (() => {
+                            let panning = null;
+                            const root = tab.displayRoot;
+                            const canPan = () => sessionPrefs.dragPanning && isDesktopDisplayMode(tab);
+                            root.addEventListener('mousedown', event => {
+                                if (event.button !== 1 || !canPan()) {
+                                    return;
+                                }
+                                event.preventDefault();
+                                event.stopPropagation();
+                                panning = { x: event.clientX, y: event.clientY, sl: root.scrollLeft, st: root.scrollTop };
+                                root.classList.add('panning');
+                            }, true);
+                            window.addEventListener('mousemove', event => {
+                                if (!panning) {
+                                    return;
+                                }
+                                event.preventDefault();
+                                event.stopPropagation();
+                                root.scrollLeft = panning.sl - (event.clientX - panning.x);
+                                root.scrollTop = panning.st - (event.clientY - panning.y);
+                            }, true);
+                            const endPan = event => {
+                                if (!panning) {
+                                    return;
+                                }
+                                if (event && event.button !== undefined && event.button !== 1) {
+                                    return;
+                                }
+                                panning = null;
+                                root.classList.remove('panning');
+                            };
+                            window.addEventListener('mouseup', endPan, true);
+                            window.addEventListener('blur', () => endPan());
+                        })();
 
                         // Two touch pointer emulators; only the active mode forwards. "touchpad" = relative
                         // (swipe moves the cursor like a laptop trackpad), "direct" = absolute (tap positions).
@@ -7812,14 +7966,26 @@ public sealed class HtmlViews
                             return false;
                         };
 
-                        // Push the local clipboard to the remote only on an explicit paste (Ctrl/Cmd+V).
-                        // Never sync on plain clicks, otherwise copying inside the session (Ctrl+C) gets
-                        // clobbered by the stale local clipboard on the next click.
+                        // Auto-clipboard (per-user): push the local clipboard to the remote right before an
+                        // explicit paste (Ctrl/Cmd+V), so paste inside the session just works. Never on plain
+                        // clicks, otherwise copying inside the session (Ctrl+C) gets clobbered by the stale
+                        // local clipboard on the next click. (Ctrl+C the other way already syncs via
+                        // client.onclipboard.) Disabled when the user turns auto-clipboard off - the manual
+                        // clipboard button still works.
                         tab.panel.addEventListener('keydown', event => {
-                            if ((event.ctrlKey || event.metaKey) && !event.altKey && (event.key === 'v' || event.key === 'V')) {
+                            if (sessionPrefs.autoClipboard
+                                && (event.ctrlKey || event.metaKey) && !event.altKey
+                                && (event.key === 'v' || event.key === 'V')) {
                                 syncLocalClipboardToRemote(tab, true);
                             }
                         }, true);
+                        // Also refresh the remote clipboard when the session regains focus, so a copy made
+                        // in another app is ready to paste without first re-focusing an input.
+                        tab.panel.addEventListener('focus', () => {
+                            if (sessionPrefs.autoClipboard) {
+                                syncLocalClipboardToRemote(tab, false);
+                            }
+                        });
 
                         // Drag & drop files onto the session to copy them into the redirected drive.
                         tab.panel.addEventListener('dragover', event => {
@@ -9254,6 +9420,39 @@ public sealed class HtmlViews
                     else if (sy - container.scrollTop > container.clientHeight - margin) {
                         container.scrollTop = sy - container.clientHeight + margin;
                     }
+                }
+
+                // Send a chord (e.g. Ctrl+Alt+Del, Alt+F4): press every keysym in order, then release in
+                // reverse. Used by the toolbar "special keys" and the OSK combo key.
+                function sendSessionCombo(tab, syms) {
+                    if (!tab || !tab.client || !Array.isArray(syms)) {
+                        return;
+                    }
+                    syms.forEach(s => tab.client.sendKeyEvent(1, s));
+                    syms.slice().reverse().forEach(s => tab.client.sendKeyEvent(0, s));
+                }
+
+                // Keysyms for the special-key chords offered on desktop (RDP/VNC) sessions.
+                const SESSION_COMBOS = {
+                    ctrlAltDel: { syms: [0xFFE3, 0xFFE9, 0xFFFF], label: () => uiText.comboCtrlAltDel || 'Ctrl+Alt+Del' },
+                    win: { syms: [0xFFEB], label: () => uiText.comboWin || 'Windows' },
+                    altTab: { syms: [0xFFE9, 0xFF09], label: () => 'Alt+Tab' },
+                    altF4: { syms: [0xFFE9, 0xFFC1], label: () => 'Alt+F4' }
+                };
+                // Build the ordered list of chords enabled for this user + session (desktop protocols only).
+                function enabledSessionCombos(tab) {
+                    const out = [];
+                    const proto = (tab && tab.protocol || '').toUpperCase();
+                    if (proto === 'SSH' || tab.websiteUi || tab.terminal || !tab.client) {
+                        return out;
+                    }
+                    if (sessionPrefs.ctrlAltDelHotkey) {
+                        out.push(SESSION_COMBOS.ctrlAltDel);
+                    }
+                    if (sessionPrefs.systemCombos) {
+                        out.push(SESSION_COMBOS.win, SESSION_COMBOS.altTab, SESSION_COMBOS.altF4);
+                    }
+                    return out;
                 }
 
                 function uploadFilesToSession(tab, files) {
@@ -10750,6 +10949,19 @@ public sealed class HtmlViews
                     .split { justify-content: space-between; }
                     .stack { display: grid; gap: 14px; }
                     .form-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); align-items: end; }
+                    /* Session-preferences toggle list (Account -> Session). */
+                    .session-prefs { display: grid; gap: 10px; max-width: 620px; }
+                    .session-prefs-group { margin: 12px 0 2px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+                    .session-prefs-group:first-of-type { margin-top: 0; }
+                    .toggle-row { display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: start; font-weight: 500; cursor: pointer; padding: 6px 0; }
+                    .toggle-row > input { display: none; }
+                    .toggle-switch { position: relative; width: 40px; height: 24px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--line); transition: background .15s ease, border-color .15s ease; margin-top: 1px; flex: 0 0 auto; }
+                    .toggle-switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: var(--muted); transition: transform .15s ease, background .15s ease; }
+                    .toggle-row > input:checked + .toggle-switch { background: color-mix(in srgb, var(--accent) 30%, transparent); border-color: var(--accent); }
+                    .toggle-row > input:checked + .toggle-switch::after { transform: translateX(16px); background: var(--accent); }
+                    .toggle-copy { display: grid; gap: 2px; min-width: 0; }
+                    .toggle-copy strong { font-weight: 650; }
+                    .toggle-copy small { color: var(--muted); font-weight: 400; }
                     label { display: grid; gap: 6px; font-weight: 600; }
                     .check {
                         align-items: center;
@@ -11268,6 +11480,8 @@ public sealed class HtmlViews
                     .matgate-osk-key.osk-enter { flex: 2 1 0; background: color-mix(in srgb, var(--accent) 20%, var(--surface-2)); border-color: var(--accent); font-size: 18px; }
                     /* Layout toggle (DE / EN) - compact, emphasised text. */
                     .matgate-osk-key.osk-layout { flex: 1.2 1 0; font-size: 12px; font-weight: 700; letter-spacing: .04em; }
+                    /* F1-F12 row (optional): 12 narrow keys, smaller label. */
+                    .matgate-osk-key.osk-fkey { font-size: 12px; }
                     .tab-action-button .icon {
                         height: 15px;
                         width: 15px;
@@ -12905,6 +13119,10 @@ public sealed class HtmlViews
                         -webkit-overflow-scrolling: touch;
                     }
                     .guac-display.scrollable .guac-scaler > div { transform-origin: top left; }
+                    /* Middle-button drag panning: show a grab cursor while dragging. */
+                    .guac-display.panning { cursor: grabbing; }
+                    /* Stretch-to-window: anchor the scaler top-left so the non-uniform scale fills the panel. */
+                    .guac-display.display-stretch { align-items: flex-start; justify-content: flex-start; overflow: hidden; }
                     /* Immersive session mode: hide chrome for maximum screen space (works on iOS too). */
                     html.session-immersive header { display: none; }
                     html.session-immersive #session-tabs { display: none; }
@@ -15420,6 +15638,7 @@ public sealed class HtmlViews
             "pointer" => """<path d="m4 3 7 17 2.2-6.8L20 11z"/>""",
             "keyboard" => """<rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/>""",
             "monitor" => """<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>""",
+            "command" => """<path d="M15 6a3 3 0 1 1 3 3h-3zm0 0v12m0-6h3a3 3 0 1 1-3 3zm-6 0H6a3 3 0 1 0 3 3zm0 0V6a3 3 0 1 0-3 3h3zm0 0h6"/>""",
             "zoom-in" => """<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M11 8v6M8 11h6"/>""",
             "zoom-out" => """<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6"/>""",
             "globe" => """<circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15 15 0 0 1 0 20"/><path d="M12 2a15 15 0 0 0 0 20"/>""",

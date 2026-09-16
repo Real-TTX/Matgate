@@ -336,6 +336,7 @@ public static class EndpointMapping
         app.MapGet("/account", AccountAsync).RequireAuthorization();
         app.MapGet("/about", AboutAsync).RequireAuthorization();
         app.MapPost("/account", UpdateAccountAsync).RequireAuthorization();
+        app.MapPost("/account/session", UpdateSessionPreferencesAsync).RequireAuthorization();
         app.MapPost("/account/password", ChangeOwnPasswordAsync).RequireAuthorization();
         app.MapPost("/account/favorites/{id:guid}/toggle", ToggleFavoriteServerAsync).RequireAuthorization();
         app.MapPost("/api/tools/ping", ToolsPingAsync).RequireAuthorization();
@@ -3168,6 +3169,48 @@ public static class EndpointMapping
         }
 
         return Results.Redirect(EmbedAwareRedirect(context, "/account"));
+    }
+
+    private static async Task<IResult> UpdateSessionPreferencesAsync(
+        HttpContext context,
+        JsonDataStore store,
+        HtmlViews views)
+    {
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            return Results.Redirect("/login");
+        }
+
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        if (!ValidateCsrf(context, form))
+        {
+            return BadRequest(context, user, views);
+        }
+
+        // Unchecked HTML checkboxes are simply absent from the form post.
+        static bool Checked(IFormCollection f, string name) =>
+            f[name].ToString() is "on" or "true" or "1";
+
+        await store.UpdateUsersAsync(users =>
+        {
+            var current = users.FirstOrDefault(candidate => candidate.Id == user.Id);
+            if (current is null)
+            {
+                return;
+            }
+
+            current.Session.EdgePanning = Checked(form, "edgePanning");
+            current.Session.DragPanning = Checked(form, "dragPanning");
+            current.Session.StretchToWindow = Checked(form, "stretchToWindow");
+            current.Session.AutoClipboard = Checked(form, "autoClipboard");
+            current.Session.SystemCombos = Checked(form, "systemCombos");
+            current.Session.FunctionKeys = Checked(form, "functionKeys");
+            current.Session.CtrlAltDelHotkey = Checked(form, "ctrlAltDelHotkey");
+            current.UpdatedAt = DateTimeOffset.UtcNow;
+        }, context.RequestAborted);
+
+        return Results.Redirect(EmbedAwareRedirect(context, "/account?tab=session"));
     }
 
     private static async Task<IResult> ChangeOwnPasswordAsync(

@@ -34,6 +34,10 @@ public sealed class MatgateUser
 
     public bool RememberLoginByDefault { get; set; } = true;
 
+    // Per-user session behaviour (display + keyboard helpers), applied to every remote session the
+    // user opens, on any device. Configured under Account -> Session.
+    public SessionPreferences Session { get; set; } = new();
+
     public bool IsEnabled { get; set; } = true;
 
     public List<Guid> FavoriteServerIds { get; set; } = [];
@@ -50,6 +54,34 @@ public sealed class MatgateUser
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
+}
+
+// Per-user remote-session behaviour. All independent on/off switches with sensible defaults; the
+// session UI reads these at load and enables the matching controls/behaviours.
+public sealed class SessionPreferences
+{
+    // --- Display (only relevant in the fixed-resolution "desktop" display mode) ---
+    // Move the visible cut-out when the mouse reaches the window edge (map-style panning).
+    public bool EdgePanning { get; set; } = true;
+
+    // Pan the cut-out by holding the middle mouse button and dragging.
+    public bool DragPanning { get; set; } = true;
+
+    // Stretch the remote image to fill the whole window (may distort the aspect ratio).
+    public bool StretchToWindow { get; set; }
+
+    // --- Keyboard / clipboard helpers ---
+    // Keep the local and remote clipboard in sync automatically so Ctrl+C / Ctrl+V just work.
+    public bool AutoClipboard { get; set; } = true;
+
+    // Offer Windows, Alt+Tab and Alt+F4 as toolbar buttons (the browser swallows these otherwise).
+    public bool SystemCombos { get; set; } = true;
+
+    // Add an F1-F12 row to the on-screen keyboard.
+    public bool FunctionKeys { get; set; }
+
+    // Offer Ctrl+Alt+Del as a toolbar button (in addition to the on-screen keyboard key).
+    public bool CtrlAltDelHotkey { get; set; } = true;
 }
 
 // One entry in a user's recently-used connection history.
