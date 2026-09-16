@@ -7917,7 +7917,8 @@ public sealed class HtmlViews
                             oskInput.setAttribute('autocomplete', 'off');
                             oskInput.setAttribute('autocorrect', 'off');
                             oskInput.setAttribute('spellcheck', 'false');
-                            oskInput.setAttribute('aria-hidden', 'true');
+                            // NOTE: deliberately NOT aria-hidden - on iOS an aria-hidden focused editable can
+                            // stop receiving keystrokes. It is hidden visually (opacity:0, 1x1) instead.
                             oskInput.tabIndex = -1;
                             tab.panel.appendChild(oskInput);
                             tab.oskInput = oskInput;
@@ -11541,6 +11542,13 @@ public sealed class HtmlViews
                         top: 0;
                         width: 1px;
                         z-index: -1;
+                        /* CRITICAL for iOS: the session panel sets user-select:none to stop selecting the
+                           remote view, but a <textarea> that inherits it OPENS the keyboard yet accepts NO
+                           typed characters on iOS Safari. Force text selection back on for this field.
+                           font-size:16px also stops iOS from zooming the page when the field is focused. */
+                        -webkit-user-select: text;
+                        user-select: text;
+                        font-size: 16px;
                     }
                     /* In-app on-screen keyboard (touch sessions), slides up over the session bottom. */
                     .matgate-osk {
