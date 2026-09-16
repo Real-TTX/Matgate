@@ -5540,7 +5540,9 @@ public sealed class HtmlViews
                             return;
                         }
 
-                        if (isFullscreenActive()) {
+                        // Only grab the OS shortcuts when the user wants system combos passed through
+                        // (Windows, Alt+Tab, Alt+F4, Escape, Ctrl+W...). Off -> those stay with the local OS.
+                        if (isFullscreenActive() && sessionPrefs.systemCombos) {
                             navigator.keyboard.lock();
                         }
                         else if (typeof navigator.keyboard.unlock === 'function') {
@@ -5560,6 +5562,7 @@ public sealed class HtmlViews
                     }
                     scheduleResize();
                 });
+
 
                 // --- Immersive toolbar reveal -----------------------------------------------------
                 // In immersive/fullscreen the toolbar slides out of the way so the session fills the
@@ -6119,41 +6122,19 @@ public sealed class HtmlViews
                             connectionTabActions.appendChild(clipboardButton);
                         }
 
-                        // Per-user "special keys": one toolbar button opening a small menu of chords the
-                        // browser would otherwise swallow (Ctrl+Alt+Del, Windows, Alt+Tab, Alt+F4). Desktop
-                        // protocols only; available on desktop AND touch (unlike the on-screen keyboard).
-                        const combos = enabledSessionCombos(tab);
-                        if (combos.length) {
-                            const sysButton = createTabActionButton(
+                        // Ctrl+Alt+Del button: the Windows secure-attention sequence cannot be forwarded by
+                        // any browser (the OS grabs it first), so it needs an explicit control. The other
+                        // system combos (Windows, Alt+Tab, Alt+F4) are instead passed through automatically
+                        // in fullscreen via the Keyboard Lock API (see applyKeyboardLock) - no button needed.
+                        if (sessionPrefs.ctrlAltDelHotkey && tab.client && !tab.terminal
+                            && !tab.websiteUi && (tab.protocol || '').toUpperCase() !== 'SSH') {
+                            const cadButton = createTabActionButton(
                                 actionIcons.systemKeys,
-                                uiText.specialKeys || 'Special keys',
-                                () => {},
+                                uiText.comboCtrlAltDel || 'Ctrl+Alt+Del',
+                                () => sendSessionCombo(tab, [0xFFE3, 0xFFE9, 0xFFFF]),
                                 '',
                                 true);
-                            const panel = document.createElement('div');
-                            panel.className = 'tab-action-more-panel tab-action-overflow-panel special-keys-panel';
-                            combos.forEach(combo => {
-                                const item = document.createElement('button');
-                                item.type = 'button';
-                                item.className = 'tab-action-button tab-action-menu-item';
-                                const span = document.createElement('span');
-                                span.textContent = combo.label();
-                                item.appendChild(span);
-                                item.addEventListener('click', () => {
-                                    sendSessionCombo(tab, combo.syms);
-                                    panel.style.display = 'none';
-                                });
-                                panel.appendChild(item);
-                            });
-                            sysButton.addEventListener('click', () => {
-                                if (panel.style.display === 'flex') {
-                                    panel.style.display = 'none';
-                                }
-                                else {
-                                    showOverflowPanel(sysButton, panel);
-                                }
-                            });
-                            connectionTabActions.appendChild(sysButton);
+                            connectionTabActions.appendChild(cadButton);
                         }
 
                         if (tab.filesystem && !tab.terminal) {
@@ -7760,15 +7741,52 @@ public sealed class HtmlViews
                             }
                         };
 
-                        const mouse = new Guacamole.Mouse(display.getElement());
+                        const displayEl = display.getElement();
+                        // Track the latest raw mouse event so we can map it to a remote coordinate ourselves.
+                        let lastRawMouse = null;
+                        ['mousemove', 'mousedown', 'mouseup'].forEach(type =>
+                            displayEl.addEventListener(type, event => { lastRawMouse = event; }, true));
+                        // Remote pixel under the cursor, derived straight from the rendered geometry. This is
+                        // correct under scroll, zoom AND non-uniform stretch - unlike the built-in
+                        // display-scale mapping, which assumes a single uniform scale and desynced the cursor
+                        // in the fixed-resolution / stretch modes.
+                        const remoteMouseCoords = () => {
+                            if (!lastRawMouse) {
+                                return null;
+                            }
+                            const rect = displayEl.getBoundingClientRect();
+                            const w = display.getWidth();
+                            const h = display.getHeight();
+                            if (!rect.width || !rect.height || !w || !h) {
+                                return null;
+                            }
+                            return {
+                                x: Math.round((lastRawMouse.clientX - rect.left) * (w / rect.width)),
+                                y: Math.round((lastRawMouse.clientY - rect.top) * (h / rect.height))
+                            };
+                        };
+                        const mouse = new Guacamole.Mouse(displayEl);
                         mouse.onmousedown = mouse.onmouseup = mouse.onmousemove = state => {
-                            tab.lastPointer = { x: state.x, y: state.y };
-                            client.sendMouseState(state, true);
-                            // Per-user "mouse-edge panning": in the fixed-resolution desktop mode, nudge the
-                            // scroll so the cursor never hides behind the window edge - move to the edge and
-                            // the visible cut-out follows, like panning a map.
-                            if (sessionPrefs.edgePanning) {
-                                edgeScrollToCursor(tab, state.x, state.y);
+                            if (isDesktopDisplayMode(tab)) {
+                                // Fixed-resolution / stretch: send the geometry-derived remote coordinate
+                                // verbatim (no auto display-scale), so the remote cursor tracks the browser
+                                // cursor exactly.
+                                const rc = remoteMouseCoords();
+                                if (rc) {
+                                    state.x = rc.x;
+                                    state.y = rc.y;
+                                }
+                                tab.lastPointer = { x: state.x, y: state.y };
+                                client.sendMouseState(state, false);
+                                // Mouse-edge panning: move the mouse to the window edge and the visible
+                                // cut-out follows, like panning a map.
+                                if (sessionPrefs.edgePanning) {
+                                    edgeScrollToCursor(tab, state.x, state.y);
+                                }
+                            }
+                            else {
+                                tab.lastPointer = { x: state.x, y: state.y };
+                                client.sendMouseState(state, true);
                             }
                         };
 
@@ -7966,21 +7984,19 @@ public sealed class HtmlViews
                             return false;
                         };
 
-                        // Auto-clipboard (per-user): push the local clipboard to the remote right before an
-                        // explicit paste (Ctrl/Cmd+V), so paste inside the session just works. Never on plain
-                        // clicks, otherwise copying inside the session (Ctrl+C) gets clobbered by the stale
-                        // local clipboard on the next click. (Ctrl+C the other way already syncs via
-                        // client.onclipboard.) Disabled when the user turns auto-clipboard off - the manual
-                        // clipboard button still works.
+                        // Auto-clipboard local -> remote: the moment a Ctrl/Cmd combo starts (i.e. before the
+                        // V of Ctrl+V), push the current local clipboard to the remote, so the paste lands the
+                        // right text. Doing it on the modifier keydown (not on V) wins the race without having
+                        // to intercept/replay the paste keystroke. Reading the clipboard needs the one-time
+                        // browser "clipboard" permission; silently skipped if not granted (manual button stays).
                         tab.panel.addEventListener('keydown', event => {
-                            if (sessionPrefs.autoClipboard
-                                && (event.ctrlKey || event.metaKey) && !event.altKey
-                                && (event.key === 'v' || event.key === 'V')) {
+                            if (sessionPrefs.autoClipboard && !event.repeat
+                                && (event.key === 'Control' || event.key === 'Meta')) {
                                 syncLocalClipboardToRemote(tab, true);
                             }
                         }, true);
-                        // Also refresh the remote clipboard when the session regains focus, so a copy made
-                        // in another app is ready to paste without first re-focusing an input.
+                        // Also refresh when the session regains focus, so a copy made in another app is ready
+                        // even before the first keypress.
                         tab.panel.addEventListener('focus', () => {
                             if (sessionPrefs.autoClipboard) {
                                 syncLocalClipboardToRemote(tab, false);
@@ -9430,29 +9446,6 @@ public sealed class HtmlViews
                     }
                     syms.forEach(s => tab.client.sendKeyEvent(1, s));
                     syms.slice().reverse().forEach(s => tab.client.sendKeyEvent(0, s));
-                }
-
-                // Keysyms for the special-key chords offered on desktop (RDP/VNC) sessions.
-                const SESSION_COMBOS = {
-                    ctrlAltDel: { syms: [0xFFE3, 0xFFE9, 0xFFFF], label: () => uiText.comboCtrlAltDel || 'Ctrl+Alt+Del' },
-                    win: { syms: [0xFFEB], label: () => uiText.comboWin || 'Windows' },
-                    altTab: { syms: [0xFFE9, 0xFF09], label: () => 'Alt+Tab' },
-                    altF4: { syms: [0xFFE9, 0xFFC1], label: () => 'Alt+F4' }
-                };
-                // Build the ordered list of chords enabled for this user + session (desktop protocols only).
-                function enabledSessionCombos(tab) {
-                    const out = [];
-                    const proto = (tab && tab.protocol || '').toUpperCase();
-                    if (proto === 'SSH' || tab.websiteUi || tab.terminal || !tab.client) {
-                        return out;
-                    }
-                    if (sessionPrefs.ctrlAltDelHotkey) {
-                        out.push(SESSION_COMBOS.ctrlAltDel);
-                    }
-                    if (sessionPrefs.systemCombos) {
-                        out.push(SESSION_COMBOS.win, SESSION_COMBOS.altTab, SESSION_COMBOS.altF4);
-                    }
-                    return out;
                 }
 
                 function uploadFilesToSession(tab, files) {
