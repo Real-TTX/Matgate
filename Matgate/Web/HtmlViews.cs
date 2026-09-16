@@ -3559,6 +3559,13 @@ public sealed class HtmlViews
             comboWin = Language(context) == "de" ? "Windows-Taste" : "Windows key",
             resolutionLabel = Language(context) == "de" ? "Aufloesung" : "Resolution",
             resolutionFitShort = Language(context) == "de" ? "Anpassen" : "Fit",
+            autoResize = Language(context) == "de" ? "Auto-Groesse" : "Auto-resize",
+            autoResizeHint = Language(context) == "de"
+                ? "An: Groesse aendern passt die Gegenstelle an (scharf, RDP verbindet neu). Aus: das Bild wird gestreckt (kein Neuverbinden)."
+                : "On: resizing renegotiates the remote (sharp, RDP reconnects). Off: the image stretches to fill (no reconnect).",
+            fitNow = Language(context) == "de" ? "Jetzt anpassen" : "Fit now",
+            onLabel = Language(context) == "de" ? "An" : "On",
+            offLabel = Language(context) == "de" ? "Aus" : "Off",
             zoomInLabel = Language(context) == "de" ? "Vergroessern" : "Zoom in",
             zoomOutLabel = Language(context) == "de" ? "Verkleinern" : "Zoom out",
             disconnect = T(context, "Disconnect"),
@@ -3710,6 +3717,7 @@ public sealed class HtmlViews
                 <div id="resolution-dialog" class="credential-dialog resolution-dialog hidden">
                     <h2>{{(Language(context) == "de" ? "Aufloesung" : "Resolution")}}</h2>
                     <div id="resolution-options" class="resolution-options"></div>
+                    <div id="resolution-extra" class="resolution-extra"></div>
                     <div class="actions">
                         <button id="resolution-close" type="button">{{T(context, "Close")}}</button>
                     </div>
@@ -3776,6 +3784,7 @@ public sealed class HtmlViews
                 const statusResolution = document.getElementById('status-resolution');
                 const resolutionDialog = document.getElementById('resolution-dialog');
                 const resolutionOptions = document.getElementById('resolution-options');
+                const resolutionExtra = document.getElementById('resolution-extra');
                 const resolutionClose = document.getElementById('resolution-close');
                 const shellPagePanels = document.getElementById('shell-page-panels');
                 const tabs = new Map();
@@ -6597,6 +6606,7 @@ public sealed class HtmlViews
                         encryptedData: '',
                         remoteClipboard: '',
                         displayRes: resolutionForServer(server.id, server.protocol),
+                        autoResize: autoResizeForServer(server.id),
                         zoom: 1,
                         websiteUi: null,
                         currentUrl: '',
@@ -7296,11 +7306,14 @@ public sealed class HtmlViews
                         return;
                     }
 
-                    // Per-user "stretch to window": in fixed-resolution mode, fill the whole panel with the
-                    // remote (X and Y scaled independently, may distort) instead of the 1:1 pannable desktop.
-                    // Auto-fit already matches the viewport, and farm VNC re-renders at the viewport size, so
-                    // neither needs stretching.
-                    const stretch = sessionPrefs.stretchToWindow && isDesktopDisplayMode(tab) && !tab.farmWebsite;
+                    // Stretch the framebuffer to fill the whole panel (X and Y scaled independently, may
+                    // distort). Two cases: (1) the per-user "stretch to window" pref in fixed-resolution mode,
+                    // and (2) a fit mode with auto-resize turned off - then a window resize must scale the
+                    // existing framebuffer instead of renegotiating the remote. Farm VNC re-renders at the
+                    // viewport size, so it never stretches.
+                    const stretch = !tab.farmWebsite && (
+                        (sessionPrefs.stretchToWindow && isDesktopDisplayMode(tab))
+                        || (isFitMode(tab) && !tab.autoResize));
                     if (stretch) {
                         const rect = tab.panel.getBoundingClientRect();
                         display.scale(1);
@@ -7352,8 +7365,16 @@ public sealed class HtmlViews
                     applyPinchTransform(tab);
                 }
 
-                function sendDisplaySize(tab) {
+                function sendDisplaySize(tab, force) {
                     if (!tab || !tab.client) {
+                        return;
+                    }
+
+                    // Auto-resize off (fit modes): don't renegotiate the remote on window resize - keep the
+                    // framebuffer and just stretch it to fill (no reconnect). "Fit Now" / re-enabling passes
+                    // force=true to renegotiate once.
+                    if (!force && isFitMode(tab) && !tab.autoResize && !tab.farmWebsite) {
+                        fitDisplay(tab);
                         return;
                     }
 
@@ -7766,26 +7787,26 @@ public sealed class HtmlViews
                         };
                         const mouse = new Guacamole.Mouse(displayEl);
                         mouse.onmousedown = mouse.onmouseup = mouse.onmousemove = state => {
-                            if (isDesktopDisplayMode(tab)) {
-                                // Fixed-resolution / stretch: send the geometry-derived remote coordinate
-                                // verbatim (no auto display-scale), so the remote cursor tracks the browser
-                                // cursor exactly.
-                                const rc = remoteMouseCoords();
-                                if (rc) {
-                                    state.x = rc.x;
-                                    state.y = rc.y;
-                                }
+                            // Always map the cursor from the live rendered geometry and send it verbatim (no
+                            // auto display-scale). This is correct in every mode - fit, fixed-resolution,
+                            // stretch, zoom - because it reads the actual on-screen size; the built-in
+                            // uniform display-scale desynced the cursor once scroll/stretch was involved.
+                            const rc = remoteMouseCoords();
+                            if (rc) {
+                                state.x = rc.x;
+                                state.y = rc.y;
                                 tab.lastPointer = { x: state.x, y: state.y };
                                 client.sendMouseState(state, false);
-                                // Mouse-edge panning: move the mouse to the window edge and the visible
-                                // cut-out follows, like panning a map.
-                                if (sessionPrefs.edgePanning) {
-                                    edgeScrollToCursor(tab, state.x, state.y);
-                                }
                             }
                             else {
+                                // No raw event yet (rare) - fall back to Guacamole's own scaling.
                                 tab.lastPointer = { x: state.x, y: state.y };
                                 client.sendMouseState(state, true);
+                            }
+                            // Mouse-edge panning (fixed-resolution mode): move to the window edge and the
+                            // visible cut-out follows, like panning a map.
+                            if (sessionPrefs.edgePanning) {
+                                edgeScrollToCursor(tab, state.x, state.y);
                             }
                         };
 
@@ -9318,6 +9339,62 @@ public sealed class HtmlViews
                     // Only a fixed WxH is the pannable "desktop" mode; 'fit'/'fit75'/'fit50' are fit modes.
                     return !!(tab && tab.displayRes && tab.displayRes.indexOf('x') > 0);
                 }
+                function isFitMode(tab) {
+                    return !!(tab && !isDesktopDisplayMode(tab));
+                }
+                // Per-server "auto-resize" (default on): whether resizing the window renegotiates the remote
+                // resolution (a clean 1:1 render, but RDP reconnects/flickers) or just stretches the current
+                // framebuffer to fill (instant, no reconnect). Only meaningful in fit modes.
+                const autoResizeStorageKey = 'matgate.autoresize.v1';
+                function loadAutoResizeMap() {
+                    try { return JSON.parse(localStorage.getItem(autoResizeStorageKey) || '{}') || {}; }
+                    catch { return {}; }
+                }
+                function autoResizeForServer(serverId) {
+                    const v = loadAutoResizeMap()[serverId];
+                    return v === undefined ? true : !!v;
+                }
+                function saveAutoResizeForServer(serverId, on) {
+                    try {
+                        const map = loadAutoResizeMap();
+                        map[serverId] = !!on;
+                        localStorage.setItem(autoResizeStorageKey, JSON.stringify(map));
+                    }
+                    catch {
+                        // Ignore storage failures.
+                    }
+                }
+                function setAutoResize(on) {
+                    const tab = tabs.get(activeTabId);
+                    if (!tab) {
+                        return;
+                    }
+                    tab.autoResize = !!on;
+                    saveAutoResizeForServer(tab.serverId, tab.autoResize);
+                    if (tab.autoResize) {
+                        // Turning it back on: snap the remote to the current window right away.
+                        sendDisplaySize(tab, true);
+                    }
+                    else {
+                        fitDisplay(tab);
+                    }
+                    updateTabActions();
+                }
+                // One-off "Fit Now": renegotiate the remote to the current window size, regardless of the
+                // auto-resize setting (a sharp render at the current size).
+                function fitNow() {
+                    const tab = tabs.get(activeTabId);
+                    if (!tab || !tab.client || tab.terminal) {
+                        return;
+                    }
+                    if (tab.farmWebsite) {
+                        setOverlay(tab, ui('opening'), `${tab.name} ${uiText.isOpening || 'is opening'}.`, false);
+                        releaseBrowserFarm(tab);
+                        restartTab(tab);
+                        return;
+                    }
+                    sendDisplaySize(tab, true);
+                }
                 function fitScaleFor(res) {
                     if (res === 'fit75') return 0.75;
                     if (res === 'fit50') return 0.5;
@@ -9394,6 +9471,33 @@ public sealed class HtmlViews
                             closeResolutionDialog();
                         });
                         resolutionOptions.appendChild(option);
+                    }
+                    // Auto-resize toggle + one-off "Fit Now" (fit modes only, and not farm VNC which always
+                    // re-renders at the viewport size).
+                    if (resolutionExtra) {
+                        resolutionExtra.replaceChildren();
+                        if (!tab.farmWebsite) {
+                            const toggle = document.createElement('button');
+                            toggle.type = 'button';
+                            toggle.className = 'resolution-toggle' + (tab.autoResize ? ' active' : '');
+                            toggle.innerHTML = `<span>${uiText.autoResize || 'Auto-resize'}</span><span class="resolution-toggle-state">${tab.autoResize ? (uiText.onLabel || 'On') : (uiText.offLabel || 'Off')}</span>`;
+                            toggle.title = uiText.autoResizeHint || 'On: resize renegotiates the remote (sharp, RDP reconnects). Off: the image stretches to fill (no reconnect).';
+                            toggle.addEventListener('click', () => {
+                                setAutoResize(!tab.autoResize);
+                                openResolutionDialog();
+                            });
+                            resolutionExtra.appendChild(toggle);
+
+                            const fit = document.createElement('button');
+                            fit.type = 'button';
+                            fit.className = 'resolution-fit-now';
+                            fit.textContent = uiText.fitNow || 'Fit now';
+                            fit.addEventListener('click', () => {
+                                fitNow();
+                                closeResolutionDialog();
+                            });
+                            resolutionExtra.appendChild(fit);
+                        }
                     }
                     resolutionDialog.classList.remove('hidden');
                 }
@@ -11393,6 +11497,13 @@ public sealed class HtmlViews
                         border-color: var(--accent);
                         color: var(--accent);
                     }
+                    /* Auto-resize toggle + "Fit now" row under the resolution presets. */
+                    .resolution-extra { display: grid; gap: 8px; margin: 0 0 16px; padding-top: 12px; border-top: 1px solid var(--line); }
+                    .resolution-toggle { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; }
+                    .resolution-toggle.active { border-color: var(--accent); }
+                    .resolution-toggle-state { font-weight: 700; font-size: 12px; color: var(--muted); }
+                    .resolution-toggle.active .resolution-toggle-state { color: var(--accent); }
+                    .resolution-fit-now { width: 100%; justify-content: center; }
                     .status-resolution {
                         color: var(--muted);
                         flex: 0 0 auto;
