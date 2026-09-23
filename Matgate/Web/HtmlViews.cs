@@ -7981,11 +7981,13 @@ public sealed class HtmlViews
                                 kbLog('blur');
                             });
                             const sendKeysym = keysym => {
+                                // Skip only if the NATIVE keydown path just sent this exact key (same physical
+                                // keystroke). We do NOT mark here - otherwise two legitimately-repeated
+                                // characters from dictation (e.g. the double letter in a word) would de-dupe.
                                 if (keysymRecentlySent(keysym)) {
                                     kbLog('  (bridge skip dup 0x' + keysym.toString(16) + ')');
                                     return;
                                 }
-                                markKeysymSent(keysym);
                                 client.sendKeyEvent(1, keysym);
                                 client.sendKeyEvent(0, keysym);
                                 kbLog('  -> sendKeysym 0x' + keysym.toString(16));
@@ -8002,53 +8004,35 @@ public sealed class HtmlViews
                                     }
                                 }
                             };
-                            // PRIMARY path (proven on iOS + Android): forward the character(s) straight from
-                            // beforeinput.data, plus Enter/Backspace/Delete. This is what actually reaches the
-                            // remote for normal typing - do NOT move it to the 'input' event (iOS did not fire
-                            // 'input' reliably for the hidden field, which broke device typing entirely).
-                            // 'handledHere' then tells the 'input' fallback below to stay out of the way so a
-                            // character is never sent twice.
-                            let handledHere = false;
-                            oskInput.addEventListener('beforeinput', event => {
-                                handledHere = false;
-                                const t = event.inputType || '';
-                                kbLog('beforeinput type=' + t + ' data=' + JSON.stringify(event.data));
-                                if (t === 'insertLineBreak' || t === 'insertParagraph') {
-                                    event.preventDefault();
-                                    sendKeysym(0xFF0D);
-                                    handledHere = true;
-                                }
-                                else if (t === 'deleteContentForward') {
-                                    event.preventDefault();
-                                    sendKeysym(0xFFFF);
-                                    handledHere = true;
-                                }
-                                else if (t.indexOf('delete') === 0) {
-                                    event.preventDefault();
-                                    sendKeysym(0xFF08);
-                                    handledHere = true;
-                                }
-                                else if (t === 'insertText' && event.data) {
-                                    // The normal keystroke case: send exactly what was typed.
-                                    sendText(event.data);
-                                    handledHere = true;
-                                }
-                                // Everything else (insertReplacementText, composition/IME, predictive text
-                                // without clean data) is left for the 'input' fallback, which reads the final
-                                // committed value - so we never send partial composition characters.
-                            });
-                            // FALLBACK: iOS predictive text / autocomplete / dictation sometimes insert without
-                            // a clean beforeinput.data. Whatever slipped through then still lands in the value -
-                            // forward it here (skipped when beforeinput already handled this edit).
+                            // The hidden field mirrors what has been sent to the remote; on every change we
+                            // forward only the DIFF (backspaces for removed chars, then the newly added chars).
+                            // This is what makes dictation work: iOS inserts interim results and then REFINES
+                            // them ("ght's" -> "geht's") in place - sending the whole value each time (the old
+                            // behaviour) duplicated everything ("ght'sgeht's"). Normal typing already arrives
+                            // via the native keydown path (Guacamole.Keyboard) and is de-duped in sendKeysym,
+                            // so the diff for it sends nothing. NOTE: we never preventDefault and never clear
+                            // mid-session (clearing made iOS re-insert the whole transcription); the field is
+                            // reset only on blur.
+                            let lastVal = '';
                             oskInput.addEventListener('input', event => {
-                                const text = oskInput.value;
-                                kbLog('input type=' + (event && event.inputType) + ' value=' + JSON.stringify(text) + ' handled=' + handledHere);
-                                if (!handledHere && text) {
-                                    sendText(text);
+                                const cur = oskInput.value;
+                                kbLog('input type=' + (event && event.inputType) + ' value=' + JSON.stringify(cur));
+                                let p = 0;
+                                const min = Math.min(lastVal.length, cur.length);
+                                while (p < min && lastVal.charCodeAt(p) === cur.charCodeAt(p)) {
+                                    p++;
                                 }
-                                handledHere = false;
-                                oskInput.value = '';
+                                for (let i = lastVal.length - p; i > 0; i--) {
+                                    sendKeysym(0xFF08); // Backspace for each removed character
+                                }
+                                if (cur.length > p) {
+                                    sendText(cur.slice(p));
+                                }
+                                lastVal = cur;
                             });
+                            // Reset the mirror when the keyboard is dismissed, so the field never grows
+                            // unbounded and the next session starts clean.
+                            oskInput.addEventListener('blur', () => { lastVal = ''; oskInput.value = ''; });
                             if (kbDebug) {
                                 // iOS soft keyboards may also emit real keydowns - log them to see everything.
                                 oskInput.addEventListener('keydown', e => kbLog('keydown key=' + JSON.stringify(e.key) + ' code=' + e.code));
