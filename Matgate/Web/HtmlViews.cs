@@ -7931,6 +7931,19 @@ public sealed class HtmlViews
                         // Two-finger pinch to zoom / pan the remote view (touch devices only).
                         setupPinchZoom(tab);
 
+                        // Shared de-dupe between the two keyboard paths. Soft keyboards differ: some fire a
+                        // real keydown (Guacamole.Keyboard forwards it) AND a beforeinput/input for the same
+                        // character (the hidden-input bridge), some fire only ONE of them (iOS here fired only
+                        // keydown; older Android only beforeinput with keyCode 229). Whichever path emits a
+                        // keysym records it; the other path skips it if it was just emitted, so every key is
+                        // delivered exactly once regardless of which events the device produces.
+                        const nativeSent = Object.create(null);
+                        const markKeysymSent = keysym => { nativeSent[keysym] = Date.now(); };
+                        const keysymRecentlySent = keysym => {
+                            const at = nativeSent[keysym];
+                            return at !== undefined && (Date.now() - at) < 250;
+                        };
+
                         // Hidden input to raise the device's native keyboard on touch devices and forward
                         // typed characters to the remote as key events (reliable across mobile browsers).
                         if (isTouchDevice) {
@@ -7968,6 +7981,11 @@ public sealed class HtmlViews
                                 kbLog('blur');
                             });
                             const sendKeysym = keysym => {
+                                if (keysymRecentlySent(keysym)) {
+                                    kbLog('  (bridge skip dup 0x' + keysym.toString(16) + ')');
+                                    return;
+                                }
+                                markKeysymSent(keysym);
                                 client.sendKeyEvent(1, keysym);
                                 client.sendKeyEvent(0, keysym);
                                 kbLog('  -> sendKeysym 0x' + keysym.toString(16));
@@ -8042,30 +8060,20 @@ public sealed class HtmlViews
                             updateTabActions();
                         }
 
-                        // Keys the touch keyboard's hidden input already delivers via beforeinput
-                        // (printable characters + Enter + Backspace). While that input is focused we must
-                        // NOT also forward the Guacamole.Keyboard event for them - Android emits real
-                        // keydowns too, which would double every typed character. Arrows / Tab / modifiers
-                        // are NOT bridged, so they still go through Guacamole.Keyboard.
-                        const isBridgedKeysym = keysym =>
-                            (keysym >= 0x20 && keysym <= 0xFF)
-                            || keysym >= 0x01000000
-                            || keysym === 0xFF0D
-                            || keysym === 0xFF08;
-                        const oskActive = () => tab.oskInput && document.activeElement === tab.oskInput;
-
+                        // Native key path: Guacamole.Keyboard forwards real keydowns/keyups (this is what
+                        // works on iOS, and it also handles modifiers/combos properly). It records each
+                        // keysym so the hidden-input bridge de-dupes it (keydown fires before beforeinput, so
+                        // the native path always marks first when both fire). No blanket "skip while the
+                        // hidden input is focused" - that used to swallow every key on devices (iOS) that fire
+                        // keydown but NOT beforeinput.
                         tab.keyboard = new Guacamole.Keyboard(tab.panel);
                         tab.keyboard.onkeydown = keysym => {
-                            if (oskActive() && isBridgedKeysym(keysym)) {
-                                return false;
-                            }
+                            markKeysymSent(keysym);
                             client.sendKeyEvent(1, keysym);
+                            kbLog('native keydown -> 0x' + keysym.toString(16));
                             return false;
                         };
                         tab.keyboard.onkeyup = keysym => {
-                            if (oskActive() && isBridgedKeysym(keysym)) {
-                                return false;
-                            }
                             client.sendKeyEvent(0, keysym);
                             return false;
                         };
