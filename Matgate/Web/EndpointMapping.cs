@@ -263,6 +263,15 @@ public static class EndpointMapping
         });
         app.MapGet("/api/ping", () => Results.Ok(new { serverTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() }))
             .RequireAuthorization();
+        // Temporary keyboard-diagnostics sink: the ?kbdebug=1 client posts each keyboard event here so it
+        // lands in the server log (docker logs) - lets us see exactly what a real device fires. Remove later.
+        app.MapPost("/api/kbdebug", async (HttpContext context) =>
+        {
+            using var reader = new StreamReader(context.Request.Body);
+            var body = await reader.ReadToEndAsync(context.RequestAborted);
+            Console.WriteLine("[KBDEBUG] " + body.Replace('\n', ' ').Replace('\r', ' '));
+            return Results.Ok();
+        }).RequireAuthorization();
         app.MapGet("/language/{language}", SetLanguage);
 
         app.MapGet("/login", (HttpContext context, HtmlViews views) =>

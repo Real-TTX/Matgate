@@ -3777,6 +3777,8 @@ public sealed class HtmlViews
                     const t = new Date();
                     const stamp = String(t.getSeconds()).padStart(2, '0') + '.' + String(t.getMilliseconds()).padStart(3, '0');
                     kbLogBox.textContent = (stamp + '  ' + msg + '\n' + kbLogBox.textContent).split('\n').slice(0, 60).join('\n');
+                    // Also ship it to the server log so it can be read without copying off the phone.
+                    try { fetch('/api/kbdebug', { method: 'POST', body: stamp + '  ' + msg, keepalive: true }).catch(() => {}); } catch (e) {}
                 }
                 const csrfToken = {{csrfToken}};
                 const uiText = {{uiText}};
