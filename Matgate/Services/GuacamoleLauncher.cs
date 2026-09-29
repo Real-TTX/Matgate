@@ -112,12 +112,7 @@ public sealed class GuacamoleLauncher
             parameters["enable-drive"] = "true";
             parameters["drive-name"] = "Matgate";
             parameters["create-drive-path"] = "true";
-            parameters["drive-path"] = $"/drive/{server.Id:N}";
-
-            // guacd runs as a non-root user and usually cannot create the folder itself: the bind
-            // mount arrives owned by root, and without a mount /drive can't be created at all. So
-            // matgate (which sees the same folder under its data directory) creates it up front.
-            EnsureDriveDirectory(server);
+            parameters["drive-path"] = PrepareDrivePath(server);
         }
         else if (server.Protocol == ServerProtocol.Vnc)
         {
@@ -149,31 +144,111 @@ public sealed class GuacamoleLauncher
         return JsonSerializer.Serialize(payload, new JsonSerializerOptions(JsonSerializerDefaults.Web));
     }
 
-    // Creates the per-server drive folder that guacd redirects into the RDP session, and makes it
-    // writable for guacd's own user. matgate reaches it through its data directory, guacd through
-    // the /drive mount (see the guacd volume in the compose files).
-    private void EnsureDriveDirectory(ServerEndpoint server)
+    // Decides where guacd keeps the folder it redirects into the RDP session as the "Matgate" drive.
+    //
+    // Two modes, so file transfer works with and without extra setup:
+    //
+    //  * Shared folder (what the shipped compose files do): guacd gets ./data/guac-drives mounted as
+    //    /drive and MATGATE_GUAC_DRIVE_PATH=/drive. Transferred files then live on the host, survive
+    //    restarts and are part of a normal backup. guacd runs as uid 1000 and cannot create anything
+    //    inside that root-owned mount itself, so matgate - which sees the same folder under its data
+    //    directory - creates the per-connection folder up front and makes it writable for guacd.
+    //
+    //  * Scratch folder (default, no configuration, no volume): a folder directly under /tmp inside
+    //    the guacd container, which is world-writable, so guacd can create it on its own. Deliberately
+    //    ONE level deep - guacd's create-drive-path is a single non-recursive mkdir(), so a nested
+    //    path would fail with ENOENT the moment the parent is missing. Nothing on the host has to be
+    //    prepared; the files live in the guacd container's writable layer, so they outlive a restart
+    //    and are discarded when that container is recreated (image update, compose down/up).
+    // Also prepares whatever the chosen mode needs, and says which mode it picked: when a transfer
+    // silently does nothing, guacd only ever logs a single line about it, so the gateway log is the
+    // one place where "where did my files go" can be answered.
+    private string PrepareDrivePath(ServerEndpoint server)
+    {
+        var id = server.Id.ToString("N");
+        var shared = SecretUtil.FirstNonEmpty(
+            Environment.GetEnvironmentVariable("MATGATE_GUAC_DRIVE_PATH"),
+            _configuration["Guacamole:DrivePath"])?.Trim();
+
+        // Only an absolute path can work - guacd prepends it verbatim and would otherwise write
+        // relative to its working directory. Treat "off", "false" and friends as "not configured".
+        if (!string.IsNullOrEmpty(shared) && !shared.StartsWith('/'))
+        {
+            _logger.LogWarning(
+                "Ignoring MATGATE_GUAC_DRIVE_PATH '{Value}': it has to be an absolute path inside the "
+                + "guacd container, such as /drive. Falling back to the scratch folder.",
+                shared);
+            shared = null;
+        }
+
+        if (string.IsNullOrEmpty(shared))
+        {
+            WarnAboutAbandonedSharedDrive();
+            _logger.LogInformation(
+                "RDP drive for {Server}: scratch folder inside the guacd container. Set "
+                + "MATGATE_GUAC_DRIVE_PATH (and mount the matching folder into guacd) to keep "
+                + "transferred files on the host instead.",
+                server.Name);
+            return $"/tmp/matgate-drive-{id}";
+        }
+
+        var path = $"{shared.TrimEnd('/')}/{id}";
+        EnsureSharedDriveDirectory(server);
+        _logger.LogInformation(
+            "RDP drive for {Server}: shared folder {Path} in guacd, {HostPath} here. If transfers do "
+            + "nothing, guacd most likely has no volume mounted at that path.",
+            server.Name,
+            path,
+            SharedDriveRoot());
+        return path;
+    }
+
+    // A leftover guac-drives folder with files in it is a reliable sign that this deployment used to
+    // keep transferred files on the host and lost that when the setting went away - worth saying out
+    // loud, because the transfer itself keeps working and nothing else would hint at it.
+    private void WarnAboutAbandonedSharedDrive()
     {
         try
         {
-            var root = SecretUtil.FirstNonEmpty(
-                Environment.GetEnvironmentVariable("MATGATE_GUAC_DRIVE_ROOT"),
-                _configuration["Guacamole:DriveRoot"])
-                ?? Path.Combine(_dataStore.DataDirectory, "guac-drives");
+            var root = SharedDriveRoot();
+            if (Directory.Exists(root) && Directory.EnumerateFileSystemEntries(root).Any())
+            {
+                _logger.LogWarning(
+                    "{Path} still holds files from an earlier setup, but MATGATE_GUAC_DRIVE_PATH is "
+                    + "not set, so new transfers go to a scratch folder inside guacd instead. Set it "
+                    + "back to /drive to keep using the host folder.",
+                    root);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not check the shared drive folder.");
+        }
+    }
 
-            var path = Path.Combine(root, server.Id.ToString("N"));
+    private string SharedDriveRoot() => SecretUtil.FirstNonEmpty(
+        Environment.GetEnvironmentVariable("MATGATE_GUAC_DRIVE_ROOT"),
+        _configuration["Guacamole:DriveRoot"])
+        ?? Path.Combine(_dataStore.DataDirectory, "guac-drives");
+
+    // Prepares matgate's own side of the shared drive folder (see PrepareDrivePath).
+    private void EnsureSharedDriveDirectory(ServerEndpoint server)
+    {
+        try
+        {
+            var path = Path.Combine(SharedDriveRoot(), server.Id.ToString("N"));
             Directory.CreateDirectory(path);
 
             if (!OperatingSystem.IsWindows())
             {
                 // guacd runs as uid 1000 and matgate as root, so plain 0755 would leave the folder
-                // read-only for guacd - uploads would silently never arrive.
-                const UnixFileMode mode =
+                // read-only for guacd - uploads would silently never arrive. Only the per-connection
+                // folder is opened up; the root keeps its own mode, guacd just has to traverse it.
+                File.SetUnixFileMode(
+                    path,
                     UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
                     | UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute
-                    | UnixFileMode.OtherRead | UnixFileMode.OtherWrite | UnixFileMode.OtherExecute;
-                File.SetUnixFileMode(root, mode);
-                File.SetUnixFileMode(path, mode);
+                    | UnixFileMode.OtherRead | UnixFileMode.OtherWrite | UnixFileMode.OtherExecute);
             }
         }
         catch (Exception ex)

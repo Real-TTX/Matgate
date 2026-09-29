@@ -36,6 +36,10 @@ services:
     environment:
       # The only extra setting: turn the browser farm on by pointing Matgate at it.
       BrowserFarm__BaseUrl: http://browser-farm:8090
+      # Keep transferred files on the host (the guacd volume below). Remove this line and guacd uses
+      # a scratch folder inside its own container instead: transfer still works with nothing mounted,
+      # the files just live in that container until it is recreated.
+      MATGATE_GUAC_DRIVE_PATH: /drive
     volumes:
       - ./data:/data
       - matgate-secrets:/run/matgate-secrets
