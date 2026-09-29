@@ -8021,7 +8021,9 @@ public sealed class HtmlViews
                             // mid-session (clearing made iOS re-insert the whole transcription); the field is
                             // reset only on blur.
                             let lastVal = '';
+                            let lastInputAt = 0;
                             oskInput.addEventListener('input', event => {
+                                lastInputAt = Date.now();
                                 const cur = oskInput.value;
                                 kbLog('input type=' + (event && event.inputType) + ' value=' + JSON.stringify(cur));
                                 let p = 0;
@@ -8037,9 +8039,18 @@ public sealed class HtmlViews
                                 }
                                 lastVal = cur;
                             });
-                            // Reset the mirror when the keyboard is dismissed, so the field never grows
-                            // unbounded and the next session starts clean.
-                            oskInput.addEventListener('blur', () => { lastVal = ''; oskInput.value = ''; });
+                            // Losing focus must NOT reset the mirror. iOS blurs and refocuses the field in
+                            // the middle of a dictation (its own dictation UI does it, and a status message
+                            // closes the keyboard through closeSessionKeyboards), and emptying it there made
+                            // the device re-deliver the whole transcription - which then went out a second
+                            // time: "wie geht's" arrived as "wiewie geht's". So the field is only emptied on
+                            // focus, and only after a quiet moment, when nothing can still be in flight.
+                            oskInput.addEventListener('focus', () => {
+                                if (oskInput.value && (Date.now() - lastInputAt) > 2000) {
+                                    oskInput.value = '';
+                                }
+                                lastVal = oskInput.value;
+                            });
                             if (kbDebug) {
                                 // iOS soft keyboards may also emit real keydowns - log them to see everything.
                                 oskInput.addEventListener('keydown', e => kbLog('keydown key=' + JSON.stringify(e.key) + ' code=' + e.code));
