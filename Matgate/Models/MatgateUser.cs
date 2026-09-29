@@ -80,6 +80,12 @@ public sealed class SessionPreferences
 
     // Offer Ctrl+Alt+Del as a toolbar button (in addition to the on-screen keyboard key).
     public bool CtrlAltDelHotkey { get; set; } = true;
+
+    // --- Clipboard ---
+    // Paste by TYPING the text as individual key events instead of handing it to the remote over the
+    // clipboard channel. Required for SSH/terminal sessions (and a useful fallback elsewhere), where
+    // the remote never pastes the clipboard we give it.
+    public bool PasteAsKeystrokes { get; set; }
 }
 
 // One entry in a user's recently-used connection history.

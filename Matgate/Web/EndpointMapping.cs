@@ -3215,6 +3215,7 @@ public static class EndpointMapping
             current.Session.SystemCombos = Checked(form, "systemCombos");
             current.Session.FunctionKeys = Checked(form, "functionKeys");
             current.Session.CtrlAltDelHotkey = Checked(form, "ctrlAltDelHotkey");
+            current.Session.PasteAsKeystrokes = Checked(form, "pasteAsKeystrokes");
             current.UpdatedAt = DateTimeOffset.UtcNow;
         }, context.RequestAborted);
 

@@ -1140,6 +1140,8 @@ public sealed class HtmlViews
                                 {{Toggle("systemCombos", prefs.SystemCombos, "Browser-Tasten durchreichen (Vollbild)", "Pass browser keys through (fullscreen)", "Im Vollbild Windows-Taste, Alt+Tab, Alt+F4, Strg+W/T usw. an die Session statt an den Browser.", "In fullscreen, send Windows key, Alt+Tab, Alt+F4, Ctrl+W/T etc. to the session instead of the browser.")}}
                                 {{Toggle("functionKeys", prefs.FunctionKeys, "Funktionstasten F1-F12", "Function keys F1-F12", "Zusaetzliche F-Tasten-Reihe auf der Bildschirmtastatur.", "Extra F-key row on the on-screen keyboard.")}}
                                 {{Toggle("ctrlAltDelHotkey", prefs.CtrlAltDelHotkey, "Strg+Alt+Entf als Button", "Ctrl+Alt+Del button", "Zusaetzlich zur Bildschirmtastatur auch als Toolbar-Button.", "In addition to the on-screen keyboard, also as a toolbar button.")}}
+                                <h3 class="session-prefs-group">{{(de ? "Zwischenablage" : "Clipboard")}}</h3>
+                                {{Toggle("pasteAsKeystrokes", prefs.PasteAsKeystrokes, "Einfuegen als Tastatureingaben", "Paste as keystrokes", "Text wird Zeichen fuer Zeichen getippt statt ueber die Zwischenablage geschickt - noetig z. B. bei SSH-Terminals.", "Text is typed character by character instead of sent over the clipboard - needed e.g. for SSH terminals.")}}
                                 <div class="actions"><button type="submit" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button></div>
                             </form>
                         </section>
@@ -3542,6 +3544,7 @@ public sealed class HtmlViews
             copyToClipboard = T(context, "Copy to clipboard"),
             copyUrlToClipboard = T(context, "Copy URL to clipboard"),
             pasteToActiveTab = Language(context) == "de" ? "In aktiven Tab einfuegen" : "Paste to active tab",
+            clipboardTyped = Language(context) == "de" ? "Als Tasten getippt" : "Pasted as keystrokes",
             xferUpload = Language(context) == "de" ? "Dateien in die Sitzung uebertragen" : "Send files to the session",
             xferDriveReady = Language(context) == "de" ? "Laufwerk 'Matgate' bereit" : "'Matgate' drive ready",
             xferDriveUnavailable = Language(context) == "de" ? "Dateiuebertragung fuer diese Sitzung nicht verfuegbar" : "File transfer is not available for this session",
@@ -3712,6 +3715,7 @@ public sealed class HtmlViews
                     </label>
                     <div class="actions">
                         <button type="submit" class="primary">{{Icon("save")}}{{T(context, "Send to active tab")}}</button>
+                        <button id="clipboard-type" type="button">{{Icon("keyboard")}}{{(Language(context) == "de" ? "Als Tasten tippen" : "Type as keystrokes")}}</button>
                         <button id="clipboard-close" type="button">{{T(context, "Close")}}</button>
                     </div>
                 </form>
@@ -3750,7 +3754,7 @@ public sealed class HtmlViews
             <script>
             (() => {
                 const availableServers = {{availableServers}};
-                const sessionPrefs = Object.assign({ edgePanning: true, dragPanning: true, stretchToWindow: false, systemCombos: true, functionKeys: false, ctrlAltDelHotkey: true }, {{sessionPrefs}});
+                const sessionPrefs = Object.assign({ edgePanning: true, dragPanning: true, stretchToWindow: false, systemCombos: true, functionKeys: false, ctrlAltDelHotkey: true, pasteAsKeystrokes: false }, {{sessionPrefs}});
                 const initialOpenServerId = {{initialOpenServerId}};
                 // This window was popped out of another (a tab opened in its own window). It shows a
                 // "re-attach" control instead of "pop out", and re-attach hands the session back.
@@ -3806,6 +3810,7 @@ public sealed class HtmlViews
                 const credentialCancel = document.getElementById('credential-cancel');
                 const clipboardDialog = document.getElementById('clipboard-dialog');
                 const clipboardText = document.getElementById('clipboard-text');
+                const clipboardTypeButton = document.getElementById('clipboard-type');
                 const clipboardClose = document.getElementById('clipboard-close');
                 const statusResolution = document.getElementById('status-resolution');
                 const resolutionDialog = document.getElementById('resolution-dialog');
@@ -6152,7 +6157,7 @@ public sealed class HtmlViews
                                 async () => {
                                     try {
                                         const text = await readBrowserClipboard();
-                                        if (text && sendClipboardText(tab, text)) {
+                                        if (text && pasteTextToRemote(tab, text)) {
                                             if (tab.id === activeTabId) {
                                                 clipboardText.value = text;
                                             }
@@ -9223,6 +9228,11 @@ public sealed class HtmlViews
                 function finishTab(tab, headline, text) {
                     tab.terminal = true;
                     window.clearInterval(tab.watchdog);
+                    // Drop the redirected-drive handle: it belongs to the connection that just ended. Keeping
+                    // it means a later upload streams into a dead object and silently vanishes (guacd has no
+                    // such object any more) - which is exactly how "upload runs but the file never arrives"
+                    // looks. A reconnect announces a fresh filesystem via client.onfilesystem.
+                    tab.filesystem = null;
                     setStatus(tab, ui('disconnected'));
                     setOverlay(tab, headline, text, true);
                     updateTabActions();
@@ -9279,6 +9289,56 @@ public sealed class HtmlViews
                         flashStatus(tab, uiText.clipboardSent || 'Clipboard sent');
                     }
                     return true;
+                }
+
+                // Paste by TYPING the text into the remote as individual key events. The clipboard channel
+                // only makes the text AVAILABLE to the remote - an SSH/terminal session never pastes it by
+                // itself, so typing is the reliable fallback there (and for any remote whose clipboard
+                // integration does not cooperate). Sent in small paced chunks so a terminal does not drop
+                // characters on a longer paste.
+                function typeTextToRemote(tab, text) {
+                    if (!tab || !tab.client || !text) {
+                        return false;
+                    }
+
+                    const chars = Array.from(text);
+                    let i = 0;
+                    const sendChunk = () => {
+                        if (!tab.client || tab.terminal) {
+                            return;
+                        }
+                        const end = Math.min(i + 40, chars.length);
+                        for (; i < end; i++) {
+                            const cp = chars[i].codePointAt(0);
+                            let keysym;
+                            if (cp === 0x0A || cp === 0x0D) {
+                                keysym = 0xFF0D; // Enter
+                            }
+                            else if (cp === 0x09) {
+                                keysym = 0xFF09; // Tab
+                            }
+                            else {
+                                keysym = cp < 0x100 ? cp : 0x01000000 + cp;
+                            }
+                            tab.client.sendKeyEvent(1, keysym);
+                            tab.client.sendKeyEvent(0, keysym);
+                        }
+                        if (i < chars.length) {
+                            window.setTimeout(sendChunk, 12);
+                        }
+                        else {
+                            flashStatus(tab, uiText.clipboardTyped || 'Pasted as keystrokes');
+                        }
+                    };
+                    sendChunk();
+                    return true;
+                }
+
+                // Paste honouring the per-user preference: type it out, or hand it to the remote clipboard.
+                function pasteTextToRemote(tab, text) {
+                    return sessionPrefs.pasteAsKeystrokes
+                        ? typeTextToRemote(tab, text)
+                        : sendClipboardText(tab, text);
                 }
 
                 // Mirror the local clipboard into the remote session so Ctrl+V works without the button.
@@ -9612,12 +9672,24 @@ public sealed class HtmlViews
                         try {
                             const stream = tab.filesystem.createOutputStream(file.type || 'application/octet-stream', '/' + file.name);
                             const writer = new Guacamole.BlobWriter(stream);
+                            kbLog('upload start name=' + JSON.stringify(file.name) + ' size=' + file.size
+                                + ' fsIndex=' + (tab.filesystem && tab.filesystem.index) + ' streamIndex=' + (stream && stream.index));
                             flashStatus(tab, `${uiText.xferUploading || 'Uploading'}: ${file.name}`);
-                            writer.oncomplete = () => flashStatus(tab, `${uiText.xferUploaded || 'Uploaded'}: ${file.name}`);
-                            writer.onerror = () => flashStatus(tab, `${uiText.xferUploadFailed || 'Upload failed'}: ${file.name}`);
+                            writer.oncomplete = () => {
+                                kbLog('upload oncomplete ' + JSON.stringify(file.name));
+                                flashStatus(tab, `${uiText.xferUploaded || 'Uploaded'}: ${file.name}`);
+                            };
+                            writer.onerror = (blob, offset, error) => {
+                                kbLog('upload ONERROR ' + JSON.stringify(file.name) + ' offset=' + offset
+                                    + ' status=' + (error && error.code !== undefined ? error.code : JSON.stringify(error)));
+                                flashStatus(tab, `${uiText.xferUploadFailed || 'Upload failed'}: ${file.name}`);
+                            };
+                            // NOTE: do NOT touch stream.onack here - Guacamole.BlobWriter owns it to drive the
+                            // blob flow; overriding it stalls the upload. Rejections surface via onerror.
                             writer.sendBlob(file);
                         }
-                        catch {
+                        catch (e) {
+                            kbLog('upload THREW ' + JSON.stringify(file.name) + ' ' + (e && e.message));
                             flashStatus(tab, `${uiText.xferUploadFailed || 'Upload failed'}: ${file.name}`);
                         }
                     }
@@ -9839,7 +9911,17 @@ public sealed class HtmlViews
                 clipboardDialog.addEventListener('submit', event => {
                     event.preventDefault();
                     const activeTab = tabs.get(activeTabId);
-                    if (activeTab && sendClipboardText(activeTab, clipboardText.value)) {
+                    if (activeTab && pasteTextToRemote(activeTab, clipboardText.value)) {
+                        closeClipboardDialog();
+                        activeTab.panel.focus();
+                    }
+                });
+
+                // Explicit "type it out" fallback, always available regardless of the preference - handy
+                // when the remote (SSH terminal, some VNC servers) ignores the clipboard we hand it.
+                clipboardTypeButton?.addEventListener('click', () => {
+                    const activeTab = tabs.get(activeTabId);
+                    if (activeTab && typeTextToRemote(activeTab, clipboardText.value)) {
                         closeClipboardDialog();
                         activeTab.panel.focus();
                     }
@@ -9854,7 +9936,7 @@ public sealed class HtmlViews
                     event.preventDefault();
                     clipboardText.value = pasted;
                     const activeTab = tabs.get(activeTabId);
-                    if (activeTab && sendClipboardText(activeTab, pasted)) {
+                    if (activeTab && pasteTextToRemote(activeTab, pasted)) {
                         closeClipboardDialog();
                         activeTab.panel.focus();
                     }
