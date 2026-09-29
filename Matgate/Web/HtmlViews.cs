@@ -3759,31 +3759,6 @@ public sealed class HtmlViews
                 // This window was popped out of another (a tab opened in its own window). It shows a
                 // "re-attach" control instead of "pop out", and re-attach hands the session back.
                 const isPoppedWindow = (() => { try { return new URL(location.href).searchParams.get('popped') === '1'; } catch (e) { return false; } })();
-                // Device-keyboard diagnostics: open a session with ?kbdebug=1 to make the hidden input
-                // visible and show a live log of the keyboard events (to debug iOS "keyboard opens but sends
-                // nothing"). Purely a diagnostic aid; no effect without the query flag.
-                const kbDebug = (() => {
-                    try {
-                        const p = new URL(location.href).searchParams.get('kbdebug');
-                        if (p === '1') { sessionStorage.setItem('matgate.kbdebug', '1'); return true; }
-                        if (p === '0') { sessionStorage.removeItem('matgate.kbdebug'); return false; }
-                        return sessionStorage.getItem('matgate.kbdebug') === '1';
-                    } catch (e) { return false; }
-                })();
-                let kbLogBox = null;
-                function kbLog(msg) {
-                    if (!kbDebug) { return; }
-                    if (!kbLogBox) {
-                        kbLogBox = document.createElement('div');
-                        kbLogBox.style.cssText = 'position:fixed;left:4px;bottom:64px;z-index:99999;max-width:78vw;max-height:42vh;overflow:auto;background:rgba(0,0,0,.88);color:#0f0;font:11px/1.35 monospace;padding:6px 8px;border-radius:6px;white-space:pre-wrap;pointer-events:none;';
-                        document.body.appendChild(kbLogBox);
-                    }
-                    const t = new Date();
-                    const stamp = String(t.getSeconds()).padStart(2, '0') + '.' + String(t.getMilliseconds()).padStart(3, '0');
-                    kbLogBox.textContent = (stamp + '  ' + msg + '\n' + kbLogBox.textContent).split('\n').slice(0, 60).join('\n');
-                    // Also ship it to the server log so it can be read without copying off the phone.
-                    try { fetch('/api/kbdebug', { method: 'POST', body: stamp + '  ' + msg, keepalive: true }).catch(() => {}); } catch (e) {}
-                }
                 const csrfToken = {{csrfToken}};
                 const uiText = {{uiText}};
                 const fileIcons = {{fileIcons}};
@@ -7966,13 +7941,6 @@ public sealed class HtmlViews
                             tab.panel.appendChild(oskInput);
                             tab.oskInput = oskInput;
                             tab.deviceKbOpen = false;
-                            if (kbDebug) {
-                                // Make the hidden capture field visible so we can see if iOS actually routes
-                                // keystrokes into it. Tap it directly OR use the keyboard button.
-                                oskInput.style.cssText = 'position:fixed;left:4px;bottom:8px;width:200px;height:44px;opacity:1;z-index:99999;border:2px solid lime;background:#111;color:#0f0;font:16px monospace;pointer-events:auto;';
-                                oskInput.setAttribute('placeholder', 'kbdebug: tap + type');
-                                kbLog('oskInput created; touch=' + isTouchDevice);
-                            }
                             // Track the soft-keyboard state from the input itself (the source of truth):
                             // the system can dismiss it (back gesture, tapping the session) without going
                             // through our button, and Android focuses a tapped <button> before its click
@@ -7980,24 +7948,20 @@ public sealed class HtmlViews
                             oskInput.addEventListener('focus', () => {
                                 tab.deviceKbOpen = true;
                                 tab.keyboardButton?.classList.add('active');
-                                kbLog('focus (activeEl=' + (document.activeElement === oskInput ? 'oskInput' : (document.activeElement && document.activeElement.tagName)) + ')');
                             });
                             oskInput.addEventListener('blur', () => {
                                 tab.deviceKbOpen = false;
                                 tab.keyboardButton?.classList.remove('active');
-                                kbLog('blur');
                             });
                             const sendKeysym = keysym => {
                                 // Skip only if the NATIVE keydown path just sent this exact key (same physical
                                 // keystroke). We do NOT mark here - otherwise two legitimately-repeated
                                 // characters from dictation (e.g. the double letter in a word) would de-dupe.
                                 if (keysymRecentlySent(keysym)) {
-                                    kbLog('  (bridge skip dup 0x' + keysym.toString(16) + ')');
                                     return;
                                 }
                                 client.sendKeyEvent(1, keysym);
                                 client.sendKeyEvent(0, keysym);
-                                kbLog('  -> sendKeysym 0x' + keysym.toString(16));
                             };
                             const sendText = text => {
                                 for (const ch of text) {
@@ -8025,7 +7989,6 @@ public sealed class HtmlViews
                             oskInput.addEventListener('input', event => {
                                 lastInputAt = Date.now();
                                 const cur = oskInput.value;
-                                kbLog('input type=' + (event && event.inputType) + ' value=' + JSON.stringify(cur));
                                 let p = 0;
                                 const min = Math.min(lastVal.length, cur.length);
                                 while (p < min && lastVal.charCodeAt(p) === cur.charCodeAt(p)) {
@@ -8051,10 +8014,6 @@ public sealed class HtmlViews
                                 }
                                 lastVal = oskInput.value;
                             });
-                            if (kbDebug) {
-                                // iOS soft keyboards may also emit real keydowns - log them to see everything.
-                                oskInput.addEventListener('keydown', e => kbLog('keydown key=' + JSON.stringify(e.key) + ' code=' + e.code));
-                            }
                             // The first updateTabActions() ran before oskInput existed, so the device-
                             // keyboard button was skipped. Re-render now that it exists - otherwise it only
                             // ever appeared for protocols that trigger a later re-render (RDP/VNC via drive
@@ -8072,7 +8031,6 @@ public sealed class HtmlViews
                         tab.keyboard.onkeydown = keysym => {
                             markKeysymSent(keysym);
                             client.sendKeyEvent(1, keysym);
-                            kbLog('native keydown -> 0x' + keysym.toString(16));
                             return false;
                         };
                         tab.keyboard.onkeyup = keysym => {
@@ -9683,16 +9641,11 @@ public sealed class HtmlViews
                         try {
                             const stream = tab.filesystem.createOutputStream(file.type || 'application/octet-stream', '/' + file.name);
                             const writer = new Guacamole.BlobWriter(stream);
-                            kbLog('upload start name=' + JSON.stringify(file.name) + ' size=' + file.size
-                                + ' fsIndex=' + (tab.filesystem && tab.filesystem.index) + ' streamIndex=' + (stream && stream.index));
                             flashStatus(tab, `${uiText.xferUploading || 'Uploading'}: ${file.name}`);
                             writer.oncomplete = () => {
-                                kbLog('upload oncomplete ' + JSON.stringify(file.name));
                                 flashStatus(tab, `${uiText.xferUploaded || 'Uploaded'}: ${file.name}`);
                             };
                             writer.onerror = (blob, offset, error) => {
-                                kbLog('upload ONERROR ' + JSON.stringify(file.name) + ' offset=' + offset
-                                    + ' status=' + (error && error.code !== undefined ? error.code : JSON.stringify(error)));
                                 flashStatus(tab, `${uiText.xferUploadFailed || 'Upload failed'}: ${file.name}`);
                             };
                             // NOTE: do NOT touch stream.onack here - Guacamole.BlobWriter owns it to drive the
@@ -9700,7 +9653,6 @@ public sealed class HtmlViews
                             writer.sendBlob(file);
                         }
                         catch (e) {
-                            kbLog('upload THREW ' + JSON.stringify(file.name) + ' ' + (e && e.message));
                             flashStatus(tab, `${uiText.xferUploadFailed || 'Upload failed'}: ${file.name}`);
                         }
                     }
