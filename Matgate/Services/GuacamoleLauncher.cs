@@ -10,10 +10,14 @@ public sealed class GuacamoleLauncher
     private static readonly byte[] ZeroIv = new byte[16];
 
     private readonly IConfiguration _configuration;
+    private readonly JsonDataStore _dataStore;
+    private readonly ILogger<GuacamoleLauncher> _logger;
 
-    public GuacamoleLauncher(IConfiguration configuration)
+    public GuacamoleLauncher(IConfiguration configuration, JsonDataStore dataStore, ILogger<GuacamoleLauncher> logger)
     {
         _configuration = configuration;
+        _dataStore = dataStore;
+        _logger = logger;
     }
 
     public Task<GuacamoleLaunchResult> CreateLaunchAsync(
@@ -109,6 +113,11 @@ public sealed class GuacamoleLauncher
             parameters["drive-name"] = "Matgate";
             parameters["create-drive-path"] = "true";
             parameters["drive-path"] = $"/drive/{server.Id:N}";
+
+            // guacd runs as a non-root user and usually cannot create the folder itself: the bind
+            // mount arrives owned by root, and without a mount /drive can't be created at all. So
+            // matgate (which sees the same folder under its data directory) creates it up front.
+            EnsureDriveDirectory(server);
         }
         else if (server.Protocol == ServerProtocol.Vnc)
         {
@@ -138,6 +147,42 @@ public sealed class GuacamoleLauncher
         };
 
         return JsonSerializer.Serialize(payload, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+    }
+
+    // Creates the per-server drive folder that guacd redirects into the RDP session, and makes it
+    // writable for guacd's own user. matgate reaches it through its data directory, guacd through
+    // the /drive mount (see the guacd volume in the compose files).
+    private void EnsureDriveDirectory(ServerEndpoint server)
+    {
+        try
+        {
+            var root = SecretUtil.FirstNonEmpty(
+                Environment.GetEnvironmentVariable("MATGATE_GUAC_DRIVE_ROOT"),
+                _configuration["Guacamole:DriveRoot"])
+                ?? Path.Combine(_dataStore.DataDirectory, "guac-drives");
+
+            var path = Path.Combine(root, server.Id.ToString("N"));
+            Directory.CreateDirectory(path);
+
+            if (!OperatingSystem.IsWindows())
+            {
+                // guacd runs as uid 1000 and matgate as root, so plain 0755 would leave the folder
+                // read-only for guacd - uploads would silently never arrive.
+                const UnixFileMode mode =
+                    UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute
+                    | UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.GroupExecute
+                    | UnixFileMode.OtherRead | UnixFileMode.OtherWrite | UnixFileMode.OtherExecute;
+                File.SetUnixFileMode(root, mode);
+                File.SetUnixFileMode(path, mode);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                ex,
+                "Could not prepare the redirected drive folder for {Server}; RDP file transfer may not work.",
+                server.Name);
+        }
     }
 
     private static string EncryptAndSign(string json, byte[] key)

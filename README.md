@@ -257,8 +257,14 @@ Everything lives under the data directory (`./data` in the examples, mounted at 
 ├─ servers.json             global + user-owned servers and folders
 ├─ workspaces.json          workspace definitions and share settings
 ├─ guacamole.properties     generated Guacamole config
+├─ guac-drives/             files exchanged with RDP sessions (one folder per connection)
 └─ user-mapping.xml         generated Guacamole mapping (no cleartext credentials)
 ```
+
+`guac-drives` must also be mounted into the **guacd** container as `/drive` (every shipped compose
+file does this). It is what RDP sessions see as the redirected "Matgate" drive: without the mount
+guacd cannot open it and *Send files* never becomes available. Matgate creates the per-connection
+subfolders itself and makes them writable for guacd, so the mount is all you need to get right.
 
 The encryption keys live **outside** `./data` in the `matgate-secrets` volume, so a stolen `./data`
 backup can't decrypt your device passwords. Back up **both** the data directory and the secrets

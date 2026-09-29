@@ -47,6 +47,10 @@ services:
 
   guacd:
     image: guacamole/guacd:1.6.0
+    volumes:
+      # Shared folder that RDP sessions redirect as the "Matgate" drive (file upload/download).
+      # Must match drive-path in GuacamoleLauncher; matgate creates the per-server subfolders.
+      - ./data/guac-drives:/drive
     restart: unless-stopped
 
   guacamole:
