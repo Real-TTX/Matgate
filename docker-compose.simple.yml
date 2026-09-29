@@ -33,13 +33,11 @@ services:
 
   matgate:
     image: ghcr.io/real-ttx/matgate:latest
-    environment:
-      # Keep transferred files on the host (the guacd volume below). Remove this line and guacd uses
-      # a scratch folder inside its own container instead: transfer still works with nothing mounted,
-      # the files just live in that container until it is recreated.
-      MATGATE_GUAC_DRIVE_PATH: /drive
     volumes:
       - ./data:/data
+      # Same folder guacd gets as /drive below. Matgate uses it when it is mounted here, and
+      # falls back to a scratch folder inside guacd when it is not - no setting involved.
+      - ./data/guac-drives:/data/guac-drives
       - matgate-secrets:/run/matgate-secrets
     extra_hosts:
       - "host.docker.internal:host-gateway"

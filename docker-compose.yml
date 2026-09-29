@@ -63,10 +63,6 @@ services:
       MATGATE_SECRET_KEY_FILE: /run/matgate-secrets/master.key
       Guacamole__PublicBasePath: /guacamole
       Guacamole__DirectLaunch: "true"
-      # Keep transferred RDP files on the host (the guacd /drive volume below). Set this empty (or
-      # remove the line) and guacd uses a scratch folder inside its own container instead: transfer
-      # still works with nothing mounted, the files just live in that container until it is recreated.
-      MATGATE_GUAC_DRIVE_PATH: ${MATGATE_GUAC_DRIVE_PATH-/drive}
       # Optional "via Chromium/Firefox VNC" websites: point Matgate at the browser-farm sidecar.
       # If the farm profile is not started, these do nothing and only "Native" websites are offered.
       # No auth token is needed - the farm is internal-only (no host ports). Set
@@ -76,6 +72,9 @@ services:
       MATGATE_BROWSER_FARM_TOKEN: ${MATGATE_BROWSER_FARM_TOKEN:-}
     volumes:
       - ./data:/data
+      # Same folder guacd gets as /drive below. Matgate uses it when it is mounted here, and
+      # falls back to a scratch folder inside guacd when it is not - no setting involved.
+      - ./data/guac-drives:/data/guac-drives
       - matgate-secrets:/run/matgate-secrets
     extra_hosts:
       - "host.docker.internal:host-gateway"

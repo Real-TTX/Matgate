@@ -176,13 +176,11 @@ services:
 
   matgate:
     image: ghcr.io/real-ttx/matgate:latest
-    environment:
-      # Keep transferred files on the host (the guacd volume below). Remove this line and guacd uses
-      # a scratch folder inside its own container instead: transfer still works with nothing mounted,
-      # the files just live in that container until it is recreated.
-      MATGATE_GUAC_DRIVE_PATH: /drive
     volumes:
       - ./data:/data
+      # Same folder guacd gets as /drive below. Matgate uses it when it is mounted here, and
+      # falls back to a scratch folder inside guacd when it is not - no setting involved.
+      - ./data/guac-drives:/data/guac-drives
       - matgate-secrets:/run/matgate-secrets
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -263,8 +261,6 @@ is 32 hex characters, `MATGATE_SECRET_KEY` is 64.
 | `MATGATE_SECRET_KEY` | auto | 64 hex chars for at-rest encryption of credentials |
 | `MATGATE_REQUIRE_HTTPS` | `false` | Force HTTPS / secure cookies behind a TLS proxy |
 | `MATGATE_DNS_SERVER` / `MATGATE_DNS_SEARCH` | – | Point the containers at your home DNS so `nas`, `pc-terminal`, … resolve |
-| `MATGATE_GUAC_DRIVE_PATH` | – (scratch) | Where **guacd** keeps files exchanged with RDP sessions. Set to `/drive` together with the matching guacd volume to keep them on the host (see *Files exchanged with RDP sessions*) |
-| `MATGATE_GUAC_DRIVE_ROOT` | `<data>/guac-drives` | Matgate's own view of that same folder; only needed if you mount it somewhere other than `./data/guac-drives` |
 | `BrowserFarm__BaseUrl` | `http://browser-farm:8090` | Where the optional browser farm lives |
 
 ## Data & persistence
@@ -288,12 +284,14 @@ It works out of the box and has two modes:
 
 | | where the files live | kept until | setup |
 |---|---|---|---|
-| **Scratch** (default) | `/tmp` inside the guacd container | that container is recreated | none |
-| **Kept** | `./data/guac-drives/<connection>` on the host | you delete them | one volume + one env var |
+| **Kept** | `./data/guac-drives/<connection>` on the host | you delete them | mount that folder |
+| **Scratch** | `/tmp` inside the guacd container | that container is recreated | nothing |
 
-The shipped compose files use **kept**: they mount `./data/guac-drives` into guacd as `/drive` and set
-`MATGATE_GUAC_DRIVE_PATH=/drive`. Drop either of those and you are back to scratch mode - file transfer
-keeps working either way, and the gateway log says on every connect which mode it picked.
+There is no setting for this. Matgate uses the shared folder when `guac-drives` is actually mounted
+into it, because that is the same volume the compose file hands to guacd as `/drive` - and falls back
+to the scratch folder when it is not. The shipped compose files mount it, so they get **kept**; a
+stack that does not know about the folder still transfers files, it just does not hold on to them.
+Which one is in use is in the gateway log on every connect.
 
 Be precise about what "scratch" means: the files are not in `./data`, but they are still on the host,
 inside the guacd container's writable layer. They survive a restart and are discarded when that
@@ -312,13 +310,11 @@ transfer you can make:
       - /tmp:size=512m,mode=1777
 ```
 
-Two details worth knowing if you write your own compose file. guacd runs as a non-root user, so it
-cannot create folders inside a freshly mounted (root-owned) volume - in kept mode Matgate creates the
-per-connection folder itself and makes it writable for guacd, which is why it needs the same host
-folder under its own data directory (`MATGATE_GUAC_DRIVE_ROOT` if you mount it somewhere else than
-`./data/guac-drives`). And setting `MATGATE_GUAC_DRIVE_PATH` *without* giving guacd the matching mount
-is the one broken combination: the drive is announced but every transfer fails silently. In scratch
-mode nothing has to be mounted or prepared at all.
+If you write your own compose file and want the kept mode, mount the same folder into **both**
+services - `./data/guac-drives:/drive` on guacd and `./data/guac-drives:/data/guac-drives` on matgate.
+Both halves are needed: guacd runs as a non-root user and cannot create anything inside a freshly
+mounted volume, so Matgate creates the per-connection folder and makes it writable for it. Mounting
+only one side is not a broken state - Matgate notices and uses the scratch folder instead.
 
 The encryption keys live **outside** `./data` in the `matgate-secrets` volume, so a stolen `./data`
 backup can't decrypt your device passwords. Back up **both** the data directory and the secrets
