@@ -6317,6 +6317,45 @@ public sealed class HtmlViews
                     // matchMedia change events unsupported: the toolbar still rebuilds on tab switches.
                 }
 
+                // Moves one action out of the row and into the overflow panel, where it needs its label
+                // spelled out because it is no longer just an icon. The button NODE is moved, never
+                // cloned: the keyboard buttons are held on the tab object and kept in sync by focus and
+                // blur handlers, and a copy would break that silently.
+                function moveActionToPanel(btn, panel) {
+                    const label = btn.getAttribute('aria-label') || '';
+                    if (label && !btn.querySelector('span')) {
+                        const labelSpan = document.createElement('span');
+                        labelSpan.textContent = label;
+                        btn.appendChild(labelSpan);
+                    }
+
+                    btn.classList.remove('icon-only');
+                    btn.classList.add('tab-action-menu-item');
+                    panel.appendChild(btn);
+                }
+
+                // Second pass, by measurement. The rule above only knows "phone or not" and keeps a
+                // fixed set of actions in the row - which is why the row could still run past the right
+                // edge and put the last action out of reach. Here the row is measured and the last
+                // action is moved into the panel until it genuinely fits. Disconnect and the overflow
+                // trigger itself stay put.
+                function fitConnectionActions(container, panel, trigger) {
+                    if (!container || !panel || !container.clientWidth) {
+                        return;
+                    }
+
+                    for (let guard = 0; guard < 40 && container.scrollWidth > container.clientWidth; guard++) {
+                        const movable = Array.from(container.querySelectorAll('.tab-action-button'))
+                            .filter(btn => btn !== trigger && !btn.classList.contains('tab-action-disconnect'));
+                        const last = movable[movable.length - 1];
+                        if (!last) {
+                            return;
+                        }
+
+                        moveActionToPanel(last, panel);
+                    }
+                }
+
                 function collapseConnectionActions(container) {
                     // Drop any stale portaled panel from a previous toolbar build (but never the
                     // header tab menu's panel, which persists across rebuilds). This must run BEFORE
@@ -6333,17 +6372,7 @@ public sealed class HtmlViews
                     }
                     const panel = document.createElement('div');
                     panel.className = 'tab-action-more-panel tab-action-overflow-panel';
-                    buttons.forEach(btn => {
-                        const label = btn.getAttribute('aria-label') || '';
-                        if (label && !btn.querySelector('span')) {
-                            const labelSpan = document.createElement('span');
-                            labelSpan.textContent = label;
-                            btn.appendChild(labelSpan);
-                        }
-                        btn.classList.remove('icon-only');
-                        btn.classList.add('tab-action-menu-item');
-                        panel.appendChild(btn);
-                    });
+                    buttons.forEach(btn => moveActionToPanel(btn, panel));
                     panel.addEventListener('click', () => { panel.style.display = 'none'; });
                     const trigger = createTabActionButton(
                         actionIcons.more || '&#8943;',
@@ -6365,6 +6394,8 @@ public sealed class HtmlViews
                     else {
                         container.appendChild(trigger);
                     }
+
+                    fitConnectionActions(container, panel, trigger);
                 }
 
                 function getTabEntry(tabId) {
@@ -10099,6 +10130,15 @@ public sealed class HtmlViews
                     resolutionClose.addEventListener('click', closeResolutionDialog);
                 }
                 window.addEventListener('resize', scheduleResize);
+                // How many actions fit depends on the width, so the row is counted out again whenever
+                // that changes: rotation, the compact-view toggle (which fires a resize of its own once
+                // it has moved things), and the on-screen keyboard resizing the viewport. Debounced,
+                // because rebuilding the row is not free and resize arrives in bursts.
+                let refitActionsTimer = null;
+                window.addEventListener('resize', () => {
+                    window.clearTimeout(refitActionsTimer);
+                    refitActionsTimer = window.setTimeout(updateTabActions, 150);
+                }, { passive: true });
                 // When returning to Matgate from another app, mirror the (possibly newly copied) local
                 // clipboard to the active session so the next paste is fresh - without per-click syncing.
                 window.addEventListener('focus', () => {
@@ -10811,6 +10851,8 @@ public sealed class HtmlViews
                         top: 0;
                         z-index: 5;
                     }
+                    /* Only the compact phone header shows this rule; see the minimal-view block. */
+                    .shell-header-sep { display: none; }
                     .brand {
                         align-items: center;
                         color: var(--text);
@@ -14801,6 +14843,41 @@ public sealed class HtmlViews
                            tab-menu button (#mobile-tab-menu) lists/switches the open tabs instead, so the
                            compact view is a true single bar. */
                         html[data-view-mode="minimal"] .mobile-tab-menu { display: flex; }
+                        /* Compact view on phones is one row, read left to right: logo, menu, a rule,
+                           the connection, then its actions taking whatever is left. Ordered with
+                           `order` rather than by moving the markup, so the wide layout is untouched.
+                           Before this the burger and the view toggle sat at the END of the header,
+                           inside the space the action bar was already using - three things fighting
+                           over the same right-hand half, which is why the last action was cut off. */
+                        html[data-view-mode="minimal"] header { flex-wrap: nowrap; gap: 4px; }
+                        html[data-view-mode="minimal"] .brand { order: 0; }
+                        html[data-view-mode="minimal"] .shell-burger { order: 1; flex: 0 0 auto; }
+                        html[data-view-mode="minimal"] .shell-header-sep {
+                            align-self: center;
+                            background: var(--line);
+                            display: block;
+                            flex: 0 0 auto;
+                            height: 22px;
+                            order: 2;
+                            width: 1px;
+                        }
+                        html[data-view-mode="minimal"] .mobile-tab-menu { order: 3; flex: 0 0 auto; }
+                        /* The actions get the rest of the row - and may shrink, which is what lets
+                           them be counted out into the overflow menu instead of running over. */
+                        html[data-view-mode="minimal"] .shell-merge-slot {
+                            flex: 1 1 auto;
+                            min-width: 0;
+                            order: 4;
+                        }
+                        /* The bar itself has to be allowed to shrink, not just the slot around it -
+                           otherwise it keeps its natural width, spills out of the row, and its own
+                           overflow measurement reports "fits" because the overflow is one level up. */
+                        html[data-view-mode="minimal"] #connection-tab-actions {
+                            flex: 1 1 auto;
+                            min-width: 0;
+                        }
+                        /* Reachable from the burger menu, so it does not need a second seat here. */
+                        html[data-view-mode="minimal"] #view-mode-toggle { display: none; }
                         /* 16px avoids iOS auto-zoom when the select opens. */
                         .tab-action-select {
                             font-size: 16px;
@@ -14853,6 +14930,7 @@ public sealed class HtmlViews
             <body data-shell-layout="{{(shellLayout ? "1" : "0")}}">
                 <header>
                     <a class="brand" href="/sessions" title="{{A(T(context, "New connection"))}}" aria-label="{{A(T(context, "New connection"))}}">{{Logo()}}</a>
+                    <span class="shell-header-sep" aria-hidden="true"></span>
                     {{mobileTabMenu}}
                     <div id="shell-merge-slot" class="shell-merge-slot"></div>
                     {{navigation}}
