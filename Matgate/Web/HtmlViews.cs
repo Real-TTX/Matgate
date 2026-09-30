@@ -10811,7 +10811,7 @@ public sealed class HtmlViews
         var mobileTabMenu = user is null || !string.Equals(mainClass, "session-main", StringComparison.OrdinalIgnoreCase)
             ? ""
             : $$"""
-                <div id="mobile-tab-menu" class="mobile-tab-menu" data-label-new="{{A(T(context, "New connection"))}}">
+                <div id="mobile-tab-menu" class="mobile-tab-menu" data-label-new="{{A(T(context, "New connection"))}}" data-label-tabs="{{A(Language(context) == "de" ? "Verbindungen" : "Connections")}}" data-label-close="{{A(T(context, "Close"))}}">
                     <button type="button" class="tab-action-button mobile-tab-menu-trigger tab-action-more-trigger" title="Tabs" aria-label="Tabs">{{Icon("copy")}}<span class="mobile-tab-count" data-mobile-tab-count>0</span></button>
                     <div class="tab-action-more-panel mobile-tab-menu-panel tab-action-overflow-panel" data-mobile-tab-panel></div>
                 </div>
@@ -15010,6 +15010,49 @@ public sealed class HtmlViews
                            tab-menu button (#mobile-tab-menu) lists/switches the open tabs instead, so the
                            compact view is a true single bar. */
                         html[data-view-mode="minimal"] .mobile-tab-menu { display: flex; }
+                        /* The connection list takes the whole screen on a phone instead of being a
+                           320px dropdown in the corner: names stay readable, rows are finger sized,
+                           and closing a session is no longer a neighbour of switching to it. */
+                        .mobile-tab-menu-panel.mobile-tab-sheet {
+                            border: 0;
+                            border-radius: 0;
+                            bottom: 0;
+                            gap: 0;
+                            left: 0;
+                            max-height: none;
+                            max-width: none;
+                            padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+                            right: 0;
+                            top: 0;
+                            width: auto;
+                        }
+                        .mobile-tab-sheet-head {
+                            align-items: center;
+                            border-bottom: 1px solid var(--line);
+                            display: flex;
+                            font-size: 16px;
+                            justify-content: space-between;
+                            min-height: 52px;
+                            padding: 0 6px 0 14px;
+                        }
+                        .mobile-tab-sheet-close { font-size: 22px; min-height: 44px; min-width: 44px; }
+                        .mobile-tab-sheet .mobile-tab-item { border-bottom: 1px solid var(--line); gap: 8px; padding: 0 6px; }
+                        .mobile-tab-sheet .mobile-tab-item-main {
+                            justify-content: flex-start;
+                            min-height: 56px;
+                            /* Without this a long connection name refuses to shrink and shoves the
+                               close button off the right edge, out of reach. */
+                            min-width: 0;
+                            text-align: left;
+                        }
+                        .mobile-tab-sheet .mobile-tab-item-main > span {
+                            overflow: hidden;
+                            text-overflow: ellipsis;
+                            white-space: nowrap;
+                        }
+                        /* Ending a session sits clearly apart from switching to it, so a thumb aiming
+                           for one cannot land on the other. */
+                        .mobile-tab-sheet .mobile-tab-item-close { flex: 0 0 auto; margin-left: 12px; min-height: 44px; min-width: 44px; }
                         /* Compact view on phones is one row, read left to right: logo, menu, a rule,
                            the connection, then its actions taking whatever is left. Ordered with
                            `order` rather than by moving the markup, so the wide layout is untouched.
@@ -15441,11 +15484,33 @@ public sealed class HtmlViews
                                     tabCount.textContent = String(listSessionTabs().filter(el => el.getAttribute('data-tab-kind') !== 'add').length);
                                 }
                             };
+                            // On a phone the list takes the whole screen instead of being a dropdown in
+                            // the corner: with several sessions the 320px popover left the names cut
+                            // off and put the close "x" right next to the switch, which ends sessions
+                            // by accident.
+                            const sheetMode = () => window.matchMedia('(max-width: 720px)').matches;
                             const rebuildTabList = () => {
                                 if (!tabPanel) {
                                     return;
                                 }
                                 tabPanel.replaceChildren();
+
+                                if (sheetMode()) {
+                                    // Tapping beside it is no way out once it covers everything, so the
+                                    // sheet says what it is and carries its own way back.
+                                    const head = document.createElement('div');
+                                    head.className = 'mobile-tab-sheet-head';
+                                    const title = document.createElement('strong');
+                                    title.textContent = mobileTabMenu.getAttribute('data-label-tabs') || 'Connections';
+                                    const close = document.createElement('button');
+                                    close.type = 'button';
+                                    close.className = 'tab-action-button icon-only mobile-tab-sheet-close';
+                                    close.setAttribute('aria-label', mobileTabMenu.getAttribute('data-label-close') || 'Close');
+                                    close.textContent = '×';
+                                    close.addEventListener('click', hideTabPanel);
+                                    head.append(title, close);
+                                    tabPanel.appendChild(head);
+                                }
                                 listSessionTabs().forEach(tabEl => {
                                     const isAdd = tabEl.getAttribute('data-tab-kind') === 'add';
                                     const titleText = isAdd
@@ -15506,6 +15571,20 @@ public sealed class HtmlViews
                                     // Portal to <body> so no scrollable/sticky ancestor can clip it (iOS).
                                     const rect = tabTrigger.getBoundingClientRect();
                                     document.body.appendChild(tabPanel);
+
+                                    if (sheetMode()) {
+                                        // The stylesheet places the sheet; any leftover coordinates from
+                                        // an earlier dropdown-sized open (before a rotation, say) have to
+                                        // go, or they would fight it.
+                                        tabPanel.classList.add('mobile-tab-sheet');
+                                        tabPanel.style.top = '';
+                                        tabPanel.style.left = '';
+                                        tabPanel.style.right = '';
+                                        tabPanel.style.display = 'flex';
+                                        return;
+                                    }
+
+                                    tabPanel.classList.remove('mobile-tab-sheet');
                                     tabPanel.style.top = Math.round(rect.bottom + 6) + 'px';
                                     tabPanel.style.right = 'auto';
                                     tabPanel.style.display = 'flex';
@@ -15516,6 +15595,13 @@ public sealed class HtmlViews
                                     tabPanel.style.left = left + 'px';
                                 });
                             }
+                            // Full screen means the back gesture is what a hand reaches for first, and
+                            // Escape is its equivalent with a keyboard attached.
+                            document.addEventListener('keydown', event => {
+                                if (event.key === 'Escape' && tabPanel && tabPanel.style.display === 'flex') {
+                                    hideTabPanel();
+                                }
+                            });
                             const tabsRoot = document.getElementById('session-tabs');
                             if (tabsRoot && window.MutationObserver) {
                                 new MutationObserver(updateTabCount).observe(tabsRoot, { childList: true });
