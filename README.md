@@ -178,9 +178,9 @@ services:
     image: ghcr.io/real-ttx/matgate:latest
     volumes:
       - ./data:/data
-      # User content: the Global / Connection / User / Session areas. Mount this elsewhere (a NAS,
-      # say) to move it all, or mount a single area below it to move just that one.
-      - ./files:/files
+      # User content: the Global / Connection / User / Session areas. Its own volume, so nothing has
+      # to be prepared - see the volumes section to put it somewhere of your own instead.
+      - matgate-files:/files
       - matgate-secrets:/run/matgate-secrets
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -196,7 +196,7 @@ services:
     volumes:
       # The same tree Matgate manages, at the same path: a remote session's drive is one folder
       # inside it, and the links in that folder have to resolve identically in both containers.
-      - ./files:/files
+      - matgate-files:/files
     restart: unless-stopped
 
   guacamole:
@@ -221,6 +221,9 @@ services:
 
 volumes:
   matgate-secrets:
+  # Files exchanged with sessions. Swap this for a path of your own to move them - the whole tree
+  # (matgate-files -> /volume1/matgate) or a single area (a second mount on /files/global).
+  matgate-files:
 ```
 
 After the first admin is created you add your first server and connect.
@@ -280,7 +283,7 @@ Files people exchange with their sessions do **not** live here - they have their
 
 ## File areas
 
-Files exchanged with a session live under `./files`, apart from the gateway state:
+Files exchanged with a session live in their own volume (`matgate-files`), apart from the gateway state:
 
 ```
 /files
@@ -301,8 +304,8 @@ Matgate (drive)
 └─ Session/        always there, gone when the session is
 ```
 
-Every area is its own subtree, so you can put the whole thing on a NAS by mounting `./files`, or move
-just one area by mounting `./files/global`. Nothing above cares.
+Every area is its own subtree, so you can put the whole thing on a NAS by pointing the volume at a
+path of your own, or move a single area by mounting over `/files/global`. Nothing above cares.
 
 ### Who gets what
 
@@ -321,7 +324,7 @@ Two things worth knowing:
 
 ### Setup
 
-The shipped compose files mount `./files` into **both** matgate and guacd, at the same path. Both
+The shipped compose files give the volume to **both** matgate and guacd, at the same path. Both
 halves are needed: guacd serves the drive from its own filesystem, and matgate assembles the folder it
 serves. If you write your own compose file and skip this, nothing breaks - Matgate notices that the
 tree is not shared and falls back to a scratch folder inside guacd, so file transfer keeps working
