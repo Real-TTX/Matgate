@@ -14,6 +14,8 @@ public interface IFileGatewayService
 
     Task<FileGatewayDownload> DownloadAsync(ServerEndpoint server, string? path, CancellationToken cancellationToken = default);
 
+    Task<string> GetSftpHomeDirectoryAsync(ServerEndpoint server, CancellationToken cancellationToken = default);
+
     Task<FileGatewayFileInfo> GetFileInfoAsync(ServerEndpoint server, string? path, CancellationToken cancellationToken = default);
 
     Task CopyRangeAsync(
@@ -1050,6 +1052,21 @@ public sealed class FileGatewayService : IFileGatewayService
         {
             ArrayPool<byte>.Shared.Return(buffer);
         }
+    }
+
+    // Where an SSH login lands after connecting. Used to pre-fill the target folder when files are
+    // sent into a live SSH session: guacd exposes that session's SFTP with "/" as its root, so the
+    // client has to name an absolute path, and dropping a file into "/" fails for anyone but root.
+    public Task<string> GetSftpHomeDirectoryAsync(ServerEndpoint server, CancellationToken cancellationToken = default)
+    {
+        return Task.Run(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            using var client = CreateSftpClient(server);
+            client.Connect();
+            var home = client.WorkingDirectory;
+            return string.IsNullOrWhiteSpace(home) ? "/" : home;
+        }, cancellationToken);
     }
 
     private static SftpClient CreateSftpClient(ServerEndpoint server)

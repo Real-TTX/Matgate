@@ -124,6 +124,12 @@ public sealed class GuacamoleLauncher
         {
             parameters["font-name"] = "monospace";
             parameters["font-size"] = ServerEndpoint.NormalizeTerminalFontSize(server.TerminalFontSize).ToString();
+
+            // File transfer inside the session (the same "Send files" button and drag & drop as RDP).
+            // guacd reuses this very SSH connection for SFTP, so there is no second host, no second
+            // login and nothing to configure. Files also go straight to the remote filesystem instead
+            // of a redirected drive the user would have to pick them up from.
+            parameters["enable-sftp"] = "true";
         }
 
         var payload = new

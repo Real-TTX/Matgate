@@ -350,6 +350,7 @@ public static class EndpointMapping
         app.MapPost("/admin/browser/{id:guid}/release", BrowserSessionAdminReleaseAsync).RequireAuthorization();
         app.MapPost("/admin/browser/settings", BrowserSettingsAsync).RequireAuthorization();
         app.MapGet("/files/{id:guid}/view", FileViewerAsync).RequireAuthorization();
+        app.MapGet("/api/connections/{id:guid}/sftp-home", SftpHomeDirectoryAsync).RequireAuthorization();
         app.MapGet("/api/files/{id:guid}/list", ListFilesAsync).RequireAuthorization();
         app.MapGet("/api/files/{id:guid}/download", DownloadFileAsync).RequireAuthorization();
         app.MapGet("/api/files/{id:guid}/view", ViewFileAsync).RequireAuthorization();
@@ -1997,6 +1998,45 @@ public static class EndpointMapping
         var poolSize = int.TryParse(form["poolSize"].ToString(), out var parsed) ? parsed : 0;
         await farmSessions.UpdateSettingsAsync(poolSize, form["geometry"].ToString(), context.RequestAborted);
         return Results.Redirect(EmbedAwareRedirect(context, "/admin?tab=browser"));
+    }
+
+    // Pre-fills the target folder when sending files into a live SSH session. The session's own SFTP
+    // is rooted at "/", so the client needs an absolute path - and the home directory is the only
+    // place it can reasonably guess. Best effort: if it cannot be determined, the caller falls back
+    // to asking the user.
+    private static async Task<IResult> SftpHomeDirectoryAsync(
+        Guid id,
+        HttpContext context,
+        JsonDataStore store,
+        IFileGatewayService files)
+    {
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        var server = await ResolveServerForUserAsync(id, user, context, store);
+        if (server is null || !server.IsEnabled || !CanAccessServer(user, server))
+        {
+            return Results.NotFound(new { error = HtmlViews.Translate(context, "This server is not shared with you.") });
+        }
+
+        if (server.Protocol != ServerProtocol.Ssh)
+        {
+            return Results.BadRequest(new { error = HtmlViews.Translate(context, "Invalid request") });
+        }
+
+        try
+        {
+            var home = await files.GetSftpHomeDirectoryAsync(server, context.RequestAborted);
+            return Results.Ok(new { path = home });
+        }
+        catch (Exception)
+        {
+            // Nothing to report to the user here - they simply get an empty field to fill in.
+            return Results.Ok(new { path = "" });
+        }
     }
 
     private static async Task<IResult> ListFilesAsync(

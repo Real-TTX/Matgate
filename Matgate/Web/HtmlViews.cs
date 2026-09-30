@@ -3719,6 +3719,17 @@ public sealed class HtmlViews
                         <button id="clipboard-close" type="button">{{T(context, "Close")}}</button>
                     </div>
                 </form>
+                <form id="sftp-target-dialog" class="credential-dialog clipboard-dialog hidden">
+                    <h2>{{(Language(context) == "de" ? "Hier einfuegen" : "Paste here")}}</h2>
+                    <label>{{(Language(context) == "de" ? "Zielordner in der Sitzung" : "Target folder in the session")}}
+                        <input id="sftp-target-path" type="text" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="/home/user" required>
+                    </label>
+                    <p id="sftp-target-files" class="muted"></p>
+                    <div class="actions">
+                        <button type="submit" class="primary">{{Icon("save")}}{{(Language(context) == "de" ? "Dateien senden" : "Send files")}}</button>
+                        <button id="sftp-target-close" type="button">{{T(context, "Close")}}</button>
+                    </div>
+                </form>
                 <div id="resolution-dialog" class="credential-dialog resolution-dialog hidden">
                     <h2>{{(Language(context) == "de" ? "Aufloesung" : "Resolution")}}</h2>
                     <div id="resolution-options" class="resolution-options"></div>
@@ -3787,6 +3798,10 @@ public sealed class HtmlViews
                 const clipboardText = document.getElementById('clipboard-text');
                 const clipboardTypeButton = document.getElementById('clipboard-type');
                 const clipboardClose = document.getElementById('clipboard-close');
+                const sftpTargetDialog = document.getElementById('sftp-target-dialog');
+                const sftpTargetPath = document.getElementById('sftp-target-path');
+                const sftpTargetFiles = document.getElementById('sftp-target-files');
+                const sftpTargetClose = document.getElementById('sftp-target-close');
                 const statusResolution = document.getElementById('status-resolution');
                 const resolutionDialog = document.getElementById('resolution-dialog');
                 const resolutionOptions = document.getElementById('resolution-options');
@@ -9625,6 +9640,14 @@ public sealed class HtmlViews
                     syms.slice().reverse().forEach(s => tab.client.sendKeyEvent(0, s));
                 }
 
+                // SSH sessions expose the remote machine's own filesystem, rooted at "/". A bare file
+                // name would therefore land in the root directory, which hardly anyone may write to -
+                // so these sessions ask where the files should go. RDP has a drive of its own and
+                // needs nothing. The answer is remembered per tab.
+                function needsTargetFolder(tab) {
+                    return (tab.protocol || '').toUpperCase() === 'SSH';
+                }
+
                 function uploadFilesToSession(tab, files) {
                     if (!tab || !tab.filesystem) {
                         if (tab) {
@@ -9633,13 +9656,28 @@ public sealed class HtmlViews
                         return;
                     }
 
-                    for (const file of Array.from(files)) {
+                    const list = Array.from(files).filter(Boolean);
+                    if (!list.length) {
+                        return;
+                    }
+
+                    if (needsTargetFolder(tab) && typeof tab.targetFolder !== 'string') {
+                        askForTargetFolder(tab, list);
+                        return;
+                    }
+
+                    sendFilesToSession(tab, list, tab.targetFolder || '');
+                }
+
+                function sendFilesToSession(tab, files, folder) {
+                    const prefix = folder ? ('/' + folder.replace(/^\/+|\/+$/g, '')) : '';
+                    for (const file of files) {
                         if (!file) {
                             continue;
                         }
 
                         try {
-                            const stream = tab.filesystem.createOutputStream(file.type || 'application/octet-stream', '/' + file.name);
+                            const stream = tab.filesystem.createOutputStream(file.type || 'application/octet-stream', prefix + '/' + file.name);
                             const writer = new Guacamole.BlobWriter(stream);
                             flashStatus(tab, `${uiText.xferUploading || 'Uploading'}: ${file.name}`);
                             writer.oncomplete = () => {
@@ -9656,6 +9694,38 @@ public sealed class HtmlViews
                             flashStatus(tab, `${uiText.xferUploadFailed || 'Upload failed'}: ${file.name}`);
                         }
                     }
+                }
+
+                let pendingTargetUpload = null;
+
+                function askForTargetFolder(tab, files) {
+                    pendingTargetUpload = { tab, files };
+                    sftpTargetFiles.textContent = files.length === 1
+                        ? files[0].name
+                        : files.map(file => file.name).join(', ');
+                    sftpTargetPath.value = typeof tab.targetFolderHint === 'string' ? tab.targetFolderHint : '';
+                    sftpTargetDialog.classList.remove('hidden');
+                    sftpTargetPath.focus();
+
+                    // Ask the gateway once where this login actually lands, so the field is usually
+                    // already right. Purely a convenience - the user can type any path.
+                    if (typeof tab.targetFolderHint !== 'string' && tab.serverId) {
+                        fetch(`/api/connections/${tab.serverId}/sftp-home`)
+                            .then(response => (response.ok ? response.json() : null))
+                            .then(data => {
+                                tab.targetFolderHint = (data && data.path) || '';
+                                if (!sftpTargetPath.value) {
+                                    sftpTargetPath.value = tab.targetFolderHint;
+                                    sftpTargetPath.select();
+                                }
+                            })
+                            .catch(() => { tab.targetFolderHint = ''; });
+                    }
+                }
+
+                function closeTargetFolderDialog() {
+                    pendingTargetUpload = null;
+                    sftpTargetDialog.classList.add('hidden');
                 }
 
                 function downloadRemoteFile(tab, stream, mimetype, filename) {
@@ -9905,6 +9975,20 @@ public sealed class HtmlViews
                     }
                 });
                 clipboardClose.addEventListener('click', closeClipboardDialog);
+                sftpTargetClose.addEventListener('click', closeTargetFolderDialog);
+                sftpTargetDialog.addEventListener('submit', event => {
+                    event.preventDefault();
+                    if (!pendingTargetUpload) {
+                        closeTargetFolderDialog();
+                        return;
+                    }
+
+                    const { tab, files } = pendingTargetUpload;
+                    // Remembered for the rest of this tab, so sending more files does not ask again.
+                    tab.targetFolder = sftpTargetPath.value.trim();
+                    closeTargetFolderDialog();
+                    sendFilesToSession(tab, files, tab.targetFolder);
+                });
                 if (resolutionClose) {
                     resolutionClose.addEventListener('click', closeResolutionDialog);
                 }
