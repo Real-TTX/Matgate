@@ -3829,6 +3829,7 @@ public sealed class HtmlViews
                     <h2>{{(Language(context) == "de" ? "Hier einfuegen" : "Paste here")}}</h2>
                     <label>{{(Language(context) == "de" ? "Zielordner in der Sitzung" : "Target folder in the session")}}
                         <input id="sftp-target-path" type="text" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="/home/user" required>
+                        <select id="sftp-target-area" class="hidden"></select>
                     </label>
                     <p id="sftp-target-files" class="muted"></p>
                     <div class="actions">
@@ -3906,6 +3907,7 @@ public sealed class HtmlViews
                 const clipboardClose = document.getElementById('clipboard-close');
                 const sftpTargetDialog = document.getElementById('sftp-target-dialog');
                 const sftpTargetPath = document.getElementById('sftp-target-path');
+                const sftpTargetArea = document.getElementById('sftp-target-area');
                 const sftpTargetFiles = document.getElementById('sftp-target-files');
                 const sftpTargetClose = document.getElementById('sftp-target-close');
                 const statusResolution = document.getElementById('status-resolution');
@@ -9470,6 +9472,20 @@ public sealed class HtmlViews
                     // such object any more) - which is exactly how "upload runs but the file never arrives"
                     // looks. A reconnect announces a fresh filesystem via client.onfilesystem.
                     tab.filesystem = null;
+                    // Anything still queued belongs to the connection that just ended. Keep the files
+                    // so they go out after a reconnect, but drop the in-flight state: its stream
+                    // numbers are about to be handed out again to somebody else.
+                    if (tab.uploadQueue && tab.uploadQueue.length) {
+                        tab.pendingUpload = {
+                            files: tab.uploadQueue.map(entry => entry.file),
+                            folder: tab.uploadQueue[0].prefix,
+                        };
+                    }
+
+                    tab.uploadQueue = [];
+                    tab.uploadBusy = false;
+                    // Invalidates any callback still owed by the connection that just ended.
+                    tab.uploadGeneration = (tab.uploadGeneration || 0) + 1;
                     setStatus(tab, ui('disconnected'));
                     setOverlay(tab, headline, text, true);
                     updateTabActions();
@@ -9903,6 +9919,48 @@ public sealed class HtmlViews
                     return (tab.protocol || '').toUpperCase() === 'SSH';
                 }
 
+                // A redirected drive has the file areas as folders at its top level. Dropping a file
+                // beside them, in the root, is almost never what somebody means - so the areas are
+                // offered and the session's own folder is preselected.
+                function usesAreaPicker(tab) {
+                    return !!tab.filesystem && !needsTargetFolder(tab);
+                }
+
+                function listDriveAreas(tab, whenReady) {
+                    if (!tab.filesystem) {
+                        whenReady([]);
+                        return;
+                    }
+
+                    let answered = false;
+                    const answer = areas => { if (!answered) { answered = true; whenReady(areas); } };
+                    // A drive that never answers must not swallow the upload.
+                    window.setTimeout(() => answer([]), 5000);
+
+                    try {
+                        tab.filesystem.requestInputStream('/', (stream, mimetype) => {
+                            const reader = new Guacamole.StringReader(stream);
+                            let text = '';
+                            reader.ontext = part => { text += part; };
+                            reader.onend = () => {
+                                try {
+                                    answer(Object.entries(JSON.parse(text))
+                                        .filter(([, type]) => String(type).indexOf('stream-index') >= 0)
+                                        .map(([path]) => path.replace(/^\//, ''))
+                                        .filter(Boolean));
+                                }
+                                catch (e) {
+                                    answer([]);
+                                }
+                            };
+                            stream.sendAck('OK', Guacamole.Status.Code.SUCCESS);
+                        });
+                    }
+                    catch (e) {
+                        answer([]);
+                    }
+                }
+
                 function uploadFilesToSession(tab, files) {
                     if (!tab) {
                         return;
@@ -9929,7 +9987,7 @@ public sealed class HtmlViews
                         return;
                     }
 
-                    if (needsTargetFolder(tab) && typeof tab.targetFolder !== 'string') {
+                    if ((needsTargetFolder(tab) || usesAreaPicker(tab)) && typeof tab.targetFolder !== 'string') {
                         askForTargetFolder(tab, list);
                         return;
                     }
@@ -9951,34 +10009,81 @@ public sealed class HtmlViews
                     }
 
                     const prefix = folder ? ('/' + folder.replace(/^\/+|\/+$/g, '')) : '';
-                    for (const file of files) {
-                        if (!file) {
-                            continue;
-                        }
+                    tab.uploadQueue = (tab.uploadQueue || []).concat(
+                        Array.from(files).filter(Boolean).map(file => ({ file, prefix })));
+                    pumpUploadQueue(tab);
+                }
 
-                        try {
-                            const stream = tab.filesystem.createOutputStream(file.type || 'application/octet-stream', prefix + '/' + file.name);
-                            const writer = new Guacamole.BlobWriter(stream);
-                            flashStatus(tab, `${uiText.xferUploading || 'Uploading'}: ${file.name}`);
-                            writer.oncomplete = () => {
-                                flashStatus(tab, `${uiText.xferUploaded || 'Uploaded'}: ${file.name}`);
-                            };
-                            writer.onerror = (blob, offset, error) => {
-                                flashStatus(tab, `${uiText.xferUploadFailed || 'Upload failed'}: ${file.name}`);
-                            };
-                            // NOTE: do NOT touch stream.onack here - Guacamole.BlobWriter owns it to drive the
-                            // blob flow; overriding it stalls the upload. Rejections surface via onerror.
-                            writer.sendBlob(file);
-                        }
-                        catch (e) {
-                            // The tunnel can die between the check above and this very call. Treat it
-                            // like the case above rather than reporting a failure the user cannot act
-                            // on: the file is kept and goes out after the reconnect.
-                            tab.pendingUpload = { files: Array.from(files), folder: folder || '' };
-                            flashStatus(tab, uiText.xferWaitingForSession
-                                || 'Connection was interrupted - the files are sent once it is back');
+                // One file at a time, and only for the session that started it.
+                //
+                // Sending them all at once used to end the session outright: each file gets its own
+                // stream, but the acknowledgements that drive the transfer are addressed by stream
+                // number. Once a connection drops mid-transfer those numbers are handed out again, an
+                // acknowledgement for the new stream reaches the writer of the old one, and it starts a
+                // second read on a reader that is still reading - "The object is already busy reading
+                // Blobs", which took the whole tab down. Queueing removes the overlap, and the session
+                // stamp makes sure a writer left over from a previous connection stays quiet.
+                function pumpUploadQueue(tab) {
+                    if (!tab || tab.uploadBusy || !tab.uploadQueue || !tab.uploadQueue.length) {
+                        return;
+                    }
+
+                    if (!tab.client || tab.terminal || !tab.filesystem) {
+                        tab.pendingUpload = {
+                            files: tab.uploadQueue.map(entry => entry.file),
+                            folder: tab.uploadQueue[0].prefix,
+                        };
+                        tab.uploadQueue = [];
+                        flashStatus(tab, uiText.xferWaitingForSession
+                            || 'Connection was interrupted - the files are sent once it is back');
+                        return;
+                    }
+
+                    const { file, prefix } = tab.uploadQueue.shift();
+                    // A counter, not the session id: that can legitimately be empty, and an empty
+                    // string is falsy - the "busy" check would never have held, which is exactly how
+                    // three files ended up streaming at once again.
+                    const generation = (tab.uploadGeneration || 0) + 1;
+                    const done = next => {
+                        // A late callback from an earlier transfer must not drive this one.
+                        if (tab.uploadGeneration !== generation) {
                             return;
                         }
+
+                        tab.uploadBusy = false;
+                        next();
+                        pumpUploadQueue(tab);
+                    };
+
+                    try {
+                        tab.uploadGeneration = generation;
+                        tab.uploadBusy = true;
+                        const stream = tab.filesystem.createOutputStream(file.type || 'application/octet-stream', prefix + '/' + file.name);
+                        const writer = new Guacamole.BlobWriter(stream);
+                        flashStatus(tab, `${uiText.xferUploading || 'Uploading'}: ${file.name}`);
+                        writer.oncomplete = () => done(() => {
+                            flashStatus(tab, `${uiText.xferUploaded || 'Uploaded'}: ${file.name}`);
+                        });
+                        writer.onerror = () => done(() => {
+                            flashStatus(tab, `${uiText.xferUploadFailed || 'Upload failed'}: ${file.name}`);
+                        });
+                        // NOTE: do NOT touch stream.onack here - Guacamole.BlobWriter owns it to drive the
+                        // blob flow; overriding it stalls the upload. Rejections surface via onerror.
+                        writer.sendBlob(file);
+                    }
+                    catch (e) {
+                        // The tunnel can die between the check above and this very call. Treat it like
+                        // the case above rather than reporting a failure the user cannot act on: the
+                        // files are kept and go out after the reconnect.
+                        tab.uploadBusy = false;
+                        tab.uploadQueue.unshift({ file, prefix });
+                        tab.pendingUpload = {
+                            files: tab.uploadQueue.map(entry => entry.file),
+                            folder: prefix,
+                        };
+                        tab.uploadQueue = [];
+                        flashStatus(tab, uiText.xferWaitingForSession
+                            || 'Connection was interrupted - the files are sent once it is back');
                     }
                 }
 
@@ -9989,6 +10094,32 @@ public sealed class HtmlViews
                     sftpTargetFiles.textContent = files.length === 1
                         ? files[0].name
                         : files.map(file => file.name).join(', ');
+
+                    if (usesAreaPicker(tab)) {
+                        // Pick from what the drive actually offers, rather than typing a path.
+                        sftpTargetPath.classList.add('hidden');
+                        sftpTargetPath.removeAttribute('required');
+                        sftpTargetArea.classList.remove('hidden');
+                        sftpTargetArea.replaceChildren();
+                        sftpTargetDialog.classList.remove('hidden');
+                        listDriveAreas(tab, areas => {
+                            const choices = areas.length ? areas : ['Session'];
+                            choices.forEach(area => {
+                                const option = document.createElement('option');
+                                option.value = area;
+                                option.textContent = area;
+                                sftpTargetArea.appendChild(option);
+                            });
+                            // The session's own folder is the safe default: it belongs to this sitting
+                            // and nobody else's files are in it.
+                            sftpTargetArea.value = choices.indexOf('Session') >= 0 ? 'Session' : choices[0];
+                        });
+                        return;
+                    }
+
+                    sftpTargetArea.classList.add('hidden');
+                    sftpTargetPath.classList.remove('hidden');
+                    sftpTargetPath.setAttribute('required', 'required');
                     sftpTargetPath.value = typeof tab.targetFolderHint === 'string' ? tab.targetFolderHint : '';
                     sftpTargetDialog.classList.remove('hidden');
                     sftpTargetPath.focus();
@@ -10271,7 +10402,9 @@ public sealed class HtmlViews
 
                     const { tab, files } = pendingTargetUpload;
                     // Remembered for the rest of this tab, so sending more files does not ask again.
-                    tab.targetFolder = sftpTargetPath.value.trim();
+                    tab.targetFolder = usesAreaPicker(tab)
+                        ? (sftpTargetArea.value || 'Session')
+                        : sftpTargetPath.value.trim();
                     closeTargetFolderDialog();
                     sendFilesToSession(tab, files, tab.targetFolder);
                 });
