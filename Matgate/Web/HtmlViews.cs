@@ -3558,6 +3558,7 @@ public sealed class HtmlViews
             xferUploading = Language(context) == "de" ? "Lade hoch" : "Uploading",
             xferUploaded = Language(context) == "de" ? "Hochgeladen" : "Uploaded",
             xferUploadFailed = Language(context) == "de" ? "Upload fehlgeschlagen" : "Upload failed",
+            xferWaitingForSession = Language(context) == "de" ? "Verbindung war unterbrochen - die Dateien gehen raus, sobald sie wieder steht" : "Connection was interrupted - the files are sent once it is back",
             xferDownloading = Language(context) == "de" ? "Lade herunter" : "Downloading",
             pointerTouchpad = Language(context) == "de" ? "Zeiger: Touchpad (wischen bewegt den Cursor)" : "Pointer: touchpad (swipe to move)",
             pointerDirect = Language(context) == "de" ? "Zeiger: Direkt (tippen = an diese Stelle)" : "Pointer: direct (tap to position)",
@@ -7831,6 +7832,15 @@ public sealed class HtmlViews
                             tab.filesystem = object;
                             updateTabActions();
                             flashStatus(tab, uiText.xferDriveReady || "'Matgate' drive ready");
+
+                            // Files chosen while the session was away (picking one backgrounds the page,
+                            // and a phone may drop the tunnel meanwhile) go out now that the drive is
+                            // back - the user picked them once and should not have to do it again.
+                            const pending = tab.pendingUpload;
+                            if (pending) {
+                                tab.pendingUpload = null;
+                                sendFilesToSession(tab, pending.files, pending.folder);
+                            }
                         };
                         client.onfile = (stream, mimetype, filename) => downloadRemoteFile(tab, stream, mimetype, filename);
                         client.onsync = () => {
@@ -9714,15 +9724,28 @@ public sealed class HtmlViews
                 }
 
                 function uploadFilesToSession(tab, files) {
-                    if (!tab || !tab.filesystem) {
-                        if (tab) {
-                            flashStatus(tab, uiText.xferDriveUnavailable || 'File transfer is not available for this session');
-                        }
+                    if (!tab) {
                         return;
                     }
 
                     const list = Array.from(files).filter(Boolean);
                     if (!list.length) {
+                        return;
+                    }
+
+                    // The session ended while the file was being picked - on a phone that is the normal
+                    // case, because choosing a file backgrounds the page and the tunnel may not survive
+                    // it. Keep the files rather than telling the user transfer is unavailable; they go
+                    // out by themselves once the drive is back.
+                    if (tab.terminal || !tab.client) {
+                        tab.pendingUpload = { files: list, folder: tab.targetFolder || '' };
+                        flashStatus(tab, uiText.xferWaitingForSession
+                            || 'Connection was interrupted - the files are sent once it is back');
+                        return;
+                    }
+
+                    if (!tab.filesystem) {
+                        flashStatus(tab, uiText.xferDriveUnavailable || 'File transfer is not available for this session');
                         return;
                     }
 
@@ -9735,6 +9758,18 @@ public sealed class HtmlViews
                 }
 
                 function sendFilesToSession(tab, files, folder) {
+                    // Picking a file puts the page in the background, and a phone may close the tunnel
+                    // while it is there - so by the time the files come back the session can already be
+                    // gone. Streaming into that dead tunnel is what surfaces as "invalid state": the
+                    // browser refuses to send on a closed WebSocket. Keep the files instead and hand
+                    // them over once the session is back.
+                    if (!tab.client || tab.terminal || !tab.filesystem) {
+                        tab.pendingUpload = { files: Array.from(files), folder: folder || '' };
+                        flashStatus(tab, uiText.xferWaitingForSession
+                            || 'Connection was interrupted - the files are sent once it is back');
+                        return;
+                    }
+
                     const prefix = folder ? ('/' + folder.replace(/^\/+|\/+$/g, '')) : '';
                     for (const file of files) {
                         if (!file) {
@@ -9756,7 +9791,13 @@ public sealed class HtmlViews
                             writer.sendBlob(file);
                         }
                         catch (e) {
-                            flashStatus(tab, `${uiText.xferUploadFailed || 'Upload failed'}: ${file.name}`);
+                            // The tunnel can die between the check above and this very call. Treat it
+                            // like the case above rather than reporting a failure the user cannot act
+                            // on: the file is kept and goes out after the reconnect.
+                            tab.pendingUpload = { files: Array.from(files), folder: folder || '' };
+                            flashStatus(tab, uiText.xferWaitingForSession
+                                || 'Connection was interrupted - the files are sent once it is back');
+                            return;
                         }
                     }
                 }
