@@ -3300,6 +3300,16 @@ public static class EndpointMapping
             current.Session.FunctionKeys = Checked(form, "functionKeys");
             current.Session.CtrlAltDelHotkey = Checked(form, "ctrlAltDelHotkey");
             current.Session.PasteAsKeystrokes = Checked(form, "pasteAsKeystrokes");
+
+            // The toolbar order arrives as one comma-separated field, written by the drag list. Only
+            // keys the session UI actually knows are kept, so a stale or hand-crafted value cannot
+            // push junk into the toolbar; duplicates are dropped and anything missing simply keeps
+            // its built-in place.
+            current.Session.ActionOrder = form["actionOrder"].ToString()
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Where(SessionPreferences.IsKnownAction)
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
             current.UpdatedAt = DateTimeOffset.UtcNow;
         }, context.RequestAborted);
 

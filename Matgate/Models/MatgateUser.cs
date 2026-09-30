@@ -85,6 +85,24 @@ public sealed class SessionPreferences
     // Offer Ctrl+Alt+Del as a toolbar button (in addition to the on-screen keyboard key).
     public bool CtrlAltDelHotkey { get; set; } = true;
 
+    // --- Session toolbar ---
+    // The order of the action buttons in a session, by key. Only as many fit in the row on a phone as
+    // there is room for; the rest move into the overflow menu, so this decides which ones stay within
+    // reach. Keys the user never sorted keep their built-in place at the end, and an empty list means
+    // the built-in order - so a new action never disappears because of an order saved before it
+    // existed. "disconnect" is always last and is not part of this.
+    public List<string> ActionOrder { get; set; } = [];
+
+    // The sortable actions, in their built-in order. Kept next to the property it validates so the two
+    // cannot drift apart; "disconnect" is deliberately absent because it is pinned last.
+    public static readonly string[] SortableActions =
+    [
+        "fullscreen", "popOut", "reattach", "pointer", "rightClick", "keyboard", "osk",
+        "resolution", "autoResize", "zoomOut", "zoomIn", "copyUrl", "clipboard", "cad", "upload",
+    ];
+
+    public static bool IsKnownAction(string key) => SortableActions.Contains(key);
+
     // --- Clipboard ---
     // Paste by TYPING the text as individual key events instead of handing it to the remote over the
     // clipboard channel. Required for SSH/terminal sessions (and a useful fallback elsewhere), where

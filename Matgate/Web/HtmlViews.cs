@@ -1067,6 +1067,37 @@ public sealed class HtmlViews
         }
         var de = Language(context) == "de";
         var prefs = user.Session;
+
+        // The sortable session actions: the user's own order first, then everything they never moved,
+        // in its built-in place. That way an action added later shows up at the end instead of being
+        // missing because the saved order predates it.
+        var actionLabels = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["fullscreen"] = de ? "Vollbild" : "Fullscreen",
+            ["popOut"] = de ? "In eigenem Fenster oeffnen" : "Open in a new window",
+            ["reattach"] = de ? "Fenster zurueckholen" : "Re-attach window",
+            ["pointer"] = de ? "Zeigermodus" : "Pointer mode",
+            ["rightClick"] = de ? "Rechtsklick" : "Right click",
+            ["keyboard"] = de ? "Geraetetastatur" : "Device keyboard",
+            ["osk"] = de ? "Bildschirmtastatur" : "On-screen keyboard",
+            ["resolution"] = de ? "Aufloesung" : "Resolution",
+            ["autoResize"] = de ? "Automatisch anpassen" : "Auto-resize",
+            ["zoomOut"] = de ? "Verkleinern" : "Zoom out",
+            ["zoomIn"] = de ? "Vergroessern" : "Zoom in",
+            ["copyUrl"] = de ? "Adresse kopieren" : "Copy address",
+            ["clipboard"] = de ? "Einfuegen" : "Paste",
+            ["cad"] = de ? "Strg+Alt+Entf" : "Ctrl+Alt+Del",
+            ["upload"] = de ? "Dateien senden" : "Send files",
+        };
+        var savedOrder = (prefs.ActionOrder ?? []).Where(SessionPreferences.IsKnownAction).ToList();
+        var sortedActions = savedOrder
+            .Concat(SessionPreferences.SortableActions.Where(key => !savedOrder.Contains(key)))
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        var actionOrderItems = string.Join("", sortedActions.Select(key => $"""
+            <li class="action-order-item" data-action="{A(key)}"><span class="action-order-grip" aria-hidden="true">{Icon("menu")}</span><span>{E(actionLabels[key])}</span></li>
+            """));
+
         string Toggle(string name, bool on, string titleDe, string titleEn, string descDe, string descEn) => $$"""
             <label class="toggle-row">
                 <input type="checkbox" name="{{name}}"{{(on ? " checked" : "")}}>
@@ -1149,8 +1180,75 @@ public sealed class HtmlViews
                                 {{Toggle("ctrlAltDelHotkey", prefs.CtrlAltDelHotkey, "Strg+Alt+Entf als Button", "Ctrl+Alt+Del button", "Zusaetzlich zur Bildschirmtastatur auch als Toolbar-Button.", "In addition to the on-screen keyboard, also as a toolbar button.")}}
                                 <h3 class="session-prefs-group">{{(de ? "Zwischenablage" : "Clipboard")}}</h3>
                                 {{Toggle("pasteAsKeystrokes", prefs.PasteAsKeystrokes, "Einfuegen als Tastatureingaben", "Paste as keystrokes", "Text wird Zeichen fuer Zeichen getippt statt ueber die Zwischenablage geschickt - noetig z. B. bei SSH-Terminals.", "Text is typed character by character instead of sent over the clipboard - needed e.g. for SSH terminals.")}}
+                                <h3 class="session-prefs-group">{{(de ? "Reihenfolge der Aktionen" : "Order of the actions")}}</h3>
+                                <p class="muted">{{(de
+                                    ? "Auf schmalen Bildschirmen passen nur die vordersten in die Leiste - der Rest landet im Drei-Punkte-Menue. Zum Sortieren ziehen. Trennen bleibt immer ganz rechts."
+                                    : "On narrow screens only the first ones fit in the bar - the rest go into the three-dots menu. Drag to sort. Disconnect always stays on the right.")}}</p>
+                                <ol id="action-order-list" class="action-order-list">{{actionOrderItems}}</ol>
+                                <input type="hidden" name="actionOrder" id="action-order-value" value="">
                                 <div class="actions"><button type="submit" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button></div>
                             </form>
+                            <script>
+                                (() => {
+                                    const list = document.getElementById('action-order-list');
+                                    const field = document.getElementById('action-order-value');
+                                    if (!list || !field) {
+                                        return;
+                                    }
+
+                                    const sync = () => {
+                                        field.value = Array.from(list.children)
+                                            .map(item => item.dataset.action)
+                                            .filter(Boolean)
+                                            .join(',');
+                                    };
+                                    sync();
+
+                                    // Pointer events, not HTML5 drag and drop: that one does not fire at
+                                    // all on iOS Safari, which is where this setting matters most.
+                                    let dragged = null;
+                                    list.addEventListener('pointerdown', event => {
+                                        const item = event.target.closest('.action-order-item');
+                                        if (!item) {
+                                            return;
+                                        }
+
+                                        dragged = item;
+                                        item.classList.add('dragging');
+                                        try { item.setPointerCapture(event.pointerId); } catch { }
+                                    });
+                                    list.addEventListener('pointermove', event => {
+                                        if (!dragged) {
+                                            return;
+                                        }
+
+                                        // The item has the pointer captured, so what is under the finger
+                                        // has to be looked up rather than read off the event target.
+                                        const under = document.elementFromPoint(event.clientX, event.clientY);
+                                        const over = under && under.closest ? under.closest('.action-order-item') : null;
+                                        if (!over || over === dragged || over.parentElement !== list) {
+                                            return;
+                                        }
+
+                                        const items = Array.from(list.children);
+                                        list.insertBefore(
+                                            dragged,
+                                            items.indexOf(dragged) < items.indexOf(over) ? over.nextSibling : over);
+                                        sync();
+                                    });
+                                    const endDrag = () => {
+                                        if (!dragged) {
+                                            return;
+                                        }
+
+                                        dragged.classList.remove('dragging');
+                                        dragged = null;
+                                        sync();
+                                    };
+                                    list.addEventListener('pointerup', endDrag);
+                                    list.addEventListener('pointercancel', endDrag);
+                                })();
+                            </script>
                         </section>
                     </div>
                     <div class="tab-panel{{(tab == "favorites" ? "" : " hidden")}}" data-tab-panel="favorites">
@@ -3773,7 +3871,7 @@ public sealed class HtmlViews
             <script>
             (() => {
                 const availableServers = {{availableServers}};
-                const sessionPrefs = Object.assign({ edgePanning: true, dragPanning: true, stretchToWindow: false, systemCombos: true, functionKeys: false, ctrlAltDelHotkey: true, pasteAsKeystrokes: false }, {{sessionPrefs}});
+                const sessionPrefs = Object.assign({ edgePanning: true, dragPanning: true, stretchToWindow: false, systemCombos: true, functionKeys: false, ctrlAltDelHotkey: true, pasteAsKeystrokes: false, actionOrder: [] }, {{sessionPrefs}});
                 const initialOpenServerId = {{initialOpenServerId}};
                 // This window was popped out of another (a tab opened in its own window). It shows a
                 // "re-attach" control instead of "pop out", and re-attach hands the session back.
@@ -6002,7 +6100,7 @@ public sealed class HtmlViews
                             'tab-action-keep',
                             true);
 
-                        connectionTabActions.appendChild(fullscreenButton);
+                        addTabAction('fullscreen', fullscreenButton);
 
                         // Pop the session out into its own window (or, in a popped window, hand it back
                         // to the main window). Moving a live session reconnects it in the target window.
@@ -6013,7 +6111,7 @@ public sealed class HtmlViews
                                 () => reattachTab(tab),
                                 'tab-action-keep',
                                 true);
-                            connectionTabActions.appendChild(reattachButton);
+                            addTabAction('reattach', reattachButton);
                         }
                         else {
                             const popOutButton = createTabActionButton(
@@ -6022,7 +6120,7 @@ public sealed class HtmlViews
                                 () => popOutTab(tab),
                                 'tab-action-keep',
                                 true);
-                            connectionTabActions.appendChild(popOutButton);
+                            addTabAction('popOut', popOutButton);
                         }
 
                         if (isTouchDevice && tab.client && !tab.terminal) {
@@ -6032,7 +6130,7 @@ public sealed class HtmlViews
                                 () => setPointerMode(pointerMode === 'touchpad' ? 'direct' : 'touchpad'),
                                 pointerMode === 'touchpad' ? 'active' : '',
                                 true);
-                            connectionTabActions.appendChild(pointerButton);
+                            addTabAction('pointer', pointerButton);
 
                             const rightClickButton = createTabActionButton(
                                 actionIcons.rightClick,
@@ -6040,7 +6138,7 @@ public sealed class HtmlViews
                                 () => sendRightClick(tab),
                                 '',
                                 true);
-                            connectionTabActions.appendChild(rightClickButton);
+                            addTabAction('rightClick', rightClickButton);
 
                             if (tab.oskInput) {
                                 const keyboardButton = createTabActionButton(
@@ -6071,7 +6169,7 @@ public sealed class HtmlViews
                                 // The oskInput focus/blur listeners keep this button's highlight in
                                 // sync (incl. system-side keyboard dismissals via geometrychange).
                                 tab.keyboardButton = keyboardButton;
-                                connectionTabActions.appendChild(keyboardButton);
+                                addTabAction('keyboard', keyboardButton);
                             }
 
                             const oskButton = createTabActionButton(
@@ -6085,7 +6183,7 @@ public sealed class HtmlViews
                             // can clear the highlight when the session is covered by an overlay.
                             oskButton.classList.toggle('active', !!(tab.osk && tab.osk.classList.contains('open')));
                             tab.oskButton = oskButton;
-                            connectionTabActions.appendChild(oskButton);
+                            addTabAction('osk', oskButton);
                         }
 
                         // Resolution / scale picker (+ zoom in fixed mode): on ALL devices, not just touch,
@@ -6100,7 +6198,7 @@ public sealed class HtmlViews
                                 () => openResolutionDialog(),
                                 isDesktopDisplayMode(tab) ? 'active' : '',
                                 true);
-                            connectionTabActions.appendChild(resolutionButton);
+                            addTabAction('resolution', resolutionButton);
 
                             // Auto-resize toggle, right next to the resolution button (fit modes on protocols
                             // that CAN renegotiate, i.e. RDP; not VNC/farm which have a fixed remote size).
@@ -6113,7 +6211,7 @@ public sealed class HtmlViews
                                     () => setAutoResize(!tab.autoResize),
                                     tab.autoResize ? 'active' : '',
                                     true);
-                                connectionTabActions.appendChild(autoResizeButton);
+                                addTabAction('autoResize', autoResizeButton);
                             }
 
                             if (isDesktopDisplayMode(tab)) {
@@ -6123,7 +6221,7 @@ public sealed class HtmlViews
                                     () => adjustZoom(-0.25),
                                     '',
                                     true);
-                                connectionTabActions.appendChild(zoomOutButton);
+                                addTabAction('zoomOut', zoomOutButton);
 
                                 const zoomInButton = createTabActionButton(
                                     actionIcons.zoomIn,
@@ -6131,7 +6229,7 @@ public sealed class HtmlViews
                                     () => adjustZoom(0.25),
                                     '',
                                     true);
-                                connectionTabActions.appendChild(zoomInButton);
+                                addTabAction('zoomIn', zoomInButton);
                             }
                         }
 
@@ -6144,7 +6242,7 @@ public sealed class HtmlViews
                                     async () => { await window.MatgateCopyText?.(copyUrl); },
                                     '',
                                     true);
-                                connectionTabActions.appendChild(copyUrlButton);
+                                addTabAction('copyUrl', copyUrlButton);
                             }
                         }
 
@@ -6170,7 +6268,7 @@ public sealed class HtmlViews
                                 },
                                 '',
                                 true);
-                            connectionTabActions.appendChild(clipboardButton);
+                            addTabAction('clipboard', clipboardButton);
                         }
 
                         // Ctrl+Alt+Del button: the Windows secure-attention sequence cannot be forwarded by
@@ -6185,7 +6283,7 @@ public sealed class HtmlViews
                                 () => sendSessionCombo(tab, [0xFFE3, 0xFFE9, 0xFFFF]),
                                 '',
                                 true);
-                            connectionTabActions.appendChild(cadButton);
+                            addTabAction('cad', cadButton);
                         }
 
                         if (tab.filesystem && !tab.terminal) {
@@ -6208,7 +6306,7 @@ public sealed class HtmlViews
                                 },
                                 '',
                                 true);
-                            connectionTabActions.appendChild(uploadButton);
+                            addTabAction('upload', uploadButton);
                         }
 
                         const disconnectButton = createTabActionButton(
@@ -6216,7 +6314,10 @@ public sealed class HtmlViews
                             uiText.disconnect || 'Disconnect',
                             () => closeTab(tab.id),
                             'danger tab-action-disconnect');
-                        connectionTabActions.appendChild(disconnectButton);
+                        addTabAction('disconnect', disconnectButton);
+                        // Order first, then decide what still fits - so the actions the user put first
+                        // are the ones that survive into the visible part of the row.
+                        applyActionOrder();
                         collapseConnectionActions(connectionTabActions);
                     }
                     else if (shellTab) {
@@ -6228,7 +6329,7 @@ public sealed class HtmlViews
                                 async () => { await window.MatgateCopyText?.(copyUrl); },
                                 '',
                                 true);
-                            connectionTabActions.appendChild(copyUrlButton);
+                            addTabAction('copyUrl', copyUrlButton);
                         }
                     }
                     updateStatusBar();
@@ -6245,6 +6346,44 @@ public sealed class HtmlViews
                         : `${iconHtml || ''}<span>${escapeHtml(label)}</span>`;
                     button.addEventListener('click', onClick);
                     return button;
+                }
+
+                // Every action carries a stable key, independent of what it says. The labels are
+                // translated and two of them contain live state ("Resolution: 1920x1080"), so neither
+                // can identify an action across languages or sessions - which a saved order needs.
+                function addTabAction(key, button) {
+                    if (!button) {
+                        return;
+                    }
+
+                    button.dataset.action = key;
+                    connectionTabActions.appendChild(button);
+                }
+
+                // Puts the row in the order the user picked. Actions they never sorted - because they
+                // are new, or only appear for some protocols - keep their built-in place at the end
+                // rather than disappearing. Disconnect stays last whatever the order says: it is the
+                // one action that must not end up buried in the overflow menu.
+                function applyActionOrder() {
+                    const order = Array.isArray(sessionPrefs.actionOrder) ? sessionPrefs.actionOrder : [];
+                    if (!order.length) {
+                        return;
+                    }
+
+                    const rank = key => {
+                        const at = order.indexOf(key);
+                        return at < 0 ? order.length : at;
+                    };
+
+                    Array.from(connectionTabActions.children)
+                        .sort((a, b) => {
+                            const left = a.dataset.action || '';
+                            const right = b.dataset.action || '';
+                            if (left === 'disconnect') { return 1; }
+                            if (right === 'disconnect') { return -1; }
+                            return rank(left) - rank(right);
+                        })
+                        .forEach(button => connectionTabActions.appendChild(button));
                 }
 
                 // On phones the session toolbar keeps only the primary buttons (fullscreen, keyboards)
@@ -6366,13 +6505,23 @@ public sealed class HtmlViews
                         return;
                     }
                     const buttons = Array.from(container.querySelectorAll('.tab-action-button'))
-                        .filter(b => !b.classList.contains('tab-action-keep') && !b.classList.contains('tab-action-disconnect'));
+                        .filter(b => !b.classList.contains('tab-action-disconnect'));
                     if (buttons.length < 2) {
                         return;
                     }
                     const panel = document.createElement('div');
                     panel.className = 'tab-action-more-panel tab-action-overflow-panel';
-                    buttons.forEach(btn => moveActionToPanel(btn, panel));
+                    // Who stays in the row: when the user sorted the actions themselves, their order
+                    // decides and only the measured fit below takes any away - otherwise the built-in
+                    // "keep" set would pin actions they had deliberately pushed to the back, and
+                    // sorting would change nothing about what is actually within reach. Without an
+                    // order of their own the primary buttons stay inline, exactly as before.
+                    const sorted = Array.isArray(sessionPrefs.actionOrder) && sessionPrefs.actionOrder.length > 0;
+                    if (!sorted) {
+                        buttons
+                            .filter(btn => !btn.classList.contains('tab-action-keep'))
+                            .forEach(btn => moveActionToPanel(btn, panel));
+                    }
                     panel.addEventListener('click', () => { panel.style.display = 'none'; });
                     const trigger = createTabActionButton(
                         actionIcons.more || '&#8943;',
@@ -11370,6 +11519,24 @@ public sealed class HtmlViews
                     /* Session-preferences toggle list (Account -> Session). */
                     .session-prefs { display: grid; gap: 10px; max-width: 620px; }
                     .session-prefs-group { margin: 12px 0 2px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+                    .action-order-list { display: flex; flex-direction: column; gap: 6px; list-style: none; margin: 6px 0 0; padding: 0; }
+                    .action-order-item {
+                        align-items: center;
+                        background: var(--surface);
+                        border: 1px solid var(--line);
+                        border-radius: 10px;
+                        cursor: grab;
+                        display: flex;
+                        gap: 10px;
+                        min-height: 44px;
+                        padding: 0 12px;
+                        /* Without this a touch scrolls the page instead of dragging the item, which
+                           would make the whole setting unusable on exactly the devices it is for. */
+                        touch-action: none;
+                        user-select: none;
+                    }
+                    .action-order-item.dragging { border-color: var(--accent); box-shadow: var(--shadow-strong); opacity: .9; }
+                    .action-order-grip { color: var(--muted); display: inline-flex; flex: 0 0 auto; }
                     .session-prefs-group:first-of-type { margin-top: 0; }
                     .toggle-row { display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: start; font-weight: 500; cursor: pointer; padding: 6px 0; }
                     .toggle-row > input { display: none; }
