@@ -10059,17 +10059,50 @@ public sealed class HtmlViews
                         tab.uploadGeneration = generation;
                         tab.uploadBusy = true;
                         const stream = tab.filesystem.createOutputStream(file.type || 'application/octet-stream', prefix + '/' + file.name);
-                        const writer = new Guacamole.BlobWriter(stream);
                         flashStatus(tab, `${uiText.xferUploading || 'Uploading'}: ${file.name}`);
-                        writer.oncomplete = () => done(() => {
-                            flashStatus(tab, `${uiText.xferUploaded || 'Uploaded'}: ${file.name}`);
-                        });
-                        writer.onerror = () => done(() => {
-                            flashStatus(tab, `${uiText.xferUploadFailed || 'Upload failed'}: ${file.name}`);
-                        });
-                        // NOTE: do NOT touch stream.onack here - Guacamole.BlobWriter owns it to drive the
-                        // blob flow; overriding it stalls the upload. Rejections surface via onerror.
-                        writer.sendBlob(file);
+
+                        // Opening the stream is acknowledged too, not just the blocks that follow -
+                        // and Guacamole's writer cannot tell the two apart. If that first one arrives
+                        // after the writer has started reading, it is taken for a block acknowledgement
+                        // and kicks off a second read while the first is still running: "The object is
+                        // already busy reading Blobs", which is thrown inside Guacamole's own code and
+                        // takes the whole session down with it. Measured on a 270 kB upload: 62
+                        // acknowledgements for 62 reads, one more than the steady state, one overlap.
+                        //
+                        // So the stream is opened first and the writer is built only once that has
+                        // been acknowledged - from then on every acknowledgement really is a block.
+                        let started = false;
+                        const start = () => {
+                            if (started || tab.uploadGeneration !== generation) {
+                                return;
+                            }
+
+                            started = true;
+                            stream.onack = null;
+                            const writer = new Guacamole.BlobWriter(stream);
+                            writer.oncomplete = () => done(() => {
+                                flashStatus(tab, `${uiText.xferUploaded || 'Uploaded'}: ${file.name}`);
+                            });
+                            writer.onerror = () => done(() => {
+                                flashStatus(tab, `${uiText.xferUploadFailed || 'Upload failed'}: ${file.name}`);
+                            });
+                            // From here Guacamole.BlobWriter owns stream.onack and drives the transfer;
+                            // touching it again would stall the upload.
+                            writer.sendBlob(file);
+                        };
+
+                        stream.onack = status => {
+                            if (status && typeof status.isError === 'function' && status.isError()) {
+                                done(() => {
+                                    flashStatus(tab, `${uiText.xferUploadFailed || 'Upload failed'}: ${file.name}`);
+                                });
+                                return;
+                            }
+
+                            start();
+                        };
+                        // A gateway that never acknowledges the open must not swallow the file.
+                        window.setTimeout(start, 3000);
                     }
                     catch (e) {
                         // The tunnel can die between the check above and this very call. Treat it like
