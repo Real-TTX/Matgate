@@ -72,9 +72,9 @@ services:
       MATGATE_BROWSER_FARM_TOKEN: ${MATGATE_BROWSER_FARM_TOKEN:-}
     volumes:
       - ./data:/data
-      # Same folder guacd gets as /drive below. Matgate uses it when it is mounted here, and
-      # falls back to a scratch folder inside guacd when it is not - no setting involved.
-      - ./data/guac-drives:/data/guac-drives
+      # User content: the Global / Connection / User / Session areas. Mount this elsewhere (a NAS,
+      # say) to move it all, or mount a single area below it to move just that one.
+      - ./files:/files
       - matgate-secrets:/run/matgate-secrets
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -91,7 +91,9 @@ services:
     <<: *home-dns
     image: guacamole/guacd:1.6.0
     volumes:
-      - ./data/guac-drives:/drive
+      # The same tree Matgate manages, at the same path: a remote session's drive is one folder
+      # inside it, and the links in that folder have to resolve identically in both containers.
+      - ./files:/files
     restart: unless-stopped
 
   guacamole:

@@ -132,6 +132,8 @@ builder.Services.AddSingleton<SecretProtector>();
 builder.Services.AddSingleton<JsonDataStore>();
 builder.Services.AddSingleton<GuacamoleConfigWriter>();
 builder.Services.AddSingleton<HtmlViews>();
+builder.Services.AddSingleton<FileShareService>();
+builder.Services.AddHostedService<FileShareReaper>();
 builder.Services.AddSingleton<GuacamoleLauncher>();
 builder.Services.AddSingleton<EphemeralServerStore>();
 builder.Services.AddSingleton<BrowserFarmClient>();

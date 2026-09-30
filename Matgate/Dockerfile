@@ -23,6 +23,9 @@ ARG MATGATE_BUILD_TAG=local
 ARG MATGATE_BUILD_TIME=
 ENV ASPNETCORE_URLS=http://+:8080
 ENV MATGATE_DATA_DIR=/data
+# User content lives apart from the gateway state: bigger, backed up differently, and often worth
+# putting on a NAS. guacd must see this same tree at the same path (see the compose files).
+ENV MATGATE_FILES_DIR=/files
 ENV MATGATE_BUILD_TAG=${MATGATE_BUILD_TAG}
 
 EXPOSE 8080

@@ -258,6 +258,8 @@ public sealed class JsonDataStore
                 IsAdmin = true,
                 CanManageServers = true,
                 CanCreateServers = true,
+                CanQuickConnect = true,
+                FileShare = new FileSharePermissions { Global = true, Connection = true, Personal = true },
                 PreferredLanguage = "en",
                 IsEnabled = true,
                 CreatedAt = now,

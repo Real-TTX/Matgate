@@ -38,6 +38,10 @@ public sealed class MatgateUser
     // user opens, on any device. Configured under Account -> Session.
     public SessionPreferences Session { get; set; } = new();
 
+    // Which of the gateway's file areas this user may use. A permission, not a preference: only an
+    // admin sets it, and the user never sees it in their own account.
+    public FileSharePermissions FileShare { get; set; } = new();
+
     public bool IsEnabled { get; set; } = true;
 
     public List<Guid> FavoriteServerIds { get; set; } = [];
@@ -86,6 +90,26 @@ public sealed class SessionPreferences
     // clipboard channel. Required for SSH/terminal sessions (and a useful fallback elsewhere), where
     // the remote never pastes the clipboard we give it.
     public bool PasteAsKeystrokes { get; set; }
+}
+
+// Which of the gateway's own file areas a user may use. They show up as folders on the redirected
+// drive of a remote session, next to the session's own scratch folder.
+//
+// Deliberately two levels per area - handed over or not at all. The drive is served by a single
+// system user, so the filesystem cannot tell two Matgate users apart; a "read-only" in between could
+// not be enforced and would only look like a guarantee. Anything finer belongs in the file manager,
+// where Matgate itself serves every request.
+public sealed class FileSharePermissions
+{
+    // Shared by everyone who has it: the gateway-wide exchange folder.
+    public bool Global { get; set; }
+
+    // Belongs to the connection rather than to a person - the same folder for everyone who may open
+    // that connection. Never handed to ad-hoc quick connections, whose id is new every time.
+    public bool Connection { get; set; }
+
+    // The user's own folder, identical in every session they open.
+    public bool Personal { get; set; } = true;
 }
 
 // One entry in a user's recently-used connection history.

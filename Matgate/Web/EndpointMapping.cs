@@ -345,6 +345,8 @@ public static class EndpointMapping
         app.MapPost("/api/tools/download", ToolsDownloadAsync).RequireAuthorization();
         app.MapPost("/api/connections/{id:guid}/launch", LaunchConnectionAsync).RequireAuthorization();
         app.MapPost("/api/quick-connect", QuickConnectAsync).RequireAuthorization();
+        app.MapPost("/api/sessions/{id}/keepalive", SessionKeepaliveAsync).RequireAuthorization();
+        app.MapPost("/api/sessions/{id}/close", SessionCloseAsync).RequireAuthorization();
         app.MapPost("/api/browser-sessions/{id:guid}/keepalive", BrowserSessionKeepaliveAsync).RequireAuthorization();
         app.MapPost("/api/browser-sessions/{id:guid}/close", BrowserSessionCloseAsync).RequireAuthorization();
         app.MapPost("/admin/browser/{id:guid}/release", BrowserSessionAdminReleaseAsync).RequireAuthorization();
@@ -558,6 +560,7 @@ public static class EndpointMapping
                 CanManageServers = true,
                 CanCreateServers = true,
                 CanQuickConnect = true,
+                FileShare = new FileSharePermissions { Global = true, Connection = true, Personal = true },
                 PreferredLanguage = HtmlViews.Language(context) == "de" ? "de" : "en",
                 IsEnabled = true,
                 CreatedAt = now,
@@ -1877,7 +1880,9 @@ public static class EndpointMapping
             }
 
             var vncEndpoint = farmSessions.BuildVncEndpoint(session, server);
-            var vncLaunch = await launcher.CreateLaunchAsync(user, vncEndpoint, context.RequestAborted);
+            // A farm browser is a throwaway container, not one of the user's machines - it never gets
+            // the persistent file areas.
+            var vncLaunch = await launcher.CreateLaunchAsync(user, vncEndpoint, ephemeralServer: true, context.RequestAborted);
             if (!vncLaunch.Success || string.IsNullOrWhiteSpace(vncLaunch.Url))
             {
                 await farmSessions.CloseAsync(session.Id, "launch failed", context.RequestAborted);
@@ -1901,7 +1906,11 @@ public static class EndpointMapping
         }
 
         await configWriter.SynchronizeAsync(context.RequestAborted);
-        var launch = await launcher.CreateLaunchAsync(user, server, context.RequestAborted);
+
+        // Quick-connect endpoints exist only in memory and point at a host the user typed in, so they
+        // get no persistent file areas - only the session's own scratch folder.
+        var ephemeralServer = await store.FindServerByIdAsync(id, context.RequestAborted) is null;
+        var launch = await launcher.CreateLaunchAsync(user, server, ephemeralServer, context.RequestAborted);
         if (!launch.Success || string.IsNullOrWhiteSpace(launch.Url))
         {
             return Results.BadRequest(new { error = launch.Error ?? HtmlViews.Translate(context, "The connection could not be started.") });
@@ -1921,8 +1930,40 @@ public static class EndpointMapping
                     : $"{server.Host}:{server.Port}"
             },
             encryptedData = launch.EncryptedData,
-            connectionName = launch.ConnectionName
+            connectionName = launch.ConnectionName,
+            // The client reports this back while the tab is open, so the file areas prepared for this
+            // session are not swept away underneath it.
+            sessionId = launch.SessionId
         });
+    }
+
+    // Client heartbeat while a session tab is open, and its counterpart when the tab goes away. Both
+    // are owner-scoped: without them Matgate never learns that a session ended, because the tunnel
+    // runs between the browser and Guacamole and never touches the gateway.
+    private static async Task<IResult> SessionKeepaliveAsync(
+        string id, HttpContext context, JsonDataStore store, FileShareService fileShares)
+    {
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        fileShares.Keepalive(id, user.Id);
+        return Results.Ok();
+    }
+
+    private static async Task<IResult> SessionCloseAsync(
+        string id, HttpContext context, JsonDataStore store, FileShareService fileShares)
+    {
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        fileShares.Close(id, user.Id);
+        return Results.Ok();
     }
 
     // Client heartbeat while a farm-website tab is open (fetch). Owner-scoped; releases nothing.
@@ -2799,6 +2840,14 @@ public static class EndpointMapping
                 CanManageServers = IsChecked(form, "canManageServers") || IsChecked(form, "isAdmin"),
                 CanCreateServers = IsChecked(form, "canCreateServers") || IsChecked(form, "isAdmin"),
                 CanQuickConnect = IsChecked(form, "canQuickConnect") || IsChecked(form, "isAdmin"),
+                // Not implied by isAdmin: the areas are handed out by linking them into a session, so
+                // an admin who wants them has to be given them like anyone else.
+                FileShare = new FileSharePermissions
+                {
+                    Global = IsChecked(form, "fileShareGlobal"),
+                    Connection = IsChecked(form, "fileShareConnection"),
+                    Personal = IsChecked(form, "fileSharePersonal"),
+                },
                 PreferredLanguage = NormalizeLanguage(form["preferredLanguage"].ToString()),
                 PreferredTheme = NormalizeTheme(form["preferredTheme"].ToString()),
                 RememberLoginByDefault = true,
@@ -2919,6 +2968,10 @@ public static class EndpointMapping
             user.CanManageServers = IsChecked(form, "canManageServers") || user.IsAdmin;
             user.CanCreateServers = IsChecked(form, "canCreateServers") || user.IsAdmin;
             user.CanQuickConnect = IsChecked(form, "canQuickConnect") || user.IsAdmin;
+            user.FileShare ??= new FileSharePermissions();
+            user.FileShare.Global = IsChecked(form, "fileShareGlobal");
+            user.FileShare.Connection = IsChecked(form, "fileShareConnection");
+            user.FileShare.Personal = IsChecked(form, "fileSharePersonal");
             user.PreferredLanguage = NormalizeLanguage(form["preferredLanguage"].ToString());
             user.PreferredTheme = NormalizeTheme(form["preferredTheme"].ToString());
             user.RememberLoginByDefault = true;

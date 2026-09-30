@@ -509,6 +509,9 @@ public sealed class HtmlViews
                         <label class="check"><input type="checkbox" name="canManageServers"> {{T(context, "Manage servers")}}</label>
                         <label class="check"><input type="checkbox" name="canCreateServers"> {{T(context, "Can create own servers")}}</label>
                         <label class="check"><input type="checkbox" name="canQuickConnect"> {{(Language(context) == "de" ? "Quick-Connect erlauben" : "Allow quick connect")}}</label>
+                        <label class="check"><input type="checkbox" name="fileShareGlobal"> {{(Language(context) == "de" ? "Ablage \"Global\" in Sitzungen" : "\"Global\" area in sessions")}}</label>
+                        <label class="check"><input type="checkbox" name="fileShareConnection"> {{(Language(context) == "de" ? "Ablage \"Verbindung\" in Sitzungen" : "\"Connection\" area in sessions")}}</label>
+                        <label class="check"><input type="checkbox" name="fileSharePersonal" checked> {{(Language(context) == "de" ? "Eigene Ablage in Sitzungen" : "Own area in sessions")}}</label>
                     </div>
                 </section>
                 <div class="actions">
@@ -602,6 +605,10 @@ public sealed class HtmlViews
                         <label class="check"><input type="checkbox" name="canManageServers"{{Checked(editedUser.CanManageServers)}}> {{T(context, "Manage servers")}}</label>
                         <label class="check"><input type="checkbox" name="canCreateServers"{{Checked(editedUser.CanCreateServers)}}> {{T(context, "Can create own servers")}}</label>
                         <label class="check"><input type="checkbox" name="canQuickConnect"{{Checked(editedUser.CanQuickConnect)}}> {{(de ? "Quick-Connect erlauben" : "Allow quick connect")}}</label>
+                        <label class="check"><input type="checkbox" name="fileShareGlobal"{{Checked(editedUser.FileShare.Global)}}> {{(de ? "Ablage \"Global\" in Sitzungen" : "\"Global\" area in sessions")}}</label>
+                        <label class="check"><input type="checkbox" name="fileShareConnection"{{Checked(editedUser.FileShare.Connection)}}> {{(de ? "Ablage \"Verbindung\" in Sitzungen" : "\"Connection\" area in sessions")}}</label>
+                        <label class="check"><input type="checkbox" name="fileSharePersonal"{{Checked(editedUser.FileShare.Personal)}}> {{(de ? "Eigene Ablage in Sitzungen" : "Own area in sessions")}}</label>
+                        <small class="muted">{{(de ? "Aenderungen an den Ablagen wirken erst, wenn der Benutzer eine Sitzung neu aufbaut - laufende Sitzungen behalten ihre Ordner." : "Changes to the areas take effect the next time the user connects; sessions already running keep their folders.")}}</small>
                     </div>
                 </section>
                 <div class="actions"><button type="submit" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button></div>
@@ -4019,7 +4026,7 @@ public sealed class HtmlViews
                 window.addEventListener('orientationchange', updateViewportHeight);
                 // Release any held browser-farm slots if the whole app is closed/backgrounded.
                 window.addEventListener('pagehide', () => {
-                    tabs.forEach(tab => releaseBrowserFarm(tab));
+                    tabs.forEach(tab => { releaseBrowserFarm(tab); releaseSessionFiles(tab); });
                 });
                 if (window.visualViewport) {
                     window.visualViewport.addEventListener('resize', updateViewportHeight, { passive: true });
@@ -6613,6 +6620,7 @@ public sealed class HtmlViews
                         protocol: farmWebsite ? 'VNC' : server.protocol,
                         farmWebsite,
                         browserSessionId: '',
+                        fileSessionId: '',
                         browserFarmTimer: null,
                         iconKey: server.iconKey,
                         iconHtml: server.iconHtml,
@@ -6775,6 +6783,50 @@ public sealed class HtmlViews
                     saveWorkspaceTabs();
                 }
 
+                // Report the session as still open, so the gateway does not sweep away the file areas
+                // it prepared for it. Matgate has no other way to know: the tunnel runs between this
+                // browser and Guacamole and never touches the gateway.
+                function startSessionKeepalive(tab) {
+                    stopSessionKeepalive(tab);
+                    tab.sessionKeepaliveTimer = window.setInterval(() => {
+                        if (!tab.fileSessionId) {
+                            return;
+                        }
+
+                        fetch(`/api/sessions/${encodeURIComponent(tab.fileSessionId)}/keepalive`, { method: 'POST', keepalive: true })
+                            .catch(() => {});
+                    }, 60000);
+                }
+
+                function stopSessionKeepalive(tab) {
+                    if (tab.sessionKeepaliveTimer) {
+                        window.clearInterval(tab.sessionKeepaliveTimer);
+                        tab.sessionKeepaliveTimer = null;
+                    }
+                }
+
+                // Tell the gateway the session is over, so its file areas go now instead of waiting
+                // for the sweeper. Best effort by nature - a crash or a killed browser never gets
+                // here, which is why the gateway also sweeps on its own.
+                function releaseSessionFiles(tab) {
+                    stopSessionKeepalive(tab);
+                    const sessionId = tab.fileSessionId;
+                    if (!sessionId) {
+                        return;
+                    }
+
+                    tab.fileSessionId = '';
+                    const url = `/api/sessions/${encodeURIComponent(sessionId)}/close`;
+                    try {
+                        if (!navigator.sendBeacon || !navigator.sendBeacon(url)) {
+                            fetch(url, { method: 'POST', keepalive: true }).catch(() => {});
+                        }
+                    }
+                    catch {
+                        fetch(url, { method: 'POST', keepalive: true }).catch(() => {});
+                    }
+                }
+
                 // Keep the browser-farm slot reserved while a farm-website tab is open.
                 function startBrowserFarmKeepalive(tab) {
                     stopBrowserFarmKeepalive(tab);
@@ -6822,6 +6874,7 @@ public sealed class HtmlViews
                     }
 
                     releaseBrowserFarm(tab);
+                    releaseSessionFiles(tab);
                     tab.terminal = true;
                     window.clearInterval(tab.watchdog);
                     if (tab.client) {
@@ -7462,6 +7515,7 @@ public sealed class HtmlViews
 
                         setOverlay(tab, ui('opening'), `${tab.name} ${uiText.isOpening || 'is opening'}.`, false);
                         releaseBrowserFarm(tab);
+                        releaseSessionFiles(tab);
                         restartTab(tab);
                     }, 900);
                 }
@@ -7704,6 +7758,15 @@ public sealed class HtmlViews
                         if (launch.browserSessionId) {
                             tab.browserSessionId = launch.browserSessionId;
                             startBrowserFarmKeepalive(tab);
+                        }
+
+                        // Every launch mints a new session id - including a reconnect - so release the
+                        // previous one before taking over the new one, otherwise its file areas linger
+                        // until the sweeper notices.
+                        releaseSessionFiles(tab);
+                        if (launch.sessionId) {
+                            tab.fileSessionId = launch.sessionId;
+                            startSessionKeepalive(tab);
                         }
 
                         pushDiag(tab, 'auth:start');
@@ -9483,6 +9546,7 @@ public sealed class HtmlViews
                     if (tab.farmWebsite) {
                         setOverlay(tab, ui('opening'), `${tab.name} ${uiText.isOpening || 'is opening'}.`, false);
                         releaseBrowserFarm(tab);
+                        releaseSessionFiles(tab);
                         restartTab(tab);
                         return;
                     }
@@ -9521,6 +9585,7 @@ public sealed class HtmlViews
                         // Farm VNC can't rescale live - re-render the browser at the new scale.
                         setOverlay(tab, ui('opening'), `${tab.name} ${uiText.isOpening || 'is opening'}.`, false);
                         releaseBrowserFarm(tab);
+                        releaseSessionFiles(tab);
                         restartTab(tab);
                     }
                     else {

@@ -178,9 +178,9 @@ services:
     image: ghcr.io/real-ttx/matgate:latest
     volumes:
       - ./data:/data
-      # Same folder guacd gets as /drive below. Matgate uses it when it is mounted here, and
-      # falls back to a scratch folder inside guacd when it is not - no setting involved.
-      - ./data/guac-drives:/data/guac-drives
+      # User content: the Global / Connection / User / Session areas. Mount this elsewhere (a NAS,
+      # say) to move it all, or mount a single area below it to move just that one.
+      - ./files:/files
       - matgate-secrets:/run/matgate-secrets
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -194,9 +194,9 @@ services:
   guacd:
     image: guacamole/guacd:1.6.0
     volumes:
-      # Shared folder that RDP sessions redirect as the "Matgate" drive (file upload/download).
-      # Must match drive-path in GuacamoleLauncher; matgate creates the per-server subfolders.
-      - ./data/guac-drives:/drive
+      # The same tree Matgate manages, at the same path: a remote session's drive is one folder
+      # inside it, and the links in that folder have to resolve identically in both containers.
+      - ./files:/files
     restart: unless-stopped
 
   guacamole:
@@ -273,48 +273,64 @@ Everything lives under the data directory (`./data` in the examples, mounted at 
 ├─ servers.json             global + user-owned servers and folders
 ├─ workspaces.json          workspace definitions and share settings
 ├─ guacamole.properties     generated Guacamole config
-├─ guac-drives/             files exchanged with RDP sessions (only in "kept" mode, see below)
 └─ user-mapping.xml         generated Guacamole mapping (no cleartext credentials)
 ```
 
-### Files exchanged with RDP sessions
+Files people exchange with their sessions do **not** live here - they have their own tree, see below.
 
-RDP sessions get a redirected drive named **Matgate** - that is what *Send files* and drag & drop use.
-It works out of the box and has two modes:
+## File areas
 
-| | where the files live | kept until | setup |
-|---|---|---|---|
-| **Kept** | `./data/guac-drives/<connection>` on the host | you delete them | mount that folder |
-| **Scratch** | `/tmp` inside the guacd container | that container is recreated | nothing |
+Files exchanged with a session live under `./files`, apart from the gateway state:
 
-There is no setting for this. Matgate uses the shared folder when `guac-drives` is actually mounted
-into it, because that is the same volume the compose file hands to guacd as `/drive` - and falls back
-to the scratch folder when it is not. The shipped compose files mount it, so they get **kept**; a
-stack that does not know about the folder still transfers files, it just does not hold on to them.
-Which one is in use is in the gateway log on every connect.
-
-Be precise about what "scratch" means: the files are not in `./data`, but they are still on the host,
-inside the guacd container's writable layer. They survive a restart and are discarded when that
-container is recreated (image update, `compose down`). So scratch mode is the lower-maintenance
-option, not the more private one - **kept** mode is the one where you can actually find, inspect and
-delete what people transferred.
-
-Neither mode cleans up by itself: one folder per connection, and it stays. In kept mode you can prune
-them under `./data/guac-drives`. For scratch mode, adding a size-capped RAM disk to the guacd service
-makes them genuinely temporary and bounds the growth - at the cost of that size being the largest
-transfer you can make:
-
-```yaml
-  guacd:
-    tmpfs:
-      - /tmp:size=512m,mode=1777
+```
+/files
+├─ global/                  shared by everyone who is allowed in
+├─ connection/<id>/         belongs to one connection, shared by everyone who may open it
+├─ user/<id>/               private to one user, the same in every session
+└─ session/<id>/            one session - this is what the session sees as its drive
 ```
 
-If you write your own compose file and want the kept mode, mount the same folder into **both**
-services - `./data/guac-drives:/drive` on guacd and `./data/guac-drives:/data/guac-drives` on matgate.
-Both halves are needed: guacd runs as a non-root user and cannot create anything inside a freshly
-mounted volume, so Matgate creates the per-connection folder and makes it writable for it. Mounting
-only one side is not a broken state - Matgate notices and uses the scratch folder instead.
+An RDP session gets a redirected drive named **Matgate**, and inside it the areas the user is allowed
+to use, next to a `Session` folder for this sitting alone:
+
+```
+Matgate (drive)
+├─ Global/        ─┐
+├─ Connection/     ├─ only those the user has been given
+├─ User/          ─┘
+└─ Session/        always there, gone when the session is
+```
+
+Every area is its own subtree, so you can put the whole thing on a NAS by mounting `./files`, or move
+just one area by mounting `./files/global`. Nothing above cares.
+
+### Who gets what
+
+An admin decides per user, under *Administration → Users*: each area is either handed over or not
+there at all. There is no read-only in between, and that is deliberate - the drive is served to every
+session by a single system user, so the filesystem cannot tell two Matgate users apart and a
+"read-only" would look like a guarantee without being one.
+
+Two things worth knowing:
+
+- **Changes take effect on the next connect.** A running session keeps the folders it was given.
+- **Quick connect gets `Session` only.** Its target host is typed in at connect time, so linking a
+  persistent area into one would let anyone mount the shared store into a machine of their choosing.
+- The areas are mounted **into the remote machine**. Anyone else with a session on that machine can
+  reach them - that is how drive redirection works, on any gateway.
+
+### Setup
+
+The shipped compose files mount `./files` into **both** matgate and guacd, at the same path. Both
+halves are needed: guacd serves the drive from its own filesystem, and matgate assembles the folder it
+serves. If you write your own compose file and skip this, nothing breaks - Matgate notices that the
+tree is not shared and falls back to a scratch folder inside guacd, so file transfer keeps working
+with the `Session` folder alone. The gateway log says which of the two is in use at startup.
+
+Session folders are cleaned up on their own: the browser reports a session as open while its tab
+lives, and a folder goes once it stops reporting. Matgate is never told that a remote session ended -
+the tunnel runs between the browser and Guacamole - so without that report a folder is only removed
+after it has been untouched for long enough that no tab can still be using it.
 
 The encryption keys live **outside** `./data` in the `matgate-secrets` volume, so a stolen `./data`
 backup can't decrypt your device passwords. Back up **both** the data directory and the secrets
