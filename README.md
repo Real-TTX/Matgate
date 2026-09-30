@@ -122,17 +122,18 @@ Prebuilt images are published to the GitHub Container Registry:
 | `ghcr.io/real-ttx/matgate-browser-farm` | `latest` | the optional browser farm |
 
 Matgate needs Guacamole + `guacd` for RDP/VNC/SSH and a small edge proxy that keeps `/guacamole`
-behind the login. Two ready-made stacks live in this repo — grab one and run it, no build required:
+behind the login. Three ready-made stacks live in this repo — grab one and run it, no build required:
 
 | File | What you get |
 |---|---|
-| [`docker-compose.simple.yml`](docker-compose.simple.yml) | RDP, VNC, SSH, files and **native** websites — the minimal stack |
-| [`docker-compose.browser.yml`](docker-compose.browser.yml) | the same **plus the browser farm** ("via Chromium / Firefox VNC" websites) |
+| [`docker-compose.simple.yml`](docker-compose.simple.yml) | RDP, VNC, SSH, files and **native** websites — nothing to configure |
+| [`docker-compose.yml`](docker-compose.yml) | the same, plus the options most installs want: own admin, HTTPS, home DNS, pinned keys |
+| [`docker-compose.full.yml`](docker-compose.full.yml) | all of that **plus the browser farm** ("via Chromium / Firefox VNC" websites) |
 
 ```bash
-docker compose -f docker-compose.simple.yml up -d      # minimal
-# or: everything, including the browser farm
-docker compose -f docker-compose.browser.yml up -d
+docker compose -f docker-compose.simple.yml up -d    # minimal
+docker compose up -d                                 # with the usual options
+docker compose -f docker-compose.full.yml up -d      # everything, browser farm included
 ```
 
 Open **http://localhost:8088** — the first start shows a **setup wizard** that creates your
@@ -141,15 +142,20 @@ own keys** (the Guacamole key and the at-rest key) into the `matgate-secrets` vo
 configure by hand. For reference, the whole `docker-compose.simple.yml`:
 
 ```yaml
-# Matgate - minimal stack (RDP / VNC / SSH / files / native websites).
-#   docker compose -f docker-compose.simple.yml up -d
-# Open http://localhost:8088 - the first start shows a setup wizard.
+# Matgate, minimal: RDP / VNC / SSH, file connections, native websites.
 #
-# Matgate generates and persists its own keys (guac + at-rest) into the matgate-secrets volume;
-# the guacamole container reads the shared guac key from there. Nothing to configure by hand.
+#   docker compose -f docker-compose.simple.yml up -d
+#
+# Open http://localhost:8088 - the first start asks you to create the admin account. Nothing to
+# configure: Matgate generates its own keys and hands the shared one to Guacamole.
+#
+# Want options (own admin, HTTPS, home DNS)?  ->  docker-compose.yml
+# Want the browser farm on top?               ->  docker-compose.full.yml
 name: matgate
 
 services:
+  # The single entrance on 8088, and what keeps Guacamole behind the Matgate login: it is reachable
+  # only through here, and only after Matgate has confirmed the session.
   edge:
     image: caddy:2
     depends_on: [matgate, guacamole]
@@ -178,12 +184,11 @@ services:
     image: ghcr.io/real-ttx/matgate:latest
     volumes:
       - ./data:/data
-      # User content: the Global / Connection / User / Session areas. Its own volume, so nothing has
-      # to be prepared - see the volumes section to put it somewhere of your own instead.
       - matgate-files:/files
       - matgate-secrets:/run/matgate-secrets
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # Guacamole waits for the shared key, which Matgate writes on first start.
     healthcheck:
       test: ["CMD-SHELL", "test -s /run/matgate-secrets/guac.key"]
       interval: 3s
@@ -193,19 +198,17 @@ services:
 
   guacd:
     image: guacamole/guacd:1.6.0
+    # The same tree as Matgate, at the same path: a session's drive is one folder in here, and the
+    # links inside it have to resolve to the same place in both containers.
     volumes:
-      # The same tree Matgate manages, at the same path: a remote session's drive is one folder
-      # inside it, and the links in that folder have to resolve identically in both containers.
       - matgate-files:/files
     restart: unless-stopped
 
   guacamole:
     image: guacamole/guacamole:1.6.0
     depends_on:
-      guacd:
-        condition: service_started
-      matgate:
-        condition: service_healthy
+      guacd: { condition: service_started }
+      matgate: { condition: service_healthy }
     environment:
       GUACD_HOSTNAME: guacd
       GUACD_PORT: "4822"
@@ -220,17 +223,16 @@ services:
     restart: unless-stopped
 
 volumes:
+  # The encryption keys. Back this up - without it, stored device passwords cannot be decrypted.
   matgate-secrets:
-  # Files exchanged with sessions. Swap this for a path of your own to move them - the whole tree
-  # (matgate-files -> /volume1/matgate) or a single area (a second mount on /files/global).
+  # Files exchanged with sessions. Point it at a path of your own to keep them elsewhere.
   matgate-files:
 ```
 
 After the first admin is created you add your first server and connect.
 
-> Prefer building from source, or want home-DNS resolution and a larger Tomcat header limit? The
-> repository's `docker-compose.yml` builds Matgate locally and wires those extras; add the browser
-> farm to it with `docker compose --profile browser up -d`.
+> `docker-compose.yml` can also build Matgate from this repository instead of pulling the published
+> image — that is what `docker compose up --build -d` does. Ignore it unless you work on Matgate.
 
 ### Pin your keys (recommended)
 
@@ -367,8 +369,8 @@ control, PWA and mobile layout. On the list: TLS polish and further hardening.
 ## Development
 
 ```bash
-docker compose up -d --build            # full local stack (build from source)
-docker compose --profile browser up -d  # add the optional browser farm
+docker compose up --build -d                     # build this checkout and run it
+docker compose -f docker-compose.full.yml up -d  # with the browser farm
 ```
 
 ```bash

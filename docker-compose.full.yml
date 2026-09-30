@@ -1,12 +1,11 @@
-# Matgate with the options you are likely to want: your own admin, HTTPS behind a proxy, your home
-# DNS so names like `nas` resolve, and pinned keys. Everything is set through a .env file - copy
-# .env.example if you need any of it; without one the defaults below apply and it behaves like
-# docker-compose.simple.yml.
+# Matgate with everything: the options of docker-compose.yml plus the browser farm, which lets a
+# website be opened inside a throwaway Chromium or Firefox instead of through the reverse proxy.
 #
-#   docker compose up -d
+#   docker compose -f docker-compose.full.yml up -d
 #
-# Just want it running?          ->  docker-compose.simple.yml
-# Want the browser farm too?     ->  docker-compose.full.yml
+# Options are set through a .env file - copy .env.example if you need any; without one the defaults
+# below apply. The farm needs no configuration and no token: it has no host ports and is reachable
+# only from Matgate.
 name: matgate
 
 # Your DNS, so connections can use short names from your network.
@@ -47,14 +46,9 @@ services:
   matgate:
     <<: *home-dns
     image: ghcr.io/real-ttx/matgate:latest
-    # Only used by `docker compose up --build`, to run your own changes instead of the published
-    # image. Ignore it if you are not working on Matgate itself.
-    build:
-      context: .
-      dockerfile: Matgate/Dockerfile
-      args:
-        MATGATE_VERSION_SUFFIX: ${MATGATE_VERSION_SUFFIX:-}
     environment:
+      # Turns the browser farm on. Without it, websites are only offered in "native" mode.
+      BrowserFarm__BaseUrl: http://browser-farm:8090
       # Leave the admin values empty and the first start asks you to create the account. Set them to
       # skip that, for an install that has to come up unattended.
       MATGATE_ADMIN_USER: ${MATGATE_ADMIN_USER:-}
@@ -108,6 +102,14 @@ services:
     volumes:
       - ./data:/etc/guacamole
       - matgate-secrets:/run/matgate-secrets:ro
+    restart: unless-stopped
+
+  # A pool of isolated browser slots, each its own Linux user with its own Xvfb and VNC. No host
+  # ports and no Docker socket. `init: true` matters: without a reaper the browsers leave zombies.
+  browser-farm:
+    <<: *home-dns
+    image: ghcr.io/real-ttx/matgate-browser-farm:latest
+    init: true
     restart: unless-stopped
 
 volumes:

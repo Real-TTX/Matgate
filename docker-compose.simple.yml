@@ -1,12 +1,17 @@
-# Matgate - minimal stack (RDP / VNC / SSH / files / native websites).
-#   docker compose -f docker-compose.simple.yml up -d
-# Open http://localhost:8088 - the first start shows a setup wizard.
+# Matgate, minimal: RDP / VNC / SSH, file connections, native websites.
 #
-# Matgate generates and persists its own keys (guac + at-rest) into the matgate-secrets volume;
-# the guacamole container reads the shared guac key from there. Nothing to configure by hand.
+#   docker compose -f docker-compose.simple.yml up -d
+#
+# Open http://localhost:8088 - the first start asks you to create the admin account. Nothing to
+# configure: Matgate generates its own keys and hands the shared one to Guacamole.
+#
+# Want options (own admin, HTTPS, home DNS)?  ->  docker-compose.yml
+# Want the browser farm on top?               ->  docker-compose.full.yml
 name: matgate
 
 services:
+  # The single entrance on 8088, and what keeps Guacamole behind the Matgate login: it is reachable
+  # only through here, and only after Matgate has confirmed the session.
   edge:
     image: caddy:2
     depends_on: [matgate, guacamole]
@@ -35,12 +40,11 @@ services:
     image: ghcr.io/real-ttx/matgate:latest
     volumes:
       - ./data:/data
-      # User content: the Global / Connection / User / Session areas. Its own volume, so nothing has
-      # to be prepared - see the volumes section to put it somewhere of your own instead.
       - matgate-files:/files
       - matgate-secrets:/run/matgate-secrets
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    # Guacamole waits for the shared key, which Matgate writes on first start.
     healthcheck:
       test: ["CMD-SHELL", "test -s /run/matgate-secrets/guac.key"]
       interval: 3s
@@ -50,19 +54,17 @@ services:
 
   guacd:
     image: guacamole/guacd:1.6.0
+    # The same tree as Matgate, at the same path: a session's drive is one folder in here, and the
+    # links inside it have to resolve to the same place in both containers.
     volumes:
-      # The same tree Matgate manages, at the same path: a remote session's drive is one folder
-      # inside it, and the links in that folder have to resolve identically in both containers.
       - matgate-files:/files
     restart: unless-stopped
 
   guacamole:
     image: guacamole/guacamole:1.6.0
     depends_on:
-      guacd:
-        condition: service_started
-      matgate:
-        condition: service_healthy
+      guacd: { condition: service_started }
+      matgate: { condition: service_healthy }
     environment:
       GUACD_HOSTNAME: guacd
       GUACD_PORT: "4822"
@@ -77,7 +79,7 @@ services:
     restart: unless-stopped
 
 volumes:
+  # The encryption keys. Back this up - without it, stored device passwords cannot be decrypted.
   matgate-secrets:
-  # Files exchanged with sessions. Swap this for a path of your own to move them - the whole tree
-  # (matgate-files -> /volume1/matgate) or a single area (a second mount on /files/global).
+  # Files exchanged with sessions. Point it at a path of your own to keep them elsewhere.
   matgate-files:
