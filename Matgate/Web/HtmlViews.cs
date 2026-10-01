@@ -11482,6 +11482,10 @@ public sealed class HtmlViews
             <details class="shell-menu shell-burger">
                 <summary class="shell-tab shell-menu-trigger shell-burger-trigger" aria-label="{{A(T(context, "Menu"))}}" title="{{A(T(context, "Menu"))}}">{{Icon("menu")}}</summary>
                 <div class="menu-panel shell-menu-panel shell-burger-panel">
+                    <div class="shell-burger-sheet-head">
+                        <strong>{{T(context, "Menu")}}</strong>
+                        <button type="button" class="shell-burger-sheet-close" aria-label="{{A(T(context, "Close"))}}" data-burger-close>&times;</button>
+                    </div>
                     <a class="shell-menu-item{{workspacesClass}}" href="/workspaces" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Workspaces"))}}">{{Icon("briefcase")}}<span>{{T(context, "Workspaces")}}</span></a>
                     <a class="shell-menu-item{{toolsClass}}" href="/tools" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Tools"))}}">{{Icon("wrench")}}<span>{{T(context, "Tools")}}</span></a>
                     {{(canManageAdminArea ? $"""<a class="shell-menu-item{(adminActive ? " active" : "")}" href="/admin" data-shell-open-tab="1" data-shell-title="{A(T(context, "Administration"))}">{Icon("shield")}<span>{T(context, "Administration")}</span></a>""" : "")}}
@@ -11853,6 +11857,7 @@ public sealed class HtmlViews
                         display: inline-flex;
                         margin-left: 2px;
                     }
+                    .shell-burger-sheet-head { display: none; }
                     .shell-menu-panel {
                         min-width: 180px;
                         z-index: 60;
@@ -15850,6 +15855,58 @@ public sealed class HtmlViews
                         /* Ending a session sits clearly apart from switching to it, so a thumb aiming
                            for one cannot land on the other. */
                         .mobile-tab-sheet .mobile-tab-item-close { flex: 0 0 auto; margin-left: 12px; min-height: 44px; min-width: 44px; }
+                        /* The burger hangs off the LEFT edge of the compact bar, so its dropdown sat
+                           as a narrow box in that corner - half a screen wide, the rest unused. On a
+                           phone it takes the whole surface like the connection list, and brings its
+                           own way back, because tapping beside it is none once it covers everything. */
+                        .shell-burger[open] > .shell-burger-panel {
+                            align-content: start;
+                            border: 0;
+                            border-radius: 0;
+                            bottom: 0;
+                            gap: 2px;
+                            left: 0;
+                            max-width: none;
+                            min-width: 0;
+                            overflow-y: auto;
+                            padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+                            position: fixed;
+                            right: 0;
+                            top: 0;
+                            width: auto;
+                            z-index: 60;
+                        }
+                        .shell-burger[open] > .shell-burger-panel .shell-burger-sheet-head {
+                            align-items: center;
+                            border-bottom: 1px solid var(--line);
+                            display: flex;
+                            font-size: 16px;
+                            justify-content: space-between;
+                            min-height: 52px;
+                            padding: 0 6px 0 14px;
+                        }
+                        /* Every button in a menu panel is stretched to the full width - which would
+                           turn this one into a 326px target sitting next to the title, closing the
+                           sheet wherever the thumb lands to its right. */
+                        .shell-burger[open] > .shell-burger-panel .shell-burger-sheet-close {
+                            background: none;
+                            border: 0;
+                            color: inherit;
+                            flex: 0 0 auto;
+                            font-size: 22px;
+                            min-height: 44px;
+                            min-width: 44px;
+                            width: auto;
+                        }
+                        .shell-burger[open] > .shell-burger-panel .shell-menu-item {
+                            border: 0;
+                            border-bottom: 1px solid var(--line);
+                            border-radius: 0;
+                            /* The account entry is capped at 260px in a dropdown; here that cap cut
+                               its divider off two thirds across. */
+                            max-width: none;
+                            min-height: 56px;
+                        }
                         /* Compact view on phones is one row, read left to right: logo, menu, a rule,
                            the connection, then its actions taking whatever is left. Ordered with
                            `order` rather than by moving the markup, so the wide layout is untouched.
@@ -16161,6 +16218,18 @@ public sealed class HtmlViews
                             item.addEventListener('click', () => {
                                 toggleViewMode();
                                 const openMenu = item.closest('details[open]');
+                                if (openMenu) {
+                                    openMenu.removeAttribute('open');
+                                }
+                            });
+                        });
+
+                        // The burger menu covers the screen on a phone (see CSS), so it needs a way
+                        // back of its own - beside it there is nothing left to tap.
+                        document.querySelectorAll('[data-burger-close]').forEach(button => {
+                            button.addEventListener('click', event => {
+                                event.preventDefault();
+                                const openMenu = button.closest('details[open]');
                                 if (openMenu) {
                                     openMenu.removeAttribute('open');
                                 }
