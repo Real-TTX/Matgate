@@ -1095,9 +1095,29 @@ public sealed class HtmlViews
             .Concat(SessionPreferences.SortableActions.Where(key => !savedOrder.Contains(key)))
             .Distinct(StringComparer.Ordinal)
             .ToList();
+        // The same icons the toolbar uses, so a row is recognised at a glance instead of being read.
+        var actionIconKeys = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["fullscreen"] = "maximize",
+            ["popOut"] = "external-link",
+            ["reattach"] = "arrow-left",
+            ["pointer"] = "pointer",
+            ["rightClick"] = "menu",
+            ["keyboard"] = "keyboard",
+            ["osk"] = "grid",
+            ["resolution"] = "monitor",
+            ["autoResize"] = "refresh",
+            ["zoomOut"] = "zoom-out",
+            ["zoomIn"] = "zoom-in",
+            ["copyUrl"] = "copy",
+            ["clipboard"] = "clipboard",
+            ["cad"] = "command",
+            ["upload"] = "upload",
+            ["fileArea"] = "folder",
+        };
         var hiddenActions = prefs.HiddenActions ?? [];
         var actionOrderItems = string.Join("", sortedActions.Select(key => $"""
-            <li class="action-order-item" data-action="{A(key)}"><span class="action-order-grip" aria-hidden="true">{Icon("menu")}</span><span class="action-order-name">{E(actionLabels[key])}</span><label class="action-order-show"><input type="checkbox" data-action-visible{(hiddenActions.Contains(key) ? "" : " checked")}> {E(de ? "zeigen" : "show")}</label></li>
+            <li class="action-order-item" data-action="{A(key)}"><span class="action-order-grip" aria-hidden="true">{Icon("menu")}</span><span class="action-order-icon" aria-hidden="true">{Icon(actionIconKeys.TryGetValue(key, out var iconKey) ? iconKey : "square")}</span><span class="action-order-name">{E(actionLabels[key])}</span><label class="action-order-show"><input type="checkbox" data-action-visible{(hiddenActions.Contains(key) ? "" : " checked")}> {E(de ? "zeigen" : "show")}</label></li>
             """));
 
         string Toggle(string name, bool on, string titleDe, string titleEn, string descDe, string descEn) => $$"""
@@ -3672,6 +3692,7 @@ public sealed class HtmlViews
             xferUploaded = Language(context) == "de" ? "Hochgeladen" : "Uploaded",
             xferUploadFailed = Language(context) == "de" ? "Upload fehlgeschlagen" : "Upload failed",
             openFileArea = Language(context) == "de" ? "Dateien dieser Verbindung" : "Files for this connection",
+            selectFilesFirst = Language(context) == "de" ? "Zuerst Dateien auswaehlen" : "Select the files first",
             xferWaitingForSession = Language(context) == "de" ? "Verbindung war unterbrochen - die Dateien gehen raus, sobald sie wieder steht" : "Connection was interrupted - the files are sent once it is back",
             xferDownloading = Language(context) == "de" ? "Lade herunter" : "Downloading",
             pointerTouchpad = Language(context) == "de" ? "Zeiger: Touchpad (wischen bewegt den Cursor)" : "Pointer: touchpad (swipe to move)",
@@ -3856,7 +3877,10 @@ public sealed class HtmlViews
                 <div id="file-area-dialog" class="credential-dialog file-area-dialog hidden">
                     <div class="file-area-dialog-head">
                         <strong id="file-area-dialog-title">{{(Language(context) == "de" ? "Dateien" : "Files")}}</strong>
-                        <button id="file-area-dialog-close" type="button" class="tab-action-button icon-only" aria-label="{{A(T(context, "Close"))}}">&times;</button>
+                        <span class="file-area-dialog-actions">
+                            <button id="file-area-dialog-send" type="button" class="button primary">{{Icon("upload")}}{{(Language(context) == "de" ? "In die Sitzung" : "Into the session")}}</button>
+                            <button id="file-area-dialog-close" type="button" class="tab-action-button icon-only" aria-label="{{A(T(context, "Close"))}}">&times;</button>
+                        </span>
                     </div>
                     <div id="file-area-dialog-body" class="file-area-dialog-body"></div>
                 </div>
@@ -3932,6 +3956,7 @@ public sealed class HtmlViews
                 const fileAreaDialogBody = document.getElementById('file-area-dialog-body');
                 const fileAreaDialogTitle = document.getElementById('file-area-dialog-title');
                 const fileAreaDialogClose = document.getElementById('file-area-dialog-close');
+                const fileAreaDialogSend = document.getElementById('file-area-dialog-send');
                 const sftpTargetDialog = document.getElementById('sftp-target-dialog');
                 const sftpTargetPath = document.getElementById('sftp-target-path');
                 const sftpTargetArea = document.getElementById('sftp-target-area');
@@ -7220,6 +7245,48 @@ public sealed class HtmlViews
                     tab.panel.classList.remove('hidden');
                     fileAreaDialog.dataset.tabId = tab.id;
                     fileAreaDialog.classList.remove('hidden');
+                }
+
+                // Takes what is selected in the area and hands it to the session the dialog was opened
+                // from. The files are fetched through the file API and then go down the ordinary upload
+                // path - so they end up in the area the session asks for, one at a time, with the same
+                // handling of a connection that drops halfway.
+                async function sendSelectionIntoSession() {
+                    const areaTab = tabs.get(fileAreaDialog.dataset.tabId || '');
+                    const sessionTab = tabs.get(fileAreaReturnTabId || '');
+                    if (!areaTab || !sessionTab) {
+                        return;
+                    }
+
+                    const paths = Array.from(areaTab.selectedFilePaths || []);
+                    if (!paths.length) {
+                        flashStatus(sessionTab, uiText.selectFilesFirst || 'Select the files first');
+                        return;
+                    }
+
+                    const files = [];
+                    for (const path of paths) {
+                        try {
+                            const response = await fetch(`/api/files/${areaTab.serverId}/download?path=${encodeURIComponent(path)}`);
+                            if (!response.ok) {
+                                continue;
+                            }
+
+                            const blob = await response.blob();
+                            files.push(new File([blob], path.split('/').pop() || 'file', { type: blob.type }));
+                        }
+                        catch (e) {
+                            // A single file that cannot be read must not stop the rest.
+                        }
+                    }
+
+                    if (!files.length) {
+                        flashStatus(sessionTab, uiText.xferUploadFailed || 'Upload failed');
+                        return;
+                    }
+
+                    closeFileAreaDialog();
+                    uploadFilesToSession(sessionTab, files);
                 }
 
                 function closeFileAreaDialog() {
@@ -10531,6 +10598,7 @@ public sealed class HtmlViews
                 clipboardClose.addEventListener('click', closeClipboardDialog);
                 sftpTargetClose.addEventListener('click', closeTargetFolderDialog);
                 fileAreaDialogClose.addEventListener('click', closeFileAreaDialog);
+                fileAreaDialogSend.addEventListener('click', sendSelectionIntoSession);
                 sftpTargetDialog.addEventListener('submit', event => {
                     event.preventDefault();
                     if (!pendingTargetUpload) {
@@ -11808,6 +11876,7 @@ public sealed class HtmlViews
                     }
                     .action-order-item.dragging { border-color: var(--accent); box-shadow: var(--shadow-strong); opacity: .9; }
                     .action-order-grip { color: var(--muted); display: inline-flex; flex: 0 0 auto; }
+                    .action-order-icon { align-items: center; color: var(--muted); display: inline-flex; flex: 0 0 auto; }
                     .action-order-name { flex: 1 1 auto; min-width: 0; }
                     .action-order-show {
                         align-items: center;
@@ -15009,6 +15078,7 @@ public sealed class HtmlViews
                         padding: 0;
                         width: min(1040px, calc(100vw - 32px));
                     }
+                    .file-area-dialog-actions { align-items: center; display: flex; gap: 8px; }
                     .file-area-dialog-head {
                         align-items: center;
                         border-bottom: 1px solid var(--line);
