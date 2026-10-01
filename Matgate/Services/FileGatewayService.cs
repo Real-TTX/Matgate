@@ -1,6 +1,8 @@
 using FluentFTP;
 using Matgate.Models;
 using Renci.SshNet;
+using System.Text;
+using System.Xml.Linq;
 using System.Buffers;
 using SMBLibrary;
 using SMBLibrary.Client;
@@ -61,6 +63,7 @@ public sealed class FileGatewayService : IFileGatewayService
         {
             ServerProtocol.Sftp => ListSftpAsync(server, path, cancellationToken),
             ServerProtocol.Local => ListLocalAsync(server, path, cancellationToken),
+            ServerProtocol.WebDav => ListWebDavAsync(server, path, cancellationToken),
             ServerProtocol.Ftp => ListFtpAsync(server, path, cancellationToken),
             ServerProtocol.Smb => ListSmbAsync(server, path, cancellationToken),
             _ => throw new InvalidOperationException("Dieser Server ist keine Dateiverbindung.")
@@ -76,6 +79,7 @@ public sealed class FileGatewayService : IFileGatewayService
         {
             ServerProtocol.Sftp => GetSftpFileInfoAsync(server, path, cancellationToken),
             ServerProtocol.Local => GetLocalFileInfoAsync(server, path, cancellationToken),
+            ServerProtocol.WebDav => GetWebDavFileInfoAsync(server, path, cancellationToken),
             ServerProtocol.Ftp => GetFtpFileInfoAsync(server, path, cancellationToken),
             ServerProtocol.Smb => GetSmbFileInfoAsync(server, path, cancellationToken),
             _ => throw new InvalidOperationException("Dieser Server ist keine Dateiverbindung.")
@@ -99,6 +103,7 @@ public sealed class FileGatewayService : IFileGatewayService
         {
             ServerProtocol.Sftp => CopySftpRangeAsync(server, path, output, offset, length, cancellationToken),
             ServerProtocol.Local => CopyLocalRangeAsync(server, path, output, offset, length, cancellationToken),
+            ServerProtocol.WebDav => CopyWebDavRangeAsync(server, path, output, offset, length, cancellationToken),
             ServerProtocol.Ftp => CopyFtpRangeAsync(server, path, output, offset, length, cancellationToken),
             ServerProtocol.Smb => CopySmbRangeAsync(server, path, output, offset, length, cancellationToken),
             _ => throw new InvalidOperationException("Dieser Server ist keine Dateiverbindung.")
@@ -114,6 +119,7 @@ public sealed class FileGatewayService : IFileGatewayService
         {
             ServerProtocol.Sftp => DownloadSftpAsync(server, path, cancellationToken),
             ServerProtocol.Local => DownloadLocalAsync(server, path, cancellationToken),
+            ServerProtocol.WebDav => DownloadWebDavAsync(server, path, cancellationToken),
             ServerProtocol.Ftp => DownloadFtpAsync(server, path, cancellationToken),
             ServerProtocol.Smb => DownloadSmbAsync(server, path, cancellationToken),
             _ => throw new InvalidOperationException("Dieser Server ist keine Dateiverbindung.")
@@ -131,6 +137,7 @@ public sealed class FileGatewayService : IFileGatewayService
         {
             ServerProtocol.Sftp => UploadSftpAsync(server, path, content, fileName, cancellationToken),
             ServerProtocol.Local => UploadLocalAsync(server, path, content, fileName, cancellationToken),
+            ServerProtocol.WebDav => UploadWebDavAsync(server, path, content, fileName, cancellationToken),
             ServerProtocol.Ftp => UploadFtpAsync(server, path, content, fileName, cancellationToken),
             ServerProtocol.Smb => UploadSmbAsync(server, path, content, fileName, cancellationToken),
             _ => throw new InvalidOperationException("Dieser Server ist keine Dateiverbindung.")
@@ -147,6 +154,7 @@ public sealed class FileGatewayService : IFileGatewayService
         {
             ServerProtocol.Sftp => CreateSftpFileAsync(server, path, fileName, cancellationToken),
             ServerProtocol.Local => CreateLocalFileAsync(server, path, fileName, cancellationToken),
+            ServerProtocol.WebDav => CreateWebDavFileAsync(server, path, fileName, cancellationToken),
             ServerProtocol.Ftp => CreateFtpFileAsync(server, path, fileName, cancellationToken),
             ServerProtocol.Smb => CreateSmbFileAsync(server, path, fileName, cancellationToken),
             _ => throw new InvalidOperationException("Dieser Server ist keine Dateiverbindung.")
@@ -163,6 +171,7 @@ public sealed class FileGatewayService : IFileGatewayService
         {
             ServerProtocol.Sftp => CreateSftpDirectoryAsync(server, path, directoryName, cancellationToken),
             ServerProtocol.Local => CreateLocalDirectoryAsync(server, path, directoryName, cancellationToken),
+            ServerProtocol.WebDav => CreateWebDavDirectoryAsync(server, path, directoryName, cancellationToken),
             ServerProtocol.Ftp => CreateFtpDirectoryAsync(server, path, directoryName, cancellationToken),
             ServerProtocol.Smb => CreateSmbDirectoryAsync(server, path, directoryName, cancellationToken),
             _ => throw new InvalidOperationException("Dieser Server ist keine Dateiverbindung.")
@@ -175,6 +184,7 @@ public sealed class FileGatewayService : IFileGatewayService
         {
             ServerProtocol.Sftp => DeleteSftpAsync(server, path, cancellationToken),
             ServerProtocol.Local => DeleteLocalAsync(server, path, cancellationToken),
+            ServerProtocol.WebDav => DeleteWebDavAsync(server, path, cancellationToken),
             ServerProtocol.Ftp => DeleteFtpAsync(server, path, cancellationToken),
             ServerProtocol.Smb => DeleteSmbAsync(server, path, cancellationToken),
             _ => throw new InvalidOperationException("Dieser Server ist keine Dateiverbindung.")
@@ -1075,6 +1085,218 @@ public sealed class FileGatewayService : IFileGatewayService
             var home = client.WorkingDirectory;
             return string.IsNullOrWhiteSpace(home) ? "/" : home;
         }, cancellationToken);
+    }
+
+    // --- WebDAV -----------------------------------------------------------------------------------
+    //
+    // Plain HTTP with the methods WebDAV adds: PROPFIND to list, MKCOL to create a folder, PUT, GET
+    // and DELETE for the rest. No library for this - the four verbs and a little XML are less code
+    // than wiring one up, and nothing here needs locking or versioning.
+    //
+    // Host may be a full URL (https://cloud.example/remote.php/dav) or just a name, in which case the
+    // port decides the scheme. The configured root is prepended to every path, exactly like the other
+    // providers treat FileRootPath.
+
+    private static readonly HttpClient WebDavStrict = new(new HttpClientHandler());
+
+    private static readonly HttpClient WebDavRelaxed = new(new HttpClientHandler
+    {
+        // Only used when the connection is explicitly marked as "ignore certificate".
+        ServerCertificateCustomValidationCallback = (_, _, _, _) => true,
+    });
+
+    private static readonly XNamespace Dav = "DAV:";
+
+    private static async Task<FileGatewayListResult> ListWebDavAsync(ServerEndpoint server, string? path, CancellationToken cancellationToken)
+    {
+        var virtualPath = NormalizeVirtualPath(path);
+        using var request = WebDavRequest(server, "PROPFIND", virtualPath, true);
+        request.Headers.Add("Depth", "1");
+        request.Content = new StringContent(
+            """<?xml version="1.0"?><d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/><d:getcontentlength/><d:getlastmodified/></d:prop></d:propfind>""",
+            Encoding.UTF8,
+            "application/xml");
+
+        using var response = await WebDavSend(server, request, cancellationToken);
+        var document = XDocument.Parse(await response.Content.ReadAsStringAsync(cancellationToken));
+        var self = Uri.UnescapeDataString(WebDavAbsolutePath(server, virtualPath)).TrimEnd('/');
+
+        var entries = new List<FileGatewayEntry>();
+        foreach (var item in document.Descendants(Dav + "response"))
+        {
+            var href = (item.Element(Dav + "href")?.Value ?? "").Trim();
+            if (href.Length == 0)
+            {
+                continue;
+            }
+
+            // Servers answer with either an absolute URL or just a path.
+            var hrefPath = Uri.TryCreate(href, UriKind.Absolute, out var absolute) ? absolute.AbsolutePath : href;
+            var trimmed = Uri.UnescapeDataString(hrefPath).TrimEnd('/');
+
+            // The listing includes the folder itself; only its contents are wanted. Compared for
+            // equality, not with EndsWith: at the root the folder's own path is empty, and every entry
+            // ends with an empty string - which silently emptied the whole listing.
+            if (string.Equals(trimmed, self, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            var properties = item.Descendants(Dav + "prop").FirstOrDefault();
+            var isDirectory = properties?.Element(Dav + "resourcetype")?.Element(Dav + "collection") is not null;
+            var name = Uri.UnescapeDataString(trimmed.Split('/').LastOrDefault() ?? "");
+            if (name.Length == 0)
+            {
+                continue;
+            }
+
+            entries.Add(new FileGatewayEntry(
+                name,
+                CombineVirtualPath(virtualPath, name),
+                isDirectory,
+                long.TryParse(properties?.Element(Dav + "getcontentlength")?.Value, out var size) ? size : null,
+                DateTimeOffset.TryParse(properties?.Element(Dav + "getlastmodified")?.Value, out var modified) ? modified : null));
+        }
+
+        return new FileGatewayListResult(
+            virtualPath,
+            ParentVirtualPath(virtualPath),
+            entries
+                .OrderByDescending(entry => entry.IsDirectory)
+                .ThenBy(entry => entry.Name, StringComparer.CurrentCultureIgnoreCase)
+                .ToList());
+    }
+
+    private static async Task<FileGatewayFileInfo> GetWebDavFileInfoAsync(ServerEndpoint server, string? path, CancellationToken cancellationToken)
+    {
+        var virtualPath = NormalizeVirtualPath(path);
+        using var request = WebDavRequest(server, "HEAD", virtualPath, false);
+        using var response = await WebDavSend(server, request, cancellationToken);
+
+        return new FileGatewayFileInfo(
+            FileNameFromPath(virtualPath),
+            ContentTypeFromPath(virtualPath),
+            response.Content.Headers.ContentLength ?? 0);
+    }
+
+    private static async Task CopyWebDavRangeAsync(
+        ServerEndpoint server,
+        string? path,
+        Stream output,
+        long offset,
+        long length,
+        CancellationToken cancellationToken)
+    {
+        using var request = WebDavRequest(server, "GET", NormalizeVirtualPath(path), false);
+        request.Headers.Range = new System.Net.Http.Headers.RangeHeaderValue(offset, offset + length - 1);
+        using var response = await WebDavSend(server, request, cancellationToken);
+        await using var content = await response.Content.ReadAsStreamAsync(cancellationToken);
+        await content.CopyToAsync(output, cancellationToken);
+    }
+
+    private static async Task<FileGatewayDownload> DownloadWebDavAsync(ServerEndpoint server, string? path, CancellationToken cancellationToken)
+    {
+        var virtualPath = NormalizeVirtualPath(path);
+        using var request = WebDavRequest(server, "GET", virtualPath, false);
+        var response = await WebDavSend(server, request, cancellationToken);
+
+        return new FileGatewayDownload(
+            await response.Content.ReadAsStreamAsync(cancellationToken),
+            FileNameFromPath(virtualPath),
+            ContentTypeFromPath(virtualPath));
+    }
+
+    private static async Task UploadWebDavAsync(
+        ServerEndpoint server,
+        string? path,
+        Stream content,
+        string fileName,
+        CancellationToken cancellationToken)
+    {
+        var target = CombineVirtualPath(NormalizeVirtualPath(path), SafeFileName(fileName));
+        using var request = WebDavRequest(server, "PUT", target, false);
+        request.Content = new StreamContent(content);
+        using var response = await WebDavSend(server, request, cancellationToken);
+    }
+
+    private static async Task CreateWebDavFileAsync(ServerEndpoint server, string? path, string fileName, CancellationToken cancellationToken)
+    {
+        var target = CombineVirtualPath(NormalizeVirtualPath(path), SafeFileName(fileName));
+        using var request = WebDavRequest(server, "PUT", target, false);
+        request.Content = new ByteArrayContent([]);
+        using var response = await WebDavSend(server, request, cancellationToken);
+    }
+
+    private static async Task CreateWebDavDirectoryAsync(ServerEndpoint server, string? path, string directoryName, CancellationToken cancellationToken)
+    {
+        var target = CombineVirtualPath(NormalizeVirtualPath(path), SafeFileName(directoryName));
+        using var request = WebDavRequest(server, "MKCOL", target, true);
+        using var response = await WebDavSend(server, request, cancellationToken);
+    }
+
+    private static async Task DeleteWebDavAsync(ServerEndpoint server, string? path, CancellationToken cancellationToken)
+    {
+        using var request = WebDavRequest(server, "DELETE", NormalizeVirtualPath(path), false);
+        using var response = await WebDavSend(server, request, cancellationToken);
+    }
+
+    private static HttpRequestMessage WebDavRequest(ServerEndpoint server, string method, string virtualPath, bool directory)
+    {
+        var path = WebDavAbsolutePath(server, virtualPath);
+        if (directory && !path.EndsWith('/'))
+        {
+            // Collections are addressed with a trailing slash; some servers answer 301 without it.
+            path += "/";
+        }
+
+        var request = new HttpRequestMessage(new HttpMethod(method), WebDavBaseUri(server) + path);
+        if (!string.IsNullOrWhiteSpace(server.UserName))
+        {
+            request.Headers.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue(
+                "Basic",
+                Convert.ToBase64String(Encoding.UTF8.GetBytes($"{server.UserName}:{server.Password}")));
+        }
+
+        return request;
+    }
+
+    private static async Task<HttpResponseMessage> WebDavSend(ServerEndpoint server, HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        var client = server.IgnoreCertificate ? WebDavRelaxed : WebDavStrict;
+        var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+        if (!response.IsSuccessStatusCode)
+        {
+            // The status is what a WebDAV server tells us; passing it on beats a generic failure.
+            throw new InvalidOperationException($"WebDAV: {(int)response.StatusCode} {response.ReasonPhrase}");
+        }
+
+        return response;
+    }
+
+    private static string WebDavBaseUri(ServerEndpoint server)
+    {
+        var host = (server.Host ?? "").Trim().TrimEnd('/');
+        if (host.StartsWith("http://", StringComparison.OrdinalIgnoreCase)
+            || host.StartsWith("https://", StringComparison.OrdinalIgnoreCase))
+        {
+            return host;
+        }
+
+        var scheme = server.Port == 443 ? "https" : "http";
+        var port = server.Port is 80 or 443 or 0 ? "" : $":{server.Port}";
+        return $"{scheme}://{host}{port}";
+    }
+
+    private static string WebDavAbsolutePath(ServerEndpoint server, string virtualPath)
+    {
+        var root = (server.FileRootPath ?? "").Replace('\\', '/').Trim('/');
+        var relative = NormalizeVirtualPath(virtualPath).Trim('/');
+        var parts = new[] { root, relative }.Where(part => part.Length > 0);
+        var joined = string.Join('/', parts);
+
+        return "/" + string.Join('/', joined
+            .Split('/', StringSplitOptions.RemoveEmptyEntries)
+            .Select(Uri.EscapeDataString));
     }
 
     // --- The gateway's own file areas -------------------------------------------------------------

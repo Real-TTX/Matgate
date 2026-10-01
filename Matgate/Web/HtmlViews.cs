@@ -5544,7 +5544,7 @@ public sealed class HtmlViews
 
                 function isFileProtocol(protocol) {
                     // LOCAL is a file area on the gateway itself - same manager, same operations.
-                    return ['SFTP', 'FTP', 'SMB', 'LOCAL'].includes((protocol || '').toUpperCase());
+                    return ['SFTP', 'FTP', 'SMB', 'LOCAL', 'WEBDAV'].includes((protocol || '').toUpperCase());
                 }
 
                 function isWebsiteProtocol(protocol) {
@@ -10351,7 +10351,7 @@ public sealed class HtmlViews
                     if (place && !sendFilesPlaceSelect.options.length) {
                         // Everything the file manager can open - the areas and the file connections.
                         availableServers
-                            .filter(server => ['LOCAL', 'SFTP', 'FTP', 'SMB'].includes((server.protocol || '').toUpperCase()))
+                            .filter(server => ['LOCAL', 'SFTP', 'FTP', 'SMB', 'WEBDAV'].includes((server.protocol || '').toUpperCase()))
                             .forEach(server => {
                                 const option = document.createElement('option');
                                 option.value = server.id;
@@ -10381,7 +10381,7 @@ public sealed class HtmlViews
 
                     if (place && !sendTargetPlaceSelect.options.length) {
                         availableServers
-                            .filter(server => ['LOCAL', 'SFTP', 'FTP', 'SMB'].includes((server.protocol || '').toUpperCase()))
+                            .filter(server => ['LOCAL', 'SFTP', 'FTP', 'SMB', 'WEBDAV'].includes((server.protocol || '').toUpperCase()))
                             .forEach(server => {
                                 const option = document.createElement('option');
                                 option.value = server.id;
@@ -16414,7 +16414,7 @@ public sealed class HtmlViews
         var terminalFontSize = ServerEndpoint.NormalizeTerminalFontSize(
             server?.TerminalFontSize ?? ServerEndpoint.DefaultTerminalFontSize);
         var passwordHelp = server is null ? "" : $"""<p class="muted">{T(context, "Leave password empty to keep it unchanged.")}</p>""";
-        var clearPassword = server is null ? "" : $"""<label class="check" data-protocols="rdp,vnc,ssh,sftp,ftp,smb"><input type="checkbox" name="clearPassword"> {T(context, "Clear saved target password")}</label>""";
+        var clearPassword = server is null ? "" : $"""<label class="check" data-protocols="rdp,vnc,ssh,sftp,ftp,smb,webdav"><input type="checkbox" name="clearPassword"> {T(context, "Clear saved target password")}</label>""";
         var canManageGlobal = currentUser.IsAdmin || currentUser.CanManageServers;
         var canCreatePrivate = currentUser.IsAdmin || currentUser.CanCreateServers;
         var scopeValue = server?.OwnerUserId is not null ? "private" : "global";
@@ -16475,7 +16475,7 @@ public sealed class HtmlViews
                     </label>
                 </div>
             </section>
-            <section class="panel server-form-section" data-protocols="rdp,vnc,ssh,sftp,ftp,smb">
+            <section class="panel server-form-section" data-protocols="rdp,vnc,ssh,sftp,ftp,smb,webdav">
                 <h2>{{T(context, "Target")}}</h2>
                 <div class="form-grid">
                     <label>{{T(context, "Host or IP")}}
@@ -16504,13 +16504,13 @@ public sealed class HtmlViews
                     <label class="check"><input type="checkbox" name="ignoreCertificate"{{Checked(server?.IgnoreCertificate ?? true)}}> {{T(context, "Ignore certificate")}}</label>
                 </div>
             </section>
-            <section class="panel server-form-section" data-protocols="rdp,vnc,ssh,sftp,ftp,smb">
+            <section class="panel server-form-section" data-protocols="rdp,vnc,ssh,sftp,ftp,smb,webdav">
                 <h2>{{T(context, "Credentials")}}</h2>
                 <div class="form-grid">
-                    <label data-protocols="rdp,ssh,sftp,ftp,smb">{{T(context, "Target user")}}
+                    <label data-protocols="rdp,ssh,sftp,ftp,smb,webdav">{{T(context, "Target user")}}
                         <input name="targetUserName" value="{{A(server?.UserName)}}" autocomplete="off">
                     </label>
-                    <label data-protocols="rdp,vnc,ssh,sftp,ftp,smb">{{T(context, "Connection password")}}
+                    <label data-protocols="rdp,vnc,ssh,sftp,ftp,smb,webdav">{{T(context, "Connection password")}}
                         <input name="targetPassword" type="password" autocomplete="new-password">
                         {{passwordHelp}}
                     </label>
@@ -16656,6 +16656,7 @@ public sealed class HtmlViews
             (ServerProtocol.Sftp, "Sftp", "SFTP", "sftp", "#f0a92b"),
             (ServerProtocol.Ftp, "Ftp", "FTP", "ftp", "#e0863a"),
             (ServerProtocol.Smb, "Smb", "SMB", "smb", "#35c07f"),
+            (ServerProtocol.WebDav, "WebDav", "WebDAV", "cloud", "#2bb3c0"),
             (ServerProtocol.Website, "Website", T(context, "Website (Beta)"), "globe", "#3aa0ff"),
         };
 

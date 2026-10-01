@@ -99,7 +99,7 @@ public sealed class ServerEndpoint
 
     public static bool IsFileProtocol(ServerProtocol protocol)
     {
-        return protocol is ServerProtocol.Sftp or ServerProtocol.Ftp or ServerProtocol.Smb or ServerProtocol.Local;
+        return protocol is ServerProtocol.Sftp or ServerProtocol.Ftp or ServerProtocol.Smb or ServerProtocol.Local or ServerProtocol.WebDav;
     }
 
     public static bool IsWebsiteProtocol(ServerProtocol protocol)
@@ -117,6 +117,7 @@ public sealed class ServerEndpoint
             ServerProtocol.Sftp => "sftp",
             ServerProtocol.Ftp => "ftp",
             ServerProtocol.Smb => "smb",
+            ServerProtocol.WebDav => "cloud",
             ServerProtocol.Website => "globe",
             _ => "server"
         };

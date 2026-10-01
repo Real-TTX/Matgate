@@ -12,5 +12,6 @@ public enum ServerProtocol
     Vnc,
     // The gateway's own file areas (Global / User / Connection). Appended last on purpose: the
     // values are stored as numbers, so inserting anywhere else would renumber existing servers.
-    Local
+    Local,
+    WebDav
 }
