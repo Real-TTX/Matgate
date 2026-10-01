@@ -3899,7 +3899,7 @@ public sealed class HtmlViews
                 </form>
                 <div id="file-area-dialog" class="credential-dialog file-area-dialog hidden">
                     <div class="file-area-dialog-head">
-                        <strong id="file-area-dialog-title">{{(Language(context) == "de" ? "Dateien" : "Files")}}</strong>
+                        <select id="file-area-dialog-select" class="file-area-dialog-select"></select>
                         <span class="file-area-dialog-actions">
                             <button id="file-area-dialog-send" type="button" class="button primary">{{Icon("upload")}}{{(Language(context) == "de" ? "In die Sitzung" : "Into the session")}}</button>
                             <button id="file-area-dialog-close" type="button" class="tab-action-button icon-only" aria-label="{{A(T(context, "Close"))}}">&times;</button>
@@ -3977,7 +3977,7 @@ public sealed class HtmlViews
                 const clipboardClose = document.getElementById('clipboard-close');
                 const fileAreaDialog = document.getElementById('file-area-dialog');
                 const fileAreaDialogBody = document.getElementById('file-area-dialog-body');
-                const fileAreaDialogTitle = document.getElementById('file-area-dialog-title');
+                const fileAreaDialogSelect = document.getElementById('file-area-dialog-select');
                 const fileAreaDialogClose = document.getElementById('file-area-dialog-close');
                 const fileAreaDialogSend = document.getElementById('file-area-dialog-send');
                 const sftpTargetDialog = document.getElementById('sftp-target-dialog');
@@ -6393,7 +6393,7 @@ public sealed class HtmlViews
                             const areaButton = createTabActionButton(
                                 actionIcons.folder || actionIcons.upload,
                                 uiText.openFileArea || 'Files for this connection',
-                                () => openFileAreaDialog(tab.fileAreaId, uiText.openFileArea || 'Files'),
+                                () => openFileAreaDialog(tab.fileAreaId),
                                 '',
                                 true);
                             addTabAction('fileArea', areaButton);
@@ -7243,40 +7243,82 @@ public sealed class HtmlViews
                 // panel is lifted into the dialog, and it goes back to the deck on close. The tab's
                 // button is hidden while the dialog owns it, so the strip does not grow a second entry
                 // for something that is already on screen.
-                let fileAreaReturnTabId = '';
+                // The dialog is NOT a tab. It used to borrow one - create it, lift its panel out of the
+                // deck and hide its button - and that is where the odd behaviour came from: the strip
+                // lost its selection because the active tab was the hidden one, and closing left a tab
+                // behind. It only ever needed the file manager, not the tab machinery around it, so it
+                // builds the handful of elements the manager writes into and runs it on those.
+                let fileAreaHost = null;
 
-                function openFileAreaDialog(areaId, title) {
+                function buildFileAreaHost(server) {
+                    const panel = document.createElement('div');
+                    panel.className = 'connection-panel file-area-host';
+
+                    const overlay = document.createElement('div');
+                    overlay.className = 'connection-overlay hidden';
+                    const overlayTitle = document.createElement('h2');
+                    const overlayMessage = document.createElement('p');
+                    const overlayActions = document.createElement('div');
+                    overlayActions.className = 'overlay-actions hidden';
+                    overlay.append(overlayTitle, overlayMessage, overlayActions);
+
+                    const displayRoot = document.createElement('div');
+                    panel.append(overlay, displayRoot);
+
+                    return {
+                        id: 'file-area-dialog',
+                        serverId: server.id,
+                        name: server.name,
+                        protocol: server.protocol,
+                        panel,
+                        displayRoot,
+                        overlay,
+                        overlayTitle,
+                        overlayMessage,
+                        overlayActions,
+                        // Written to by setStatus; the dialog has no status bar of its own.
+                        statusLabel: document.createElement('span'),
+                        selectedFilePaths: new Set(),
+                    };
+                }
+
+                // The areas this user can reach, so one dialog manages all of them instead of showing
+                // whichever one it happened to be opened with. The connection's own area comes first
+                // when the dialog was opened from a session - that is the one meant by "its files".
+                function fileAreaChoices(preferredId) {
+                    const areas = availableServers.filter(server => (server.protocol || '').toUpperCase() === 'LOCAL');
+                    const preferred = areas.filter(server => server.id === preferredId);
+                    return preferred.concat(areas.filter(server => server.id !== preferredId));
+                }
+
+                function openFileAreaDialog(areaId) {
+                    const choices = fileAreaChoices(areaId);
+                    if (!choices.length) {
+                        return;
+                    }
+
+                    fileAreaDialogSelect.replaceChildren();
+                    choices.forEach(server => {
+                        const option = document.createElement('option');
+                        option.value = server.id;
+                        option.textContent = server.name;
+                        fileAreaDialogSelect.appendChild(option);
+                    });
+
+                    fileAreaDialogSelect.value = choices[0].id;
+                    showFileArea(choices[0].id);
+                    fileAreaDialog.classList.remove('hidden');
+                }
+
+                function showFileArea(areaId) {
                     const server = findServer(areaId);
                     if (!server) {
                         return;
                     }
 
-                    fileAreaReturnTabId = activeTabId || '';
-                    const existing = Array.from(tabs.values()).find(entry => entry.serverId === areaId);
-                    const tab = existing || createTab(server, {});
-                    if (!tab) {
-                        return;
-                    }
-
-                    // createTab() activates what it creates. Hand control straight back to the session:
-                    // its panel is behind the dialog and its tab stays the active one in the strip -
-                    // otherwise the active tab is the hidden one and the strip looks like nothing is
-                    // selected at all.
-                    if (fileAreaReturnTabId && tabs.has(fileAreaReturnTabId)) {
-                        activateTab(fileAreaReturnTabId);
-                    }
-
-                    if (tab.tabButton) {
-                        tab.tabButton.classList.add('tab-in-dialog');
-                    }
-
-                    fileAreaDialogTitle.textContent = title || server.name || '';
-                    fileAreaDialogBody.replaceChildren(tab.panel);
-                    // After activateTab, which hides every panel that is not the active one.
-                    tab.panel.classList.remove('hidden');
-                    fileAreaDialog.dataset.tabId = tab.id;
-                    fileAreaDialog.dataset.createdHere = existing ? '' : '1';
-                    fileAreaDialog.classList.remove('hidden');
+                    fileAreaHost = buildFileAreaHost(server);
+                    fileAreaDialogBody.replaceChildren(fileAreaHost.panel);
+                    startFileTab(fileAreaHost);
                 }
 
                 // Takes what is selected in the area and hands it to the session the dialog was opened
@@ -7284,8 +7326,8 @@ public sealed class HtmlViews
                 // path - so they end up in the area the session asks for, one at a time, with the same
                 // handling of a connection that drops halfway.
                 async function sendSelectionIntoSession() {
-                    const areaTab = tabs.get(fileAreaDialog.dataset.tabId || '');
-                    const sessionTab = tabs.get(fileAreaReturnTabId || '');
+                    const areaTab = fileAreaHost;
+                    const sessionTab = tabs.get(activeTabId || '');
                     if (!areaTab || !sessionTab) {
                         return;
                     }
@@ -7322,32 +7364,10 @@ public sealed class HtmlViews
                 }
 
                 function closeFileAreaDialog() {
-                    const tab = tabs.get(fileAreaDialog.dataset.tabId || '');
-                    const createdHere = fileAreaDialog.dataset.createdHere === '1';
-
+                    // Nothing to put back and no tab to clean up - the dialog owned everything it used.
                     fileAreaDialog.classList.add('hidden');
-                    fileAreaDialog.dataset.tabId = '';
-                    fileAreaDialog.dataset.createdHere = '';
-
-                    if (tab && tab.panel) {
-                        // Back to where every other panel lives, so the tab keeps working if it is
-                        // opened normally later.
-                        deck.appendChild(tab.panel);
-                        tab.panel.classList.add('hidden');
-                        if (tab.tabButton) {
-                            tab.tabButton.classList.remove('tab-in-dialog');
-                        }
-
-                        // A tab that only existed to fill this dialog goes with it - otherwise closing
-                        // the dialog would leave a tab behind that the user never asked for.
-                        if (createdHere) {
-                            closeTab(tab.id);
-                        }
-                    }
-
-                    if (fileAreaReturnTabId && tabs.has(fileAreaReturnTabId)) {
-                        activateTab(fileAreaReturnTabId);
-                    }
+                    fileAreaDialogBody.replaceChildren();
+                    fileAreaHost = null;
                 }
 
                 function openServer(serverId, filePath = '', tabId = '') {
@@ -10831,6 +10851,7 @@ public sealed class HtmlViews
                 });
                 fileAreaDialogClose.addEventListener('click', closeFileAreaDialog);
                 fileAreaDialogSend.addEventListener('click', sendSelectionIntoSession);
+                fileAreaDialogSelect.addEventListener('change', () => showFileArea(fileAreaDialogSelect.value));
                 // The X alone is not enough of a way out: Escape and a tap beside the dialog are what
                 // people reach for first, and without them it feels stuck.
                 document.addEventListener('keydown', event => {
@@ -15430,6 +15451,8 @@ public sealed class HtmlViews
                         width: min(1040px, calc(100vw - 32px));
                     }
                     .file-area-dialog-actions { align-items: center; display: flex; gap: 8px; }
+                    .file-area-dialog-select { flex: 1 1 auto; max-width: 320px; min-width: 0; }
+                    .file-area-host { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; min-width: 0; position: relative; }
                     .file-area-dialog-head {
                         align-items: center;
                         border-bottom: 1px solid var(--line);
