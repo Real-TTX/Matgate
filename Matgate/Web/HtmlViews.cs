@@ -11990,63 +11990,8 @@ public sealed class HtmlViews
                     tbody tr.hidden { display: none; }
                     .workspace-expired-panel { margin-top: 20px; opacity: .82; }
                     .workspace-expired-head { align-items: center; color: var(--muted); display: flex; font-size: 16px; gap: 8px; }
-                    .shell-tab-main {
-                        background: transparent;
-                        border: 0;
-                        border-radius: 0;
-                        display: grid;
-                        gap: 0;
-                        justify-items: start;
-                        min-height: 40px;
-                        min-width: 140px;
-                        padding: 4px 9px;
-                        text-align: left;
-                        width: 100%;
-                    }
-                    .shell-tab-title {
-                        max-width: none;
-                        justify-content: flex-start;
-                        width: 100%;
-                    }
-                    .shell-tab-description {
-                        color: var(--muted);
-                        display: block;
-                        font-size: 11px;
-                        line-height: 1.2;
-                        min-height: 1.2em;
-                        overflow: hidden;
-                        text-overflow: ellipsis;
-                        white-space: nowrap;
-                        width: 100%;
-                    }
-                    .shell-actions {
-                        display: flex;
-                        flex: 0 0 auto;
-                        align-items: center;
-                        gap: 6px;
-                        margin-left: 8px;
-                    }
-                    .shell-action {
-                        align-items: center;
-                        background: transparent;
-                        border: 0;
-                        border-radius: 0;
-                        color: var(--muted);
-                        cursor: pointer;
-                        display: inline-flex;
-                        gap: 7px;
-                        min-height: 28px;
-                        padding: 4px 8px;
-                        text-decoration: none;
-                        white-space: nowrap;
-                    }
                     .shell-tab:hover,
                     .shell-tab:focus-visible,
-                    .shell-action:hover,
-                    .shell-action:focus-visible {
-                        background: transparent;
-                        color: var(--accent);
-                    }
                     .button, button {
                         border: 1px solid var(--line);
                         border-radius: var(--radius);
@@ -12857,8 +12802,7 @@ public sealed class HtmlViews
                         padding: 0;
                         width: auto;
                     }
-                    .session-tab-main,
-                    .shell-tab-main {
+                    .session-tab-main {
                         background: transparent;
                         border: 0;
                         border-radius: 0;
@@ -12872,7 +12816,6 @@ public sealed class HtmlViews
                         width: 100%;
                     }
                     .session-tab-main { min-width: 150px; }
-                    .shell-tab-main { min-width: 140px; }
                     .session-tab--page .session-tab-main,
                     .session-tab--connection .session-tab-main {
                         min-width: 150px;
@@ -12913,14 +12856,6 @@ public sealed class HtmlViews
                         flex: 1 1 auto;
                         min-width: 0;
                         max-width: none;
-                        overflow: hidden;
-                        text-overflow: ellipsis;
-                        white-space: nowrap;
-                    }
-                    .shell-tab-title span {
-                        display: block;
-                        flex: 1 1 auto;
-                        min-width: 0;
                         overflow: hidden;
                         text-overflow: ellipsis;
                         white-space: nowrap;
@@ -13174,12 +13109,6 @@ public sealed class HtmlViews
                         margin: 0 auto;
                         max-width: 980px;
                     }
-                    .connection-picker-head {
-                        margin-bottom: 18px;
-                    }
-                    .connection-picker-head h1 {
-                        font-size: 28px;
-                    }
                     .connection-picker-grid {
                         display: grid;
                         gap: 12px;
@@ -13209,13 +13138,7 @@ public sealed class HtmlViews
                         align-items: stretch;
                         background: var(--surface);
                         border: 1px solid var(--line);
-                        border-radius: 16px;
                         box-shadow: 0 1px 2px rgb(0 0 0 / 6%);
-                        display: grid;
-                        gap: 12px;
-                        min-height: 150px;
-                        padding: 18px;
-                        position: relative;
                         transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease;
                     }
                     .connection-choice:hover {
@@ -13235,16 +13158,10 @@ public sealed class HtmlViews
                         width: 4px;
                     }
                     .connection-choice:hover::before { opacity: 1; }
-                    .connection-choice h2 {
-                        margin: 8px 0 8px;
-                    }
                     .connection-choice-copy {
                         display: grid;
                         gap: 6px;
                         min-width: 0;
-                    }
-                    .connection-choice-copy h2 {
-                        margin: 0;
                     }
                     .connection-choice .target {
                         margin: 0;
@@ -13772,9 +13689,6 @@ public sealed class HtmlViews
                         .home2-proto-dialog-grid {
                             padding-bottom: calc(18px + env(safe-area-inset-bottom));
                         }
-                    }
-                    .connection-picker-head {
-                        margin-bottom: 0;
                     }
                     .connection-browser-empty {
                         align-items: flex-start;
@@ -15564,8 +15478,6 @@ public sealed class HtmlViews
                         .shell-tabs-scroll { width: 100%; }
                         .shell-tabs { align-items: center; flex: 1 1 auto; flex-direction: row; overflow: visible; width: max-content; min-width: 100%; }
                         .shell-tabs > * { width: auto; }
-                        .shell-actions { margin-left: 0; width: 100%; }
-                        .shell-action { justify-content: center; width: 100%; }
                         .shell-page-row {
                             align-items: stretch;
                             flex-direction: column;
@@ -15631,8 +15543,7 @@ public sealed class HtmlViews
                         .shell-tab,
                         nav a,
                         nav button,
-                        .button,
-                        .shell-action { justify-content: center; }
+                        .button { justify-content: center; }
                         main.session-main { height: auto; min-height: 0; }
                         .session-bar { align-items: stretch; flex-direction: column; }
                         .session-actions > * { flex: 1; justify-content: center; }
