@@ -3864,6 +3864,15 @@ public sealed class HtmlViews
                 </form>
                 <form id="sftp-target-dialog" class="credential-dialog send-files-dialog hidden">
                     <h2>{{(Language(context) == "de" ? "Dateien senden" : "Send files")}}</h2>
+                    <div class="send-files-source">
+                        <button type="button" data-send-source="local" class="active">{{Icon("upload")}}{{(Language(context) == "de" ? "Von diesem Rechner" : "From this computer")}}</button>
+                        <button type="button" data-send-source="place">{{Icon("folder")}}{{(Language(context) == "de" ? "Aus einer Ablage" : "From an area")}}</button>
+                    </div>
+                    <div id="send-files-place" class="send-files-place hidden">
+                        <select id="send-files-place-select"></select>
+                        <div id="send-files-place-path" class="muted send-files-place-path">/</div>
+                        <ul id="send-files-place-list" class="send-files-place-list"></ul>
+                    </div>
                     <button id="send-files-drop" type="button" class="send-files-drop">
                         {{Icon("upload")}}
                         <strong>{{(Language(context) == "de" ? "Dateien hierher ziehen" : "Drop files here")}}</strong>
@@ -3968,6 +3977,10 @@ public sealed class HtmlViews
                 const sftpTargetArea = document.getElementById('sftp-target-area');
                 const sendFilesDrop = document.getElementById('send-files-drop');
                 const sendFilesInput = document.getElementById('send-files-input');
+                const sendFilesPlace = document.getElementById('send-files-place');
+                const sendFilesPlaceSelect = document.getElementById('send-files-place-select');
+                const sendFilesPlacePath = document.getElementById('send-files-place-path');
+                const sendFilesPlaceList = document.getElementById('send-files-place-list');
                 const sftpTargetFiles = document.getElementById('sftp-target-files');
                 const sftpTargetClose = document.getElementById('sftp-target-close');
                 const statusResolution = document.getElementById('status-resolution');
@@ -10310,10 +10323,99 @@ public sealed class HtmlViews
 
                 let pendingTargetUpload = null;
 
+                // The second source: files that are already somewhere Matgate can reach - one of its own
+                // areas, or a file connection. Picked here rather than downloaded and uploaded again by
+                // hand, which is what "send an existing file" used to mean.
+                let sendPlacePicked = [];
+
+                function showSendSource(mode) {
+                    const place = mode === 'place';
+                    sendFilesPlace.classList.toggle('hidden', !place);
+                    sendFilesDrop.classList.toggle('hidden', place);
+                    document.querySelectorAll('[data-send-source]').forEach(button => {
+                        button.classList.toggle('active', button.dataset.sendSource === mode);
+                    });
+
+                    if (place && !sendFilesPlaceSelect.options.length) {
+                        // Everything the file manager can open - the areas and the file connections.
+                        availableServers
+                            .filter(server => ['LOCAL', 'SFTP', 'FTP', 'SMB'].includes((server.protocol || '').toUpperCase()))
+                            .forEach(server => {
+                                const option = document.createElement('option');
+                                option.value = server.id;
+                                option.textContent = server.name;
+                                sendFilesPlaceSelect.appendChild(option);
+                            });
+                    }
+
+                    if (place) {
+                        loadSendPlace('/');
+                    }
+                }
+
+                function loadSendPlace(path) {
+                    const id = sendFilesPlaceSelect.value;
+                    if (!id) {
+                        sendFilesPlaceList.replaceChildren();
+                        return;
+                    }
+
+                    sendFilesPlacePath.textContent = path;
+                    sendFilesPlaceList.replaceChildren();
+                    fetch(`/api/files/${id}/list?path=${encodeURIComponent(path)}`)
+                        .then(response => (response.ok ? response.json() : null))
+                        .then(data => {
+                            if (!data) {
+                                return;
+                            }
+
+                            if (path !== '/') {
+                                const up = document.createElement('li');
+                                const button = document.createElement('button');
+                                button.type = 'button';
+                                button.className = 'send-files-place-up';
+                                button.textContent = '..';
+                                button.addEventListener('click', () => loadSendPlace(data.parentPath || '/'));
+                                up.appendChild(button);
+                                sendFilesPlaceList.appendChild(up);
+                            }
+
+                            (data.entries || []).forEach(entry => {
+                                const row = document.createElement('li');
+                                if (entry.isDirectory) {
+                                    const button = document.createElement('button');
+                                    button.type = 'button';
+                                    button.className = 'send-files-place-dir';
+                                    button.textContent = entry.name;
+                                    button.addEventListener('click', () => loadSendPlace(entry.path));
+                                    row.appendChild(button);
+                                }
+                                else {
+                                    const label = document.createElement('label');
+                                    const box = document.createElement('input');
+                                    box.type = 'checkbox';
+                                    box.value = entry.path;
+                                    box.addEventListener('change', () => {
+                                        sendPlacePicked = box.checked
+                                            ? sendPlacePicked.concat([{ id, path: entry.path, name: entry.name }])
+                                            : sendPlacePicked.filter(item => !(item.id === id && item.path === entry.path));
+                                        renderPendingFiles();
+                                    });
+                                    label.append(box, document.createTextNode(' ' + entry.name));
+                                    row.appendChild(label);
+                                }
+
+                                sendFilesPlaceList.appendChild(row);
+                            });
+                        })
+                        .catch(() => {});
+                }
+
                 function renderPendingFiles() {
-                    const files = pendingTargetUpload ? pendingTargetUpload.files : [];
-                    sftpTargetFiles.textContent = files.length
-                        ? files.map(file => file.name).join(', ')
+                    const names = (pendingTargetUpload ? pendingTargetUpload.files : []).map(file => file.name)
+                        .concat(sendPlacePicked.map(item => item.name));
+                    sftpTargetFiles.textContent = names.length
+                        ? names.join(', ')
                         : (uiText.selectFilesFirst || 'Select the files first');
                 }
 
@@ -10329,6 +10431,8 @@ public sealed class HtmlViews
 
                 function askForTargetFolder(tab, files) {
                     pendingTargetUpload = { tab, files: Array.from(files || []) };
+                    sendPlacePicked = [];
+                    showSendSource("local");
                     renderPendingFiles();
 
                     if (usesAreaPicker(tab)) {
@@ -10630,6 +10734,9 @@ public sealed class HtmlViews
                 clipboardClose.addEventListener('click', closeClipboardDialog);
                 sftpTargetClose.addEventListener('click', closeTargetFolderDialog);
                 // The drop area is both: a button that opens the picker, and a target for dragging.
+                document.querySelectorAll("[data-send-source]").forEach(button =>
+                    button.addEventListener("click", () => showSendSource(button.dataset.sendSource)));
+                sendFilesPlaceSelect.addEventListener("change", () => { sendPlacePicked = []; renderPendingFiles(); loadSendPlace("/"); });
                 sendFilesDrop.addEventListener('click', () => sendFilesInput.click());
                 sendFilesInput.addEventListener('change', () => {
                     addPendingFiles(sendFilesInput.files);
@@ -10675,8 +10782,9 @@ public sealed class HtmlViews
                         return;
                     }
 
-                    const { tab, files } = pendingTargetUpload;
-                    if (!files.length) {
+                    const { tab } = pendingTargetUpload;
+                    const files = pendingTargetUpload.files;
+                    if (!files.length && !sendPlacePicked.length) {
                         // Nothing picked yet - say so instead of closing on an empty send.
                         renderPendingFiles();
                         sendFilesDrop.classList.add('send-files-drop--wanted');
@@ -10688,8 +10796,37 @@ public sealed class HtmlViews
                     tab.targetFolder = usesAreaPicker(tab)
                         ? (sftpTargetArea.value || 'Session')
                         : sftpTargetPath.value.trim();
+
+                    const picked = sendPlacePicked.slice();
+                    const folder = tab.targetFolder;
                     closeTargetFolderDialog();
-                    sendFilesToSession(tab, files, tab.targetFolder);
+
+                    if (!picked.length) {
+                        sendFilesToSession(tab, files, folder);
+                        return;
+                    }
+
+                    // Files that already live somewhere Matgate can reach are fetched first and then
+                    // join the ones from this computer - from there on it is one and the same transfer.
+                    (async () => {
+                        const fetched = [];
+                        for (const item of picked) {
+                            try {
+                                const response = await fetch(`/api/files/${item.id}/download?path=${encodeURIComponent(item.path)}`);
+                                if (!response.ok) {
+                                    continue;
+                                }
+
+                                const blob = await response.blob();
+                                fetched.push(new File([blob], item.name, { type: blob.type }));
+                            }
+                            catch (e) {
+                                // One unreadable file must not stop the rest.
+                            }
+                        }
+
+                        sendFilesToSession(tab, files.concat(fetched), folder);
+                    })();
                 });
                 if (resolutionClose) {
                     resolutionClose.addEventListener('click', closeResolutionDialog);
@@ -15147,6 +15284,36 @@ public sealed class HtmlViews
                        deliberately not full screen - seeing the session behind it is the point. */
                     /* Qualified with .credential-dialog so it does not depend on which rule comes last. */
                     .credential-dialog.send-files-dialog { max-width: 560px; width: min(560px, calc(100vw - 32px)); }
+                    .send-files-source { display: flex; gap: 6px; }
+                    .send-files-source button {
+                        align-items: center;
+                        display: flex;
+                        flex: 1 1 0;
+                        gap: 6px;
+                        justify-content: center;
+                    }
+                    .send-files-source button.active { border-color: var(--accent); color: var(--accent); font-weight: 600; }
+                    .send-files-place { display: flex; flex-direction: column; gap: 6px; }
+                    .send-files-place-path { font-family: monospace; font-size: 12px; }
+                    .send-files-place-list {
+                        border: 1px solid var(--line);
+                        border-radius: 10px;
+                        list-style: none;
+                        margin: 0;
+                        max-height: 220px;
+                        overflow-y: auto;
+                        padding: 6px;
+                    }
+                    .send-files-place-list li { padding: 3px 4px; }
+                    .send-files-place-list label { align-items: center; display: flex; gap: 8px; }
+                    .send-files-place-dir, .send-files-place-up {
+                        background: none;
+                        border: 0;
+                        color: var(--accent);
+                        cursor: pointer;
+                        padding: 0;
+                        text-align: left;
+                    }
                     .send-files-drop {
                         align-items: center;
                         background: var(--surface-2);
@@ -15162,6 +15329,9 @@ public sealed class HtmlViews
                         text-align: center;
                         width: 100%;
                     }
+                    /* Beats the generic .hidden losing on source order - display is set here, so it has
+                       to be unset here too. */
+                    .send-files-drop.hidden { display: none; }
                     .send-files-drop:hover,
                     .send-files-drop--over { background: var(--surface); border-color: var(--accent); color: var(--text); }
                     /* Briefly, when sending was attempted with nothing picked. */
