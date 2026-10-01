@@ -1088,6 +1088,7 @@ public sealed class HtmlViews
             ["clipboard"] = de ? "Einfuegen" : "Paste",
             ["cad"] = de ? "Strg+Alt+Entf" : "Ctrl+Alt+Del",
             ["upload"] = de ? "Dateien senden" : "Send files",
+            ["fileArea"] = de ? "Dateien dieser Verbindung" : "Files for this connection",
         };
         var savedOrder = (prefs.ActionOrder ?? []).Where(SessionPreferences.IsKnownAction).ToList();
         var sortedActions = savedOrder
@@ -2574,7 +2575,12 @@ public sealed class HtmlViews
         // "native" | "chromiumvnc" | "firefoxvnc" - farm modes open a VNC session instead of a proxy tab.
         renderMode = server.Protocol == ServerProtocol.Website
             ? server.WebsiteRenderMode.ToString().ToLowerInvariant()
-            : "native"
+            : "native",
+        // The connection's own file area, so a session can open it straight from its toolbar. Only
+        // meaningful for real connections - an area does not have an area of its own.
+        fileAreaId = server.Protocol == ServerProtocol.Local
+            ? ""
+            : FileShareService.ConnectionAreaId(server.Id).ToString()
     };
 
     // JSON payload for the live refresh of the New-connection panel: the rendered HTML plus the
@@ -3622,6 +3628,7 @@ public sealed class HtmlViews
             systemKeys = Icon("command"),
             popOut = Icon("external-link"),
             reattach = Icon("arrow-left"),
+            folder = Icon("folder"),
             disconnect = Icon("logout")
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
         var websiteIcons = JsonSerializer.Serialize(new
@@ -3656,6 +3663,7 @@ public sealed class HtmlViews
             xferUploading = Language(context) == "de" ? "Lade hoch" : "Uploading",
             xferUploaded = Language(context) == "de" ? "Hochgeladen" : "Uploaded",
             xferUploadFailed = Language(context) == "de" ? "Upload fehlgeschlagen" : "Upload failed",
+            openFileArea = Language(context) == "de" ? "Dateien dieser Verbindung" : "Files for this connection",
             xferWaitingForSession = Language(context) == "de" ? "Verbindung war unterbrochen - die Dateien gehen raus, sobald sie wieder steht" : "Connection was interrupted - the files are sent once it is back",
             xferDownloading = Language(context) == "de" ? "Lade herunter" : "Downloading",
             pointerTouchpad = Language(context) == "de" ? "Zeiger: Touchpad (wischen bewegt den Cursor)" : "Pointer: touchpad (swipe to move)",
@@ -5458,7 +5466,8 @@ public sealed class HtmlViews
                 }
 
                 function isFileProtocol(protocol) {
-                    return ['SFTP', 'FTP', 'SMB'].includes((protocol || '').toUpperCase());
+                    // LOCAL is a file area on the gateway itself - same manager, same operations.
+                    return ['SFTP', 'FTP', 'SMB', 'LOCAL'].includes((protocol || '').toUpperCase());
                 }
 
                 function isWebsiteProtocol(protocol) {
@@ -6311,6 +6320,18 @@ public sealed class HtmlViews
                             addTabAction('upload', uploadButton);
                         }
 
+                        // The connection's own file area, one tap away. Only offered when the user has
+                        // that area at all - findServer only knows the areas they were given.
+                        if (tab.fileAreaId && findServer(tab.fileAreaId)) {
+                            const areaButton = createTabActionButton(
+                                actionIcons.folder || actionIcons.upload,
+                                uiText.openFileArea || 'Files for this connection',
+                                () => openServer(tab.fileAreaId),
+                                '',
+                                true);
+                            addTabAction('fileArea', areaButton);
+                        }
+
                         const disconnectButton = createTabActionButton(
                             actionIcons.disconnect,
                             uiText.disconnect || 'Disconnect',
@@ -6802,6 +6823,8 @@ public sealed class HtmlViews
                         name: server.name,
                         protocol: farmWebsite ? 'VNC' : server.protocol,
                         farmWebsite,
+                        // The connection's own file area, so its toolbar can offer it directly.
+                        fileAreaId: server.fileAreaId || '',
                         browserSessionId: '',
                         fileSessionId: '',
                         browserFarmTimer: null,

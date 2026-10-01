@@ -622,6 +622,18 @@ public static class EndpointMapping
             .ThenBy(server => server.Name)
             .ToList();
 
+        // The gateway's own file areas belong in the same list - they open like any other connection,
+        // the file manager does not care that they sit on this machine. Appended after the servers so
+        // a connection's own area is derived from a set that is already filtered by access.
+        var fileAreas = context.RequestServices.GetService<FileShareService>();
+        if (fileAreas is not null)
+        {
+            servers.AddRange(fileAreas.ListAreas(
+                user,
+                servers.Where(server => !ServerEndpoint.IsFileProtocol(server.Protocol)).ToList(),
+                HtmlViews.Language(context) == "de"));
+        }
+
         var allWorkspaces = await workspaceService.GetWorkspacesAsync(context.RequestAborted);
         var visibleWorkspaces = VisibleWorkspacesForUser(user, allWorkspaces);
 
@@ -658,6 +670,17 @@ public static class EndpointMapping
             .ThenBy(server => server.FolderName)
             .ThenBy(server => server.Name)
             .ToList();
+
+        // The gateway's own file areas sit in the same list, so they open like any other connection -
+        // the file manager does not care that they are on this machine rather than a remote host.
+        var shares = context.RequestServices.GetService<FileShareService>();
+        if (shares is not null)
+        {
+            servers.AddRange(shares.ListAreas(
+                user,
+                await AccessibleServersAsync(user, store, context.RequestAborted),
+                HtmlViews.Language(context) == "de"));
+        }
 
         var allWorkspaces = await workspaceService.GetWorkspacesAsync(context.RequestAborted);
         var visibleWorkspaces = VisibleWorkspacesForUser(user, allWorkspaces);
@@ -3860,6 +3883,18 @@ public static class EndpointMapping
     // Resolves a connection id to either a persisted server or the caller's own ad-hoc (ephemeral)
     // quick-connect endpoint. Callers still apply the usual IsEnabled + CanAccessServer checks
     // (which pass for ephemeral endpoints since they are owned by the caller).
+    // The connections this user may open, in one place - the file areas are derived from it, so both
+    // the listing and the lookup see exactly the same set.
+    private static async Task<IReadOnlyList<ServerEndpoint>> AccessibleServersAsync(
+        MatgateUser user,
+        JsonDataStore store,
+        CancellationToken cancellationToken)
+    {
+        return (await store.GetServersAsync(cancellationToken))
+            .Where(server => server.IsEnabled && CanAccessServer(user, server) && !ServerEndpoint.IsFileProtocol(server.Protocol))
+            .ToList();
+    }
+
     private static async Task<ServerEndpoint?> ResolveServerForUserAsync(Guid id, MatgateUser user, HttpContext context, JsonDataStore store)
     {
         var server = await store.FindServerByIdAsync(id, context.RequestAborted);
@@ -3873,12 +3908,11 @@ public static class EndpointMapping
         var shares = context.RequestServices.GetService<FileShareService>();
         if (shares is not null)
         {
-            var servers = await store.GetServersAsync(context.RequestAborted);
-            var area = shares.ResolveArea(user, id, serverId =>
-            {
-                var match = servers.FirstOrDefault(entry => entry.Id == serverId);
-                return match is not null && match.IsEnabled && CanAccessServer(user, match) ? match.Name : null;
-            });
+            var area = shares.ResolveArea(
+                user,
+                id,
+                await AccessibleServersAsync(user, store, context.RequestAborted),
+                HtmlViews.Language(context) == "de");
 
             if (area is not null)
             {

@@ -99,51 +99,45 @@ public sealed class FileShareService
 
     public static Guid ConnectionAreaId(Guid serverId) => AreaId("connection:" + serverId.ToString("N"));
 
+    // Every area this user may open, as something the file manager understands. The caller passes the
+    // connections the user already has access to - a connection's area is reachable exactly while its
+    // connection is.
+    public IReadOnlyList<ServerEndpoint> ListAreas(MatgateUser user, IReadOnlyList<ServerEndpoint> accessibleServers, bool german)
+    {
+        var permissions = user.FileShare ?? new FileSharePermissions();
+        var areas = new List<ServerEndpoint>();
+
+        if (permissions.Global)
+        {
+            areas.Add(AreaEndpoint(user, GlobalAreaId, "Global", GlobalDirectory));
+        }
+
+        if (permissions.Personal)
+        {
+            areas.Add(AreaEndpoint(user, PersonalAreaId(user.Id), german ? "Eigene Dateien" : "My files", PersonalDirectory(user.Id)));
+        }
+
+        if (permissions.Connection)
+        {
+            foreach (var server in accessibleServers)
+            {
+                areas.Add(AreaEndpoint(
+                    user,
+                    ConnectionAreaId(server.Id),
+                    server.Name + (german ? " - Ablage" : " - files"),
+                    ConnectionDirectory(server.Id)));
+            }
+        }
+
+        return areas;
+    }
+
     // Turns one of those ids back into something the file manager can open - but only if the user is
     // allowed that area. Returns null for anything else, so an id that is not an area simply falls
     // through to the normal server lookup.
-    public ServerEndpoint? ResolveArea(MatgateUser user, Guid id, Func<Guid, string?> connectionName)
+    public ServerEndpoint? ResolveArea(MatgateUser user, Guid id, IReadOnlyList<ServerEndpoint> accessibleServers, bool german)
     {
-        var permissions = user.FileShare ?? new FileSharePermissions();
-
-        if (permissions.Global && id == GlobalAreaId)
-        {
-            return AreaEndpoint(user, id, "Global", GlobalDirectory);
-        }
-
-        if (permissions.Personal && id == PersonalAreaId(user.Id))
-        {
-            return AreaEndpoint(user, id, "Eigene Dateien", PersonalDirectory(user.Id));
-        }
-
-        if (!permissions.Connection)
-        {
-            return null;
-        }
-
-        // A connection area belongs to a connection, so it is only reachable while that connection is.
-        foreach (var serverId in AccessibleConnectionIds(user, connectionName))
-        {
-            if (id == ConnectionAreaId(serverId))
-            {
-                return AreaEndpoint(user, id, connectionName(serverId) ?? "Verbindung", ConnectionDirectory(serverId));
-            }
-        }
-
-        return null;
-    }
-
-    private static IEnumerable<Guid> AccessibleConnectionIds(MatgateUser user, Func<Guid, string?> connectionName)
-    {
-        // The caller knows which connections exist and which this user may open; it answers with a
-        // name for those and with null for everything else.
-        foreach (var id in user.RecentConnections?.Select(entry => entry.ServerId) ?? [])
-        {
-            if (connectionName(id) is not null)
-            {
-                yield return id;
-            }
-        }
+        return ListAreas(user, accessibleServers, german).FirstOrDefault(area => area.Id == id);
     }
 
     private ServerEndpoint AreaEndpoint(MatgateUser user, Guid id, string name, string directory)

@@ -98,7 +98,7 @@ public sealed class SessionPreferences
     public static readonly string[] SortableActions =
     [
         "fullscreen", "popOut", "reattach", "pointer", "rightClick", "keyboard", "osk",
-        "resolution", "autoResize", "zoomOut", "zoomIn", "copyUrl", "clipboard", "cad", "upload",
+        "resolution", "autoResize", "zoomOut", "zoomIn", "copyUrl", "clipboard", "cad", "upload", "fileArea",
     ];
 
     public static bool IsKnownAction(string key) => SortableActions.Contains(key);
