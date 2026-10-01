@@ -87,6 +87,90 @@ public sealed class FileShareService
     public string PersonalDirectory(Guid userId) =>
         Path.Combine(RootDirectory, "user", userId.ToString("N"));
 
+    // --- The areas as file connections ------------------------------------------------------------
+    //
+    // The file manager already knows how to browse a connection; the areas just need to look like one.
+    // Their ids are derived from what they are rather than stored, so they survive restarts and never
+    // collide with a real server's id.
+
+    public static Guid GlobalAreaId { get; } = AreaId("global");
+
+    public static Guid PersonalAreaId(Guid userId) => AreaId("user:" + userId.ToString("N"));
+
+    public static Guid ConnectionAreaId(Guid serverId) => AreaId("connection:" + serverId.ToString("N"));
+
+    // Turns one of those ids back into something the file manager can open - but only if the user is
+    // allowed that area. Returns null for anything else, so an id that is not an area simply falls
+    // through to the normal server lookup.
+    public ServerEndpoint? ResolveArea(MatgateUser user, Guid id, Func<Guid, string?> connectionName)
+    {
+        var permissions = user.FileShare ?? new FileSharePermissions();
+
+        if (permissions.Global && id == GlobalAreaId)
+        {
+            return AreaEndpoint(user, id, "Global", GlobalDirectory);
+        }
+
+        if (permissions.Personal && id == PersonalAreaId(user.Id))
+        {
+            return AreaEndpoint(user, id, "Eigene Dateien", PersonalDirectory(user.Id));
+        }
+
+        if (!permissions.Connection)
+        {
+            return null;
+        }
+
+        // A connection area belongs to a connection, so it is only reachable while that connection is.
+        foreach (var serverId in AccessibleConnectionIds(user, connectionName))
+        {
+            if (id == ConnectionAreaId(serverId))
+            {
+                return AreaEndpoint(user, id, connectionName(serverId) ?? "Verbindung", ConnectionDirectory(serverId));
+            }
+        }
+
+        return null;
+    }
+
+    private static IEnumerable<Guid> AccessibleConnectionIds(MatgateUser user, Func<Guid, string?> connectionName)
+    {
+        // The caller knows which connections exist and which this user may open; it answers with a
+        // name for those and with null for everything else.
+        foreach (var id in user.RecentConnections?.Select(entry => entry.ServerId) ?? [])
+        {
+            if (connectionName(id) is not null)
+            {
+                yield return id;
+            }
+        }
+    }
+
+    private ServerEndpoint AreaEndpoint(MatgateUser user, Guid id, string name, string directory)
+    {
+        Directory.CreateDirectory(directory);
+        OpenForGuacd(directory);
+
+        return new ServerEndpoint
+        {
+            Id = id,
+            Name = name,
+            Protocol = ServerProtocol.Local,
+            FileRootPath = directory,
+            IsEnabled = true,
+            // Owned by the caller, so the ordinary access check lets exactly them in.
+            OwnerUserId = user.Id,
+        };
+    }
+
+    private static Guid AreaId(string key)
+    {
+        // A name-based id, so the same area is always the same id without having to store it.
+        var hash = System.Security.Cryptography.SHA256.HashData(
+            System.Text.Encoding.UTF8.GetBytes("matgate.file-area." + key));
+        return new Guid(hash.AsSpan(0, 16));
+    }
+
     public string SessionDirectory(string sessionId) =>
         Path.Combine(SessionRootDirectory, SafeName(sessionId));
 

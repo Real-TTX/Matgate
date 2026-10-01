@@ -3868,6 +3868,24 @@ public static class EndpointMapping
             return server;
         }
 
+        // One of the gateway's own file areas? They are not stored anywhere - their ids are derived
+        // from what they are - so they are resolved here, gated on what this user is allowed.
+        var shares = context.RequestServices.GetService<FileShareService>();
+        if (shares is not null)
+        {
+            var servers = await store.GetServersAsync(context.RequestAborted);
+            var area = shares.ResolveArea(user, id, serverId =>
+            {
+                var match = servers.FirstOrDefault(entry => entry.Id == serverId);
+                return match is not null && match.IsEnabled && CanAccessServer(user, match) ? match.Name : null;
+            });
+
+            if (area is not null)
+            {
+                return area;
+            }
+        }
+
         return context.RequestServices.GetService<EphemeralServerStore>()?.TryResolve(id, user.Id);
     }
 

@@ -60,6 +60,7 @@ public sealed class FileGatewayService : IFileGatewayService
         return server.Protocol switch
         {
             ServerProtocol.Sftp => ListSftpAsync(server, path, cancellationToken),
+            ServerProtocol.Local => ListLocalAsync(server, path, cancellationToken),
             ServerProtocol.Ftp => ListFtpAsync(server, path, cancellationToken),
             ServerProtocol.Smb => ListSmbAsync(server, path, cancellationToken),
             _ => throw new InvalidOperationException("Dieser Server ist keine Dateiverbindung.")
@@ -74,6 +75,7 @@ public sealed class FileGatewayService : IFileGatewayService
         return server.Protocol switch
         {
             ServerProtocol.Sftp => GetSftpFileInfoAsync(server, path, cancellationToken),
+            ServerProtocol.Local => GetLocalFileInfoAsync(server, path, cancellationToken),
             ServerProtocol.Ftp => GetFtpFileInfoAsync(server, path, cancellationToken),
             ServerProtocol.Smb => GetSmbFileInfoAsync(server, path, cancellationToken),
             _ => throw new InvalidOperationException("Dieser Server ist keine Dateiverbindung.")
@@ -96,6 +98,7 @@ public sealed class FileGatewayService : IFileGatewayService
         return server.Protocol switch
         {
             ServerProtocol.Sftp => CopySftpRangeAsync(server, path, output, offset, length, cancellationToken),
+            ServerProtocol.Local => CopyLocalRangeAsync(server, path, output, offset, length, cancellationToken),
             ServerProtocol.Ftp => CopyFtpRangeAsync(server, path, output, offset, length, cancellationToken),
             ServerProtocol.Smb => CopySmbRangeAsync(server, path, output, offset, length, cancellationToken),
             _ => throw new InvalidOperationException("Dieser Server ist keine Dateiverbindung.")
@@ -110,6 +113,7 @@ public sealed class FileGatewayService : IFileGatewayService
         return server.Protocol switch
         {
             ServerProtocol.Sftp => DownloadSftpAsync(server, path, cancellationToken),
+            ServerProtocol.Local => DownloadLocalAsync(server, path, cancellationToken),
             ServerProtocol.Ftp => DownloadFtpAsync(server, path, cancellationToken),
             ServerProtocol.Smb => DownloadSmbAsync(server, path, cancellationToken),
             _ => throw new InvalidOperationException("Dieser Server ist keine Dateiverbindung.")
@@ -126,6 +130,7 @@ public sealed class FileGatewayService : IFileGatewayService
         return server.Protocol switch
         {
             ServerProtocol.Sftp => UploadSftpAsync(server, path, content, fileName, cancellationToken),
+            ServerProtocol.Local => UploadLocalAsync(server, path, content, fileName, cancellationToken),
             ServerProtocol.Ftp => UploadFtpAsync(server, path, content, fileName, cancellationToken),
             ServerProtocol.Smb => UploadSmbAsync(server, path, content, fileName, cancellationToken),
             _ => throw new InvalidOperationException("Dieser Server ist keine Dateiverbindung.")
@@ -141,6 +146,7 @@ public sealed class FileGatewayService : IFileGatewayService
         return server.Protocol switch
         {
             ServerProtocol.Sftp => CreateSftpFileAsync(server, path, fileName, cancellationToken),
+            ServerProtocol.Local => CreateLocalFileAsync(server, path, fileName, cancellationToken),
             ServerProtocol.Ftp => CreateFtpFileAsync(server, path, fileName, cancellationToken),
             ServerProtocol.Smb => CreateSmbFileAsync(server, path, fileName, cancellationToken),
             _ => throw new InvalidOperationException("Dieser Server ist keine Dateiverbindung.")
@@ -156,6 +162,7 @@ public sealed class FileGatewayService : IFileGatewayService
         return server.Protocol switch
         {
             ServerProtocol.Sftp => CreateSftpDirectoryAsync(server, path, directoryName, cancellationToken),
+            ServerProtocol.Local => CreateLocalDirectoryAsync(server, path, directoryName, cancellationToken),
             ServerProtocol.Ftp => CreateFtpDirectoryAsync(server, path, directoryName, cancellationToken),
             ServerProtocol.Smb => CreateSmbDirectoryAsync(server, path, directoryName, cancellationToken),
             _ => throw new InvalidOperationException("Dieser Server ist keine Dateiverbindung.")
@@ -167,6 +174,7 @@ public sealed class FileGatewayService : IFileGatewayService
         return server.Protocol switch
         {
             ServerProtocol.Sftp => DeleteSftpAsync(server, path, cancellationToken),
+            ServerProtocol.Local => DeleteLocalAsync(server, path, cancellationToken),
             ServerProtocol.Ftp => DeleteFtpAsync(server, path, cancellationToken),
             ServerProtocol.Smb => DeleteSmbAsync(server, path, cancellationToken),
             _ => throw new InvalidOperationException("Dieser Server ist keine Dateiverbindung.")
@@ -1067,6 +1075,194 @@ public sealed class FileGatewayService : IFileGatewayService
             var home = client.WorkingDirectory;
             return string.IsNullOrWhiteSpace(home) ? "/" : home;
         }, cancellationToken);
+    }
+
+    // --- The gateway's own file areas -------------------------------------------------------------
+    //
+    // These live on this machine rather than on a remote host, so they are plain file system calls.
+    // FileRootPath carries the area's directory; the caller has already decided that this user may
+    // see it. Everything below goes through ResolveLocalPath, which is the only thing standing
+    // between a path from the browser and the rest of the disk.
+
+    private static Task<FileGatewayListResult> ListLocalAsync(ServerEndpoint server, string? path, CancellationToken cancellationToken)
+    {
+        return Task.Run(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var virtualPath = NormalizeVirtualPath(path);
+            var directory = ResolveLocalPath(server, virtualPath);
+            Directory.CreateDirectory(directory);
+
+            var entries = new DirectoryInfo(directory)
+                .EnumerateFileSystemInfos()
+                // A link inside an area would be a way out of it - they are never created here, and
+                // one that shows up anyway is not offered.
+                .Where(entry => entry.LinkTarget is null)
+                .OrderByDescending(entry => entry is DirectoryInfo)
+                .ThenBy(entry => entry.Name, StringComparer.CurrentCultureIgnoreCase)
+                .Select(entry => new FileGatewayEntry(
+                    entry.Name,
+                    CombineVirtualPath(virtualPath, entry.Name),
+                    entry is DirectoryInfo,
+                    entry is FileInfo file ? file.Length : null,
+                    new DateTimeOffset(entry.LastWriteTimeUtc, TimeSpan.Zero)))
+                .ToList();
+
+            return new FileGatewayListResult(virtualPath, ParentVirtualPath(virtualPath), entries);
+        }, cancellationToken);
+    }
+
+    private static Task<FileGatewayFileInfo> GetLocalFileInfoAsync(ServerEndpoint server, string? path, CancellationToken cancellationToken)
+    {
+        return Task.Run(() =>
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var file = new FileInfo(ResolveLocalPath(server, path));
+            if (!file.Exists)
+            {
+                throw new InvalidOperationException("Datei nicht gefunden.");
+            }
+
+            return new FileGatewayFileInfo(file.Name, ContentTypeFromPath(file.Name), file.Length);
+        }, cancellationToken);
+    }
+
+    private static async Task CopyLocalRangeAsync(
+        ServerEndpoint server,
+        string? path,
+        Stream output,
+        long offset,
+        long length,
+        CancellationToken cancellationToken)
+    {
+        await using var source = File.OpenRead(ResolveLocalPath(server, path));
+        source.Seek(offset, SeekOrigin.Begin);
+
+        var buffer = ArrayPool<byte>.Shared.Rent(81920);
+        try
+        {
+            var remaining = length;
+            while (remaining > 0)
+            {
+                var read = await source.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, remaining)), cancellationToken);
+                if (read <= 0)
+                {
+                    break;
+                }
+
+                await output.WriteAsync(buffer.AsMemory(0, read), cancellationToken);
+                remaining -= read;
+            }
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
+    private static Task<FileGatewayDownload> DownloadLocalAsync(ServerEndpoint server, string? path, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var file = ResolveLocalPath(server, path);
+        if (!File.Exists(file))
+        {
+            throw new InvalidOperationException("Datei nicht gefunden.");
+        }
+
+        var name = Path.GetFileName(file);
+        return Task.FromResult(new FileGatewayDownload(File.OpenRead(file), name, ContentTypeFromPath(name)));
+    }
+
+    private static async Task UploadLocalAsync(
+        ServerEndpoint server,
+        string? path,
+        Stream content,
+        string fileName,
+        CancellationToken cancellationToken)
+    {
+        var directory = ResolveLocalPath(server, path);
+        Directory.CreateDirectory(directory);
+        var target = ResolveLocalPath(server, CombineVirtualPath(NormalizeVirtualPath(path), SafeFileName(fileName)));
+
+        await using var output = File.Create(target);
+        await content.CopyToAsync(output, cancellationToken);
+    }
+
+    private static Task CreateLocalFileAsync(ServerEndpoint server, string? path, string fileName, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var target = ResolveLocalPath(server, CombineVirtualPath(NormalizeVirtualPath(path), SafeFileName(fileName)));
+        if (File.Exists(target) || Directory.Exists(target))
+        {
+            throw new InvalidOperationException("Es gibt hier bereits einen Eintrag mit diesem Namen.");
+        }
+
+        File.WriteAllBytes(target, []);
+        return Task.CompletedTask;
+    }
+
+    private static Task CreateLocalDirectoryAsync(ServerEndpoint server, string? path, string directoryName, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        Directory.CreateDirectory(ResolveLocalPath(server, CombineVirtualPath(NormalizeVirtualPath(path), SafeFileName(directoryName))));
+        return Task.CompletedTask;
+    }
+
+    private static Task DeleteLocalAsync(ServerEndpoint server, string? path, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var target = ResolveLocalPath(server, path);
+        var root = Path.GetFullPath(server.FileRootPath ?? "");
+        if (string.Equals(target, root, StringComparison.Ordinal))
+        {
+            // Emptying an area is fine; removing the area itself is not.
+            throw new InvalidOperationException("Die Ablage selbst kann nicht geloescht werden.");
+        }
+
+        if (Directory.Exists(target))
+        {
+            Directory.Delete(target, recursive: true);
+        }
+        else if (File.Exists(target))
+        {
+            File.Delete(target);
+        }
+
+        return Task.CompletedTask;
+    }
+
+    // Keeps every path inside the area it belongs to. The comparison is made on the resolved path, so
+    // ".." cannot climb out of it, and a name is reduced to its last component so nothing can be
+    // smuggled in through a file name either.
+    private static string ResolveLocalPath(ServerEndpoint server, string? virtualPath)
+    {
+        if (string.IsNullOrWhiteSpace(server.FileRootPath))
+        {
+            throw new InvalidOperationException("Diese Ablage hat kein Verzeichnis.");
+        }
+
+        var root = Path.GetFullPath(server.FileRootPath).TrimEnd(Path.DirectorySeparatorChar);
+        var relative = NormalizeVirtualPath(virtualPath).Trim('/').Replace('/', Path.DirectorySeparatorChar);
+        var full = Path.GetFullPath(Path.Combine(root, relative));
+
+        if (!string.Equals(full, root, StringComparison.Ordinal)
+            && !full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Ungueltiger Pfad.");
+        }
+
+        return full;
+    }
+
+    private static string SafeFileName(string name)
+    {
+        var cleaned = Path.GetFileName((name ?? "").Trim().Replace('\\', '/'));
+        if (string.IsNullOrWhiteSpace(cleaned) || cleaned is "." or "..")
+        {
+            throw new InvalidOperationException("Ungueltiger Name.");
+        }
+
+        return cleaned;
     }
 
     private static SftpClient CreateSftpClient(ServerEndpoint server)
