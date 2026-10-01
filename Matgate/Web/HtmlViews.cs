@@ -3845,6 +3845,13 @@ public sealed class HtmlViews
                         <button id="sftp-target-close" type="button">{{T(context, "Close")}}</button>
                     </div>
                 </form>
+                <div id="file-area-dialog" class="credential-dialog file-area-dialog hidden">
+                    <div class="file-area-dialog-head">
+                        <strong id="file-area-dialog-title">{{(Language(context) == "de" ? "Dateien" : "Files")}}</strong>
+                        <button id="file-area-dialog-close" type="button" class="tab-action-button icon-only" aria-label="{{A(T(context, "Close"))}}">&times;</button>
+                    </div>
+                    <div id="file-area-dialog-body" class="file-area-dialog-body"></div>
+                </div>
                 <div id="resolution-dialog" class="credential-dialog resolution-dialog hidden">
                     <h2>{{(Language(context) == "de" ? "Aufloesung" : "Resolution")}}</h2>
                     <div id="resolution-options" class="resolution-options"></div>
@@ -3913,6 +3920,10 @@ public sealed class HtmlViews
                 const clipboardText = document.getElementById('clipboard-text');
                 const clipboardTypeButton = document.getElementById('clipboard-type');
                 const clipboardClose = document.getElementById('clipboard-close');
+                const fileAreaDialog = document.getElementById('file-area-dialog');
+                const fileAreaDialogBody = document.getElementById('file-area-dialog-body');
+                const fileAreaDialogTitle = document.getElementById('file-area-dialog-title');
+                const fileAreaDialogClose = document.getElementById('file-area-dialog-close');
                 const sftpTargetDialog = document.getElementById('sftp-target-dialog');
                 const sftpTargetPath = document.getElementById('sftp-target-path');
                 const sftpTargetArea = document.getElementById('sftp-target-area');
@@ -6326,7 +6337,7 @@ public sealed class HtmlViews
                             const areaButton = createTabActionButton(
                                 actionIcons.folder || actionIcons.upload,
                                 uiText.openFileArea || 'Files for this connection',
-                                () => openServer(tab.fileAreaId),
+                                () => openFileAreaDialog(tab.fileAreaId, uiText.openFileArea || 'Files'),
                                 '',
                                 true);
                             addTabAction('fileArea', areaButton);
@@ -7159,6 +7170,60 @@ public sealed class HtmlViews
                         try { window.focus(); } catch (e) { /* ignore */ }
                     }
                 });
+
+                // The file areas over the running session instead of next to it: the session keeps its
+                // tab either way, but this way it stays on screen behind the dialog - which is what you
+                // want while moving a file from an area into the session's drive.
+                //
+                // The manager itself is not rebuilt for this. The area opens as an ordinary tab, its
+                // panel is lifted into the dialog, and it goes back to the deck on close. The tab's
+                // button is hidden while the dialog owns it, so the strip does not grow a second entry
+                // for something that is already on screen.
+                let fileAreaReturnTabId = '';
+
+                function openFileAreaDialog(areaId, title) {
+                    const server = findServer(areaId);
+                    if (!server) {
+                        return;
+                    }
+
+                    fileAreaReturnTabId = activeTabId || '';
+                    const existing = Array.from(tabs.values()).find(entry => entry.serverId === areaId);
+                    const tab = existing || createTab(server, {});
+                    if (!tab) {
+                        return;
+                    }
+
+                    activateTab(tab.id);
+                    if (tab.tabButton) {
+                        tab.tabButton.classList.add('tab-in-dialog');
+                    }
+
+                    fileAreaDialogTitle.textContent = title || server.name || '';
+                    fileAreaDialogBody.replaceChildren(tab.panel);
+                    tab.panel.classList.remove('hidden');
+                    fileAreaDialog.dataset.tabId = tab.id;
+                    fileAreaDialog.classList.remove('hidden');
+                }
+
+                function closeFileAreaDialog() {
+                    const tab = tabs.get(fileAreaDialog.dataset.tabId || '');
+                    if (tab && tab.panel) {
+                        // Back to where every other panel lives, so the tab keeps working if it is
+                        // opened normally later.
+                        deck.appendChild(tab.panel);
+                        tab.panel.classList.add('hidden');
+                        if (tab.tabButton) {
+                            tab.tabButton.classList.remove('tab-in-dialog');
+                        }
+                    }
+
+                    fileAreaDialog.classList.add('hidden');
+                    fileAreaDialog.dataset.tabId = '';
+                    if (fileAreaReturnTabId && tabs.has(fileAreaReturnTabId)) {
+                        activateTab(fileAreaReturnTabId);
+                    }
+                }
 
                 function openServer(serverId, filePath = '', tabId = '') {
                     const server = findServer(serverId);
@@ -10449,6 +10514,7 @@ public sealed class HtmlViews
                 });
                 clipboardClose.addEventListener('click', closeClipboardDialog);
                 sftpTargetClose.addEventListener('click', closeTargetFolderDialog);
+                fileAreaDialogClose.addEventListener('click', closeFileAreaDialog);
                 sftpTargetDialog.addEventListener('submit', event => {
                     event.preventDefault();
                     if (!pendingTargetUpload) {
@@ -14906,6 +14972,36 @@ public sealed class HtmlViews
                         text-align: center;
                     }
                     .connection-dialog h1 { font-size: 28px; }
+                    /* The file areas over a running session: large enough to actually work in, but
+                       deliberately not full screen - seeing the session behind it is the point. */
+                    /* Qualified with .credential-dialog so it does not depend on which rule comes last. */
+                    .credential-dialog.file-area-dialog {
+                        display: flex;
+                        flex-direction: column;
+                        gap: 0;
+                        height: min(78vh, 760px);
+                        max-width: none;
+                        padding: 0;
+                        width: min(1040px, calc(100vw - 32px));
+                    }
+                    .file-area-dialog-head {
+                        align-items: center;
+                        border-bottom: 1px solid var(--line);
+                        display: flex;
+                        justify-content: space-between;
+                        padding: 10px 10px 10px 16px;
+                    }
+                    .file-area-dialog-body {
+                        display: flex;
+                        flex: 1 1 auto;
+                        /* The panel inside brings its own scrolling; without this it refuses to shrink
+                           and pushes the dialog open instead. */
+                        min-height: 0;
+                        overflow: hidden;
+                    }
+                    .file-area-dialog-body > .connection-panel { display: flex; flex: 1 1 auto; min-width: 0; }
+                    /* While the dialog shows an area, its tab stays out of the strip. */
+                    .tab-in-dialog { display: none; }
                     .credential-dialog {
                         background: var(--surface);
                         border: 1px solid var(--line);
