@@ -131,8 +131,19 @@ public sealed class GuacamoleLauncher
             parameters["enable-drive"] = "true";
             parameters["drive-name"] = "Matgate";
             parameters["create-drive-path"] = "true";
-            parameters["drive-path"] = _fileShares.CreateSessionView(user, server, sessionId, ephemeralServer)
-                ?? $"/tmp/matgate-drive-{sessionId}";
+            var view = _fileShares.CreateSessionView(user, server, sessionId, ephemeralServer);
+            parameters["drive-path"] = view?.Path ?? $"/tmp/matgate-drive-{sessionId}";
+
+            // guacd puts a "Download" folder of its own into every drive: anything dropped there is
+            // streamed to the browser. That is the only way out of a session when there is nothing
+            // else - but once the file areas are in the drive there is a better one, because a file
+            // moved into them is already on the gateway and needs no transfer at all. So it is turned
+            // off exactly when it has become the worse of two options, and stays when it is the only
+            // one.
+            if (view?.HasAreas == true)
+            {
+                parameters["disable-download"] = "true";
+            }
         }
         else if (server.Protocol == ServerProtocol.Vnc)
         {

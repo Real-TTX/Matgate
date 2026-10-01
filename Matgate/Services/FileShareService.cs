@@ -171,7 +171,7 @@ public sealed class FileShareService
     // Builds the directory a remote session gets as its drive: a real "Session" folder for this
     // sitting, plus one link per area the user is allowed to use. Returns the path, or null when it
     // could not be prepared - the caller then simply connects without a drive.
-    public string? CreateSessionView(MatgateUser user, ServerEndpoint server, string sessionId, bool ephemeralServer)
+    public SessionView? CreateSessionView(MatgateUser user, ServerEndpoint server, string sessionId, bool ephemeralServer)
     {
         if (!AreasAvailable)
         {
@@ -198,7 +198,7 @@ public sealed class FileShareService
             // who may quick-connect mount the shared store into a machine of their choosing.
             if (ephemeralServer)
             {
-                return view;
+                return new SessionView(view, false);
             }
 
             var permissions = user.FileShare ?? new FileSharePermissions();
@@ -218,7 +218,11 @@ public sealed class FileShareService
                 Link(view, "User", PersonalDirectory(user.Id));
             }
 
-            return view;
+            // Whether anything was actually linked decides more than the view itself: with the areas
+            // in the drive, guacd's own Download folder has a better alternative and is turned off.
+            return new SessionView(
+                view,
+                permissions.Global || permissions.Connection || permissions.Personal);
         }
         catch (Exception ex)
         {
@@ -465,3 +469,6 @@ public sealed class FileShareReaper(FileShareService fileShares) : BackgroundSer
         }
     }
 }
+
+// The directory a session is pointed at, and whether any of the gateway's own areas ended up in it.
+public sealed record SessionView(string Path, bool HasAreas);
