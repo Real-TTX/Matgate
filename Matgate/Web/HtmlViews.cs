@@ -3880,9 +3880,17 @@ public sealed class HtmlViews
                     </button>
                     <input id="send-files-input" type="file" multiple class="hidden">
                     <p id="sftp-target-files" class="muted send-files-list"></p>
-                    <label>{{(Language(context) == "de" ? "Ziel" : "Target")}}
-                        <input id="sftp-target-path" type="text" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="/home/user" required>
+                    <div class="send-files-source" id="send-target-switch">
+                        <button type="button" data-send-target="session" class="active">{{Icon("monitor")}}{{(Language(context) == "de" ? "In die Sitzung" : "Into the session")}}</button>
+                        <button type="button" data-send-target="place">{{Icon("folder")}}{{(Language(context) == "de" ? "In eine Ablage" : "Into an area")}}</button>
+                    </div>
+                    <label id="send-target-session">{{(Language(context) == "de" ? "Ziel in der Sitzung" : "Target in the session")}}
+                        <input id="sftp-target-path" type="text" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="/home/user">
                         <select id="sftp-target-area" class="hidden"></select>
+                    </label>
+                    <label id="send-target-place" class="hidden">{{(Language(context) == "de" ? "Ziel-Ablage" : "Target area")}}
+                        <select id="send-target-place-select"></select>
+                        <input id="send-target-place-path" type="text" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="/" value="/">
                     </label>
                     <div class="actions">
                         <button type="submit" class="primary">{{Icon("save")}}{{(Language(context) == "de" ? "Senden" : "Send")}}</button>
@@ -3981,6 +3989,10 @@ public sealed class HtmlViews
                 const sendFilesPlaceSelect = document.getElementById('send-files-place-select');
                 const sendFilesPlacePath = document.getElementById('send-files-place-path');
                 const sendFilesPlaceList = document.getElementById('send-files-place-list');
+                const sendTargetSession = document.getElementById('send-target-session');
+                const sendTargetPlace = document.getElementById('send-target-place');
+                const sendTargetPlaceSelect = document.getElementById('send-target-place-select');
+                const sendTargetPlacePath = document.getElementById('send-target-place-path');
                 const sftpTargetFiles = document.getElementById('sftp-target-files');
                 const sftpTargetClose = document.getElementById('sftp-target-close');
                 const statusResolution = document.getElementById('status-resolution');
@@ -10353,6 +10365,63 @@ public sealed class HtmlViews
                     }
                 }
 
+                // The target is a place like any other: the session is simply the one a connection
+                // happens to offer. Choosing an area instead makes copying between two places the same
+                // operation as sending into a session - there is no second mechanism for it.
+                let sendTargetMode = 'session';
+
+                function showSendTarget(mode) {
+                    sendTargetMode = mode;
+                    const place = mode === 'place';
+                    sendTargetPlace.classList.toggle('hidden', !place);
+                    sendTargetSession.classList.toggle('hidden', place);
+                    document.querySelectorAll('[data-send-target]').forEach(button => {
+                        button.classList.toggle('active', button.dataset.sendTarget === mode);
+                    });
+
+                    if (place && !sendTargetPlaceSelect.options.length) {
+                        availableServers
+                            .filter(server => ['LOCAL', 'SFTP', 'FTP', 'SMB'].includes((server.protocol || '').toUpperCase()))
+                            .forEach(server => {
+                                const option = document.createElement('option');
+                                option.value = server.id;
+                                option.textContent = server.name;
+                                sendTargetPlaceSelect.appendChild(option);
+                            });
+                    }
+                }
+
+                // Hands the files to a place through the file API, one request per file so a single
+                // failure is reported for that file instead of losing the batch.
+                async function sendFilesToPlace(placeId, path, files) {
+                    let sent = 0;
+                    for (const file of files) {
+                        const body = new FormData();
+                        body.append('file', file, file.name);
+                        body.append('path', path || '/');
+                        try {
+                            const response = await fetch(`/api/files/${placeId}/upload`, {
+                                method: 'POST',
+                                body,
+                                headers: { 'X-Matgate-Csrf': csrfToken },
+                            });
+                            if (response.ok) {
+                                sent++;
+                            }
+                        }
+                        catch (e) {
+                            // Counted as not sent; the summary below says how many made it.
+                        }
+                    }
+
+                    const active = tabs.get(activeTabId);
+                    if (active) {
+                        flashStatus(active, sent === files.length
+                            ? `${uiText.xferUploaded || 'Uploaded'}: ${sent}`
+                            : `${uiText.xferUploadFailed || 'Upload failed'}: ${files.length - sent}/${files.length}`);
+                    }
+                }
+
                 function loadSendPlace(path) {
                     const id = sendFilesPlaceSelect.value;
                     if (!id) {
@@ -10433,6 +10502,9 @@ public sealed class HtmlViews
                     pendingTargetUpload = { tab, files: Array.from(files || []) };
                     sendPlacePicked = [];
                     showSendSource("local");
+                    // A session can only be the target when it actually has a file channel.
+                    showSendTarget(tab && tab.filesystem ? "session" : "place");
+                    document.querySelector("[data-send-target=\"session\"]").classList.toggle("hidden", !(tab && tab.filesystem));
                     renderPendingFiles();
 
                     if (usesAreaPicker(tab)) {
@@ -10736,6 +10808,8 @@ public sealed class HtmlViews
                 // The drop area is both: a button that opens the picker, and a target for dragging.
                 document.querySelectorAll("[data-send-source]").forEach(button =>
                     button.addEventListener("click", () => showSendSource(button.dataset.sendSource)));
+                document.querySelectorAll("[data-send-target]").forEach(button =>
+                    button.addEventListener("click", () => showSendTarget(button.dataset.sendTarget)));
                 sendFilesPlaceSelect.addEventListener("change", () => { sendPlacePicked = []; renderPendingFiles(); loadSendPlace("/"); });
                 sendFilesDrop.addEventListener('click', () => sendFilesInput.click());
                 sendFilesInput.addEventListener('change', () => {
@@ -10799,15 +10873,23 @@ public sealed class HtmlViews
 
                     const picked = sendPlacePicked.slice();
                     const folder = tab.targetFolder;
+                    const toPlace = sendTargetMode === 'place';
+                    const placeId = sendTargetPlaceSelect.value;
+                    const placePath = sendTargetPlacePath.value.trim() || '/';
                     closeTargetFolderDialog();
 
+                    const deliver = all => (toPlace
+                        ? sendFilesToPlace(placeId, placePath, all)
+                        : sendFilesToSession(tab, all, folder));
+
                     if (!picked.length) {
-                        sendFilesToSession(tab, files, folder);
+                        deliver(files);
                         return;
                     }
 
                     // Files that already live somewhere Matgate can reach are fetched first and then
-                    // join the ones from this computer - from there on it is one and the same transfer.
+                    // join the ones from this computer - from there on it is one and the same transfer,
+                    // whichever end it is going to.
                     (async () => {
                         const fetched = [];
                         for (const item of picked) {
@@ -10825,7 +10907,7 @@ public sealed class HtmlViews
                             }
                         }
 
-                        sendFilesToSession(tab, files.concat(fetched), folder);
+                        deliver(files.concat(fetched));
                     })();
                 });
                 if (resolutionClose) {
