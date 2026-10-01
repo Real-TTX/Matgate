@@ -7235,15 +7235,24 @@ public sealed class HtmlViews
                         return;
                     }
 
-                    activateTab(tab.id);
+                    // createTab() activates what it creates. Hand control straight back to the session:
+                    // its panel is behind the dialog and its tab stays the active one in the strip -
+                    // otherwise the active tab is the hidden one and the strip looks like nothing is
+                    // selected at all.
+                    if (fileAreaReturnTabId && tabs.has(fileAreaReturnTabId)) {
+                        activateTab(fileAreaReturnTabId);
+                    }
+
                     if (tab.tabButton) {
                         tab.tabButton.classList.add('tab-in-dialog');
                     }
 
                     fileAreaDialogTitle.textContent = title || server.name || '';
                     fileAreaDialogBody.replaceChildren(tab.panel);
+                    // After activateTab, which hides every panel that is not the active one.
                     tab.panel.classList.remove('hidden');
                     fileAreaDialog.dataset.tabId = tab.id;
+                    fileAreaDialog.dataset.createdHere = existing ? '' : '1';
                     fileAreaDialog.classList.remove('hidden');
                 }
 
@@ -7291,6 +7300,12 @@ public sealed class HtmlViews
 
                 function closeFileAreaDialog() {
                     const tab = tabs.get(fileAreaDialog.dataset.tabId || '');
+                    const createdHere = fileAreaDialog.dataset.createdHere === '1';
+
+                    fileAreaDialog.classList.add('hidden');
+                    fileAreaDialog.dataset.tabId = '';
+                    fileAreaDialog.dataset.createdHere = '';
+
                     if (tab && tab.panel) {
                         // Back to where every other panel lives, so the tab keeps working if it is
                         // opened normally later.
@@ -7299,10 +7314,14 @@ public sealed class HtmlViews
                         if (tab.tabButton) {
                             tab.tabButton.classList.remove('tab-in-dialog');
                         }
+
+                        // A tab that only existed to fill this dialog goes with it - otherwise closing
+                        // the dialog would leave a tab behind that the user never asked for.
+                        if (createdHere) {
+                            closeTab(tab.id);
+                        }
                     }
 
-                    fileAreaDialog.classList.add('hidden');
-                    fileAreaDialog.dataset.tabId = '';
                     if (fileAreaReturnTabId && tabs.has(fileAreaReturnTabId)) {
                         activateTab(fileAreaReturnTabId);
                     }
@@ -10599,6 +10618,24 @@ public sealed class HtmlViews
                 sftpTargetClose.addEventListener('click', closeTargetFolderDialog);
                 fileAreaDialogClose.addEventListener('click', closeFileAreaDialog);
                 fileAreaDialogSend.addEventListener('click', sendSelectionIntoSession);
+                // The X alone is not enough of a way out: Escape and a tap beside the dialog are what
+                // people reach for first, and without them it feels stuck.
+                document.addEventListener('keydown', event => {
+                    if (event.key === 'Escape' && !fileAreaDialog.classList.contains('hidden')) {
+                        closeFileAreaDialog();
+                    }
+                });
+                document.addEventListener('pointerdown', event => {
+                    if (fileAreaDialog.classList.contains('hidden')) {
+                        return;
+                    }
+
+                    // Only a press that lands outside the dialog itself closes it - the file manager
+                    // inside has plenty of its own menus and must not trip this.
+                    if (event.target instanceof Element && !fileAreaDialog.contains(event.target)) {
+                        closeFileAreaDialog();
+                    }
+                }, true);
                 sftpTargetDialog.addEventListener('submit', event => {
                     event.preventDefault();
                     if (!pendingTargetUpload) {
