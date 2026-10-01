@@ -1901,74 +1901,6 @@ public sealed class HtmlViews
                     </div>
                     <p class="about-copyright muted">&copy; {{copyrightYear}} Matthias Schmoldt</p>
                 </section>
-                <section class="panel about-card">
-                    <h2>{{(Language(context) == "de" ? "Anzeige-Diagnose" : "Display diagnostics")}}</h2>
-                    <p class="muted">{{(Language(context) == "de" ? "Hilft bei Layout-Problemen (Screenshot davon genügt)." : "Helps debug layout issues (a screenshot of this is enough).")}}</p>
-                    <pre id="display-diagnostics" class="about-diagnostics">…</pre>
-                </section>
-                <script>
-                    (() => {
-                        const out = document.getElementById('display-diagnostics');
-                        if (!out) {
-                            return;
-                        }
-                        const probe = document.createElement('div');
-                        probe.style.cssText = 'position:fixed;left:0;right:0;bottom:0;height:0;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom);visibility:hidden;pointer-events:none';
-                        document.body.appendChild(probe);
-                        const render = () => {
-                            const cs = getComputedStyle(probe);
-                            const vv = window.visualViewport;
-                            const lines = [];
-                            // The numbers that matter for the app frame are the TOP window's (this page
-                            // usually runs inside the shell's tab iframe). Show them FIRST - iOS can make
-                            // scrolling to the bottom of this box impossible. Same-origin, so readable.
-                            try {
-                                if (window.top && window.top !== window) {
-                                    const tw = window.top;
-                                    const tvv = tw.visualViewport;
-                                    const tbody = tw.document.body.getBoundingClientRect();
-                                    const tprobe = tw.document.createElement('div');
-                                    tprobe.style.cssText = 'position:fixed;left:0;right:0;bottom:0;height:0;padding-top:env(safe-area-inset-top);padding-bottom:env(safe-area-inset-bottom);visibility:hidden;pointer-events:none';
-                                    tw.document.body.appendChild(tprobe);
-                                    const tcs = tw.getComputedStyle(tprobe);
-                                    const tstatus = tw.document.querySelector('.session-statusbar');
-                                    const tsRect = tstatus ? tstatus.getBoundingClientRect() : null;
-                                    lines.push(
-                                        '--- APP-FENSTER (wichtig) ---',
-                                        'TOP inner W x H          : ' + tw.innerWidth + ' x ' + tw.innerHeight,
-                                        'TOP screen - innerHeight : ' + (tw.screen.height - tw.innerHeight) + 'px',
-                                        'TOP statusbar bottom     : ' + (tsRect ? (Math.round(tsRect.bottom) + ' (innerH - bottom = ' + Math.round(tw.innerHeight - tsRect.bottom) + ')') : 'n/a'),
-                                        'TOP visualViewport       : ' + (tvv ? (Math.round(tvv.width) + ' x ' + Math.round(tvv.height) + ' (offsetTop ' + Math.round(tvv.offsetTop) + ', scale ' + tvv.scale.toFixed(2) + ')') : 'n/a'),
-                                        'TOP body rect            : ' + Math.round(tbody.width) + ' x ' + Math.round(tbody.height) + ' (top ' + Math.round(tbody.top) + ')',
-                                        'TOP safe-area top/bottom : ' + tcs.paddingTop + ' / ' + tcs.paddingBottom,
-                                        'TOP scrollY              : ' + Math.round(tw.scrollY),
-                                        '--- diese Seite (iframe) ---'
-                                    );
-                                    tprobe.remove();
-                                }
-                            }
-                            catch (e) {
-                                lines.push('TOP window               : not accessible');
-                            }
-                            lines.push(
-                                'innerWidth x innerHeight : ' + window.innerWidth + ' x ' + window.innerHeight,
-                                'visualViewport           : ' + (vv ? (Math.round(vv.width) + ' x ' + Math.round(vv.height) + ' (offsetTop ' + Math.round(vv.offsetTop) + ')') : 'n/a'),
-                                'screen                   : ' + screen.width + ' x ' + screen.height,
-                                'devicePixelRatio         : ' + window.devicePixelRatio,
-                                'safe-area top / bottom   : ' + cs.paddingTop + ' / ' + cs.paddingBottom,
-                                'standalone (PWA)         : ' + (window.navigator.standalone === true || window.matchMedia('(display-mode: standalone)').matches || window.matchMedia('(display-mode: fullscreen)').matches),
-                                'display-mode             : ' + (['fullscreen', 'standalone', 'minimal-ui', 'browser'].find(mode => window.matchMedia('(display-mode: ' + mode + ')').matches) || '?'),
-                                'embedded (iframe)        : ' + (window.self !== window.top)
-                            );
-                            out.textContent = lines.join('\n');
-                        };
-                        render();
-                        window.addEventListener('resize', render, { passive: true });
-                        if (window.visualViewport) {
-                            window.visualViewport.addEventListener('resize', render, { passive: true });
-                        }
-                    })();
-                </script>
             </section>
             """;
     }
@@ -3792,6 +3724,7 @@ public sealed class HtmlViews
             fileListUpdated = Language(context) == "de" ? "Dateiliste aktualisiert." : "File list updated.",
             fileAccessFailed = Language(context) == "de" ? "Dateizugriff fehlgeschlagen" : "File access failed",
             uploadQueue = T(context, "Upload queue"),
+            places = Language(context) == "de" ? "Ablagen" : "Places",
             dropFilesHere = T(context, "Drop files here to upload"),
             currentFolder = T(context, "Current folder"),
             clearFinished = T(context, "Clear finished"),
@@ -3928,7 +3861,7 @@ public sealed class HtmlViews
                 </form>
                 <div id="file-area-dialog" class="credential-dialog file-area-dialog hidden">
                     <div class="file-area-dialog-head">
-                        <select id="file-area-dialog-select" class="file-area-dialog-select"></select>
+                        <strong id="file-area-dialog-title" class="file-area-dialog-title"></strong>
                         <span class="file-area-dialog-actions">
                             <button id="file-area-dialog-send" type="button" class="button primary">{{Icon("upload")}}{{(Language(context) == "de" ? "In die Sitzung" : "Into the session")}}</button>
                             <button id="file-area-dialog-close" type="button" class="tab-action-button icon-only" aria-label="{{A(T(context, "Close"))}}">&times;</button>
@@ -4006,7 +3939,7 @@ public sealed class HtmlViews
                 const clipboardClose = document.getElementById('clipboard-close');
                 const fileAreaDialog = document.getElementById('file-area-dialog');
                 const fileAreaDialogBody = document.getElementById('file-area-dialog-body');
-                const fileAreaDialogSelect = document.getElementById('file-area-dialog-select');
+                const fileAreaDialogTitle = document.getElementById('file-area-dialog-title');
                 const fileAreaDialogClose = document.getElementById('file-area-dialog-close');
                 const fileAreaDialogSend = document.getElementById('file-area-dialog-send');
                 const sftpTargetDialog = document.getElementById('sftp-target-dialog');
@@ -7332,15 +7265,8 @@ public sealed class HtmlViews
                         return;
                     }
 
-                    fileAreaDialogSelect.replaceChildren();
-                    choices.forEach(server => {
-                        const option = document.createElement('option');
-                        option.value = server.id;
-                        option.textContent = server.name;
-                        fileAreaDialogSelect.appendChild(option);
-                    });
-
-                    fileAreaDialogSelect.value = choices[0].id;
+                    // Gewechselt wird in der Ablagenleiste des Managers selbst - hier steht nur noch,
+                    // wo man gerade ist.
                     showFileArea(choices[0].id);
                     fileAreaDialog.classList.remove('hidden');
                 }
@@ -7351,6 +7277,7 @@ public sealed class HtmlViews
                         return;
                     }
 
+                    fileAreaDialogTitle.textContent = server.name;
                     fileAreaHost = buildFileAreaHost(server);
                     fileAreaDialogBody.replaceChildren(fileAreaHost.panel);
                     startFileTab(fileAreaHost);
@@ -8643,9 +8570,20 @@ public sealed class HtmlViews
                     setStatus(tab, ui('loading'));
                     setOverlay(tab, ui('fileManagerOpening'), `${tab.name} ${uiText.isLoading || 'is loading'}.`, false);
 
+                    // Die uebrigen Ablagen, sichtbar statt versteckt: in einem Tab gab es bisher gar
+                    // keinen Weg zu ihnen, im Dialog nur ein Auswahlfeld, das niemand als "die anderen
+                    // Ordner" liest. Nur fuer die Ablagen des Gateways - eine entfernte Verbindung ist
+                    // kein Ort, von dem aus man dorthin springt.
+                    const placeList = (tab.protocol || '').toUpperCase() === 'LOCAL' ? fileAreaChoices('') : [];
+                    const placesRow = placeList.length > 1 ? `
+                        <div class="file-places" role="group" aria-label="${escapeHtml(ui('places'))}">
+                            ${placeList.map(place => `<button type="button" class="file-place${place.id === tab.serverId ? ' active' : ''}" data-file-place="${escapeHtml(place.id)}" title="${escapeHtml(place.name)}">${fileIcon('folder')}<span>${escapeHtml(place.name)}</span></button>`).join('')}
+                        </div>` : '';
+
                     const manager = document.createElement('div');
                     manager.className = 'file-manager';
                     manager.innerHTML = `
+                        ${placesRow}
                         ${Toolbar('file-toolbar',
                             ToolbarGroup('file-toolbar-main toolbar-group--grow',
                                 ToolbarIconButton(ui('refresh'), fileIcon('refresh'), 'file-tool-button', Attr('data-file-action', 'refresh') + Attr('title', ui('refresh'))),
@@ -8726,6 +8664,23 @@ public sealed class HtmlViews
                     tab.uploadQueueRefreshPath = '';
                     tab.uploadDragDepth = 0;
 
+                    manager.querySelectorAll('[data-file-place]').forEach(button => {
+                        button.addEventListener('click', () => {
+                            const placeId = button.getAttribute('data-file-place') || '';
+                            if (!placeId || placeId === tab.serverId) {
+                                return;
+                            }
+
+                            // Der Dialog bleibt stehen und tauscht seinen Inhalt; ein Tab gehoert zu
+                            // genau einer Verbindung, also bekommt der andere Ort seinen eigenen.
+                            if (tab.id === 'file-area-dialog') {
+                                showFileArea(placeId);
+                            }
+                            else {
+                                openServer(placeId);
+                            }
+                        });
+                    });
                     manager.querySelector('[data-file-action="refresh"]').addEventListener('click', () => {
                         loadFilePath(tab, tab.filePath || '/');
                     });
@@ -10886,7 +10841,6 @@ public sealed class HtmlViews
                 });
                 fileAreaDialogClose.addEventListener('click', closeFileAreaDialog);
                 fileAreaDialogSend.addEventListener('click', sendSelectionIntoSession);
-                fileAreaDialogSelect.addEventListener('change', () => showFileArea(fileAreaDialogSelect.value));
                 // The X alone is not enough of a way out: Escape and a tap beside the dialog are what
                 // people reach for first, and without them it feels stuck.
                 document.addEventListener('keydown', event => {
@@ -12866,11 +12820,33 @@ public sealed class HtmlViews
                     .mobile-tab-item { align-items: center; display: flex; gap: 4px; }
                     .mobile-tab-item-main { flex: 1 1 auto; }
                     .mobile-tab-item.active .mobile-tab-item-main {
-                        border-color: var(--accent);
                         color: var(--accent);
                         font-weight: 700;
                     }
                     .mobile-tab-item-close { flex: 0 0 auto; font-size: 17px; }
+                    /* Ein Rahmen pro Flaeche. Ein Panel, ein Menue, ein Blatt bringt seinen eigenen
+                       Rahmen mit - die Knoepfe darin brauchen keinen zweiten. Genau das war auf dem
+                       Telefon zu sehen: zwei Linien im Abstand von einem Pixel, die aussehen wie ein
+                       Fehler und auf schmalem Schirm Platz kosten. Welcher Eintrag gemeint ist, sagt
+                       jetzt die Flaeche, nicht eine weitere Linie. */
+                    .menu-panel .shell-menu-item,
+                    .menu-panel .button,
+                    .tab-action-overflow-panel .tab-action-button,
+                    .mobile-tab-menu-panel .tab-action-button,
+                    .mobile-tab-item > .tab-action-button {
+                        background: none;
+                        border: 0;
+                    }
+                    .menu-panel .shell-menu-item:hover,
+                    .menu-panel .shell-menu-item:focus-visible,
+                    .tab-action-overflow-panel .tab-action-button:hover,
+                    .tab-action-overflow-panel .tab-action-button:focus-visible,
+                    .mobile-tab-menu-panel .tab-action-button:hover,
+                    .mobile-tab-menu-panel .tab-action-button:focus-visible {
+                        background: var(--hover-bg);
+                        border: 0;
+                    }
+                    .mobile-tab-item.active { background: var(--surface-2); }
                     .session-tab {
                         align-items: stretch;
                         background: var(--surface-3);
@@ -13090,7 +13066,13 @@ public sealed class HtmlViews
                         flex-direction: row;
                         flex-wrap: nowrap;
                         gap: 6px;
-                        min-height: 40px;
+                        /* One height, whatever is open. The row used to take its height from its
+                           tallest child: with a session that is #connection-tab-actions (40px buttons
+                           plus 2x5px of its own padding = 50), and on the New-Tab page that element is
+                           empty and removed, so the bar fell back to 40 and visibly jumped by ten
+                           pixels. In the compact view this bar IS the interface - it has to stand
+                           still. */
+                        min-height: 50px;
                         padding: env(safe-area-inset-top) calc(8px + env(safe-area-inset-right)) 0 calc(8px + env(safe-area-inset-left));
                     }
                     html[data-view-mode="minimal"] .brand {
@@ -13137,6 +13119,9 @@ public sealed class HtmlViews
                         border-top: 0;
                         flex-wrap: nowrap;
                         margin-left: 0;
+                        /* Its own 5px top/bottom were what made the bar taller in a session than on
+                           the New-Tab page. The bar sets the height now; the buttons fill it. */
+                        padding-block: 0;
                         width: auto;
                     }
                     html[data-view-mode="minimal"] #connection-tab-actions > * {
@@ -14740,6 +14725,44 @@ public sealed class HtmlViews
                         height: 100%;
                         padding: 0;
                     }
+                    /* Die Ablagen des Gateways als Leiste ueber der Liste. Die Knoepfe tragen keinen
+                       eigenen Rahmen - sie sitzen bereits in einem umrandeten Panel, und Rahmen auf
+                       Rahmen ist genau das, was auf einem schmalen Schirm bricht. Der aktive Ort wird
+                       durch Flaeche kenntlich gemacht, nicht durch eine zusaetzliche Linie. */
+                    .file-places {
+                        border-bottom: 1px solid var(--line);
+                        display: flex;
+                        gap: 4px;
+                        overflow-x: auto;
+                        padding: 6px 8px;
+                        scrollbar-width: none;
+                    }
+                    .file-places::-webkit-scrollbar { display: none; }
+                    .file-place {
+                        align-items: center;
+                        background: none;
+                        border: 0;
+                        border-radius: var(--radius);
+                        color: var(--muted);
+                        cursor: pointer;
+                        display: inline-flex;
+                        flex: 0 0 auto;
+                        font: inherit;
+                        gap: 6px;
+                        min-height: 34px;
+                        padding: 0 10px;
+                        white-space: nowrap;
+                    }
+                    .file-place:hover,
+                    .file-place:focus-visible {
+                        background: var(--hover-bg);
+                        color: var(--text);
+                    }
+                    .file-place.active {
+                        background: var(--surface-2);
+                        color: var(--text);
+                        font-weight: 600;
+                    }
                     .file-upload-queue-toggle {
                         position: relative;
                     }
@@ -15320,18 +15343,6 @@ public sealed class HtmlViews
                     .about-head {
                         margin-bottom: 0;
                     }
-                    .about-diagnostics {
-                        background: var(--surface-2);
-                        border: 1px solid var(--line);
-                        border-radius: var(--radius);
-                        font-family: Consolas, ui-monospace, monospace;
-                        font-size: 12px;
-                        line-height: 1.6;
-                        margin: 0;
-                        overflow-x: auto;
-                        padding: 10px 12px;
-                        white-space: pre;
-                    }
                     .about-copy {
                         display: flex;
                         flex-direction: column;
@@ -15499,7 +15510,7 @@ public sealed class HtmlViews
                         width: min(1040px, calc(100vw - 32px));
                     }
                     .file-area-dialog-actions { align-items: center; display: flex; gap: 8px; }
-                    .file-area-dialog-select { flex: 1 1 auto; max-width: 320px; min-width: 0; }
+                    .file-area-dialog-title { flex: 1 1 auto; font-size: 15px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
                     .file-area-host { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; min-width: 0; position: relative; }
                     .file-area-dialog-head {
                         align-items: center;
