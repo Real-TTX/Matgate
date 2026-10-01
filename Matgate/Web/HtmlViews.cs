@@ -11734,7 +11734,6 @@ public sealed class HtmlViews
                     nav { display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; overflow: visible; min-width: 0; }
                     .shell-tabs {
                         flex: 1 1 auto;
-                        min-width: 0;
                         justify-content: flex-end;
                         scrollbar-width: thin;
                         width: max-content;
@@ -11812,10 +11811,6 @@ public sealed class HtmlViews
                         margin-left: 2px;
                     }
                     .shell-burger-sheet-head { display: none; }
-                    .shell-menu-panel {
-                        min-width: 180px;
-                        z-index: 60;
-                    }
                     .shell-menu-item {
                         align-items: center;
                         color: var(--text);
@@ -11844,7 +11839,6 @@ public sealed class HtmlViews
                     .shell-menu-panel .shell-menu-item:focus-visible {
                         background: var(--hover-bg);
                     }
-                    .account-menu-panel { min-width: 224px; }
                     .account-menu-head {
                         align-items: center;
                         border-bottom: 1px solid var(--line);
@@ -12627,24 +12621,6 @@ public sealed class HtmlViews
                     .tab-action-button.active {
                         color: var(--accent);
                     }
-                    .tab-action-select {
-                        appearance: none;
-                        background: transparent;
-                        border: 1px solid var(--line);
-                        border-radius: var(--radius);
-                        color: var(--text);
-                        cursor: pointer;
-                        flex: 0 0 auto;
-                        font: inherit;
-                        font-size: 12px;
-                        min-height: 28px;
-                        padding: 2px 8px;
-                    }
-                    .tab-action-select:hover,
-                    .tab-action-select:focus-visible {
-                        border-color: var(--accent);
-                        color: var(--accent);
-                    }
                     .resolution-options {
                         display: grid;
                         gap: 8px;
@@ -12784,10 +12760,17 @@ public sealed class HtmlViews
                         z-index: 60;
                     }
                     .tab-action-menu-item {
+                        border: 0;
                         gap: 10px;
                         justify-content: flex-start;
                         min-height: 42px;
                         width: 100%;
+                    }
+                    /* :active statt :hover - dieses Menue gibt es nur auf Beruehrung, und dort
+                       bliebe ein Zeigen-Zustand auf der zuletzt getippten Zeile kleben. */
+                    .tab-action-menu-item:active,
+                    .tab-action-menu-item:focus-visible {
+                        background: var(--hover-bg);
                     }
                     .tab-action-menu-item span {
                         display: inline;
@@ -13070,9 +13053,9 @@ public sealed class HtmlViews
                            tallest child: with a session that is #connection-tab-actions (40px buttons
                            plus 2x5px of its own padding = 50), and on the New-Tab page that element is
                            empty and removed, so the bar fell back to 40 and visibly jumped by ten
-                           pixels. In the compact view this bar IS the interface - it has to stand
-                           still. */
-                        min-height: 50px;
+                           pixels. Equal height comes from padding-block: 0 below; the phone block
+                           raises the floor to a thumb-sized 50. */
+                        min-height: 40px;
                         padding: env(safe-area-inset-top) calc(8px + env(safe-area-inset-right)) 0 calc(8px + env(safe-area-inset-left));
                     }
                     html[data-view-mode="minimal"] .brand {
@@ -14280,7 +14263,7 @@ public sealed class HtmlViews
                     .connection-choice-copy .target {
                         margin: 0;
                     }
-                    .connection-choice-notes {
+                    .connection-choice .connection-choice-notes {
                         margin: 0;
                     }
                     .favorite-toggle-form {
@@ -14578,8 +14561,6 @@ public sealed class HtmlViews
                     .toolbar-button:focus-visible,
                     .toolbar-menu-trigger:hover,
                     .toolbar-menu-trigger:focus-visible,
-                    .toolbar-upload-button:hover,
-                    .toolbar-upload-button:focus-visible,
                     .website-tool-button:hover,
                     .website-tool-button:focus-visible,
                     .file-tool-button:hover,
@@ -14662,6 +14643,10 @@ public sealed class HtmlViews
                     .toolbar-menu-item,
                     .file-menu-item {
                         align-items: center;
+                        /* Das Menue ist die umrandete Flaeche; seine Eintraege brauchen keinen
+                           eigenen Rahmen. Die Rueckmeldung beim Zeigen bleibt, die kommt ueber
+                           die Flaeche. */
+                        border: 0;
                         justify-content: flex-start;
                         width: 100%;
                     }
@@ -15506,9 +15491,15 @@ public sealed class HtmlViews
                         gap: 0;
                         height: min(78vh, 760px);
                         max-width: none;
+                        /* padding: 0 und ein deckend gefuelltes Kind - ohne dies malt das Panel
+                           ueber die abgerundeten Ecken des Rahmens. */
+                        overflow: hidden;
                         padding: 0;
                         width: min(1040px, calc(100vw - 32px));
                     }
+                    /* display steht hier, also kann .hidden es nicht zuruecknehmen - sonst bleibt
+                       der geschlossene Dialog mit allen Knoepfen im Tabulator stehen. */
+                    .credential-dialog.file-area-dialog.hidden { display: none; }
                     .file-area-dialog-actions { align-items: center; display: flex; gap: 8px; }
                     .file-area-dialog-title { flex: 1 1 auto; font-size: 15px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
                     .file-area-host { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; min-width: 0; position: relative; }
@@ -15575,8 +15566,6 @@ public sealed class HtmlViews
                         .shell-tabs > * { width: auto; }
                         .shell-actions { margin-left: 0; width: 100%; }
                         .shell-action { justify-content: center; width: 100%; }
-                        .shell-menu { width: 100%; }
-                        .shell-menu-panel { width: 100%; }
                         .shell-page-row {
                             align-items: stretch;
                             flex-direction: column;
@@ -15608,8 +15597,7 @@ public sealed class HtmlViews
                         #connection-tab-actions::-webkit-scrollbar-thumb { background: var(--line); border-radius: 999px; }
                         /* No own border-bottom on the tab strip: the row already draws one - two lines
                            stacked looked like a strange double strip when the actions bar is empty. */
-                        #connection-tab-actions .tab-action-button,
-                        #connection-tab-actions .tab-action-select {
+                        #connection-tab-actions .tab-action-button {
                             min-height: 40px;
                         }
                         #connection-tab-actions .tab-action-button.icon-only {
@@ -15667,14 +15655,100 @@ public sealed class HtmlViews
                         .server-form-actions > * { flex: 1; justify-content: center; }
                         .server-delete-form { width: 100%; }
                         .server-delete-form button { width: 100%; }
-                        .file-toolbar-group { flex: 1 1 100%; }
-                        .file-toolbar-group > * { flex: 1 1 calc(50% - 8px); justify-content: center; }
-                        .file-path-input { flex-basis: 100%; }
-                        .file-upload-button { width: 100%; }
-                        .file-menu { width: 100%; }
-                        .file-menu > summary { justify-content: center; width: 100%; }
-                        .file-menu-panel { position: static; width: 100%; }
-                        .file-row-actions { flex-wrap: wrap; }
+                        /* Die Werkzeugleiste des Dateimanagers stand auf dem Telefon in sechs Zeilen:
+                           jede Gruppe auf volle Breite, jeder Knopf mit eigenem Rahmen - zusammen die
+                           halbe Bildschirmhoehe, bevor die erste Datei zu sehen war. Jetzt eine Zeile:
+                           Aktualisieren, der Pfad nimmt den Rest, die uebrigen als Symbole. Ihre
+                           Beschriftung steht in dem Menue, das sie oeffnen. */
+                        .file-toolbar { flex-wrap: nowrap; gap: 4px; padding: 4px 6px; }
+                        /* .toolbar-group, nicht .file-toolbar-group: die Gruppen tragen nur die
+                           allgemeine Klasse, weshalb die frueheren Mobilregeln hier wirkungslos
+                           waren und die Leiste trotzdem umbrach. */
+                        .file-toolbar .toolbar-group { flex: 0 0 auto; flex-wrap: nowrap; gap: 4px; min-width: 0; }
+                        /* .file-toolbar button ist (0,1,1) und schlug die allgemeine 40px-Regel,
+                           <summary> und das Hochladen-<label> sind gar keine Knoepfe. */
+                        .file-toolbar button,
+                        .file-toolbar .file-menu > summary,
+                        .file-toolbar .file-upload-button { min-height: 40px; }
+                        .file-toolbar .file-toolbar-transfer { flex: 0 0 auto; }
+                        .file-toolbar .file-toolbar-main { flex: 1 1 auto; min-width: 0; }
+                        .file-path-input { flex: 1 1 auto; min-width: 0; }
+                        .file-menu { width: auto; }
+                        .file-menu > summary { justify-content: center; width: auto; }
+                        .file-menu-trigger > span:not(.menu-caret) { display: none; }
+                        .file-upload-button { width: auto; }
+                        .file-upload-button > span { display: none; }
+                        .file-tool-button,
+                        .file-upload-button { min-width: 40px; padding: 0 9px; }
+                        /* Wie im Burger-Blatt: das X traegt keinen Kasten. */
+                        .mobile-tab-sheet .mobile-tab-sheet-close {
+                            background: none;
+                            border: 0;
+                            color: inherit;
+                            font-size: 22px;
+                            min-height: 44px;
+                            min-width: 44px;
+                            width: auto;
+                        }
+                        /* Ein Rahmen pro Gruppe: im Dialog ist der Dialog der Rahmen, im
+                           Sitzungs-Panel der Schirm - die Liste braucht keinen zweiten. */
+                        .file-display .file-table-wrap {
+                            border: 0;
+                            border-radius: 0;
+                            margin: 0;
+                        }
+                        .file-display .file-message {
+                            border-left: 0;
+                            border-radius: 0;
+                            border-right: 0;
+                            border-top: 0;
+                            margin: 0;
+                        }
+                        /* Die Warteschlange ist eine Zeile des Managers, kein Kaertchen darin. */
+                        .file-upload-queue-shell {
+                            border: 0;
+                            border-bottom: 1px solid var(--line);
+                            border-radius: 0;
+                            margin: 0;
+                            padding: 8px;
+                        }
+                        /* Auf einem Telefon passen zwei beschriftete Knoepfe nebeneinander, drei
+                           nicht - also umbrechen, statt die Woerter zu brechen. */
+                        .credential-dialog .actions { flex-wrap: wrap; }
+                        .credential-dialog .actions > * { flex: 1 1 auto; justify-content: center; }
+                        /* Jede Zeile trug vier umrandete Knoepfe mit Beschriftung: 210 von 372
+                           Pixeln gingen fuer die Spalte drauf und schoben den Namen aus dem Bild.
+                           Hier nur Symbole, ohne eigenen Rahmen in der ohnehin umrandeten Tabelle,
+                           und sie duerfen umbrechen - den Namen der Aktion setzt
+                           fileActionButton ohnehin als title. */
+                        .file-row-actions { flex-wrap: wrap; gap: 2px; }
+                        .file-display .file-row-actions .file-action-button > span { display: none; }
+                        .file-row-actions button {
+                            background: none;
+                            border: 0;
+                            justify-content: center;
+                            padding: 0 6px;
+                        }
+                        /* Beruehrbare Ziele: eine Zeile zu oeffnen war ein 30px hoher Streifen. */
+                        .file-name-button,
+                        .file-row-actions button,
+                        .file-action-button {
+                            min-height: 40px;
+                            min-width: 40px;
+                        }
+                        /* Die Namensspalte hatte min-width: 260px UND width: 100% - zusammen mit
+                           der Aktionsspalte brauchte die Tabelle rund 690px und lag damit zur
+                           Haelfte hinter einem seitlichen Schieber. */
+                        .file-table th:nth-child(2),
+                        .file-table td:nth-child(2) { min-width: 0; white-space: normal; word-break: break-word; }
+                        .file-actions-heading,
+                        .file-actions-cell { min-width: 0; }
+                        .file-table th,
+                        .file-table td { padding: 6px; }
+                        /* Geaendert-Spalte weg: sie kostet mehr Breite, als sie auf einem Telefon
+                           wert ist, und schob Name und Aktionen aus dem Bild. */
+                        .file-table th:nth-child(4),
+                        .file-table td:nth-child(4) { display: none; }
                         .viewer-tab-row { align-items: stretch; flex-direction: column; }
                         .viewer-actions { flex-wrap: wrap; }
                         .viewer-actions > * { flex: 1; justify-content: center; }
@@ -15766,9 +15840,35 @@ public sealed class HtmlViews
                         }
                         .viewer-body { padding: 10px; }
                         .viewer-stage { min-height: 240px; }
-                        .embedded-viewer { height: calc(var(--matgate-viewport-height, 100vh) - 16px); width: calc(100vw - 16px); }
+                        .embedded-viewer {
+                            gap: 10px;
+                            height: calc(var(--matgate-viewport-height, 100vh) - 16px);
+                            padding: 10px;
+                            width: calc(100vw - 16px);
+                        }
+                        /* Der Kasten um die Buehne ist schon da - und die Polsterung dazwischen
+                           ebenfalls. Eine Linie, ein Abstand. */
+                        .embedded-viewer .viewer-body { padding: 0; }
+                        .embedded-viewer .image-stage,
+                        .embedded-viewer .video-stage,
+                        .embedded-viewer .document-stage {
+                            border: 0;
+                            border-radius: 0;
+                            padding: 0;
+                        }
                         .matgate-dialog,
                         .file-viewer-dialog { width: calc(100vw - 16px); }
+                        /* Aus demselben Grund wie die Werkzeugsymbole: die allgemeine 40px-Regel
+                           greift beim <button>, nicht beim <a> daneben - und ungleich hohe
+                           Nachbarn sehen aus wie ein Fehler. */
+                        .row-actions .icon-button {
+                            height: 40px;
+                            min-height: 40px;
+                            min-width: 40px;
+                            width: 40px;
+                        }
+                        .pagination-button { min-width: 40px; }
+                        .file-place { min-height: 40px; padding: 0 12px; }
                         /* Comfortable ~40px tap targets across the session chrome on phones. */
                         .status-info-button {
                             height: 40px;
@@ -15796,8 +15896,7 @@ public sealed class HtmlViews
                             min-height: 40px;
                         }
                         .tab-actions button,
-                        .tab-action-button,
-                        .tab-action-select {
+                        .tab-action-button {
                             min-height: 40px;
                         }
                         .tab-action-button.icon-only {
@@ -15924,7 +16023,13 @@ public sealed class HtmlViews
                            Before this the burger and the view toggle sat at the END of the header,
                            inside the space the action bar was already using - three things fighting
                            over the same right-hand half, which is why the last action was cut off. */
-                        html[data-view-mode="minimal"] header { flex-wrap: nowrap; gap: 4px; }
+                        /* Fingerbreit und in jeder Ansicht gleich. Der Boden rechnet den Rand des
+                           Geraets dazu, sonst frisst die Kerbe eines iPhones genau diese 50px auf. */
+                        html[data-view-mode="minimal"] header {
+                            flex-wrap: nowrap;
+                            gap: 4px;
+                            min-height: calc(50px + env(safe-area-inset-top));
+                        }
                         html[data-view-mode="minimal"] .brand { order: 0; }
                         html[data-view-mode="minimal"] .shell-burger { order: 1; flex: 0 0 auto; }
                         html[data-view-mode="minimal"] .shell-header-sep {
@@ -15953,10 +16058,6 @@ public sealed class HtmlViews
                         }
                         /* Reachable from the burger menu, so it does not need a second seat here. */
                         html[data-view-mode="minimal"] #view-mode-toggle { display: none; }
-                        /* 16px avoids iOS auto-zoom when the select opens. */
-                        .tab-action-select {
-                            font-size: 16px;
-                        }
                         .session-tab-close {
                             min-width: 40px;
                         }
@@ -15986,6 +16087,12 @@ public sealed class HtmlViews
                     }
                     /* Intentional press feedback for ALL touch devices (phones AND tablets >720px),
                        replacing the grey tap flash removed via -webkit-tap-highlight-color on body. */
+                    @media (max-width: 480px) {
+                        /* Auf einem Telefon bleibt Name und was man damit tun kann - die Groesse
+                           waere die dritte Spalte, die den Namen abschneidet. */
+                        .file-table th:nth-child(3),
+                        .file-table td:nth-child(3) { display: none; }
+                    }
                     @media (pointer: coarse) {
                         a.button:active,
                         .button:active,
