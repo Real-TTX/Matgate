@@ -1095,8 +1095,9 @@ public sealed class HtmlViews
             .Concat(SessionPreferences.SortableActions.Where(key => !savedOrder.Contains(key)))
             .Distinct(StringComparer.Ordinal)
             .ToList();
+        var hiddenActions = prefs.HiddenActions ?? [];
         var actionOrderItems = string.Join("", sortedActions.Select(key => $"""
-            <li class="action-order-item" data-action="{A(key)}"><span class="action-order-grip" aria-hidden="true">{Icon("menu")}</span><span>{E(actionLabels[key])}</span></li>
+            <li class="action-order-item" data-action="{A(key)}"><span class="action-order-grip" aria-hidden="true">{Icon("menu")}</span><span class="action-order-name">{E(actionLabels[key])}</span><label class="action-order-show"><input type="checkbox" data-action-visible{(hiddenActions.Contains(key) ? "" : " checked")}> {E(de ? "zeigen" : "show")}</label></li>
             """));
 
         string Toggle(string name, bool on, string titleDe, string titleEn, string descDe, string descEn) => $$"""
@@ -1187,23 +1188,30 @@ public sealed class HtmlViews
                                     : "On narrow screens only the first ones fit in the bar - the rest go into the three-dots menu. Drag to sort. Disconnect always stays on the right.")}}</p>
                                 <ol id="action-order-list" class="action-order-list">{{actionOrderItems}}</ol>
                                 <input type="hidden" name="actionOrder" id="action-order-value" value="">
+                                <input type="hidden" name="hiddenActions" id="action-hidden-value" value="">
                                 <div class="actions"><button type="submit" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button></div>
                             </form>
                             <script>
                                 (() => {
                                     const list = document.getElementById('action-order-list');
                                     const field = document.getElementById('action-order-value');
-                                    if (!list || !field) {
+                                    const hiddenField = document.getElementById('action-hidden-value');
+                                    if (!list || !field || !hiddenField) {
                                         return;
                                     }
 
                                     const sync = () => {
-                                        field.value = Array.from(list.children)
+                                        const items = Array.from(list.children);
+                                        field.value = items.map(item => item.dataset.action).filter(Boolean).join(',');
+                                        // Unticked means hidden, so the form carries what to leave out.
+                                        hiddenField.value = items
+                                            .filter(item => !item.querySelector('[data-action-visible]')?.checked)
                                             .map(item => item.dataset.action)
                                             .filter(Boolean)
                                             .join(',');
                                     };
                                     sync();
+                                    list.addEventListener('change', sync);
 
                                     // Pointer events, not HTML5 drag and drop: that one does not fire at
                                     // all on iOS Safari, which is where this setting matters most.
@@ -3887,7 +3895,7 @@ public sealed class HtmlViews
             <script>
             (() => {
                 const availableServers = {{availableServers}};
-                const sessionPrefs = Object.assign({ edgePanning: true, dragPanning: true, stretchToWindow: false, systemCombos: true, functionKeys: false, ctrlAltDelHotkey: true, pasteAsKeystrokes: false, actionOrder: [] }, {{sessionPrefs}});
+                const sessionPrefs = Object.assign({ edgePanning: true, dragPanning: true, stretchToWindow: false, systemCombos: true, functionKeys: false, ctrlAltDelHotkey: true, pasteAsKeystrokes: false, actionOrder: [], hiddenActions: [] }, {{sessionPrefs}});
                 const initialOpenServerId = {{initialOpenServerId}};
                 // This window was popped out of another (a tab opened in its own window). It shows a
                 // "re-attach" control instead of "pop out", and re-attach hands the session back.
@@ -6387,6 +6395,14 @@ public sealed class HtmlViews
                 // can identify an action across languages or sessions - which a saved order needs.
                 function addTabAction(key, button) {
                     if (!button) {
+                        return;
+                    }
+
+                    // Hidden by the user - and gone, not just moved into the overflow menu. Disconnect
+                    // is never hidden: ending a session has to stay reachable.
+                    if (key !== 'disconnect'
+                        && Array.isArray(sessionPrefs.hiddenActions)
+                        && sessionPrefs.hiddenActions.indexOf(key) >= 0) {
                         return;
                     }
 
@@ -11792,6 +11808,15 @@ public sealed class HtmlViews
                     }
                     .action-order-item.dragging { border-color: var(--accent); box-shadow: var(--shadow-strong); opacity: .9; }
                     .action-order-grip { color: var(--muted); display: inline-flex; flex: 0 0 auto; }
+                    .action-order-name { flex: 1 1 auto; min-width: 0; }
+                    .action-order-show {
+                        align-items: center;
+                        color: var(--muted);
+                        display: flex;
+                        flex: 0 0 auto;
+                        font-size: 13px;
+                        gap: 6px;
+                    }
                     .session-prefs-group:first-of-type { margin-top: 0; }
                     .toggle-row { display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: start; font-weight: 500; cursor: pointer; padding: 6px 0; }
                     .toggle-row > input { display: none; }

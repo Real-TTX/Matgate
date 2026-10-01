@@ -93,6 +93,11 @@ public sealed class SessionPreferences
     // existed. "disconnect" is always last and is not part of this.
     public List<string> ActionOrder { get; set; } = [];
 
+    // Actions the user does not want to see at all. They are not merely pushed into the overflow
+    // menu - they are gone, which is the point for anyone who never uses them. "disconnect" is not
+    // hideable: ending a session has to stay reachable.
+    public List<string> HiddenActions { get; set; } = [];
+
     // The sortable actions, in their built-in order. Kept next to the property it validates so the two
     // cannot drift apart; "disconnect" is deliberately absent because it is pinned last.
     public static readonly string[] SortableActions =

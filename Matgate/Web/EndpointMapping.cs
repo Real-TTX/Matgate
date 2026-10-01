@@ -3333,6 +3333,12 @@ public static class EndpointMapping
                 .Where(SessionPreferences.IsKnownAction)
                 .Distinct(StringComparer.Ordinal)
                 .ToList();
+
+            current.Session.HiddenActions = form["hiddenActions"].ToString()
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Where(SessionPreferences.IsKnownAction)
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
             current.UpdatedAt = DateTimeOffset.UtcNow;
         }, context.RequestAborted);
 
