@@ -98,6 +98,15 @@ public sealed class SessionPreferences
     // hideable: ending a session has to stay reachable.
     public List<string> HiddenActions { get; set; } = [];
 
+    // Quick-connect offers one chip per protocol. Not everyone uses all of them, and a row of chips
+    // for things you never connect to is noise - these are left out.
+    public List<string> HiddenQuickProtocols { get; set; } = [];
+
+    public static readonly string[] QuickProtocolKeys =
+        ["rdp", "ssh", "vnc", "sftp", "smb", "website", "ftp", "webdav"];
+
+    public static bool IsKnownQuickProtocol(string key) => QuickProtocolKeys.Contains(key);
+
     // The sortable actions, in their built-in order. Kept next to the property it validates so the two
     // cannot drift apart; "disconnect" is deliberately absent because it is pinned last.
     public static readonly string[] SortableActions =

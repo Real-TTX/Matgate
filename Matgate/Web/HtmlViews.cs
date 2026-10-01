@@ -1115,6 +1115,13 @@ public sealed class HtmlViews
             ["upload"] = "upload",
             ["fileArea"] = "folder",
         };
+        // Quick-connect chips, one tick each. Ticked means shown, which is the way round people read
+        // a list of things they could have.
+        var hiddenQuickProtocols = prefs.HiddenQuickProtocols ?? [];
+        var quickProtocolChecks = string.Join("", QuickProtocols(de).Select(protocol => $"""
+            <label class="check"><input type="checkbox" name="quick-{A(protocol.Protocol)}"{(hiddenQuickProtocols.Contains(protocol.Protocol) ? "" : " checked")}> {Icon(protocol.IconKey)} {E(protocol.Name)}</label>
+            """));
+
         var hiddenActions = prefs.HiddenActions ?? [];
         var actionOrderItems = string.Join("", sortedActions.Select(key => $"""
             <li class="action-order-item" data-action="{A(key)}"><span class="action-order-grip" aria-hidden="true">{Icon("menu")}</span><span class="action-order-icon" aria-hidden="true">{Icon(actionIconKeys.TryGetValue(key, out var iconKey) ? iconKey : "square")}</span><span class="action-order-name">{E(actionLabels[key])}</span><label class="action-order-show"><input type="checkbox" data-action-visible{(hiddenActions.Contains(key) ? "" : " checked")}> {E(de ? "zeigen" : "show")}</label></li>
@@ -1202,6 +1209,11 @@ public sealed class HtmlViews
                                 {{Toggle("ctrlAltDelHotkey", prefs.CtrlAltDelHotkey, "Strg+Alt+Entf als Button", "Ctrl+Alt+Del button", "Zusaetzlich zur Bildschirmtastatur auch als Toolbar-Button.", "In addition to the on-screen keyboard, also as a toolbar button.")}}
                                 <h3 class="session-prefs-group">{{(de ? "Zwischenablage" : "Clipboard")}}</h3>
                                 {{Toggle("pasteAsKeystrokes", prefs.PasteAsKeystrokes, "Einfuegen als Tastatureingaben", "Paste as keystrokes", "Text wird Zeichen fuer Zeichen getippt statt ueber die Zwischenablage geschickt - noetig z. B. bei SSH-Terminals.", "Text is typed character by character instead of sent over the clipboard - needed e.g. for SSH terminals.")}}
+                                <h3 class="session-prefs-group">{{(de ? "Schnell verbinden" : "Quick connect")}}</h3>
+                                <p class="muted">{{(de
+                                    ? "Welche Protokolle auf der Startseite als Kachel angeboten werden."
+                                    : "Which protocols are offered as a chip on the start page.")}}</p>
+                                <div class="quick-protocol-grid">{{quickProtocolChecks}}</div>
                                 <h3 class="session-prefs-group">{{(de ? "Reihenfolge der Aktionen" : "Order of the actions")}}</h3>
                                 <p class="muted">{{(de
                                     ? "Auf schmalen Bildschirmen passen nur die vordersten in die Leiste - der Rest landet im Drei-Punkte-Menue. Zum Sortieren ziehen. Trennen bleibt immer ganz rechts."
@@ -2653,7 +2665,8 @@ public sealed class HtmlViews
         var headerActions = (canQuick || canCreate)
             ? $$"""<div class="home2-head-actions">{{quickButton}}{{createButtons}}</div>"""
             : "";
-        var protocolDialog = canQuick ? ProtocolDialog(de) : "";
+        var hiddenQuick = (user?.Session?.HiddenQuickProtocols ?? []).ToHashSet(StringComparer.Ordinal);
+        var protocolDialog = canQuick ? ProtocolDialog(de, hiddenQuick) : "";
 
         var head = $$"""
             <section class="home2-head">
@@ -2692,7 +2705,7 @@ public sealed class HtmlViews
             </section>
             """;
 
-        var quickConnect = canQuick ? QuickConnectSection(de) : "";
+        var quickConnect = canQuick ? QuickConnectSection(de, hiddenQuick) : "";
         var filterRow = FilterTilesSection(context, user, servers, de);
         var recentSection = RecentConnectionsSection(context, user, servers, includeEditButtons, returnUrl, de);
         var connectionsSection = ConnectionsSection(context, user, servers, includeEditButtons, returnUrl, de);
@@ -2715,9 +2728,12 @@ public sealed class HtmlViews
 
     // All protocols offered for a new connection (order = row order; the row shows the first few,
     // the rest live in the "More" dialog).
-    private static (string Protocol, string Name, string Desc, string IconKey, string Color)[] QuickProtocols(bool de)
+    // Only the protocols this user kept. The order is fixed; what is hidden simply falls out.
+    private static (string Protocol, string Name, string Desc, string IconKey, string Color)[] QuickProtocols(bool de, IReadOnlyCollection<string>? hidden = null)
     {
-        return new (string Protocol, string Name, string Desc, string IconKey, string Color)[]
+        return All(de).Where(entry => hidden is null || !hidden.Contains(entry.Protocol)).ToArray();
+
+        static (string Protocol, string Name, string Desc, string IconKey, string Color)[] All(bool de) => new (string Protocol, string Name, string Desc, string IconKey, string Color)[]
         {
             ("rdp", "RDP", de ? "Remote-Desktop" : "Remote Desktop", "rdp", "#4c8dff"),
             ("ssh", "SSH", "Linux / Unix", "ssh", "#8a7cff"),
@@ -2726,14 +2742,22 @@ public sealed class HtmlViews
             ("smb", "SMB", de ? "Netzwerkfreigabe" : "Network share", "smb", "#35c07f"),
             ("website", "HTTP / HTTPS", de ? "Webseite" : "Website", "globe", "#3aa0ff"),
             ("ftp", "FTP", de ? "Dateiübertragung" : "File transfer", "ftp", "#e0863a"),
+            ("webdav", "WebDAV", de ? "Dateien über HTTP" : "Files over HTTP", "cloud", "#2bb3c0"),
         };
     }
 
     // Single row of protocol chips + a "More" chip that opens the full protocol dialog.
-    private static string QuickConnectSection(bool de)
+    private static string QuickConnectSection(bool de, IReadOnlyCollection<string>? hiddenQuick)
     {
         const int rowCount = 6;
-        var protocols = QuickProtocols(de);
+        var protocols = QuickProtocols(de, hiddenQuick);
+        if (protocols.Length == 0)
+        {
+            // Everything hidden means the user does not want quick connect at all - then the heading
+            // and a lone "More" button are not a leftover worth showing.
+            return "";
+        }
+
         var chips = string.Join("", protocols.Take(rowCount).Select(protocol => $$"""
             <button type="button" class="home2-proto-chip" data-home2-qc="{{A(protocol.Protocol)}}" style="--proto: {{protocol.Color}}" title="{{A(protocol.Desc)}}">
                 <span class="home2-proto-chip-icon">{{Icon(protocol.IconKey)}}</span>
@@ -2759,9 +2783,14 @@ public sealed class HtmlViews
 
     // Ad-hoc Quick-Connect dialog: pick a protocol, enter host + credentials, connect immediately
     // (nothing is saved). Opened by the "Quick connect" chips/button. Fullscreen on phones (see CSS).
-    private static string ProtocolDialog(bool de)
+    private static string ProtocolDialog(bool de, IReadOnlyCollection<string>? hiddenQuick)
     {
-        var protoButtons = string.Join("", QuickProtocols(de).Select((protocol, index) => $$"""
+        var protocols = QuickProtocols(de, hiddenQuick);
+
+        // The dialog starts on the first chip, so the hidden field has to name that one. A fixed
+        // "rdp" here would be the wrong protocol the moment RDP is the one the user hid.
+        var firstProtocol = protocols.Length > 0 ? protocols[0].Protocol : "rdp";
+        var protoButtons = string.Join("", protocols.Select((protocol, index) => $$"""
             <button type="button" class="home2-qc-proto{{(index == 0 ? " active" : "")}}" data-home2-qc-proto="{{A(protocol.Protocol)}}" style="--proto: {{protocol.Color}}" title="{{A(protocol.Desc)}}">
                 <span class="home2-qc-proto-icon">{{Icon(protocol.IconKey)}}</span>
                 <span>{{E(protocol.Name)}}</span>
@@ -2779,7 +2808,7 @@ public sealed class HtmlViews
                 </div>
                 <form class="home2-qc-form" data-home2-qc-form>
                     <div class="home2-qc-protos">{{protoButtons}}</div>
-                    <input type="hidden" name="protocol" value="rdp" data-home2-qc-proto-input>
+                    <input type="hidden" name="protocol" value="{{A(firstProtocol)}}" data-home2-qc-proto-input>
                     <label class="home2-qc-label">
                         <span data-home2-qc-hostlabel>{{(de ? "Host" : "Host")}}</span>
                         <input name="host" required autocomplete="off" spellcheck="false" data-home2-qc-host placeholder="{{A(de ? "z. B. 192.168.1.10" : "e.g. 192.168.1.10")}}">
@@ -4683,7 +4712,12 @@ public sealed class HtmlViews
                         const qcError = protoDialog.querySelector('[data-home2-qc-error]');
                         const originalHostPlaceholder = qcHostInput ? (qcHostInput.getAttribute('placeholder') || '') : '';
                         const originalHostLabel = qcHostLabel ? qcHostLabel.textContent : 'Host';
-                        const defaultPorts = { rdp: '3389', ssh: '22', vnc: '5900', sftp: '22', ftp: '21', smb: '445', website: '' };
+                        const defaultPorts = { rdp: '3389', ssh: '22', vnc: '5900', sftp: '22', ftp: '21', smb: '445', website: '', webdav: '' };
+                        // Which chip the dialog starts on. Not a fixed protocol: the user decides
+                        // which ones exist here, and the first surviving one is the only safe pick.
+                        const qcDefaultProto = qcProtoButtons.length
+                            ? qcProtoButtons[0].dataset.home2QcProto
+                            : 'rdp';
 
                         const setField = (name, on) => {
                             const el = protoDialog.querySelector('[data-home2-qc-field="' + name + '"]');
@@ -4694,20 +4728,21 @@ public sealed class HtmlViews
                         };
 
                         const setQcProtocol = proto => {
-                            const value = Object.prototype.hasOwnProperty.call(defaultPorts, proto) ? proto : 'rdp';
+                            const value = Object.prototype.hasOwnProperty.call(defaultPorts, proto) ? proto : qcDefaultProto;
                             if (qcProtoInput) {
                                 qcProtoInput.value = value;
                             }
                             qcProtoButtons.forEach(button => button.classList.toggle('active', button.dataset.home2QcProto === value));
                             const isWeb = value === 'website';
+                            const isDav = value === 'webdav';
                             setField('port', !isWeb);
                             setField('domain', value === 'rdp' || value === 'smb');
-                            setField('fileRoot', value === 'sftp' || value === 'ftp' || value === 'smb');
+                            setField('fileRoot', isDav || value === 'sftp' || value === 'ftp' || value === 'smb');
                             if (qcHostLabel) {
                                 qcHostLabel.textContent = isWeb ? 'URL' : originalHostLabel;
                             }
                             if (qcHostInput) {
-                                qcHostInput.placeholder = isWeb ? 'https://…' : originalHostPlaceholder;
+                                qcHostInput.placeholder = isWeb ? 'https://…' : (isDav ? 'nas.local  /  https://nas.local/dav' : originalHostPlaceholder);
                             }
                             if (qcPortInput) {
                                 qcPortInput.value = isWeb ? '' : (defaultPorts[value] || '');
@@ -4719,7 +4754,7 @@ public sealed class HtmlViews
                         });
 
                         const openDialog = proto => {
-                            setQcProtocol(proto || 'rdp');
+                            setQcProtocol(proto || qcDefaultProto);
                             if (qcError) {
                                 qcError.hidden = true;
                                 qcError.classList.add('hidden');
@@ -4736,7 +4771,7 @@ public sealed class HtmlViews
                         };
 
                         Array.from(root.querySelectorAll('[data-home2-more]')).forEach(button => {
-                            button.addEventListener('click', () => openDialog('rdp'));
+                            button.addEventListener('click', () => openDialog(qcDefaultProto));
                         });
                         Array.from(root.querySelectorAll('[data-home2-qc]')).forEach(button => {
                             button.addEventListener('click', () => openDialog(button.dataset.home2Qc));
@@ -4803,7 +4838,7 @@ public sealed class HtmlViews
                             });
                         }
 
-                        setQcProtocol('rdp');
+                        setQcProtocol(qcDefaultProto);
                     }
 
                     // Bind the global search shortcut only once, and query the (possibly re-rendered)
@@ -12175,6 +12210,14 @@ public sealed class HtmlViews
                     /* Session-preferences toggle list (Account -> Session). */
                     .session-prefs { display: grid; gap: 10px; max-width: 620px; }
                     .session-prefs-group { margin: 12px 0 2px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+                    .quick-protocol-grid {
+                        display: grid;
+                        gap: 4px 14px;
+                        grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+                        margin: 4px 0 2px;
+                    }
+                    .quick-protocol-grid .check { align-items: center; display: flex; gap: 8px; }
+                    .quick-protocol-grid .check svg { color: var(--muted); flex: 0 0 auto; }
                     .action-order-list { display: flex; flex-direction: column; gap: 6px; list-style: none; margin: 6px 0 0; padding: 0; }
                     .action-order-item {
                         align-items: center;

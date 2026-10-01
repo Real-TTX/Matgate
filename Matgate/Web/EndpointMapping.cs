@@ -3339,6 +3339,11 @@ public static class EndpointMapping
                 .Where(SessionPreferences.IsKnownAction)
                 .Distinct(StringComparer.Ordinal)
                 .ToList();
+
+            // Quick-connect chips: what the form does NOT send is what the user unticked.
+            current.Session.HiddenQuickProtocols = SessionPreferences.QuickProtocolKeys
+                .Where(key => !Checked(form, "quick-" + key))
+                .ToList();
             current.UpdatedAt = DateTimeOffset.UtcNow;
         }, context.RequestAborted);
 
@@ -3960,6 +3965,15 @@ public static class EndpointMapping
             protocol = ServerProtocol.Rdp;
         }
 
+        // The file areas are not a target one can type in. They are a protocol whose directory comes
+        // from this form - so accepting it here would let anyone who may quick-connect point the file
+        // manager at any directory of the gateway itself. They are reached through the areas list,
+        // where the directory follows from the permissions.
+        if (protocol == ServerProtocol.Local)
+        {
+            return Results.BadRequest(new { error = HtmlViews.Translate(context, "Invalid request") });
+        }
+
         var isWebsite = ServerEndpoint.IsWebsiteProtocol(protocol);
         var target = (form["host"].ToString() ?? "").Trim();
         if (string.IsNullOrWhiteSpace(target))
@@ -4319,6 +4333,15 @@ public static class EndpointMapping
         {
             protocol = ServerProtocol.Rdp;
         }
+
+        // Local is Matgate's own file areas, and their directory is this form's file root. Saving a
+        // connection with it would hand its creator the gateway's filesystem, so it is not a protocol
+        // a form may choose - the areas are built from the permissions, never entered.
+        if (protocol == ServerProtocol.Local)
+        {
+            protocol = existing?.Protocol ?? ServerProtocol.Rdp;
+        }
+
         var canManageGlobal = currentUser.IsAdmin || currentUser.CanManageServers;
         var canCreatePrivate = currentUser.IsAdmin || currentUser.CanCreateServers;
         var requestedPrivate = string.Equals(form["scope"].ToString(), "private", StringComparison.OrdinalIgnoreCase);
