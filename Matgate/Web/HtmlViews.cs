@@ -3862,15 +3862,21 @@ public sealed class HtmlViews
                         <button id="clipboard-close" type="button">{{T(context, "Close")}}</button>
                     </div>
                 </form>
-                <form id="sftp-target-dialog" class="credential-dialog clipboard-dialog hidden">
-                    <h2>{{(Language(context) == "de" ? "Hier einfuegen" : "Paste here")}}</h2>
-                    <label>{{(Language(context) == "de" ? "Zielordner in der Sitzung" : "Target folder in the session")}}
+                <form id="sftp-target-dialog" class="credential-dialog send-files-dialog hidden">
+                    <h2>{{(Language(context) == "de" ? "Dateien senden" : "Send files")}}</h2>
+                    <button id="send-files-drop" type="button" class="send-files-drop">
+                        {{Icon("upload")}}
+                        <strong>{{(Language(context) == "de" ? "Dateien hierher ziehen" : "Drop files here")}}</strong>
+                        <small>{{(Language(context) == "de" ? "oder klicken, um sie auszuwaehlen" : "or click to pick them")}}</small>
+                    </button>
+                    <input id="send-files-input" type="file" multiple class="hidden">
+                    <p id="sftp-target-files" class="muted send-files-list"></p>
+                    <label>{{(Language(context) == "de" ? "Ziel" : "Target")}}
                         <input id="sftp-target-path" type="text" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="/home/user" required>
                         <select id="sftp-target-area" class="hidden"></select>
                     </label>
-                    <p id="sftp-target-files" class="muted"></p>
                     <div class="actions">
-                        <button type="submit" class="primary">{{Icon("save")}}{{(Language(context) == "de" ? "Dateien senden" : "Send files")}}</button>
+                        <button type="submit" class="primary">{{Icon("save")}}{{(Language(context) == "de" ? "Senden" : "Send")}}</button>
                         <button id="sftp-target-close" type="button">{{T(context, "Close")}}</button>
                     </div>
                 </form>
@@ -3960,6 +3966,8 @@ public sealed class HtmlViews
                 const sftpTargetDialog = document.getElementById('sftp-target-dialog');
                 const sftpTargetPath = document.getElementById('sftp-target-path');
                 const sftpTargetArea = document.getElementById('sftp-target-area');
+                const sendFilesDrop = document.getElementById('send-files-drop');
+                const sendFilesInput = document.getElementById('send-files-input');
                 const sftpTargetFiles = document.getElementById('sftp-target-files');
                 const sftpTargetClose = document.getElementById('sftp-target-close');
                 const statusResolution = document.getElementById('status-resolution');
@@ -6345,20 +6353,10 @@ public sealed class HtmlViews
                             const uploadButton = createTabActionButton(
                                 actionIcons.upload,
                                 uiText.xferUpload || 'Send files to the session',
-                                () => {
-                                    const input = document.createElement('input');
-                                    input.type = 'file';
-                                    input.multiple = true;
-                                    input.style.display = 'none';
-                                    input.addEventListener('change', () => {
-                                        if (input.files && input.files.length) {
-                                            uploadFilesToSession(tab, input.files);
-                                        }
-                                        input.remove();
-                                    });
-                                    document.body.appendChild(input);
-                                    input.click();
-                                },
+                                // The dialog comes first now, and the files are chosen inside it. That
+                                // way picking a file and saying where it should go is one step, and on
+                                // a phone the native picker no longer runs before anything is decided.
+                                () => askForTargetFolder(tab, []),
                                 '',
                                 true);
                             addTabAction('upload', uploadButton);
@@ -10312,11 +10310,26 @@ public sealed class HtmlViews
 
                 let pendingTargetUpload = null;
 
+                function renderPendingFiles() {
+                    const files = pendingTargetUpload ? pendingTargetUpload.files : [];
+                    sftpTargetFiles.textContent = files.length
+                        ? files.map(file => file.name).join(', ')
+                        : (uiText.selectFilesFirst || 'Select the files first');
+                }
+
+                function addPendingFiles(list) {
+                    if (!pendingTargetUpload || !list) {
+                        return;
+                    }
+
+                    // Added rather than replaced, so picking twice collects instead of discarding.
+                    pendingTargetUpload.files = pendingTargetUpload.files.concat(Array.from(list).filter(Boolean));
+                    renderPendingFiles();
+                }
+
                 function askForTargetFolder(tab, files) {
-                    pendingTargetUpload = { tab, files };
-                    sftpTargetFiles.textContent = files.length === 1
-                        ? files[0].name
-                        : files.map(file => file.name).join(', ');
+                    pendingTargetUpload = { tab, files: Array.from(files || []) };
+                    renderPendingFiles();
 
                     if (usesAreaPicker(tab)) {
                         // Pick from what the drive actually offers, rather than typing a path.
@@ -10616,6 +10629,25 @@ public sealed class HtmlViews
                 });
                 clipboardClose.addEventListener('click', closeClipboardDialog);
                 sftpTargetClose.addEventListener('click', closeTargetFolderDialog);
+                // The drop area is both: a button that opens the picker, and a target for dragging.
+                sendFilesDrop.addEventListener('click', () => sendFilesInput.click());
+                sendFilesInput.addEventListener('change', () => {
+                    addPendingFiles(sendFilesInput.files);
+                    // Cleared so picking the same file twice in a row still fires a change.
+                    sendFilesInput.value = '';
+                });
+                ['dragenter', 'dragover'].forEach(type => sendFilesDrop.addEventListener(type, event => {
+                    event.preventDefault();
+                    sendFilesDrop.classList.add('send-files-drop--over');
+                }));
+                ['dragleave', 'dragend'].forEach(type => sendFilesDrop.addEventListener(type, () => {
+                    sendFilesDrop.classList.remove('send-files-drop--over');
+                }));
+                sendFilesDrop.addEventListener('drop', event => {
+                    event.preventDefault();
+                    sendFilesDrop.classList.remove('send-files-drop--over');
+                    addPendingFiles(event.dataTransfer && event.dataTransfer.files);
+                });
                 fileAreaDialogClose.addEventListener('click', closeFileAreaDialog);
                 fileAreaDialogSend.addEventListener('click', sendSelectionIntoSession);
                 // The X alone is not enough of a way out: Escape and a tap beside the dialog are what
@@ -10644,6 +10676,14 @@ public sealed class HtmlViews
                     }
 
                     const { tab, files } = pendingTargetUpload;
+                    if (!files.length) {
+                        // Nothing picked yet - say so instead of closing on an empty send.
+                        renderPendingFiles();
+                        sendFilesDrop.classList.add('send-files-drop--wanted');
+                        window.setTimeout(() => sendFilesDrop.classList.remove('send-files-drop--wanted'), 1200);
+                        return;
+                    }
+
                     // Remembered for the rest of this tab, so sending more files does not ask again.
                     tab.targetFolder = usesAreaPicker(tab)
                         ? (sftpTargetArea.value || 'Session')
@@ -15106,6 +15146,28 @@ public sealed class HtmlViews
                     /* The file areas over a running session: large enough to actually work in, but
                        deliberately not full screen - seeing the session behind it is the point. */
                     /* Qualified with .credential-dialog so it does not depend on which rule comes last. */
+                    .credential-dialog.send-files-dialog { max-width: 560px; width: min(560px, calc(100vw - 32px)); }
+                    .send-files-drop {
+                        align-items: center;
+                        background: var(--surface-2);
+                        border: 2px dashed var(--line);
+                        border-radius: 12px;
+                        color: var(--muted);
+                        cursor: pointer;
+                        display: flex;
+                        flex-direction: column;
+                        gap: 4px;
+                        margin: 4px 0 2px;
+                        padding: 22px 16px;
+                        text-align: center;
+                        width: 100%;
+                    }
+                    .send-files-drop:hover,
+                    .send-files-drop--over { background: var(--surface); border-color: var(--accent); color: var(--text); }
+                    /* Briefly, when sending was attempted with nothing picked. */
+                    .send-files-drop--wanted { border-color: var(--danger, #b3261e); color: var(--danger, #b3261e); }
+                    .send-files-drop strong { font-size: 15px; }
+                    .send-files-list { margin: 2px 0 0; overflow-wrap: anywhere; }
                     .credential-dialog.file-area-dialog {
                         display: flex;
                         flex-direction: column;
