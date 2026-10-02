@@ -3932,7 +3932,7 @@ public sealed class HtmlViews
                 </form>
                 <div id="file-area-dialog" class="credential-dialog file-area-dialog hidden">
                     <div class="file-area-dialog-head">
-                        <strong id="file-area-dialog-title" class="file-area-dialog-title"></strong>
+                        <select id="file-area-dialog-select" class="file-area-dialog-select" aria-label="{{A(Language(context) == "de" ? "Ablage" : "Place")}}"></select>
                         <span id="file-area-dialog-status" class="muted file-area-dialog-status"></span>
                         <span class="file-area-dialog-actions">
                             <button id="file-area-dialog-send" type="button" class="button primary">{{Icon("upload")}}{{(Language(context) == "de" ? "In die Sitzung" : "Into the session")}}</button>
@@ -4011,7 +4011,7 @@ public sealed class HtmlViews
                 const clipboardClose = document.getElementById('clipboard-close');
                 const fileAreaDialog = document.getElementById('file-area-dialog');
                 const fileAreaDialogBody = document.getElementById('file-area-dialog-body');
-                const fileAreaDialogTitle = document.getElementById('file-area-dialog-title');
+                const fileAreaDialogSelect = document.getElementById('file-area-dialog-select');
                 const fileAreaDialogClose = document.getElementById('file-area-dialog-close');
                 const fileAreaDialogSend = document.getElementById('file-area-dialog-send');
                 const sftpTargetDialog = document.getElementById('sftp-target-dialog');
@@ -7376,8 +7376,15 @@ public sealed class HtmlViews
                         return;
                     }
 
-                    // Gewechselt wird in der Ablagenleiste des Managers selbst - hier steht nur noch,
-                    // wo man gerade ist.
+                    // Die Orte ins Auswahlfeld; der gemeinte steht vorn.
+                    fileAreaDialogSelect.replaceChildren();
+                    choices.forEach(place => {
+                        const option = document.createElement('option');
+                        option.value = place.id;
+                        option.textContent = place.name;
+                        fileAreaDialogSelect.appendChild(option);
+                    });
+
                     showFileArea(choices[0].id);
 
                     // "In die Sitzung" setzt eine Sitzung mit Dateikanal voraus - eine VNC-Sitzung,
@@ -7452,7 +7459,11 @@ public sealed class HtmlViews
                     // Der bisherige Host verschwindet gleich - was er noch hochladen wollte, muss
                     // abgebrochen und gemeldet werden, statt still zu verschwinden.
                     abandonUploads(fileAreaHost);
-                    fileAreaDialogTitle.textContent = server.name;
+                    // Hält das Feld oben mit dem gezeigten Ort zusammen - auch wenn der Wechsel
+                    // von woanders kam.
+                    if (fileAreaDialogSelect.value !== server.id) {
+                        fileAreaDialogSelect.value = server.id;
+                    }
                     fileAreaHost = buildFileAreaHost(server);
                     fileAreaDialogBody.replaceChildren(fileAreaHost.panel);
                     startFileTab(fileAreaHost);
@@ -10987,6 +10998,7 @@ public sealed class HtmlViews
                     sendFilesDrop.classList.remove('send-files-drop--over');
                     addPendingFiles(event.dataTransfer && event.dataTransfer.files);
                 });
+                fileAreaDialogSelect.addEventListener('change', () => showFileArea(fileAreaDialogSelect.value));
                 fileAreaDialogClose.addEventListener('click', closeFileAreaDialog);
                 fileAreaDialogSend.addEventListener('click', sendSelectionIntoSession);
                 // The X alone is not enough of a way out: Escape and a tap beside the dialog are what
@@ -15616,16 +15628,21 @@ public sealed class HtmlViews
                        der geschlossene Dialog mit allen Knoepfen im Tabulator stehen. */
                     .credential-dialog.file-area-dialog.hidden { display: none; }
                     .file-area-dialog-actions { align-items: center; display: flex; gap: 8px; }
-                    .file-area-dialog-status { flex: 0 1 auto; font-size: 12px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                    .file-area-dialog-status { flex: 1 1 auto; font-size: 12px; text-align: right; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
                     .credential-dialog.copy-to-dialog { max-width: 460px; width: min(460px, calc(100vw - 32px)); }
-                    .file-area-dialog-title { flex: 1 1 auto; font-size: 15px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                    .file-area-dialog-select { flex: 0 1 auto; max-width: 320px; min-width: 0; }
+                    /* Im Dialog waehlt das Feld oben den Ort - die Leiste im Manager waere dasselbe
+                       noch einmal. In einem Tab gibt es keinen Kopf, dort bleibt sie der Weg. */
+                    #file-area-dialog .file-places { display: none; }
                     .file-area-host { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; min-width: 0; position: relative; }
                     .file-area-dialog-head {
                         align-items: center;
                         border-bottom: 1px solid var(--line);
                         display: flex;
+                        /* Ohne das klebte die Zustandszeile am Knopf daneben. */
+                        gap: 14px;
                         justify-content: space-between;
-                        padding: 10px 10px 10px 16px;
+                        padding: 10px 12px 10px 14px;
                     }
                     .file-area-dialog-body {
                         display: flex;
