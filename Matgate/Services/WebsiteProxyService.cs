@@ -1869,7 +1869,19 @@ public sealed class WebsiteProxyService
             cookie += $"; Path={proxyPath}";
         }
 
-        if (!isHttps)
+        if (isHttps)
+        {
+            // SameSite=None ohne Secure verwirft jeder aktuelle Browser - ersatzlos und ohne
+            // Meldung. Genau dieser Fall tritt ein, wenn eine interne Anwendung ihre Cookies
+            // über HTTP setzt und Matgate von außen über HTTPS erreicht wird: das Anmelde-Cookie
+            // kommt nie an, und die Anwendung schickt einen wieder auf die Anmeldeseite.
+            if (Regex.IsMatch(cookie, @"(?i);\s*SameSite=None\b")
+                && !Regex.IsMatch(cookie, @"(?i);\s*Secure\b"))
+            {
+                cookie += "; Secure";
+            }
+        }
+        else
         {
             cookie = Regex.Replace(cookie, @"(?i)(;\s*Secure\b)", "");
             cookie = Regex.Replace(cookie, @"(?i)(;\s*SameSite=None\b)", "; SameSite=Lax");
