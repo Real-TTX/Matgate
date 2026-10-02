@@ -3731,6 +3731,11 @@ public sealed class HtmlViews
             fileAccessFailed = Language(context) == "de" ? "Dateizugriff fehlgeschlagen" : "File access failed",
             uploadQueue = T(context, "Upload queue"),
             places = Language(context) == "de" ? "Ablagen" : "Places",
+            sendTargetFolder = Language(context) == "de" ? "Zielordner auf dem Server" : "Target folder on the server",
+            sendTargetDrive = Language(context) == "de" ? "Ordner auf dem Matgate-Laufwerk" : "Folder on the Matgate drive",
+            sendTargetDriveHint = Language(context) == "de"
+                ? "Erscheint in der Sitzung als Laufwerk \"Matgate\"."
+                : "Appears in the session as the \"Matgate\" drive.",
             dropFilesHere = T(context, "Drop files here to upload"),
             currentFolder = T(context, "Current folder"),
             clearFinished = T(context, "Clear finished"),
@@ -3830,35 +3835,25 @@ public sealed class HtmlViews
                         <button id="clipboard-close" type="button">{{T(context, "Close")}}</button>
                     </div>
                 </form>
+                <!-- Dieser Dialog hat genau eine Aufgabe: Dateien von diesem Geraet in die offene
+                     Sitzung geben. Er hatte einmal zwei Schalter - Quelle und Ziel, je zwei Knoepfe -
+                     und damit vier Kombinationen, von denen "aus einer Ablage in eine Ablage" mit
+                     einer Sitzung ueberhaupt nichts zu tun hatte. Kopiert wird jetzt dort, wo man
+                     ohnehin blaettert: im Dateimanager. -->
                 <form id="sftp-target-dialog" class="credential-dialog send-files-dialog hidden">
-                    <h2>{{(Language(context) == "de" ? "Dateien senden" : "Send files")}}</h2>
-                    <div class="send-files-source">
-                        <button type="button" data-send-source="local" class="active">{{Icon("upload")}}{{(Language(context) == "de" ? "Von diesem Rechner" : "From this computer")}}</button>
-                        <button type="button" data-send-source="place">{{Icon("folder")}}{{(Language(context) == "de" ? "Aus einer Ablage" : "From an area")}}</button>
-                    </div>
-                    <div id="send-files-place" class="send-files-place hidden">
-                        <select id="send-files-place-select"></select>
-                        <div id="send-files-place-path" class="muted send-files-place-path">/</div>
-                        <ul id="send-files-place-list" class="send-files-place-list"></ul>
-                    </div>
+                    <h2>{{(Language(context) == "de" ? "Dateien in die Sitzung" : "Send files into the session")}}</h2>
                     <button id="send-files-drop" type="button" class="send-files-drop">
                         {{Icon("upload")}}
                         <strong>{{(Language(context) == "de" ? "Dateien hierher ziehen" : "Drop files here")}}</strong>
-                        <small>{{(Language(context) == "de" ? "oder klicken, um sie auszuwaehlen" : "or click to pick them")}}</small>
+                        <small>{{(Language(context) == "de" ? "oder klicken, um sie auszuwählen" : "or click to pick them")}}</small>
                     </button>
                     <input id="send-files-input" type="file" multiple class="hidden">
                     <p id="sftp-target-files" class="muted send-files-list"></p>
-                    <div class="send-files-source" id="send-target-switch">
-                        <button type="button" data-send-target="session" class="active">{{Icon("monitor")}}{{(Language(context) == "de" ? "In die Sitzung" : "Into the session")}}</button>
-                        <button type="button" data-send-target="place">{{Icon("folder")}}{{(Language(context) == "de" ? "In eine Ablage" : "Into an area")}}</button>
-                    </div>
-                    <label id="send-target-session">{{(Language(context) == "de" ? "Ziel in der Sitzung" : "Target in the session")}}
+                    <label id="send-target-session">
+                        <span id="send-target-label">{{(Language(context) == "de" ? "Wohin in der Sitzung" : "Where in the session")}}</span>
                         <input id="sftp-target-path" type="text" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="/home/user">
                         <select id="sftp-target-area" class="hidden"></select>
-                    </label>
-                    <label id="send-target-place" class="hidden">{{(Language(context) == "de" ? "Ziel-Ablage" : "Target area")}}
-                        <select id="send-target-place-select"></select>
-                        <input id="send-target-place-path" type="text" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="/" value="/">
+                        <small id="send-target-hint" class="muted"></small>
                     </label>
                     <div class="actions">
                         <button type="submit" class="primary">{{Icon("save")}}{{(Language(context) == "de" ? "Senden" : "Send")}}</button>
@@ -3953,14 +3948,8 @@ public sealed class HtmlViews
                 const sftpTargetArea = document.getElementById('sftp-target-area');
                 const sendFilesDrop = document.getElementById('send-files-drop');
                 const sendFilesInput = document.getElementById('send-files-input');
-                const sendFilesPlace = document.getElementById('send-files-place');
-                const sendFilesPlaceSelect = document.getElementById('send-files-place-select');
-                const sendFilesPlacePath = document.getElementById('send-files-place-path');
-                const sendFilesPlaceList = document.getElementById('send-files-place-list');
-                const sendTargetSession = document.getElementById('send-target-session');
-                const sendTargetPlace = document.getElementById('send-target-place');
-                const sendTargetPlaceSelect = document.getElementById('send-target-place-select');
-                const sendTargetPlacePath = document.getElementById('send-target-place-path');
+                const sendTargetLabel = document.getElementById('send-target-label');
+                const sendTargetHint = document.getElementById('send-target-hint');
                 const sftpTargetFiles = document.getElementById('sftp-target-files');
                 const sftpTargetClose = document.getElementById('sftp-target-close');
                 const statusResolution = document.getElementById('status-resolution');
@@ -7274,6 +7263,15 @@ public sealed class HtmlViews
                     // Gewechselt wird in der Ablagenleiste des Managers selbst - hier steht nur noch,
                     // wo man gerade ist.
                     showFileArea(choices[0].id);
+
+                    // "In die Sitzung" setzt eine Sitzung mit Dateikanal voraus - eine VNC-Sitzung,
+                    // eine Webseite oder ein Dateimanager-Tab hat keinen. Der Knopf war trotzdem da
+                    // und tat dann nichts, ausser den Dialog zu schliessen. Inline gesetzt, weil
+                    // .hidden hier gegen die Knopfregeln verliert.
+                    const sessionTab = tabs.get(activeTabId || '');
+                    fileAreaDialogSend.style.display = (sessionTab && sessionTab.filesystem && !sessionTab.terminal)
+                        ? ''
+                        : 'none';
                     fileAreaDialog.classList.remove('hidden');
                 }
 
@@ -10361,154 +10359,8 @@ public sealed class HtmlViews
 
                 let pendingTargetUpload = null;
 
-                // The second source: files that are already somewhere Matgate can reach - one of its own
-                // areas, or a file connection. Picked here rather than downloaded and uploaded again by
-                // hand, which is what "send an existing file" used to mean.
-                let sendPlacePicked = [];
-
-                function showSendSource(mode) {
-                    const place = mode === 'place';
-                    sendFilesPlace.classList.toggle('hidden', !place);
-                    sendFilesDrop.classList.toggle('hidden', place);
-                    document.querySelectorAll('[data-send-source]').forEach(button => {
-                        button.classList.toggle('active', button.dataset.sendSource === mode);
-                    });
-
-                    if (place && !sendFilesPlaceSelect.options.length) {
-                        // Everything the file manager can open - the areas and the file connections.
-                        availableServers
-                            .filter(server => ['LOCAL', 'SFTP', 'FTP', 'SMB', 'WEBDAV'].includes((server.protocol || '').toUpperCase()))
-                            .forEach(server => {
-                                const option = document.createElement('option');
-                                option.value = server.id;
-                                option.textContent = server.name;
-                                sendFilesPlaceSelect.appendChild(option);
-                            });
-                    }
-
-                    if (place) {
-                        loadSendPlace('/');
-                    }
-                }
-
-                // The target is a place like any other: the session is simply the one a connection
-                // happens to offer. Choosing an area instead makes copying between two places the same
-                // operation as sending into a session - there is no second mechanism for it.
-                let sendTargetMode = 'session';
-
-                function showSendTarget(mode) {
-                    sendTargetMode = mode;
-                    const place = mode === 'place';
-                    sendTargetPlace.classList.toggle('hidden', !place);
-                    sendTargetSession.classList.toggle('hidden', place);
-                    document.querySelectorAll('[data-send-target]').forEach(button => {
-                        button.classList.toggle('active', button.dataset.sendTarget === mode);
-                    });
-
-                    if (place && !sendTargetPlaceSelect.options.length) {
-                        availableServers
-                            .filter(server => ['LOCAL', 'SFTP', 'FTP', 'SMB', 'WEBDAV'].includes((server.protocol || '').toUpperCase()))
-                            .forEach(server => {
-                                const option = document.createElement('option');
-                                option.value = server.id;
-                                option.textContent = server.name;
-                                sendTargetPlaceSelect.appendChild(option);
-                            });
-                    }
-                }
-
-                // Hands the files to a place through the file API, one request per file so a single
-                // failure is reported for that file instead of losing the batch.
-                async function sendFilesToPlace(placeId, path, files) {
-                    let sent = 0;
-                    for (const file of files) {
-                        const body = new FormData();
-                        body.append('file', file, file.name);
-                        body.append('path', path || '/');
-                        try {
-                            const response = await fetch(`/api/files/${placeId}/upload`, {
-                                method: 'POST',
-                                body,
-                                headers: { 'X-Matgate-Csrf': csrfToken },
-                            });
-                            if (response.ok) {
-                                sent++;
-                            }
-                        }
-                        catch (e) {
-                            // Counted as not sent; the summary below says how many made it.
-                        }
-                    }
-
-                    const active = tabs.get(activeTabId);
-                    if (active) {
-                        flashStatus(active, sent === files.length
-                            ? `${uiText.xferUploaded || 'Uploaded'}: ${sent}`
-                            : `${uiText.xferUploadFailed || 'Upload failed'}: ${files.length - sent}/${files.length}`);
-                    }
-                }
-
-                function loadSendPlace(path) {
-                    const id = sendFilesPlaceSelect.value;
-                    if (!id) {
-                        sendFilesPlaceList.replaceChildren();
-                        return;
-                    }
-
-                    sendFilesPlacePath.textContent = path;
-                    sendFilesPlaceList.replaceChildren();
-                    fetch(`/api/files/${id}/list?path=${encodeURIComponent(path)}`)
-                        .then(response => (response.ok ? response.json() : null))
-                        .then(data => {
-                            if (!data) {
-                                return;
-                            }
-
-                            if (path !== '/') {
-                                const up = document.createElement('li');
-                                const button = document.createElement('button');
-                                button.type = 'button';
-                                button.className = 'send-files-place-up';
-                                button.textContent = '..';
-                                button.addEventListener('click', () => loadSendPlace(data.parentPath || '/'));
-                                up.appendChild(button);
-                                sendFilesPlaceList.appendChild(up);
-                            }
-
-                            (data.entries || []).forEach(entry => {
-                                const row = document.createElement('li');
-                                if (entry.isDirectory) {
-                                    const button = document.createElement('button');
-                                    button.type = 'button';
-                                    button.className = 'send-files-place-dir';
-                                    button.textContent = entry.name;
-                                    button.addEventListener('click', () => loadSendPlace(entry.path));
-                                    row.appendChild(button);
-                                }
-                                else {
-                                    const label = document.createElement('label');
-                                    const box = document.createElement('input');
-                                    box.type = 'checkbox';
-                                    box.value = entry.path;
-                                    box.addEventListener('change', () => {
-                                        sendPlacePicked = box.checked
-                                            ? sendPlacePicked.concat([{ id, path: entry.path, name: entry.name }])
-                                            : sendPlacePicked.filter(item => !(item.id === id && item.path === entry.path));
-                                        renderPendingFiles();
-                                    });
-                                    label.append(box, document.createTextNode(' ' + entry.name));
-                                    row.appendChild(label);
-                                }
-
-                                sendFilesPlaceList.appendChild(row);
-                            });
-                        })
-                        .catch(() => {});
-                }
-
                 function renderPendingFiles() {
-                    const names = (pendingTargetUpload ? pendingTargetUpload.files : []).map(file => file.name)
-                        .concat(sendPlacePicked.map(item => item.name));
+                    const names = (pendingTargetUpload ? pendingTargetUpload.files : []).map(file => file.name);
                     sftpTargetFiles.textContent = names.length
                         ? names.join(', ')
                         : (uiText.selectFilesFirst || 'Select the files first');
@@ -10526,15 +10378,16 @@ public sealed class HtmlViews
 
                 function askForTargetFolder(tab, files) {
                     pendingTargetUpload = { tab, files: Array.from(files || []) };
-                    sendPlacePicked = [];
-                    showSendSource("local");
-                    // A session can only be the target when it actually has a file channel.
-                    showSendTarget(tab && tab.filesystem ? "session" : "place");
-                    document.querySelector("[data-send-target=\"session\"]").classList.toggle("hidden", !(tab && tab.filesystem));
                     renderPendingFiles();
 
                     if (usesAreaPicker(tab)) {
                         // Pick from what the drive actually offers, rather than typing a path.
+                        sendTargetLabel.textContent = uiText.sendTargetDrive || "Ordner auf dem Matgate-Laufwerk";
+                        // Dieser Hinweis fehlte, und ohne ihn ist die Erfolgsmeldung irrefuehrend: die
+                        // Datei liegt danach auf dem umgeleiteten Laufwerk, nicht auf der Festplatte
+                        // des entfernten Rechners. Den letzten Schritt macht man im Gast selbst.
+                        sendTargetHint.textContent = uiText.sendTargetDriveHint
+                            || "Erscheint in der Sitzung als Laufwerk \"Matgate\".";
                         sftpTargetPath.classList.add('hidden');
                         sftpTargetPath.removeAttribute('required');
                         sftpTargetArea.classList.remove('hidden');
@@ -10555,6 +10408,8 @@ public sealed class HtmlViews
                         return;
                     }
 
+                    sendTargetLabel.textContent = uiText.sendTargetFolder || "Zielordner auf dem Server";
+                    sendTargetHint.textContent = '';
                     sftpTargetArea.classList.add('hidden');
                     sftpTargetPath.classList.remove('hidden');
                     sftpTargetPath.setAttribute('required', 'required');
@@ -10581,6 +10436,8 @@ public sealed class HtmlViews
                 function closeTargetFolderDialog() {
                     pendingTargetUpload = null;
                     sftpTargetDialog.classList.add('hidden');
+                    sendFilesInput.value = '';
+                    sftpTargetFiles.textContent = '';
                 }
 
                 function downloadRemoteFile(tab, stream, mimetype, filename) {
@@ -10832,11 +10689,6 @@ public sealed class HtmlViews
                 clipboardClose.addEventListener('click', closeClipboardDialog);
                 sftpTargetClose.addEventListener('click', closeTargetFolderDialog);
                 // The drop area is both: a button that opens the picker, and a target for dragging.
-                document.querySelectorAll("[data-send-source]").forEach(button =>
-                    button.addEventListener("click", () => showSendSource(button.dataset.sendSource)));
-                document.querySelectorAll("[data-send-target]").forEach(button =>
-                    button.addEventListener("click", () => showSendTarget(button.dataset.sendTarget)));
-                sendFilesPlaceSelect.addEventListener("change", () => { sendPlacePicked = []; renderPendingFiles(); loadSendPlace("/"); });
                 sendFilesDrop.addEventListener('click', () => sendFilesInput.click());
                 sendFilesInput.addEventListener('change', () => {
                     addPendingFiles(sendFilesInput.files);
@@ -10860,10 +10712,39 @@ public sealed class HtmlViews
                 // The X alone is not enough of a way out: Escape and a tap beside the dialog are what
                 // people reach for first, and without them it feels stuck.
                 document.addEventListener('keydown', event => {
-                    if (event.key === 'Escape' && !fileAreaDialog.classList.contains('hidden')) {
+                    if (event.key !== 'Escape') {
+                        return;
+                    }
+
+                    if (!fileAreaDialog.classList.contains('hidden')) {
                         closeFileAreaDialog();
                     }
+                    else if (!sftpTargetDialog.classList.contains('hidden')) {
+                        closeTargetFolderDialog();
+                    }
                 });
+                // Eine Datei, die im Dialog NEBEN der gestrichelten Flaeche landet, hat der Browser
+                // bisher selbst geoeffnet - er navigiert dann zur Datei, und die Sitzung dahinter ist
+                // weg. Der Dialog nimmt sie jetzt ueberall an; ausserhalb wird der Fall nur noch
+                // abgefangen.
+                sftpTargetDialog.addEventListener('dragover', event => {
+                    if (hasFileDragPayload(event)) {
+                        event.preventDefault();
+                    }
+                });
+                sftpTargetDialog.addEventListener('drop', event => {
+                    if (!hasFileDragPayload(event)) {
+                        return;
+                    }
+
+                    event.preventDefault();
+                    addPendingFiles(event.dataTransfer && event.dataTransfer.files);
+                });
+                ['dragover', 'drop'].forEach(type => document.addEventListener(type, event => {
+                    if (hasFileDragPayload(event) && !event.defaultPrevented) {
+                        event.preventDefault();
+                    }
+                }));
                 document.addEventListener('pointerdown', event => {
                     if (fileAreaDialog.classList.contains('hidden')) {
                         return;
@@ -10875,6 +10756,15 @@ public sealed class HtmlViews
                         closeFileAreaDialog();
                     }
                 }, true);
+                document.addEventListener('pointerdown', event => {
+                    if (sftpTargetDialog.classList.contains('hidden')) {
+                        return;
+                    }
+
+                    if (event.target instanceof Element && !sftpTargetDialog.contains(event.target)) {
+                        closeTargetFolderDialog();
+                    }
+                }, true);
                 sftpTargetDialog.addEventListener('submit', event => {
                     event.preventDefault();
                     if (!pendingTargetUpload) {
@@ -10884,7 +10774,7 @@ public sealed class HtmlViews
 
                     const { tab } = pendingTargetUpload;
                     const files = pendingTargetUpload.files;
-                    if (!files.length && !sendPlacePicked.length) {
+                    if (!files.length) {
                         // Nothing picked yet - say so instead of closing on an empty send.
                         renderPendingFiles();
                         sendFilesDrop.classList.add('send-files-drop--wanted');
@@ -10897,44 +10787,9 @@ public sealed class HtmlViews
                         ? (sftpTargetArea.value || 'Session')
                         : sftpTargetPath.value.trim();
 
-                    const picked = sendPlacePicked.slice();
                     const folder = tab.targetFolder;
-                    const toPlace = sendTargetMode === 'place';
-                    const placeId = sendTargetPlaceSelect.value;
-                    const placePath = sendTargetPlacePath.value.trim() || '/';
                     closeTargetFolderDialog();
-
-                    const deliver = all => (toPlace
-                        ? sendFilesToPlace(placeId, placePath, all)
-                        : sendFilesToSession(tab, all, folder));
-
-                    if (!picked.length) {
-                        deliver(files);
-                        return;
-                    }
-
-                    // Files that already live somewhere Matgate can reach are fetched first and then
-                    // join the ones from this computer - from there on it is one and the same transfer,
-                    // whichever end it is going to.
-                    (async () => {
-                        const fetched = [];
-                        for (const item of picked) {
-                            try {
-                                const response = await fetch(`/api/files/${item.id}/download?path=${encodeURIComponent(item.path)}`);
-                                if (!response.ok) {
-                                    continue;
-                                }
-
-                                const blob = await response.blob();
-                                fetched.push(new File([blob], item.name, { type: blob.type }));
-                            }
-                            catch (e) {
-                                // One unreadable file must not stop the rest.
-                            }
-                        }
-
-                        deliver(files.concat(fetched));
-                    })();
+                    sendFilesToSession(tab, files, folder);
                 });
                 if (resolutionClose) {
                     resolutionClose.addEventListener('click', closeResolutionDialog);
@@ -15361,36 +15216,6 @@ public sealed class HtmlViews
                        deliberately not full screen - seeing the session behind it is the point. */
                     /* Qualified with .credential-dialog so it does not depend on which rule comes last. */
                     .credential-dialog.send-files-dialog { max-width: 560px; width: min(560px, calc(100vw - 32px)); }
-                    .send-files-source { display: flex; gap: 6px; }
-                    .send-files-source button {
-                        align-items: center;
-                        display: flex;
-                        flex: 1 1 0;
-                        gap: 6px;
-                        justify-content: center;
-                    }
-                    .send-files-source button.active { border-color: var(--accent); color: var(--accent); font-weight: 600; }
-                    .send-files-place { display: flex; flex-direction: column; gap: 6px; }
-                    .send-files-place-path { font-family: monospace; font-size: 12px; }
-                    .send-files-place-list {
-                        border: 1px solid var(--line);
-                        border-radius: 10px;
-                        list-style: none;
-                        margin: 0;
-                        max-height: 220px;
-                        overflow-y: auto;
-                        padding: 6px;
-                    }
-                    .send-files-place-list li { padding: 3px 4px; }
-                    .send-files-place-list label { align-items: center; display: flex; gap: 8px; }
-                    .send-files-place-dir, .send-files-place-up {
-                        background: none;
-                        border: 0;
-                        color: var(--accent);
-                        cursor: pointer;
-                        padding: 0;
-                        text-align: left;
-                    }
                     .send-files-drop {
                         align-items: center;
                         background: var(--surface-2);
