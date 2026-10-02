@@ -509,9 +509,9 @@ public sealed class HtmlViews
                         <label class="check"><input type="checkbox" name="canManageServers"> {{T(context, "Manage servers")}}</label>
                         <label class="check"><input type="checkbox" name="canCreateServers"> {{T(context, "Can create own servers")}}</label>
                         <label class="check"><input type="checkbox" name="canQuickConnect"> {{(Language(context) == "de" ? "Quick-Connect erlauben" : "Allow quick connect")}}</label>
-                        <label class="check"><input type="checkbox" name="fileShareGlobal"> {{(Language(context) == "de" ? "Ablage \"Global\" in Sitzungen" : "\"Global\" area in sessions")}}</label>
-                        <label class="check"><input type="checkbox" name="fileShareConnection"> {{(Language(context) == "de" ? "Ablage \"Verbindung\" in Sitzungen" : "\"Connection\" area in sessions")}}</label>
-                        <label class="check"><input type="checkbox" name="fileSharePersonal" checked> {{(Language(context) == "de" ? "Eigene Ablage in Sitzungen" : "Own area in sessions")}}</label>
+                        <label class="check"><input type="checkbox" name="fileShareGlobal"> {{(Language(context) == "de" ? "Ordner \"Global\" (für alle Benutzer)" : "\"Global\" folder (shared with everyone)")}}</label>
+                        <label class="check"><input type="checkbox" name="fileShareConnection"> {{(Language(context) == "de" ? "Ordner \"Connection\" (je Verbindung)" : "\"Connection\" folder (one per connection)")}}</label>
+                        <label class="check"><input type="checkbox" name="fileSharePersonal" checked> {{(Language(context) == "de" ? "Ordner \"User\" (eigener Ordner)" : "\"User\" folder (their own)")}}</label>
                     </div>
                 </section>
                 <div class="actions">
@@ -605,9 +605,9 @@ public sealed class HtmlViews
                         <label class="check"><input type="checkbox" name="canManageServers"{{Checked(editedUser.CanManageServers)}}> {{T(context, "Manage servers")}}</label>
                         <label class="check"><input type="checkbox" name="canCreateServers"{{Checked(editedUser.CanCreateServers)}}> {{T(context, "Can create own servers")}}</label>
                         <label class="check"><input type="checkbox" name="canQuickConnect"{{Checked(editedUser.CanQuickConnect)}}> {{(de ? "Quick-Connect erlauben" : "Allow quick connect")}}</label>
-                        <label class="check"><input type="checkbox" name="fileShareGlobal"{{Checked(editedUser.FileShare.Global)}}> {{(de ? "Ablage \"Global\" in Sitzungen" : "\"Global\" area in sessions")}}</label>
-                        <label class="check"><input type="checkbox" name="fileShareConnection"{{Checked(editedUser.FileShare.Connection)}}> {{(de ? "Ablage \"Verbindung\" in Sitzungen" : "\"Connection\" area in sessions")}}</label>
-                        <label class="check"><input type="checkbox" name="fileSharePersonal"{{Checked(editedUser.FileShare.Personal)}}> {{(de ? "Eigene Ablage in Sitzungen" : "Own area in sessions")}}</label>
+                        <label class="check"><input type="checkbox" name="fileShareGlobal"{{Checked(editedUser.FileShare.Global)}}> {{(de ? "Ordner \"Global\" (für alle Benutzer)" : "\"Global\" folder (shared with everyone)")}}</label>
+                        <label class="check"><input type="checkbox" name="fileShareConnection"{{Checked(editedUser.FileShare.Connection)}}> {{(de ? "Ordner \"Connection\" (je Verbindung)" : "\"Connection\" folder (one per connection)")}}</label>
+                        <label class="check"><input type="checkbox" name="fileSharePersonal"{{Checked(editedUser.FileShare.Personal)}}> {{(de ? "Ordner \"User\" (eigener Ordner)" : "\"User\" folder (their own)")}}</label>
                         <small class="muted">{{(de ? "Aenderungen an den Ablagen wirken erst, wenn der Benutzer eine Sitzung neu aufbaut - laufende Sitzungen behalten ihre Ordner." : "Changes to the areas take effect the next time the user connects; sessions already running keep their folders.")}}</small>
                     </div>
                 </section>
@@ -3884,6 +3884,7 @@ public sealed class HtmlViews
                 <div id="file-area-dialog" class="credential-dialog file-area-dialog hidden">
                     <div class="file-area-dialog-head">
                         <strong id="file-area-dialog-title" class="file-area-dialog-title"></strong>
+                        <span id="file-area-dialog-status" class="muted file-area-dialog-status"></span>
                         <span class="file-area-dialog-actions">
                             <button id="file-area-dialog-send" type="button" class="button primary">{{Icon("upload")}}{{(Language(context) == "de" ? "In die Sitzung" : "Into the session")}}</button>
                             <button id="file-area-dialog-close" type="button" class="tab-action-button icon-only" aria-label="{{A(T(context, "Close"))}}">&times;</button>
@@ -7267,7 +7268,9 @@ public sealed class HtmlViews
                         overlayMessage,
                         overlayActions,
                         // Written to by setStatus; the dialog has no status bar of its own.
-                        statusLabel: document.createElement('span'),
+                        // Eine Zeile, die wirklich zu sehen ist: bisher schrieb setStatus in ein
+                        // Span, das nie im Baum hing.
+                        statusLabel: document.getElementById('file-area-dialog-status') || document.createElement('span'),
                         selectedFilePaths: new Set(),
                     };
                 }
@@ -8708,7 +8711,7 @@ public sealed class HtmlViews
                                 )
                             ),
                             ToolbarGroup('file-toolbar-transfer toolbar-group--end',
-                                `<button type="button" class="toolbar-button toolbar-icon-button file-upload-queue-toggle" data-file-action="toggle-upload-queue" title="${escapeHtml(ui('uploadQueue'))}" aria-label="${escapeHtml(ui('uploadQueue'))}">${fileIcon('download')}<span class="file-upload-queue-badge hidden" data-file-upload-queue-badge></span></button>`,
+                                `<button type="button" class="toolbar-button toolbar-icon-button file-upload-queue-toggle" data-file-action="toggle-upload-queue" title="${escapeHtml(ui('uploadQueue'))}" aria-label="${escapeHtml(ui('uploadQueue'))}">${fileIcon('upload')}<span class="file-upload-queue-badge hidden" data-file-upload-queue-badge></span></button>`,
                                 ToolbarUploadButton(ui('upload'), fileIcon('upload'), 'file-upload-button')
                             )
                         )}
@@ -8716,7 +8719,7 @@ public sealed class HtmlViews
                             <div class="file-upload-queue-head">
                                 <strong>${escapeHtml(ui('uploadQueue'))}</strong>
                                 <span class="muted" data-file-upload-queue-summary>${escapeHtml(ui('ready'))}</span>
-                                <button type="button" class="file-action-button file-upload-clear-button" data-file-action="clear-upload-finished" title="${escapeHtml(ui('clearFinished'))}">${fileIcon('trash')}<span>${escapeHtml(ui('clearFinished'))}</span></button>
+                                <button type="button" class="file-action-button file-upload-clear-button" data-file-action="clear-upload-finished" title="${escapeHtml(ui('clearFinished'))}">${fileIcon('delete')}<span>${escapeHtml(ui('clearFinished'))}</span></button>
                             </div>
                             <div class="file-upload-queue-list" data-file-upload-queue-list></div>
                         </div>
@@ -9720,6 +9723,14 @@ public sealed class HtmlViews
                                 next.completedAt = Date.now();
                                 tab.lastError = message;
                                 tab.lastMessage = `${next.file?.name || ''}: ${message}`;
+                                // Im Dialog gibt es keine Statuszeile der Sitzung, an der man es
+                                // sonst saehe - also dorthin, wo die Dateien stehen.
+                                setFileMessage(tab, tab.lastMessage, 'error');
+                                if (tab.fileUi && tab.fileUi.queueShell) {
+                                    tab.fileUi.queueVisible = true;
+                                    tab.fileUi.queueShell.hidden = false;
+                                }
+
                                 setStatus(tab, uiText.error || 'Error');
                                 updateStatusBar();
                                 scheduleUploadQueueRender(tab);
@@ -15439,6 +15450,8 @@ public sealed class HtmlViews
                        der geschlossene Dialog mit allen Knoepfen im Tabulator stehen. */
                     .credential-dialog.file-area-dialog.hidden { display: none; }
                     .file-area-dialog-actions { align-items: center; display: flex; gap: 8px; }
+                    .file-area-dialog-status { flex: 0 1 auto; font-size: 12px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                    .credential-dialog.copy-to-dialog { max-width: 460px; width: min(460px, calc(100vw - 32px)); }
                     .file-area-dialog-title { flex: 1 1 auto; font-size: 15px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
                     .file-area-host { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; min-width: 0; position: relative; }
                     .file-area-dialog-head {

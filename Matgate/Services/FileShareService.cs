@@ -124,14 +124,42 @@ public sealed class FileShareService
 
         if (permissions.Connection)
         {
-            foreach (var server in accessibleServers.OrderBy(server => server.Name, StringComparer.CurrentCultureIgnoreCase))
+            var ordered = accessibleServers
+                .OrderBy(server => server.Name, StringComparer.CurrentCultureIgnoreCase)
+                .ToList();
+
+            // Nothing stops two connections from having the same name, and two identical entries in
+            // the list are worse than a long one: you cannot tell which folder you are in. Only the
+            // ones that actually collide get their target added.
+            var ambiguous = ordered
+                .GroupBy(server => (server.Name ?? "").Trim(), StringComparer.CurrentCultureIgnoreCase)
+                .Where(group => group.Count() > 1)
+                .Select(group => group.Key)
+                .ToHashSet(StringComparer.CurrentCultureIgnoreCase);
+
+            var used = new HashSet<string>(StringComparer.CurrentCultureIgnoreCase);
+            foreach (var server in ordered)
             {
+                // A slash in the connection's own name would read as another level that is not
+                // there; it becomes a dash so the first slash stays the one Matgate put in.
+                var label = (server.Name ?? "").Replace('/', '-');
+                if (ambiguous.Contains((server.Name ?? "").Trim()) && !string.IsNullOrWhiteSpace(server.Host))
+                {
+                    label += $" ({server.Host}:{server.Port})";
+                }
+
+                // Two connections may share a name AND a target. Then only the id tells them apart -
+                // ugly, but an entry you cannot identify is worse than a long one.
+                if (!used.Add(label))
+                {
+                    label += $" [{server.Id.ToString("N")[..4]}]";
+                    used.Add(label);
+                }
+
                 areas.Add(AreaEndpoint(
                     user,
                     ConnectionAreaId(server.Id),
-                    // A slash in the connection's own name would read as another level that is not
-                    // there; it becomes a dash so the first slash stays the one Matgate put in.
-                    "Connection/" + (server.Name ?? "").Replace('/', '-'),
+                    "Connection/" + label,
                     ConnectionDirectory(server.Id)));
             }
         }
