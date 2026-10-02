@@ -2995,19 +2995,25 @@ public sealed class HtmlViews
     }
 
     // A per-protocol accent colour (mockup-style coloured icon chips). Colours are not final.
+    // Nicht mehr der Hexwert selbst, sondern der Verweis auf ein Token: so kann ein Thema die
+    // Protokollfarben setzen, und zwar getrennt fuer hell und dunkel. Die alten Werte waren im
+    // hellen Modus auf ihrer eigenen 16%-Toenung nicht lesbar (1,7 bis 2,8 statt 4,5).
     private static string ProtocolAccent(ServerProtocol protocol)
     {
-        return protocol switch
+        var token = protocol switch
         {
-            ServerProtocol.Rdp => "#4c8dff",
-            ServerProtocol.Vnc => "#b06cff",
-            ServerProtocol.Ssh => "#8a7cff",
-            ServerProtocol.Sftp => "#f0a92b",
-            ServerProtocol.Ftp => "#e0863a",
-            ServerProtocol.Smb => "#35c07f",
-            ServerProtocol.Website => "#3aa0ff",
-            _ => "#5bc2a8"
+            ServerProtocol.Rdp => "rdp",
+            ServerProtocol.Vnc => "vnc",
+            ServerProtocol.Ssh => "ssh",
+            ServerProtocol.Sftp => "sftp",
+            ServerProtocol.Ftp => "ftp",
+            ServerProtocol.Smb => "smb",
+            ServerProtocol.Website => "website",
+            ServerProtocol.WebDav => "webdav",
+            _ => "local"
         };
+
+        return $"var(--proto-{token})";
     }
 
     private static string RelativeTime(DateTimeOffset when, bool de)
@@ -11994,7 +12000,7 @@ public sealed class HtmlViews
                         stroke: currentColor;
                         stroke-linecap: round;
                         stroke-linejoin: round;
-                        stroke-width: 2;
+                        stroke-width: var(--icon-stroke, 2);
                         width: 17px;
                     }
                     nav { display: flex; align-items: center; gap: 6px; flex-wrap: nowrap; overflow: visible; min-width: 0; }
@@ -17436,7 +17442,10 @@ public sealed class HtmlViews
             ? themes.Values(palette, dark)
             : ThemeService.FallbackValues(dark);
         var pad = new string(' ', indent);
-        return string.Join("\n" + pad, values.Select(entry => $"--{entry.Key}: {entry.Value};"));
+        // Gefiltert: ein Wert aus einer Datei wird hier woertlich in ein <style> geschrieben.
+        return string.Join("\n" + pad, values
+            .Where(entry => ThemeService.Accept(entry.Key, entry.Value))
+            .Select(entry => $"--{entry.Key}: {entry.Value};"));
     }
 
     private static string ThemePaletteOptions(HttpContext context, string selected)

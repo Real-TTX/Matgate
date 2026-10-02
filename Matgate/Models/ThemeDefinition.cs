@@ -22,6 +22,9 @@ public sealed class ThemeDefinition
     // Leer heißt: die eingebauten.
     public Dictionary<string, string> Protocols { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 
+    // Dasselbe für den dunklen Modus; leer heißt: dieselben wie oben.
+    public Dictionary<string, string> ProtocolsDark { get; set; } = new(StringComparer.OrdinalIgnoreCase);
+
     // Die Strichstärke der Symbole. Leer heißt 1.75 wie bisher; 1.5 wirkt feiner, 2 kräftiger.
     public string IconStroke { get; set; } = "";
 }
