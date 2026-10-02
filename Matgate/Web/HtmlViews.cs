@@ -13147,7 +13147,7 @@ public sealed class HtmlViews
                     .mobile-tab-item.active { background: var(--surface-2); }
                     .session-tab {
                         align-items: stretch;
-                        background: var(--surface-3);
+                        background: transparent;
                         border-right: 1px solid var(--line);
                         display: flex;
                         flex: 0 0 auto;
@@ -13155,7 +13155,18 @@ public sealed class HtmlViews
                         cursor: grab;
                         transition: background-color .15s ease, opacity .15s ease;
                     }
-                    .session-tab.active { background: var(--surface); }
+                    /* Genau ein Tab faellt auf: der offene. Die Leiste ist --surface-2, und
+                       --surface-3 liegt im hellen Modus darunter und im dunklen darueber - derselbe
+                       Token hebt also in beide Richtungen richtig ab. Vorher war es umgekehrt
+                       vergeben (inaktiv --surface-3, aktiv --surface), weshalb im dunklen Modus
+                       ausgerechnet der offene Tab der dunkelste war. */
+                    .session-tab:not(.active):hover { background: var(--hover-bg); }
+                    .session-tab.active {
+                        background: var(--surface-3);
+                        box-shadow: inset 0 -2px 0 var(--accent);
+                    }
+                    .session-tab.active .session-tab-title { color: var(--text); font-weight: 600; }
+                    .session-tab:not(.active) .session-tab-title { color: var(--muted); }
                     .session-tab.dragging { opacity: .65; }
                     .session-tab--page,
                     .session-tab--connection {
@@ -15819,6 +15830,27 @@ public sealed class HtmlViews
                         opacity: 1;
                         transition: opacity .18s ease, transform .18s ease, display .18s ease allow-discrete;
                     }
+                    /* Der Einfuege-Dialog hatte keine eigenen Regeln: 420px breit, ein Textfeld in
+                       Voreinstellungshoehe und drei beschriftete Knoepfe, die sich darunter drueckten.
+                       Er ist das einzige Fenster, in dem man wirklich etwas schreibt - also breiter,
+                       ein Feld, in das ein Absatz passt, und Luft zwischen den Teilen. */
+                    .credential-dialog.clipboard-dialog {
+                        display: grid;
+                        gap: 14px;
+                        width: min(560px, calc(100% - 32px));
+                    }
+                    .clipboard-dialog h2 { margin: 0; }
+                    .clipboard-dialog textarea {
+                        font-family: Consolas, ui-monospace, monospace;
+                        min-height: 180px;
+                        resize: vertical;
+                    }
+                    .clipboard-dialog .actions {
+                        flex-wrap: wrap;
+                        justify-content: flex-end;
+                    }
+                    /* Die Hauptsache zuerst und abgesetzt: senden links, der Rest rechts. */
+                    .clipboard-dialog .actions .primary { margin-right: auto; }
                     .credential-dialog.hidden {
                         opacity: 0;
                         pointer-events: none;
