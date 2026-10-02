@@ -54,9 +54,9 @@ public sealed class HtmlViews
         ["Shared"] = "Gemeinsam",
         ["Files"] = "Dateien",
         ["Settings"] = "Einstellungen",
-        ["Delete workspace"] = "Workspace loeschen",
+        ["Delete workspace"] = "Workspace löschen",
         ["Public access validity (hours)"] = "Oeffentliche Gueltigkeit (Stunden)",
-        ["External access is available for this duration."] = "Externer Zugriff ist fuer diese Dauer verfuegbar.",
+        ["External access is available for this duration."] = "Externer Zugriff ist für diese Dauer verfügbar.",
         ["This external workspace access has expired."] = "Dieser externe Workspace-Zugriff ist abgelaufen.",
         ["Please contact the owner or open the admin view if you manage this workspace."] = "Bitte kontaktiere den Besitzer oder oeffne die Admin-Ansicht, wenn du diesen Workspace verwaltest.",
         ["+24h"] = "+24h",
@@ -66,21 +66,21 @@ public sealed class HtmlViews
         ["Shared folders, text and open sessions in one place."] = "Gemeinsame Ordner, Text und offene Sitzungen an einem Ort.",
         ["A workspace is a shared folder with a public link and shared text."] = "Ein Workspace ist ein geteilter Ordner mit oeffentlichem Link und gemeinsamem Text.",
         ["Top level"] = "Oberste Ebene",
-        ["Uploads are disabled for this workspace."] = "Uploads sind fuer diesen Workspace deaktiviert.",
-        ["Text exchange is disabled for this workspace."] = "Der Textaustausch ist fuer diesen Workspace deaktiviert.",
+        ["Uploads are disabled for this workspace."] = "Uploads sind für diesen Workspace deaktiviert.",
+        ["Text exchange is disabled for this workspace."] = "Der Textaustausch ist für diesen Workspace deaktiviert.",
         ["No sessions yet."] = "Noch keine Sitzungen vorhanden.",
         ["Home"] = "Home",
         ["Tools"] = "Werkzeuge",
         ["Network tools"] = "Netzwerkwerkzeuge",
         ["Tool"] = "Werkzeug",
-        ["Select tool"] = "Werkzeug auswaehlen",
+        ["Select tool"] = "Werkzeug auswählen",
         ["Reachability and latency check."] = "Erreichbarkeit und Latenz pruefen.",
         ["Resolve hostnames and addresses."] = "Hostnamen und Adressen aufloesen.",
         ["Test TCP ports live."] = "TCP-Ports live pruefen.",
-        ["Stream a file and watch transfer speed."] = "Eine Datei streamen und die Uebertragungsgeschwindigkeit sehen.",
-        ["About"] = "ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â¦ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œber",
+        ["Stream a file and watch transfer speed."] = "Eine Datei streamen und die Übertragungsgeschwindigkeit sehen.",
+        ["About"] = "Über",
         ["About Matgate"] = "Matgate",
-        ["Local login for RDP, VNC, SSH, websites and file access in your home network."] = "Lokale Anmeldung fuer RDP-, VNC-, SSH-, Website- und Dateizugriffe im Heimnetz.",
+        ["Local login for RDP, VNC, SSH, websites and file access in your home network."] = "Lokale Anmeldung für RDP-, VNC-, SSH-, Website- und Dateizugriffe im Heimnetz.",
         ["Live output streams below."] = "Die Ausgabe laeuft live unten ein.",
         ["Folder view"] = "Ordneransicht",
         ["Server view"] = "Serveransicht",
@@ -92,20 +92,20 @@ public sealed class HtmlViews
         ["Version"] = "Version",
         ["Global"] = "Global",
         ["Username"] = "Benutzername",
-        ["Open as"] = "Oeffnen als",
-        ["The browser service is not available."] = "Der Browser-Dienst ist nicht verfuegbar.",
-        ["No free browser session is available right now."] = "Aktuell ist keine freie Browser-Sitzung verfuegbar.",
+        ["Open as"] = "Öffnen als",
+        ["The browser service is not available."] = "Der Browser-Dienst ist nicht verfügbar.",
+        ["No free browser session is available right now."] = "Aktuell ist keine freie Browser-Sitzung verfügbar.",
         ["Username or email"] = "Benutzername oder E-Mail",
         ["Email"] = "E-Mail",
         ["Email (optional)"] = "E-Mail (optional)",
         ["Initial setup"] = "Ersteinrichtung",
         ["Welcome to Matgate! Create the administrator account to get started."] = "Willkommen bei Matgate! Lege zum Start das Administrator-Konto an.",
-        ["Confirm password"] = "Passwort bestaetigen",
+        ["Confirm password"] = "Passwort bestätigen",
         ["Create admin account"] = "Admin-Konto erstellen",
-        ["Please choose a username (3-64 characters)."] = "Bitte einen Benutzernamen waehlen (3-64 Zeichen).",
-        ["Please enter a valid email address."] = "Bitte eine gueltige E-Mail-Adresse eingeben.",
+        ["Please choose a username (3-64 characters)."] = "Bitte einen Benutzernamen wählen (3-64 Zeichen).",
+        ["Please enter a valid email address."] = "Bitte eine gültige E-Mail-Adresse eingeben.",
         ["The password must be at least 10 characters long."] = "Das Passwort muss mindestens 10 Zeichen lang sein.",
-        ["The passwords do not match."] = "Die Passwoerter stimmen nicht ueberein.",
+        ["The passwords do not match."] = "Die Passwörter stimmen nicht überein.",
         ["This email address is already in use."] = "Diese E-Mail-Adresse wird bereits verwendet.",
         ["Password"] = "Passwort",
         ["Sign in"] = "Einloggen",
@@ -113,7 +113,7 @@ public sealed class HtmlViews
         ["Connections"] = "Verbindungen",
         ["Page"] = "Seite",
         ["Connect"] = "Verbinden",
-        ["Open"] = "Oeffnen",
+        ["Open"] = "Öffnen",
         ["No global servers yet. An administrator can create servers and grant access."] = "Noch keine globalen Server. Ein Administrator kann Server anlegen und dir Zugriff geben.",
         ["Administration"] = "Administration",
         ["Users"] = "Benutzer",
@@ -148,7 +148,7 @@ public sealed class HtmlViews
         ["Locked"] = "Gesperrt",
         ["User"] = "Benutzer",
         ["Unknown user"] = "Unbekannter Benutzer",
-        ["Back"] = "Zurueck",
+        ["Back"] = "Zurück",
         ["Profile and Permissions"] = "Profil und Rechte",
         ["Enabled"] = "Aktiv",
         ["Save"] = "Speichern",
@@ -157,7 +157,7 @@ public sealed class HtmlViews
         ["Save access"] = "Zugriff speichern",
         ["Administrators always see all servers."] = "Administratoren sehen immer alle Server.",
         ["All global servers (*)"] = "Alle globalen Server (*)",
-        ["* applies to global servers only."] = "* gilt nur fuer globale Server.",
+        ["* applies to global servers only."] = "* gilt nur für globale Server.",
         ["Only global servers are listed here."] = "Hier werden nur globale Server angezeigt.",
         ["Global server"] = "Globaler Server",
         ["Global servers"] = "Globale Server",
@@ -177,8 +177,8 @@ public sealed class HtmlViews
         ["New password"] = "Neues Passwort",
         ["Set password"] = "Passwort setzen",
         ["Remove"] = "Entfernen",
-        ["Cannot delete own user"] = "Eigenen Benutzer nicht loeschen",
-        ["Delete user"] = "Benutzer loeschen",
+        ["Cannot delete own user"] = "Eigenen Benutzer nicht löschen",
+        ["Delete user"] = "Benutzer löschen",
         ["Servers"] = "Server",
         ["Create server"] = "Server anlegen",
         ["Existing servers"] = "Vorhandene Server",
@@ -190,7 +190,7 @@ public sealed class HtmlViews
         ["Favorites"] = "Favoriten",
         ["Favorite servers"] = "Favorisierte Server",
         ["No favorite servers yet."] = "Noch keine Favoriten.",
-        ["Add to favorites"] = "Zu Favoriten hinzufuegen",
+        ["Add to favorites"] = "Zu Favoriten hinzufügen",
         ["Remove from favorites"] = "Aus Favoriten entfernen",
         ["Optional. Used for grouping in lists."] = "Optional. Wird zur Gruppierung in Listen verwendet.",
         ["Favorites are stored per user."] = "Favoriten werden pro Benutzer gespeichert.",
@@ -199,21 +199,21 @@ public sealed class HtmlViews
         ["Off"] = "Aus",
         ["Connection"] = "Verbindung",
         ["Clear saved target password"] = "Gespeichertes Ziel-Passwort entfernen",
-        ["Delete server"] = "Server loeschen",
-        ["Domain"] = "DomÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¤ne",
+        ["Delete server"] = "Server löschen",
+        ["Domain"] = "Domäne",
         ["Edit"] = "Bearbeiten",
         ["Name and host are required."] = "Name und Host sind erforderlich.",
         ["Name and website URL are required."] = "Name und Website-URL sind erforderlich.",
         ["This server is not a website connection."] = "Dieser Server ist keine Website-Verbindung.",
-        ["Invalid request"] = "Ungueltige Anfrage",
+        ["Invalid request"] = "Ungültige Anfrage",
         ["The form has expired."] = "Das Formular ist abgelaufen.",
         ["No access"] = "Kein Zugriff",
-        ["Your user is not allowed to perform this action."] = "Dein Benutzer hat fuer diese Aktion keine Berechtigung.",
-        ["Global servers only. Own servers are automatically available to the owner."] = "Nur globale Server. Eigene Server sind fuer den Besitzer automatisch verfuegbar.",
+        ["Your user is not allowed to perform this action."] = "Dein Benutzer hat für diese Aktion keine Berechtigung.",
+        ["Global servers only. Own servers are automatically available to the owner."] = "Nur globale Server. Eigene Server sind für den Besitzer automatisch verfügbar.",
         ["This file is not a supported archive."] = "Diese Datei ist kein unterstuetztes Archiv.",
         ["To Home"] = "Zu Home",
         ["New connection"] = "Neue Verbindung",
-        ["Actions for the active tab"] = "Aktionen fuer den aktiven Tab",
+        ["Actions for the active tab"] = "Aktionen für den aktiven Tab",
         ["Clipboard"] = "Zwischenablage",
         ["Copy to clipboard"] = "In Zwischenablage kopieren",
         ["Copy URL to clipboard"] = "URL in Zwischenablage kopieren",
@@ -235,7 +235,7 @@ public sealed class HtmlViews
         ["Text"] = "Text",
         ["Send to active tab"] = "An aktiven Tab senden",
         ["Paste to active tab"] = "In aktiven Tab einfuegen",
-        ["Close"] = "Schliessen",
+        ["Close"] = "Schließen",
         ["Server"] = "Server",
         ["Server icon"] = "Server-Icon",
         ["Default by connection type"] = "Standard nach Verbindungstyp",
@@ -243,11 +243,11 @@ public sealed class HtmlViews
         ["Host or IP"] = "Host oder IP",
         ["Target user"] = "Ziel-Benutzer",
         ["Target password"] = "Ziel-Passwort",
-        ["Leave password empty to keep it unchanged."] = "Passwort leer lassen, um es unveraendert zu lassen.",
+        ["Leave password empty to keep it unchanged."] = "Passwort leer lassen, um es unverändert zu lassen.",
         ["Domain (RDP/SMB)"] = "Domain (RDP/SMB)",
         ["File start path / SMB share"] = "Datei-Startpfad / SMB-Share",
         ["RDP keyboard layout"] = "RDP-Tastatur-Layout",
-        ["SSH font size"] = "SSH-Schriftgroesse",
+        ["SSH font size"] = "SSH-Schriftgröße",
         ["Ignore RDP certificate"] = "RDP-Zertifikat ignorieren",
         ["Notes"] = "Notizen",
         ["New Connection"] = "Neue Verbindung",
@@ -278,15 +278,15 @@ public sealed class HtmlViews
         ["Status code"] = "Statuscode",
         ["Content type"] = "Inhaltstyp",
         ["Content length"] = "Inhaltslaenge",
-        ["Open website"] = "Website oeffnen",
-        ["Open in new tab"] = "In neuem Tab oeffnen",
+        ["Open website"] = "Website öffnen",
+        ["Open in new tab"] = "In neuem Tab öffnen",
         ["Website proxy"] = "Website-Proxy",
-        ["Opening website"] = "Website wird geoeffnet",
+        ["Opening website"] = "Website wird geöffnet",
         ["Website loaded"] = "Website geladen",
         ["Forward"] = "Vorwaerts",
         ["Logout"] = "Logout",
         ["Username or password is invalid."] = "Benutzername oder Passwort stimmt nicht.",
-        ["Invalid data"] = "Ungueltige Daten",
+        ["Invalid data"] = "Ungültige Daten",
         ["Name and host are required."] = "Name und Host sind erforderlich.",
         ["User already exists"] = "Benutzer existiert",
         ["This username is already taken."] = "Dieser Benutzername ist bereits vergeben.",
@@ -294,24 +294,24 @@ public sealed class HtmlViews
         ["The password must be at least 10 characters long."] = "Das Passwort muss mindestens 10 Zeichen haben.",
         ["Not saved"] = "Nicht gespeichert",
         ["The last active administrator cannot be removed."] = "Der letzte aktive Administrator kann nicht entzogen werden.",
-        ["Not deleted"] = "Nicht geloescht",
-        ["You cannot delete your own user."] = "Du kannst deinen eigenen Benutzer nicht loeschen.",
+        ["Not deleted"] = "Nicht gelöscht",
+        ["You cannot delete your own user."] = "Du kannst deinen eigenen Benutzer nicht löschen.",
         ["This server is not shared with you."] = "Dieser Server ist nicht freigegeben.",
         ["The connection could not be started."] = "Die Verbindung konnte nicht gestartet werden.",
-        ["No file selected."] = "Keine Datei ausgewaehlt.",
+        ["No file selected."] = "Keine Datei ausgewählt.",
         ["The uploaded file is too large."] = "Die hochgeladene Datei ist zu gross.",
         ["Folder name is missing."] = "Ordnername fehlt.",
         ["File name is missing."] = "Dateiname fehlt.",
         ["This server is not a file connection."] = "Dieser Server ist keine Dateiverbindung.",
         ["File viewer"] = "Dateiansicht",
-        ["Open raw"] = "Rohdatei oeffnen",
-        ["Back to Matgate"] = "Zurueck zu Matgate",
-        ["No preview available"] = "Keine Vorschau verfuegbar",
+        ["Open raw"] = "Rohdatei öffnen",
+        ["Back to Matgate"] = "Zurück zu Matgate",
+        ["No preview available"] = "Keine Vorschau verfügbar",
         ["File access failed"] = "Dateizugriff fehlgeschlagen",
         ["Upload queue"] = "Upload-Warteschlange",
         ["Drop files here to upload"] = "Dateien hier ablegen, um sie hochzuladen.",
         ["Current folder"] = "Aktueller Ordner",
-        ["Clear finished"] = "Fertige loeschen",
+        ["Clear finished"] = "Fertige löschen",
         ["No uploads in the queue."] = "Keine Uploads in der Warteschlange.",
         ["Aborted"] = "Abgebrochen"
     };
@@ -608,7 +608,7 @@ public sealed class HtmlViews
                         <label class="check"><input type="checkbox" name="fileShareGlobal"{{Checked(editedUser.FileShare.Global)}}> {{(de ? "Ordner \"Global\" (für alle Benutzer)" : "\"Global\" folder (shared with everyone)")}}</label>
                         <label class="check"><input type="checkbox" name="fileShareConnection"{{Checked(editedUser.FileShare.Connection)}}> {{(de ? "Ordner \"Connection\" (je Verbindung)" : "\"Connection\" folder (one per connection)")}}</label>
                         <label class="check"><input type="checkbox" name="fileSharePersonal"{{Checked(editedUser.FileShare.Personal)}}> {{(de ? "Ordner \"User\" (eigener Ordner)" : "\"User\" folder (their own)")}}</label>
-                        <small class="muted">{{(de ? "Aenderungen an den Ablagen wirken erst, wenn der Benutzer eine Sitzung neu aufbaut - laufende Sitzungen behalten ihre Ordner." : "Changes to the areas take effect the next time the user connects; sessions already running keep their folders.")}}</small>
+                        <small class="muted">{{(de ? "Änderungen an den Ablagen wirken erst, wenn der Benutzer eine Sitzung neu aufbaut - laufende Sitzungen behalten ihre Ordner." : "Changes to the areas take effect the next time the user connects; sessions already running keep their folders.")}}</small>
                     </div>
                 </section>
                 <div class="actions"><button type="submit" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button></div>
@@ -674,8 +674,8 @@ public sealed class HtmlViews
         var de = Language(context) == "de";
         var openLabel = T(context, "Open");
         var editLabel = de ? "Bearbeiten" : "Edit";
-        var deleteLabel = de ? "Loeschen" : "Delete";
-        var confirmDelete = de ? "Wirklich loeschen?" : "Delete this entry?";
+        var deleteLabel = de ? "Löschen" : "Delete";
+        var confirmDelete = de ? "Wirklich löschen?" : "Delete this entry?";
 
         string DeleteForm(string action) => $$"""<form method="post" action="{{action}}" data-confirm="{{A(confirmDelete)}}">{{Csrf(context)}}<button type="submit" class="icon-button danger-action" title="{{A(deleteLabel)}}" aria-label="{{A(deleteLabel)}}">{{Icon("trash")}}</button></form>""";
         string EditLink(string href) => $$"""<a class="icon-button" href="{{href}}" title="{{A(editLabel)}}" aria-label="{{A(editLabel)}}">{{Icon("edit")}}</a>""";
@@ -868,7 +868,7 @@ public sealed class HtmlViews
 
         var status = browser.Status;
         var statusBadge = status is null
-            ? $"""<span class="badge" style="border-color:#efc7c7">{E(de ? "Farm nicht erreichbar" : "Browser farm unreachable")}</span>"""
+            ? $"""<span class="badge badge--danger">{E(de ? "Farm nicht erreichbar" : "Browser farm unreachable")}</span>"""
             : $"""<span class="badge">{E((de ? "Pool" : "Pool") + $": {status.Busy}/{status.PoolSize} " + (de ? "belegt" : "in use"))}</span>""";
 
         var activeRows = browser.Active.Count == 0
@@ -910,19 +910,19 @@ public sealed class HtmlViews
                     {{statusBadge}}
                 </div>
                 <p class="muted">{{E(de
-                    ? "Sitzungen fuer \"via Chromium/Firefox VNC\"-Websites. Jede belegt einen Slot im Pool und wird beim Schliessen (oder nach Timeout) automatisch freigegeben."
+                    ? "Sitzungen für \"via Chromium/Firefox VNC\"-Websites. Jede belegt einen Slot im Pool und wird beim Schließen (oder nach Timeout) automatisch freigegeben."
                     : "Sessions for \"via Chromium/Firefox VNC\" websites. Each uses one pool slot and is released automatically on close (or after a timeout).")}}</p>
                 <form method="post" action="/admin/browser/settings" class="form-grid" style="margin-bottom:8px">
                     {{Csrf(context)}}
-                    <label>{{E(de ? "Pool-Groesse (parallele Sitzungen)" : "Pool size (parallel sessions)")}}
+                    <label>{{E(de ? "Pool-Größe (parallele Sitzungen)" : "Pool size (parallel sessions)")}}
                         <input name="poolSize" type="number" min="1" max="50" value="{{A(poolValue.ToString())}}">
                     </label>
-                    <label>{{E(de ? "Aufloesung (BreitexHoehexTiefe)" : "Resolution (widthxheightxdepth)")}}
+                    <label>{{E(de ? "Auflösung (BreitexHoehexTiefe)" : "Resolution (widthxheightxdepth)")}}
                         <input name="geometry" value="{{A(geometryValue)}}" placeholder="1280x800x24">
                     </label>
                     <div class="actions"><button type="submit" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button></div>
                     <p class="muted" style="grid-column:1/-1">{{E(de
-                        ? "Wird live an den Browser-Dienst uebergeben. Eine kleinere Pool-Groesse betrifft nur neue Sitzungen; eine neue Aufloesung gilt fuer neu geoeffnete Sitzungen."
+                        ? "Wird live an den Browser-Dienst übergeben. Eine kleinere Pool-Größe betrifft nur neue Sitzungen; eine neue Auflösung gilt für neu geöffnete Sitzungen."
                         : "Applied to the browser service live. A smaller pool only affects new sessions; a new resolution applies to newly opened sessions.")}}</p>
                 </form>
                 <h3>{{E(de ? "Aktive Sitzungen" : "Active sessions")}}</h3>
@@ -1009,7 +1009,7 @@ public sealed class HtmlViews
                     <button type="submit" form="server-edit-form" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button>
                     <a class="button" href="/admin?tab=servers">{{Icon("arrow-left")}}{{T(context, "Back")}}</a>
                     <span class="spacer"></span>
-                    <form method="post" action="/admin/servers/{{server.Id}}/delete" data-confirm="{{A(Language(context) == "de" ? "Server wirklich loeschen?" : "Delete this server?")}}">
+                    <form method="post" action="/admin/servers/{{server.Id}}/delete" data-confirm="{{A(Language(context) == "de" ? "Server wirklich löschen?" : "Delete this server?")}}">
                         {{Csrf(context)}}
                         <button type="submit" class="danger">{{Icon("trash")}}{{T(context, "Delete server")}}</button>
                     </form>
@@ -1074,16 +1074,16 @@ public sealed class HtmlViews
         var actionLabels = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["fullscreen"] = de ? "Vollbild" : "Fullscreen",
-            ["popOut"] = de ? "In eigenem Fenster oeffnen" : "Open in a new window",
-            ["reattach"] = de ? "Fenster zurueckholen" : "Re-attach window",
+            ["popOut"] = de ? "In eigenem Fenster öffnen" : "Open in a new window",
+            ["reattach"] = de ? "Fenster zurückholen" : "Re-attach window",
             ["pointer"] = de ? "Zeigermodus" : "Pointer mode",
             ["rightClick"] = de ? "Rechtsklick" : "Right click",
             ["keyboard"] = de ? "Geraetetastatur" : "Device keyboard",
             ["osk"] = de ? "Bildschirmtastatur" : "On-screen keyboard",
-            ["resolution"] = de ? "Aufloesung" : "Resolution",
+            ["resolution"] = de ? "Auflösung" : "Resolution",
             ["autoResize"] = de ? "Automatisch anpassen" : "Auto-resize",
             ["zoomOut"] = de ? "Verkleinern" : "Zoom out",
-            ["zoomIn"] = de ? "Vergroessern" : "Zoom in",
+            ["zoomIn"] = de ? "Vergrößern" : "Zoom in",
             ["copyUrl"] = de ? "Adresse kopieren" : "Copy address",
             ["clipboard"] = de ? "Einfuegen" : "Paste",
             ["cad"] = de ? "Strg+Alt+Entf" : "Ctrl+Alt+Del",
@@ -1176,7 +1176,7 @@ public sealed class HtmlViews
                     </div>
                     <div class="tab-panel{{(tab == "security" ? "" : " hidden")}}" data-tab-panel="security">
                         <section class="panel">
-                            <h2>{{(de ? "Passwort aendern" : "Change password")}}</h2>
+                            <h2>{{(de ? "Passwort ändern" : "Change password")}}</h2>
                             <p class="muted">{{(de ? "Mindestens 8 Zeichen." : "At least 8 characters.")}}</p>
                             <form method="post" action="/account/password" class="form-grid">
                                 {{Csrf(context)}}
@@ -1186,29 +1186,29 @@ public sealed class HtmlViews
                                 <label>{{(de ? "Neues Passwort" : "New password")}}
                                     <input type="password" name="newPassword" autocomplete="new-password" minlength="8" required>
                                 </label>
-                                <label>{{(de ? "Neues Passwort bestaetigen" : "Confirm new password")}}
+                                <label>{{(de ? "Neues Passwort bestätigen" : "Confirm new password")}}
                                     <input type="password" name="confirmPassword" autocomplete="new-password" minlength="8" required>
                                 </label>
-                                <div class="actions"><button type="submit" class="primary">{{Icon("key")}}{{(de ? "Passwort aendern" : "Change password")}}</button></div>
+                                <div class="actions"><button type="submit" class="primary">{{Icon("key")}}{{(de ? "Passwort ändern" : "Change password")}}</button></div>
                             </form>
                         </section>
                     </div>
                     <div class="tab-panel{{(tab == "session" ? "" : " hidden")}}" data-tab-panel="session">
                         <section class="panel">
                             <h2>{{(de ? "Sitzungs-Einstellungen" : "Session settings")}}</h2>
-                            <p class="muted">{{(de ? "Gelten fuer alle deine Remote-Sitzungen (RDP/VNC/SSH), auf jedem Geraet." : "Apply to all your remote sessions (RDP/VNC/SSH), on every device.")}}</p>
+                            <p class="muted">{{(de ? "Gelten für alle deine Remote-Sitzungen (RDP/VNC/SSH), auf jedem Geraet." : "Apply to all your remote sessions (RDP/VNC/SSH), on every device.")}}</p>
                             <form method="post" action="/account/session" class="session-prefs">
                                 {{Csrf(context)}}
-                                <h3 class="session-prefs-group">{{(de ? "Anzeige (bei fester Aufloesung)" : "Display (in fixed-resolution mode)")}}</h3>
+                                <h3 class="session-prefs-group">{{(de ? "Anzeige (bei fester Auflösung)" : "Display (in fixed-resolution mode)")}}</h3>
                                 {{Toggle("edgePanning", prefs.EdgePanning, "Maus-Rand-Panning", "Mouse-edge panning", "Maus an den Fensterrand -> Ausschnitt wandert (wie auf einer Karte).", "Move the mouse to the window edge -> the view pans (like a map).")}}
-                                {{Toggle("dragPanning", prefs.DragPanning, "Ziehen mit Maustaste", "Drag to pan", "Ausschnitt mit gedrueckter mittlerer Maustaste verschieben.", "Pan the view by holding the middle mouse button.")}}
-                                {{Toggle("stretchToWindow", prefs.StretchToWindow, "Stretch auf Fenster", "Stretch to window", "Remote-Bild fuellt das ganze Fenster (kann leicht verzerren).", "Stretch the remote image to fill the window (may distort).")}}
+                                {{Toggle("dragPanning", prefs.DragPanning, "Ziehen mit Maustaste", "Drag to pan", "Ausschnitt mit gedrückter mittlerer Maustaste verschieben.", "Pan the view by holding the middle mouse button.")}}
+                                {{Toggle("stretchToWindow", prefs.StretchToWindow, "Stretch auf Fenster", "Stretch to window", "Remote-Bild füllt das ganze Fenster (kann leicht verzerren).", "Stretch the remote image to fill the window (may distort).")}}
                                 <h3 class="session-prefs-group">{{(de ? "Tastatur" : "Keyboard")}}</h3>
                                 {{Toggle("systemCombos", prefs.SystemCombos, "Browser-Tasten durchreichen (Vollbild)", "Pass browser keys through (fullscreen)", "Im Vollbild Windows-Taste, Alt+Tab, Alt+F4, Strg+W/T usw. an die Session statt an den Browser.", "In fullscreen, send Windows key, Alt+Tab, Alt+F4, Ctrl+W/T etc. to the session instead of the browser.")}}
-                                {{Toggle("functionKeys", prefs.FunctionKeys, "Funktionstasten F1-F12", "Function keys F1-F12", "Zusaetzliche F-Tasten-Reihe auf der Bildschirmtastatur.", "Extra F-key row on the on-screen keyboard.")}}
-                                {{Toggle("ctrlAltDelHotkey", prefs.CtrlAltDelHotkey, "Strg+Alt+Entf als Button", "Ctrl+Alt+Del button", "Zusaetzlich zur Bildschirmtastatur auch als Toolbar-Button.", "In addition to the on-screen keyboard, also as a toolbar button.")}}
+                                {{Toggle("functionKeys", prefs.FunctionKeys, "Funktionstasten F1-F12", "Function keys F1-F12", "Zusätzliche F-Tasten-Reihe auf der Bildschirmtastatur.", "Extra F-key row on the on-screen keyboard.")}}
+                                {{Toggle("ctrlAltDelHotkey", prefs.CtrlAltDelHotkey, "Strg+Alt+Entf als Button", "Ctrl+Alt+Del button", "Zusätzlich zur Bildschirmtastatur auch als Toolbar-Button.", "In addition to the on-screen keyboard, also as a toolbar button.")}}
                                 <h3 class="session-prefs-group">{{(de ? "Zwischenablage" : "Clipboard")}}</h3>
-                                {{Toggle("pasteAsKeystrokes", prefs.PasteAsKeystrokes, "Einfuegen als Tastatureingaben", "Paste as keystrokes", "Text wird Zeichen fuer Zeichen getippt statt ueber die Zwischenablage geschickt - noetig z. B. bei SSH-Terminals.", "Text is typed character by character instead of sent over the clipboard - needed e.g. for SSH terminals.")}}
+                                {{Toggle("pasteAsKeystrokes", prefs.PasteAsKeystrokes, "Einfuegen als Tastatureingaben", "Paste as keystrokes", "Text wird Zeichen für Zeichen getippt statt über die Zwischenablage geschickt - nötig z. B. bei SSH-Terminals.", "Text is typed character by character instead of sent over the clipboard - needed e.g. for SSH terminals.")}}
                                 <h3 class="session-prefs-group">{{(de ? "Schnell verbinden" : "Quick connect")}}</h3>
                                 <p class="muted">{{(de
                                     ? "Welche Protokolle auf der Startseite als Kachel angeboten werden."
@@ -1216,7 +1216,7 @@ public sealed class HtmlViews
                                 <div class="quick-protocol-grid">{{quickProtocolChecks}}</div>
                                 <h3 class="session-prefs-group">{{(de ? "Reihenfolge der Aktionen" : "Order of the actions")}}</h3>
                                 <p class="muted">{{(de
-                                    ? "Auf schmalen Bildschirmen passen nur die vordersten in die Leiste - der Rest landet im Drei-Punkte-Menue. Zum Sortieren ziehen. Trennen bleibt immer ganz rechts."
+                                    ? "Auf schmalen Bildschirmen passen nur die vordersten in die Leiste - der Rest landet im Drei-Punkte-Menü. Zum Sortieren ziehen. Trennen bleibt immer ganz rechts."
                                     : "On narrow screens only the first ones fit in the bar - the rest go into the three-dots menu. Drag to sort. Disconnect always stays on the right.")}}</p>
                                 <ol id="action-order-list" class="action-order-list">{{actionOrderItems}}</ol>
                                 <input type="hidden" name="actionOrder" id="action-order-value" value="">
@@ -2235,7 +2235,7 @@ public sealed class HtmlViews
         var savingLabel = Language(context) == "de" ? "Speichert..." : "Saving...";
         var savedLabel = Language(context) == "de" ? "Gespeichert" : "Saved";
         var readyLabel = T(context, "Ready");
-        var dirtyLabel = Language(context) == "de" ? "Ungespeicherte Aenderungen" : "Unsaved changes";
+        var dirtyLabel = Language(context) == "de" ? "Ungespeicherte Änderungen" : "Unsaved changes";
         var failedLabel = Language(context) == "de" ? "Speichern fehlgeschlagen." : "Save failed.";
         var lastSavedLabel = T(context, "Last saved");
         var neverSavedLabel = T(context, "Never saved");
@@ -2605,12 +2605,12 @@ public sealed class HtmlViews
                 <div class="home2-head-copy">
                     <h1>{{(de ? "Verbindungen" : "Connections")}}</h1>
                     <!-- Steht nur da, wenn eine Browser-Farm eingerichtet ist. Eine Webseite "via
-                         Chromium VNC" scheitert, wenn alle Plaetze belegt sind - das sah man bisher
-                         erst beim Oeffnen. Die Zahlen holt das Skript, damit eine langsame Farm die
+                         Chromium VNC" scheitert, wenn alle Plätze belegt sind - das sah man bisher
+                         erst beim Öffnen. Die Zahlen holt das Skript, damit eine langsame Farm die
                          Seite nicht aufhaelt. -->
                     <p class="home2-farm" data-home2-farm hidden
                        data-label-free="{{A(de ? "Browser-Farm: {free} von {pool} frei" : "Browser farm: {free} of {pool} free")}}"
-                       data-label-full="{{A(de ? "Browser-Farm: alle {pool} Plaetze belegt" : "Browser farm: all {pool} slots busy")}}"
+                       data-label-full="{{A(de ? "Browser-Farm: alle {pool} Plätze belegt" : "Browser farm: all {pool} slots busy")}}"
                        data-label-down="{{A(de ? "Browser-Farm nicht erreichbar" : "Browser farm unreachable")}}">
                         <span class="home2-farm-dot" data-home2-farm-dot></span>
                         <span data-home2-farm-text></span>
@@ -2651,7 +2651,13 @@ public sealed class HtmlViews
         var quickConnect = canQuick ? QuickConnectSection(de, hiddenQuick) : "";
         var filterRow = FilterTilesSection(context, user, servers, de);
         var recentSection = RecentConnectionsSection(context, user, servers, includeEditButtons, returnUrl, de);
-        var connectionsSection = ConnectionsSection(context, user, servers, includeEditButtons, returnUrl, de);
+        // Eine Ablage ist ein Ordner auf dem Gateway, keine Verbindung zu einem Rechner. Als Karte
+        // zwischen den Verbindungen las sie sich wie eine - mit demselben gefuellten Knopf und
+        // alphabetisch dazwischensortiert.
+        var areas = servers.Where(server => server.Protocol == ServerProtocol.Local).ToList();
+        var connections = servers.Where(server => server.Protocol != ServerProtocol.Local).ToList();
+        var placesSection = PlacesSection(context, user, areas, returnUrl, de);
+        var connectionsSection = ConnectionsSection(context, user, connections, includeEditButtons, returnUrl, de);
 
         return $$"""
             <section class="home2" data-home2="1">
@@ -2661,6 +2667,7 @@ public sealed class HtmlViews
                 {{filterRow}}
                 {{recentSection}}
                 {{connectionsSection}}
+                {{placesSection}}
                 <section class="home2-noresults hidden" data-home2-noresults>
                     <p class="muted">{{(de ? "Keine Treffer." : "No matches.")}}</p>
                 </section>
@@ -2912,6 +2919,34 @@ public sealed class HtmlViews
 
     // Single connections list: favorites first, then folder/name order. The filter row above
     // (Favorites / folder toggles) and the search box narrow this list client-side.
+    // Die Ablagen des Gateways: eigener Abschnitt, eigener Ton. Kein gefuellter Knopf - sie zu
+    // oeffnen ist ein Blaettern, kein Verbinden.
+    private static string PlacesSection(
+        HttpContext context,
+        MatgateUser user,
+        IReadOnlyList<ServerEndpoint> areas,
+        string returnUrl,
+        bool de)
+    {
+        if (areas.Count == 0)
+        {
+            return "";
+        }
+
+        var cards = string.Join("", areas.Select(area => ConnectionChoiceCard(context, user, area, false, returnUrl)));
+        return $$"""
+            <section class="home2-section home2-places-section" data-home2-places>
+                <div class="home2-section-head">
+                    <h2>{{(de ? "Ablagen" : "Places")}}</h2>
+                    <span class="badge">{{areas.Count}}</span>
+                </div>
+                <div class="home2-card-grid">
+                    {{cards}}
+                </div>
+            </section>
+            """;
+    }
+
     private static string ConnectionsSection(
         HttpContext context,
         MatgateUser user,
@@ -3374,7 +3409,7 @@ public sealed class HtmlViews
                 || (server.OwnerUserId is null && user.CanManageServers));
         var actions = new List<string>
         {
-            $"""<button type="button" class="primary workspace-open-button connection-choice-open" data-server-id="{server.Id}">{Icon("play")}{T(context, server.Protocol == ServerProtocol.Website ? "Open" : "Connect")}</button>"""
+            $"""<button type="button" class="{(isArea ? "" : "primary ")}workspace-open-button connection-choice-open" data-server-id="{server.Id}">{Icon(isArea ? "folder" : "play")}{T(context, isArea || server.Protocol == ServerProtocol.Website ? "Open" : "Connect")}</button>"""
         };
 
         // Gear -> the connection's settings page (own server, or any for admins/managers). It sits in
@@ -3392,7 +3427,7 @@ public sealed class HtmlViews
                         {{ServerIcon(server)}}
                         <div class="connection-choice-copy">
                             <div class="connection-choice-badges">
-                                <span class="badge">{{E(isArea ? (Language(context) == "de" ? "Ablage" : "Place") : ServerProtocolLabel(server.Protocol))}}</span>
+                                {{(isArea ? "" : $"""<span class="badge">{E(ServerProtocolLabel(server.Protocol))}</span>""")}}
                                 {{ServerFolderBadge(context, server)}}
                                 {{(server.OwnerUserId is null || isArea ? "" : ServerScopeBadge(context, server, currentUser: user))}}
                             </div>
@@ -3666,14 +3701,14 @@ public sealed class HtmlViews
             copyUrlToClipboard = T(context, "Copy URL to clipboard"),
             pasteToActiveTab = Language(context) == "de" ? "In aktiven Tab einfuegen" : "Paste to active tab",
             clipboardTyped = Language(context) == "de" ? "Als Tasten getippt" : "Pasted as keystrokes",
-            xferUpload = Language(context) == "de" ? "Dateien in die Sitzung uebertragen" : "Send files to the session",
+            xferUpload = Language(context) == "de" ? "Dateien in die Sitzung übertragen" : "Send files to the session",
             xferDriveReady = Language(context) == "de" ? "Laufwerk 'Matgate' bereit" : "'Matgate' drive ready",
-            xferDriveUnavailable = Language(context) == "de" ? "Dateiuebertragung fuer diese Sitzung nicht verfuegbar" : "File transfer is not available for this session",
+            xferDriveUnavailable = Language(context) == "de" ? "Dateiübertragung für diese Sitzung nicht verfügbar" : "File transfer is not available for this session",
             xferUploading = Language(context) == "de" ? "Lade hoch" : "Uploading",
             xferUploaded = Language(context) == "de" ? "Hochgeladen" : "Uploaded",
             xferUploadFailed = Language(context) == "de" ? "Upload fehlgeschlagen" : "Upload failed",
             openFileArea = Language(context) == "de" ? "Dateien dieser Verbindung" : "Files for this connection",
-            selectFilesFirst = Language(context) == "de" ? "Zuerst Dateien auswaehlen" : "Select the files first",
+            selectFilesFirst = Language(context) == "de" ? "Zuerst Dateien auswählen" : "Select the files first",
             xferWaitingForSession = Language(context) == "de" ? "Verbindung war unterbrochen - die Dateien gehen raus, sobald sie wieder steht" : "Connection was interrupted - the files are sent once it is back",
             xferDownloading = Language(context) == "de" ? "Lade herunter" : "Downloading",
             pointerTouchpad = Language(context) == "de" ? "Zeiger: Touchpad (wischen bewegt den Cursor)" : "Pointer: touchpad (swipe to move)",
@@ -3685,16 +3720,16 @@ public sealed class HtmlViews
             specialKeys = Language(context) == "de" ? "Sondertasten" : "Special keys",
             comboCtrlAltDel = "Strg+Alt+Entf",
             comboWin = Language(context) == "de" ? "Windows-Taste" : "Windows key",
-            resolutionLabel = Language(context) == "de" ? "Aufloesung" : "Resolution",
+            resolutionLabel = Language(context) == "de" ? "Auflösung" : "Resolution",
             resolutionFitShort = Language(context) == "de" ? "Anpassen" : "Fit",
-            autoResize = Language(context) == "de" ? "Auto-Groesse" : "Auto-resize",
+            autoResize = Language(context) == "de" ? "Auto-Größe" : "Auto-resize",
             autoResizeHint = Language(context) == "de"
-                ? "An: Groesse aendern passt die Gegenstelle an (scharf, RDP verbindet neu). Aus: das Bild wird gestreckt (kein Neuverbinden)."
+                ? "An: Größe ändern passt die Gegenstelle an (scharf, RDP verbindet neu). Aus: das Bild wird gestreckt (kein Neuverbinden)."
                 : "On: resizing renegotiates the remote (sharp, RDP reconnects). Off: the image stretches to fill (no reconnect).",
             fitNow = Language(context) == "de" ? "Jetzt anpassen" : "Fit now",
             onLabel = Language(context) == "de" ? "An" : "On",
             offLabel = Language(context) == "de" ? "Aus" : "Off",
-            zoomInLabel = Language(context) == "de" ? "Vergroessern" : "Zoom in",
+            zoomInLabel = Language(context) == "de" ? "Vergrößern" : "Zoom in",
             zoomOutLabel = Language(context) == "de" ? "Verkleinern" : "Zoom out",
             disconnect = T(context, "Disconnect"),
             username = T(context, "Username"),
@@ -3702,7 +3737,7 @@ public sealed class HtmlViews
             noActiveTab = T(context, "No active tab"),
             newConnection = T(context, "New connection"),
             ready = T(context, "Ready"),
-            chooseConnection = Language(context) == "de" ? "Verbindung auswaehlen" : "Choose a connection",
+            chooseConnection = Language(context) == "de" ? "Verbindung auswählen" : "Choose a connection",
             starting = Language(context) == "de" ? "Startet" : "Starting",
             website = T(context, "Website"),
             websiteBeta = T(context, "Website (Beta)"),
@@ -3721,11 +3756,11 @@ public sealed class HtmlViews
             closed = Language(context) == "de" ? "Geschlossen" : "Closed",
             unknown = Language(context) == "de" ? "Unbekannt" : "Unknown",
             failed = Language(context) == "de" ? "Verbindung fehlgeschlagen" : "Connection failed",
-            connectionUnavailable = Language(context) == "de" ? "Verbindung nicht moeglich" : "Connection unavailable",
+            connectionUnavailable = Language(context) == "de" ? "Verbindung nicht möglich" : "Connection unavailable",
             guacClientMissing = Language(context) == "de" ? "Der Guacamole-Webclient konnte nicht geladen werden." : "The Guacamole web client could not be loaded.",
             opening = Language(context) == "de" ? "Verbindung wird aufgebaut" : "Opening connection",
             preparing = Language(context) == "de" ? "Matgate bereitet die Sitzung vor." : "Matgate is preparing the session.",
-            isOpening = Language(context) == "de" ? "wird geoeffnet" : "is opening",
+            isOpening = Language(context) == "de" ? "wird geöffnet" : "is opening",
             remoteConnected = Language(context) == "de" ? "Remote-Sitzung ist verbunden." : "Remote session is connected.",
             connectionEnded = Language(context) == "de" ? "Verbindung beendet" : "Connection ended",
             sessionClosed = Language(context) == "de" ? "Die Sitzung wurde geschlossen." : "The session was closed.",
@@ -3734,9 +3769,9 @@ public sealed class HtmlViews
             tunnelInterrupted = Language(context) == "de" ? "Der Guacamole-Tunnel wurde unterbrochen." : "The Guacamole tunnel was interrupted.",
             connectionFailedDetail = Language(context) == "de" ? "Die Verbindung ist fehlgeschlagen." : "The connection failed.",
             reconnect = Language(context) == "de" ? "Neu verbinden" : "Reconnect",
-            closeTab = Language(context) == "de" ? "Tab schliessen" : "Close tab",
+            closeTab = Language(context) == "de" ? "Tab schließen" : "Close tab",
             loading = Language(context) == "de" ? "Lade" : "Loading",
-            fileManagerOpening = Language(context) == "de" ? "Dateimanager wird geoeffnet" : "Opening file manager",
+            fileManagerOpening = Language(context) == "de" ? "Dateimanager wird geöffnet" : "Opening file manager",
             fileManagerPreparing = Language(context) == "de" ? "Dateimanager wird vorbereitet." : "Preparing file manager.",
             fileApi = Language(context) == "de" ? "Datei-API" : "File API",
             fileListLoading = Language(context) == "de" ? "Dateiliste wird geladen." : "Loading file list.",
@@ -3772,11 +3807,11 @@ public sealed class HtmlViews
             unzip = Language(context) == "de" ? "Entpacken" : "Unzip",
             copy = Language(context) == "de" ? "Kopieren" : "Copy",
             move = Language(context) == "de" ? "Verschieben" : "Move",
-            delete = Language(context) == "de" ? "Loeschen" : "Delete",
-            deleteSelected = Language(context) == "de" ? "Auswahl loeschen" : "Delete selected",
-            selected = Language(context) == "de" ? "ausgewaehlt" : "selected",
+            delete = Language(context) == "de" ? "Löschen" : "Delete",
+            deleteSelected = Language(context) == "de" ? "Auswahl löschen" : "Delete selected",
+            selected = Language(context) == "de" ? "ausgewählt" : "selected",
             selection = Language(context) == "de" ? "Auswahl" : "Selection",
-            selectAll = Language(context) == "de" ? "Alles auswaehlen" : "Select all",
+            selectAll = Language(context) == "de" ? "Alles auswählen" : "Select all",
             clearSelection = Language(context) == "de" ? "Auswahl aufheben" : "Clear selection",
             archiveName = Language(context) == "de" ? "Archivname" : "Archive name",
             zipCreated = Language(context) == "de" ? "ZIP-Archiv erstellt" : "ZIP archive created",
@@ -3786,29 +3821,29 @@ public sealed class HtmlViews
             back = T(context, "Back"),
             name = T(context, "Name"),
             path = Language(context) == "de" ? "Pfad" : "Path",
-            size = Language(context) == "de" ? "Groesse" : "Size",
-            modified = Language(context) == "de" ? "Geaendert" : "Modified",
+            size = Language(context) == "de" ? "Größe" : "Size",
+            modified = Language(context) == "de" ? "Geändert" : "Modified",
             actions = Language(context) == "de" ? "Aktionen" : "Actions",
             emptyFolder = Language(context) == "de" ? "Dieser Ordner ist leer." : "This folder is empty.",
             folderName = Language(context) == "de" ? "Ordnername" : "Folder name",
-            deleteConfirm = Language(context) == "de" ? "wirklich loeschen?" : "delete?",
+            deleteConfirm = Language(context) == "de" ? "wirklich löschen?" : "delete?",
             actionDone = Language(context) == "de" ? "Dateiaktion abgeschlossen." : "File action completed.",
             actionFailed = Language(context) == "de" ? "Dateiaktion fehlgeschlagen." : "File action failed.",
             working = Language(context) == "de" ? "Arbeite" : "Working",
             uploadFailed = Language(context) == "de" ? "Upload fehlgeschlagen." : "Upload failed.",
             mkdirFailed = Language(context) == "de" ? "Ordner konnte nicht erstellt werden." : "Could not create folder.",
-            deleteFailed = Language(context) == "de" ? "Loeschen fehlgeschlagen." : "Delete failed.",
+            deleteFailed = Language(context) == "de" ? "Löschen fehlgeschlagen." : "Delete failed.",
             downloadStarted = Language(context) == "de" ? "Download gestartet" : "Download started",
             zipDownloadStarted = Language(context) == "de" ? "ZIP-Download gestartet" : "ZIP download started",
             copyFailed = Language(context) == "de" ? "Kopieren fehlgeschlagen." : "Copy failed.",
             moveFailed = Language(context) == "de" ? "Verschieben fehlgeschlagen." : "Move failed.",
-            viewStarted = Language(context) == "de" ? "Ansicht geoeffnet" : "View opened",
+            viewStarted = Language(context) == "de" ? "Ansicht geöffnet" : "View opened",
             close = T(context, "Close"),
             clipboardSent = Language(context) == "de" ? "Zwischenablage gesendet" : "Clipboard sent",
             clipboardReceived = Language(context) == "de" ? "Zwischenablage empfangen" : "Clipboard received",
             remoteClipboardReady = Language(context) == "de" ? "Remote-Zwischenablage bereit" : "Remote clipboard ready",
             connectionContinues = Language(context) == "de" ? "Verbindung wird fortgesetzt" : "Connection continues",
-            credentialsSubmitted = Language(context) == "de" ? "Die Zugangsdaten wurden uebergeben." : "Credentials were submitted."
+            credentialsSubmitted = Language(context) == "de" ? "Die Zugangsdaten wurden übergeben." : "Credentials were submitted."
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
         var connectionChoices = ConnectionChoiceSections(context, user, servers, workspaces, true);
         var body = $$"""
@@ -3856,7 +3891,7 @@ public sealed class HtmlViews
                 <!-- Dieser Dialog hat genau eine Aufgabe: Dateien von diesem Geraet in die offene
                      Sitzung geben. Er hatte einmal zwei Schalter - Quelle und Ziel, je zwei Knoepfe -
                      und damit vier Kombinationen, von denen "aus einer Ablage in eine Ablage" mit
-                     einer Sitzung ueberhaupt nichts zu tun hatte. Kopiert wird jetzt dort, wo man
+                     einer Sitzung überhaupt nichts zu tun hatte. Kopiert wird jetzt dort, wo man
                      ohnehin blaettert: im Dateimanager. -->
                 <form id="sftp-target-dialog" class="credential-dialog send-files-dialog hidden">
                     <h2>{{(Language(context) == "de" ? "Dateien in die Sitzung" : "Send files into the session")}}</h2>
@@ -3907,7 +3942,7 @@ public sealed class HtmlViews
                     <div id="file-area-dialog-body" class="file-area-dialog-body"></div>
                 </div>
                 <div id="resolution-dialog" class="credential-dialog resolution-dialog hidden">
-                    <h2>{{(Language(context) == "de" ? "Aufloesung" : "Resolution")}}</h2>
+                    <h2>{{(Language(context) == "de" ? "Auflösung" : "Resolution")}}</h2>
                     <div id="resolution-options" class="resolution-options"></div>
                     <div id="resolution-extra" class="resolution-extra"></div>
                     <div class="actions">
@@ -4645,7 +4680,7 @@ public sealed class HtmlViews
                     const allSection = root.querySelector('[data-home2-all]');
                     const noResults = root.querySelector('[data-home2-noresults]');
                     const filterTiles = Array.from(root.querySelectorAll('[data-home2-filter]'));
-                    const resultSections = Array.from(root.querySelectorAll('[data-home2-recent],[data-home2-all]'));
+                    const resultSections = Array.from(root.querySelectorAll('[data-home2-recent],[data-home2-all],[data-home2-places]'));
                     // null = no filter; '__favorites__' = only favorites; otherwise a folder key.
                     let activeFilter = null;
 
@@ -4669,10 +4704,13 @@ public sealed class HtmlViews
                             }
                         });
                         resultSections.forEach(section => {
-                            // "Recently used" only makes sense with no folder/favourites filter active -
-                            // when the user filters by a folder, hide Recent entirely (its cards aren't
-                            // part of the filtered set).
-                            if (section.hasAttribute('data-home2-recent') && activeFilter !== null) {
+                            // "Recently used" and the places only make sense with no folder/favourites
+                            // filter active - when the user filters by a folder, hide them entirely
+                            // (their cards aren't part of the filtered set, so they would be left
+                            // standing under an empty list).
+                            const outsideFilter = section.hasAttribute('data-home2-recent')
+                                || section.hasAttribute('data-home2-places');
+                            if (outsideFilter && activeFilter !== null) {
                                 section.hidden = true;
                                 return;
                             }
@@ -6863,7 +6901,7 @@ public sealed class HtmlViews
                     const closeButton = document.createElement('button');
                     closeButton.type = 'button';
                     closeButton.className = 'session-tab-close';
-                    closeButton.setAttribute('aria-label', 'Tab schliessen');
+                    closeButton.setAttribute('aria-label', 'Tab schließen');
                     closeButton.innerHTML = '&times;';
                     closeButton.addEventListener('mousedown', event => {
                         event.stopPropagation();
@@ -7344,7 +7382,7 @@ public sealed class HtmlViews
 
                     // "In die Sitzung" setzt eine Sitzung mit Dateikanal voraus - eine VNC-Sitzung,
                     // eine Webseite oder ein Dateimanager-Tab hat keinen. Der Knopf war trotzdem da
-                    // und tat dann nichts, ausser den Dialog zu schliessen. Inline gesetzt, weil
+                    // und tat dann nichts, ausser den Dialog zu schließen. Inline gesetzt, weil
                     // .hidden hier gegen die Knopfregeln verliert.
                     const sessionTab = tabs.get(activeTabId || '');
                     fileAreaDialogSend.style.display = (sessionTab && sessionTab.filesystem && !sessionTab.terminal)
@@ -7354,7 +7392,7 @@ public sealed class HtmlViews
                 }
 
                 // Wechselt der Ort, gehoert die Warteschlange nicht mehr dorthin. Bisher verschwand
-                // sie lautlos: wer waehrend eines Schubs die Ablage wechselte, verlor den Rest ohne
+                // sie lautlos: wer während eines Schubs die Ablage wechselte, verlor den Rest ohne
                 // jede Meldung. Jetzt wird abgebrochen und es steht da.
                 function abandonUploads(tab) {
                     let dropped = 0;
@@ -7374,7 +7412,7 @@ public sealed class HtmlViews
                     return dropped;
                 }
 
-                // Denselben Dateimanager auf einen anderen Ort richten, statt einen zweiten zu oeffnen.
+                // Denselben Dateimanager auf einen anderen Ort richten, statt einen zweiten zu öffnen.
                 function switchFileTabTo(tab, serverId) {
                     const server = findServer(serverId);
                     if (!tab || !server) {
@@ -8717,7 +8755,7 @@ public sealed class HtmlViews
 
                     // Die uebrigen Ablagen, sichtbar statt versteckt: in einem Tab gab es bisher gar
                     // keinen Weg zu ihnen, im Dialog nur ein Auswahlfeld, das niemand als "die anderen
-                    // Ordner" liest. Nur fuer die Ablagen des Gateways - eine entfernte Verbindung ist
+                    // Ordner" liest. Nur für die Ablagen des Gateways - eine entfernte Verbindung ist
                     // kein Ort, von dem aus man dorthin springt.
                     // Die Ablagen des Gateways, in JEDEM Dateimanager - auch in dem einer SMB- oder
                     // FTP-Verbindung. Vorher gab es die Leiste nur, wenn man ohnehin schon in einer
@@ -8821,7 +8859,7 @@ public sealed class HtmlViews
                             }
 
                             // Beide Male derselbe Gedanke: der Dateimanager bleibt stehen und zeigt
-                            // einen anderen Ort. Frueher oeffnete jeder Klick in einem Tab einen
+                            // einen anderen Ort. Frueher öffnete jeder Klick in einem Tab einen
                             // weiteren Tab - nach dreimal Umsehen waren es vier.
                             if (tab.id === 'file-area-dialog') {
                                 showFileArea(placeId);
@@ -9316,7 +9354,7 @@ public sealed class HtmlViews
 
                     if (!copyToTarget.options.length) {
                         copyToSource = null;
-                        setFileMessage(tab, uiText.noTargetPlace || 'Kein anderer Ort verfuegbar.', 'error');
+                        setFileMessage(tab, uiText.noTargetPlace || 'Kein anderer Ort verfügbar.', 'error');
                         return;
                     }
 
@@ -9736,12 +9774,12 @@ public sealed class HtmlViews
                     return `${formatFileSize(bytesPerSecond)}/s`;
                 }
 
-                // Lebt die Flaeche, in die hochgeladen wird, noch? Fuer einen Tab heisst das: er steht
+                // Lebt die Flaeche, in die hochgeladen wird, noch? Für einen Tab heisst das: er steht
                 // in `tabs`. Der Ablagen-Dialog ist absichtlich KEIN Tab (er leiht sich keinen mehr),
                 // steht also nie darin - und die Warteschlange drehte sich deshalb nie los: jede Datei
                 // blieb auf "wartet" stehen. Lebendig ist er, solange er der Host des offenen Dialogs
                 // ist; closeFileAreaDialog setzt den auf null, womit ein laufender Schub von selbst
-                // aufhoert, genau wie beim Schliessen eines Tabs.
+                // aufhoert, genau wie beim Schließen eines Tabs.
                 function fileHostAlive(tab) {
                     return !!tab && (tabs.has(tab.id) || tab === fileAreaHost);
                 }
@@ -10966,8 +11004,8 @@ public sealed class HtmlViews
                     }
                 });
                 // Eine Datei, die im Dialog NEBEN der gestrichelten Flaeche landet, hat der Browser
-                // bisher selbst geoeffnet - er navigiert dann zur Datei, und die Sitzung dahinter ist
-                // weg. Der Dialog nimmt sie jetzt ueberall an; ausserhalb wird der Fall nur noch
+                // bisher selbst geöffnet - er navigiert dann zur Datei, und die Sitzung dahinter ist
+                // weg. Der Dialog nimmt sie jetzt überall an; ausserhalb wird der Fall nur noch
                 // abgefangen.
                 sftpTargetDialog.addEventListener('dragover', event => {
                     if (hasFileDragPayload(event)) {
@@ -11287,7 +11325,7 @@ public sealed class HtmlViews
                     }
 
                     credentialDialog.classList.add('hidden');
-                    setOverlay('Verbindung wird fortgesetzt', 'Die Zugangsdaten wurden uebergeben.', false);
+                    setOverlay('Verbindung wird fortgesetzt', 'Die Zugangsdaten wurden übergeben.', false);
                     stage.focus();
                 });
 
@@ -11307,7 +11345,7 @@ public sealed class HtmlViews
 
                 async function start() {
                     if (!window.Guacamole) {
-                        finish('Verbindung nicht moeglich', 'Der Guacamole-Webclient konnte nicht geladen werden.');
+                        finish('Verbindung nicht möglich', 'Der Guacamole-Webclient konnte nicht geladen werden.');
                         return;
                     }
 
@@ -11880,6 +11918,13 @@ public sealed class HtmlViews
                         text-decoration: none;
                         white-space: nowrap;
                     }
+                    /* Flach: ein Kasten beim Zeigen liess die ganze Leiste um 6x4 Pixel wachsen,
+                       weil die Regel an .button, button klebte. */
+                    .shell-tab:hover,
+                    .shell-tab:focus-visible {
+                        background: var(--hover-bg);
+                        color: var(--text);
+                    }
                     .shell-tabs .shell-tab,
                     .shell-tabs .shell-tab:link,
                     .shell-tabs .shell-tab:visited,
@@ -11893,17 +11938,20 @@ public sealed class HtmlViews
                         text-decoration: none !important;
                         text-decoration-line: none !important;
                     }
-                    .shell-tab.active {
-                        background: transparent;
-                        color: var(--muted);
-                        font-weight: inherit;
-                        box-shadow: none;
-                    }
+                    /* Die offene Seite wird markiert - vorher wurde .active berechnet und dann auf
+                       genau nichts gestaltet, also sah die Leiste immer gleich aus. */
+                    .shell-tab.active,
+                    .shell-tab.active:hover,
+                    .shell-tab.active:focus,
+                    .shell-tab.active:focus-visible,
                     .shell-tabs .shell-tab.active,
                     .shell-tabs .shell-tab.active:hover,
                     .shell-tabs .shell-tab.active:focus,
                     .shell-tabs .shell-tab.active:focus-visible {
-                        color: var(--muted);
+                        background: transparent;
+                        box-shadow: inset 0 -2px 0 var(--accent);
+                        color: var(--text);
+                        font-weight: inherit;
                     }
                     .shell-menu {
                         position: relative;
@@ -12098,13 +12146,15 @@ public sealed class HtmlViews
                     }
                     .row-actions .icon-button .icon { height: 15px; width: 15px; }
                     .row-actions .icon-button:hover { background: var(--hover-bg); color: var(--text); }
-                    .row-actions .icon-button.danger-action:hover { background: rgb(192 87 79 / 14%); color: #c0574f; }
+                    .row-actions .icon-button.danger-action:hover,
+                    .row-actions .icon-button.danger-action:focus-visible {
+                        background: color-mix(in srgb, var(--danger) 14%, transparent);
+                        color: var(--danger);
+                    }
                     .row-actions form { display: inline-flex; margin: 0; }
                     tbody tr.hidden { display: none; }
                     .workspace-expired-panel { margin-top: 20px; opacity: .82; }
                     .workspace-expired-head { align-items: center; color: var(--muted); display: flex; font-size: 16px; gap: 8px; }
-                    .shell-tab:hover,
-                    .shell-tab:focus-visible,
                     .button, button {
                         border: 1px solid var(--line);
                         border-radius: var(--radius);
@@ -12118,6 +12168,21 @@ public sealed class HtmlViews
                         text-decoration: none;
                         font: inherit;
                         gap: 7px;
+                        transition: background-color .12s ease, border-color .12s ease, color .12s ease;
+                    }
+                    :where(.button, button):not(:disabled):hover {
+                        background: var(--hover-bg);
+                        border-color: var(--surface-3);
+                    }
+                    :where(.button, button):not(:disabled):active {
+                        background: var(--hover-strong-bg);
+                        border-color: var(--surface-3);
+                    }
+                    /* Ein sichtbarer Fokus fuer alles, was man mit der Tastatur erreicht. Vorher gab
+                       es drei handkopierte Ringe an drei Stellen und fuenfmal outline: none. */
+                    :where(a, button, .button, summary, input, select, textarea, [tabindex]):focus-visible {
+                        outline: 2px solid var(--accent);
+                        outline-offset: 2px;
                     }
                     .menu-panel {
                         background: var(--surface);
@@ -12157,19 +12222,19 @@ public sealed class HtmlViews
                         max-width: 180px;
                     }
                     button:disabled { cursor: not-allowed; opacity: .55; }
-                    .primary { background: var(--accent); border-color: var(--accent); color: #ffffff; }
-                    .danger { background: var(--danger); border-color: var(--danger); color: #ffffff; }
+                    .primary { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+                    .danger { background: var(--danger); border-color: var(--danger); color: var(--bg); }
                     .primary:hover,
                     .primary:focus-visible {
                         background: var(--primary-hover);
                         border-color: var(--primary-hover);
-                        color: #ffffff;
+                        color: var(--bg);
                     }
                     .danger:hover,
                     .danger:focus-visible {
                         background: var(--danger-hover);
                         border-color: var(--danger-hover);
-                        color: #ffffff;
+                        color: var(--bg);
                     }
                     main { width: min(1180px, calc(100% - 24px)); margin: 22px auto 44px; }
                     main.shell-main {
@@ -12194,17 +12259,29 @@ public sealed class HtmlViews
                         padding: 0;
                         width: 100%;
                     }
-                    h1, h2 { line-height: 1.15; margin: 0; }
-                    h1 { font-size: clamp(30px, 4vw, 52px); }
-                    h2 { font-size: 20px; margin-bottom: 18px; }
-                    .eyebrow { color: var(--accent-2); font-weight: 700; margin: 0 0 6px; text-transform: uppercase; }
+                    /* Die Ueberschrift war bis 52px gross und stand unter einer fetten blauen
+                       Grossbuchstabenzeile - die Zeile schrie also lauter als das, was sie
+                       einleitet, und beides erschlug die 20px-Ueberschriften der Panels darunter.
+                       Fuenf Stellen hatten die 52px ohnehin schon lokal ueberschrieben. */
+                    h1, h2 { line-height: 1.2; margin: 0; }
+                    h1 { font-size: clamp(24px, 2.4vw, 30px); font-weight: 700; letter-spacing: -.01em; }
+                    h2 { font-size: 18px; letter-spacing: -.005em; margin-bottom: 14px; }
+                    h3 { font-size: 15px; margin: 0 0 8px; }
+                    .eyebrow {
+                        color: var(--muted);
+                        font-size: 12px;
+                        font-weight: 700;
+                        letter-spacing: .06em;
+                        margin: 0 0 4px;
+                        text-transform: uppercase;
+                    }
                     .muted { color: var(--muted); }
                     .target {
                         font-family: Consolas, ui-monospace, monospace;
                         overflow-wrap: anywhere;
                         word-break: break-word;
                     }
-                    .page-head { align-items: center; display: flex; justify-content: space-between; gap: 18px; margin-bottom: 22px; }
+                    .page-head { align-items: center; display: flex; gap: 18px; justify-content: space-between; margin-bottom: 18px; }
                     .panel, .card, .auth-panel {
                         background: var(--panel);
                         border: 1px solid var(--line);
@@ -12258,8 +12335,25 @@ public sealed class HtmlViews
                         gap: 6px;
                     }
                     .session-prefs-group:first-of-type { margin-top: 0; }
-                    .toggle-row { display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: start; font-weight: 500; cursor: pointer; padding: 6px 0; }
-                    .toggle-row > input { display: none; }
+                    .toggle-row { display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: start; font-weight: 500; cursor: pointer; padding: 6px 0; position: relative; }
+                    /* display: none nimmt das Kaestchen aus der Tabulatorreihenfolge UND aus dem
+                       Baum fuer Hilfsmittel - die ganze Seite war nur mit der Maus bedienbar. Es
+                       bleibt da, nur unsichtbar, und der sichtbare Schalter zeigt den Fokus. */
+                    .toggle-row > input[type="checkbox"] {
+                        border: 0;
+                        clip-path: inset(50%);
+                        height: 1px;
+                        margin: -1px;
+                        overflow: hidden;
+                        padding: 0;
+                        position: absolute;
+                        white-space: nowrap;
+                        width: 1px;
+                    }
+                    .toggle-row > input[type="checkbox"]:focus-visible + .toggle-switch {
+                        outline: 2px solid var(--accent);
+                        outline-offset: 2px;
+                    }
                     .toggle-switch { position: relative; width: 40px; height: 24px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--line); transition: background .15s ease, border-color .15s ease; margin-top: 1px; flex: 0 0 auto; }
                     .toggle-switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: var(--muted); transition: transform .15s ease, background .15s ease; }
                     .toggle-row > input:checked + .toggle-switch { background: color-mix(in srgb, var(--accent) 30%, transparent); border-color: var(--accent); }
@@ -12478,7 +12572,7 @@ public sealed class HtmlViews
                         width: 54px;
                         height: 54px;
                         border-radius: 15px;
-                        color: #fff;
+                        color: var(--bg);
                         background: linear-gradient(135deg, var(--accent), var(--accent-2));
                         box-shadow: 0 10px 22px color-mix(in srgb, var(--accent) 40%, transparent);
                     }
@@ -12520,7 +12614,7 @@ public sealed class HtmlViews
                         border: 0;
                         border-radius: 11px;
                         cursor: pointer;
-                        color: #fff;
+                        color: var(--bg);
                         background: linear-gradient(135deg, var(--accent), var(--accent-2));
                         font: inherit;
                         font-weight: 700;
@@ -12536,8 +12630,15 @@ public sealed class HtmlViews
                     .login-proto .icon { width: 13px; height: 13px; }
                     .login-card .notice { margin-bottom: 15px; text-align: left; }
                     .notice { border-radius: var(--radius); padding: 10px 12px; }
-                    .error { background: #fff1f1; border: 1px solid #f0caca; color: #7d2424; }
-                    .badge { background: var(--surface-2); border-radius: var(--radius); color: var(--accent); display: inline-block; font-size: 12px; font-weight: 800; padding: 3px 7px; }
+                    /* Die einzige Flaeche, auf der diese Regel noch allein steht, ist die
+                       Anmeldeseite - und dort war es ein hellrosa Block im dunklen Fenster. */
+                    .error {
+                        background: color-mix(in srgb, var(--danger) 12%, var(--surface));
+                        border: 1px solid color-mix(in srgb, var(--danger) 36%, var(--line));
+                        color: color-mix(in srgb, var(--danger) 80%, var(--text));
+                    }
+                    .badge { background: var(--surface-2); border-radius: var(--radius); color: var(--accent); display: inline-block; font-size: 12px; font-weight: 700; padding: 3px 7px; }
+                    .badge--danger { background: color-mix(in srgb, var(--danger) 14%, var(--surface-2)); color: var(--danger); }
                     .server-title {
                         align-items: center;
                         display: flex;
@@ -12576,7 +12677,7 @@ public sealed class HtmlViews
                     .table-wrap { overflow-x: auto; }
                     table { border-collapse: collapse; width: 100%; }
                     th, td { border-bottom: 1px solid var(--line); padding: 12px 8px; text-align: left; vertical-align: top; }
-                    .danger-zone { border-color: #efc7c7; }
+                    .danger-zone { border-color: color-mix(in srgb, var(--danger) 40%, var(--line)); }
                     .matgate-shell {
                         background: var(--bg);
                         display: flex;
@@ -12769,7 +12870,7 @@ public sealed class HtmlViews
                         padding: 2px;
                         touch-action: manipulation;
                     }
-                    .matgate-osk-key:active { background: var(--accent); border-color: var(--accent); color: #fff; }
+                    .matgate-osk-key:active { background: var(--accent); border-color: var(--accent); color: var(--bg); }
                     .matgate-osk-key.active { background: color-mix(in srgb, var(--accent) 30%, transparent); border-color: var(--accent); color: var(--accent); }
                     .matgate-osk-key.osk-wide { flex: 1.6 1 0; font-size: 13px; }
                     .matgate-osk-key.osk-combo { flex: 2 1 0; }
@@ -12824,7 +12925,7 @@ public sealed class HtmlViews
                         min-height: 42px;
                         width: 100%;
                     }
-                    /* :active statt :hover - dieses Menue gibt es nur auf Beruehrung, und dort
+                    /* :active statt :hover - dieses Menü gibt es nur auf Beruehrung, und dort
                        bliebe ein Zeigen-Zustand auf der zuletzt getippten Zeile kleben. */
                     .tab-action-menu-item:active,
                     .tab-action-menu-item:focus-visible {
@@ -12865,7 +12966,7 @@ public sealed class HtmlViews
                         font-weight: 700;
                     }
                     .mobile-tab-item-close { flex: 0 0 auto; font-size: 17px; }
-                    /* Ein Rahmen pro Flaeche. Ein Panel, ein Menue, ein Blatt bringt seinen eigenen
+                    /* Ein Rahmen pro Flaeche. Ein Panel, ein Menü, ein Blatt bringt seinen eigenen
                        Rahmen mit - die Knoepfe darin brauchen keinen zweiten. Genau das war auf dem
                        Telefon zu sehen: zwei Linien im Abstand von einem Pixel, die aussehen wie ein
                        Fehler und auf schmalem Schirm Platz kosten. Welcher Eintrag gemeint ist, sagt
@@ -13356,11 +13457,7 @@ public sealed class HtmlViews
                         gap: 16px;
                         justify-content: space-between;
                     }
-                    .home2-head-copy h1 {
-                        font-size: 30px;
-                        line-height: 1.15;
-                        margin: 0 0 6px;
-                    }
+                    .home2-head-copy h1 { margin: 0 0 6px; }
                     .home2-head-copy .muted { margin: 0; }
                     .home2-head-actions {
                         display: flex;
@@ -13518,7 +13615,7 @@ public sealed class HtmlViews
                         justify-content: space-between;
                         padding: 18px 18px 8px;
                     }
-                    .home2-proto-dialog-head h2 { font-size: 18px; margin: 0; }
+                    .home2-proto-dialog-head h2 { margin: 0; }
                     .home2-proto-dialog-head .muted { margin: 2px 0 0; }
                     .home2-proto-dialog-close { flex: 0 0 auto; }
                     .home2-proto-dialog-head { flex: 0 0 auto; }
@@ -13601,7 +13698,7 @@ public sealed class HtmlViews
                         max-width: 640px;
                         width: 100%;
                     }
-                    .ws-create-head h1 { font-size: 26px; margin: 0 0 6px; }
+                    .ws-create-head h1 { margin: 0 0 6px; }
                     .ws-create-head .muted { margin: 0; }
                     .ws-create-form {
                         background: var(--surface);
@@ -13721,6 +13818,9 @@ public sealed class HtmlViews
                     }
                     .home2-folder-copy small { color: var(--muted); }
                     .home2-folder-clear { gap: 6px; }
+                    /* Eine Ablage traegt Symbol und Namen - die Mindesthoehe einer Verbindung
+                       liess darunter ein leeres Feld stehen. */
+                    .home2-places-section .connection-choice { min-height: 0; }
                     .home2-card-grid {
                         display: grid;
                         gap: 12px;
@@ -13802,7 +13902,6 @@ public sealed class HtmlViews
                     .connection-choice[hidden] { display: none !important; }
                     @media (max-width: 720px) {
                         .home2 { gap: 20px; }
-                        .home2-head-copy h1 { font-size: 24px; }
                         .home2-head-actions { width: 100%; }
                         .home2-head-actions .button { flex: 1 1 auto; justify-content: center; }
                         .home2-proto-dialog {
@@ -14637,7 +14736,7 @@ public sealed class HtmlViews
                     .file-upload-button {
                         background: var(--accent);
                         border-color: var(--accent);
-                        color: #ffffff;
+                        color: var(--bg);
                     }
                     .toolbar-button--primary:hover,
                     .toolbar-button--primary:focus-visible,
@@ -14647,18 +14746,18 @@ public sealed class HtmlViews
                     .file-upload-button:focus-visible {
                         background: var(--primary-hover);
                         border-color: var(--primary-hover);
-                        color: #ffffff;
+                        color: var(--bg);
                     }
                     .toolbar-button--danger {
                         background: var(--danger);
                         border-color: var(--danger);
-                        color: #ffffff;
+                        color: var(--bg);
                     }
                     .toolbar-button--danger:hover,
                     .toolbar-button--danger:focus-visible {
                         background: var(--danger-hover);
                         border-color: var(--danger-hover);
-                        color: #ffffff;
+                        color: var(--bg);
                     }
                     .toolbar-input,
                     .website-address,
@@ -14689,8 +14788,8 @@ public sealed class HtmlViews
                     .toolbar-menu-item,
                     .file-menu-item {
                         align-items: center;
-                        /* Das Menue ist die umrandete Flaeche; seine Eintraege brauchen keinen
-                           eigenen Rahmen. Die Rueckmeldung beim Zeigen bleibt, die kommt ueber
+                        /* Das Menü ist die umrandete Flaeche; seine Eintraege brauchen keinen
+                           eigenen Rahmen. Die Rueckmeldung beim Zeigen bleibt, die kommt über
                            die Flaeche. */
                         border: 0;
                         justify-content: flex-start;
@@ -14756,10 +14855,10 @@ public sealed class HtmlViews
                         height: 100%;
                         padding: 0;
                     }
-                    /* Die Ablagen des Gateways als Leiste ueber der Liste. Die Knoepfe tragen keinen
+                    /* Die Ablagen des Gateways als Leiste über der Liste. Die Knoepfe tragen keinen
                        eigenen Rahmen - sie sitzen bereits in einem umrandeten Panel, und Rahmen auf
                        Rahmen ist genau das, was auf einem schmalen Schirm bricht. Der aktive Ort wird
-                       durch Flaeche kenntlich gemacht, nicht durch eine zusaetzliche Linie. */
+                       durch Flaeche kenntlich gemacht, nicht durch eine zusätzliche Linie. */
                     .file-places {
                         border-bottom: 1px solid var(--line);
                         display: flex;
@@ -14805,7 +14904,7 @@ public sealed class HtmlViews
                         background: var(--accent);
                         border: 1px solid var(--surface);
                         border-radius: 999px;
-                        color: #fff;
+                        color: var(--bg);
                         display: inline-flex;
                         font-size: 10px;
                         font-weight: 700;
@@ -14963,7 +15062,7 @@ public sealed class HtmlViews
                         background: var(--accent);
                         border: 1px solid var(--accent);
                         border-radius: var(--radius);
-                        color: #ffffff;
+                        color: var(--bg);
                         cursor: pointer;
                         display: inline-flex;
                         font-weight: 600;
@@ -15507,13 +15606,13 @@ public sealed class HtmlViews
                         gap: 0;
                         height: min(78vh, 760px);
                         max-width: none;
-                        /* padding: 0 und ein deckend gefuelltes Kind - ohne dies malt das Panel
-                           ueber die abgerundeten Ecken des Rahmens. */
+                        /* padding: 0 und ein deckend gefülltes Kind - ohne dies malt das Panel
+                           über die abgerundeten Ecken des Rahmens. */
                         overflow: hidden;
                         padding: 0;
                         width: min(1040px, calc(100vw - 32px));
                     }
-                    /* display steht hier, also kann .hidden es nicht zuruecknehmen - sonst bleibt
+                    /* display steht hier, also kann .hidden es nicht zurücknehmen - sonst bleibt
                        der geschlossene Dialog mit allen Knoepfen im Tabulator stehen. */
                     .credential-dialog.file-area-dialog.hidden { display: none; }
                     .file-area-dialog-actions { align-items: center; display: flex; gap: 8px; }
@@ -15674,7 +15773,7 @@ public sealed class HtmlViews
                            jede Gruppe auf volle Breite, jeder Knopf mit eigenem Rahmen - zusammen die
                            halbe Bildschirmhoehe, bevor die erste Datei zu sehen war. Jetzt eine Zeile:
                            Aktualisieren, der Pfad nimmt den Rest, die uebrigen als Symbole. Ihre
-                           Beschriftung steht in dem Menue, das sie oeffnen. */
+                           Beschriftung steht in dem Menü, das sie öffnen. */
                         .file-toolbar { flex-wrap: nowrap; gap: 4px; padding: 4px 6px; }
                         /* .toolbar-group, nicht .file-toolbar-group: die Gruppen tragen nur die
                            allgemeine Klasse, weshalb die frueheren Mobilregeln hier wirkungslos
@@ -15732,7 +15831,7 @@ public sealed class HtmlViews
                         .credential-dialog .actions { flex-wrap: wrap; }
                         .credential-dialog .actions > * { flex: 1 1 auto; justify-content: center; }
                         /* Jede Zeile trug vier umrandete Knoepfe mit Beschriftung: 210 von 372
-                           Pixeln gingen fuer die Spalte drauf und schoben den Namen aus dem Bild.
+                           Pixeln gingen für die Spalte drauf und schoben den Namen aus dem Bild.
                            Hier nur Symbole, ohne eigenen Rahmen in der ohnehin umrandeten Tabelle,
                            und sie duerfen umbrechen - den Namen der Aktion setzt
                            fileActionButton ohnehin als title. */
@@ -15744,7 +15843,7 @@ public sealed class HtmlViews
                             justify-content: center;
                             padding: 0 6px;
                         }
-                        /* Beruehrbare Ziele: eine Zeile zu oeffnen war ein 30px hoher Streifen. */
+                        /* Beruehrbare Ziele: eine Zeile zu öffnen war ein 30px hoher Streifen. */
                         .file-name-button,
                         .file-row-actions button,
                         .file-action-button {
@@ -15760,7 +15859,7 @@ public sealed class HtmlViews
                         .file-actions-cell { min-width: 0; }
                         .file-table th,
                         .file-table td { padding: 6px; }
-                        /* Geaendert-Spalte weg: sie kostet mehr Breite, als sie auf einem Telefon
+                        /* Geändert-Spalte weg: sie kostet mehr Breite, als sie auf einem Telefon
                            wert ist, und schob Name und Aktionen aus dem Bild. */
                         .file-table th:nth-child(4),
                         .file-table td:nth-child(4) { display: none; }
@@ -16103,7 +16202,7 @@ public sealed class HtmlViews
                     /* Intentional press feedback for ALL touch devices (phones AND tablets >720px),
                        replacing the grey tap flash removed via -webkit-tap-highlight-color on body. */
                     @media (max-width: 480px) {
-                        /* Auf einem Telefon bleibt Name und was man damit tun kann - die Groesse
+                        /* Auf einem Telefon bleibt Name und was man damit tun kann - die Größe
                            waere die dritte Spalte, die den Namen abschneidet. */
                         .file-table th:nth-child(3),
                         .file-table td:nth-child(3) { display: none; }
@@ -16766,7 +16865,7 @@ public sealed class HtmlViews
                             <option value="chromiumvnc"{{(server?.WebsiteRenderMode == WebsiteRenderMode.ChromiumVnc ? " selected" : "")}}>{{(Language(context) == "de" ? "via Chromium VNC" : "via Chromium VNC")}}</option>
                             <option value="firefoxvnc"{{(server?.WebsiteRenderMode == WebsiteRenderMode.FirefoxVnc ? " selected" : "")}}>{{(Language(context) == "de" ? "via Firefox VNC" : "via Firefox VNC")}}</option>
                         </select>
-                        <small class="muted">{{(Language(context) == "de" ? "\"via ... VNC\" oeffnet die Seite in einem echten Browser (Browser-Dienst noetig) - Fallback fuer Seiten, die der Proxy nicht darstellt." : "\"via ... VNC\" opens the page in a real browser (requires the browser service) - a fallback for pages the proxy can't render.")}}</small>
+                        <small class="muted">{{(Language(context) == "de" ? "\"via ... VNC\" öffnet die Seite in einem echten Browser (Browser-Dienst nötig) - Fallback für Seiten, die der Proxy nicht darstellt." : "\"via ... VNC\" opens the page in a real browser (requires the browser service) - a fallback for pages the proxy can't render.")}}</small>
                     </label>
                     <label class="check"><input type="checkbox" name="websiteFarmToolbar"{{Checked(server?.WebsiteFarmToolbar ?? false)}}> {{(Language(context) == "de" ? "Browser-Bedienleiste zeigen (sonst Kiosk-Vollbild) – nur VNC-Modi" : "Show browser toolbar (otherwise kiosk fullscreen) – VNC modes only")}}</label>
                     <label class="check"><input type="checkbox" name="ignoreCertificate"{{Checked(server?.IgnoreCertificate ?? true)}}> {{T(context, "Ignore certificate")}}</label>
