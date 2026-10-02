@@ -9503,6 +9503,16 @@ public sealed class HtmlViews
                     return `${formatFileSize(bytesPerSecond)}/s`;
                 }
 
+                // Lebt die Flaeche, in die hochgeladen wird, noch? Fuer einen Tab heisst das: er steht
+                // in `tabs`. Der Ablagen-Dialog ist absichtlich KEIN Tab (er leiht sich keinen mehr),
+                // steht also nie darin - und die Warteschlange drehte sich deshalb nie los: jede Datei
+                // blieb auf "wartet" stehen. Lebendig ist er, solange er der Host des offenen Dialogs
+                // ist; closeFileAreaDialog setzt den auf null, womit ein laufender Schub von selbst
+                // aufhoert, genau wie beim Schliessen eines Tabs.
+                function fileHostAlive(tab) {
+                    return !!tab && (tabs.has(tab.id) || tab === fileAreaHost);
+                }
+
                 async function processUploadQueue(tab) {
                     if (!tab?.fileUi || tab.uploadQueueRunning) {
                         return;
@@ -9512,7 +9522,7 @@ public sealed class HtmlViews
                     scheduleUploadQueueRender(tab);
 
                     try {
-                        while (tabs.has(tab.id)) {
+                        while (fileHostAlive(tab)) {
                             const next = (tab.uploadQueue || []).find(item => item.status === 'queued');
                             if (!next) {
                                 break;
@@ -10743,7 +10753,7 @@ public sealed class HtmlViews
                     setStatus(tab, text);
                     tab.statusTimer = window.setTimeout(() => {
                         tab.flashActive = false;
-                        if (tabs.has(tab.id) && tab.status === text) {
+                        if (fileHostAlive(tab) && tab.status === text) {
                             setStatus(tab, tab.flashBase || 'Verbunden');
                         }
                     }, 1800);
