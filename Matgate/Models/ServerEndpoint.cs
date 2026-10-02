@@ -46,6 +46,12 @@ public sealed class ServerEndpoint
 
     public string FileRootPath { get; set; } = "";
 
+    // Nur fuer die Ablagen des Gateways gesetzt ("global" | "user" | "connection" | "session"), damit
+    // der Dateimanager sie gruppieren kann, ohne am Namen zu raten. Wird nicht gespeichert - eine
+    // Ablage entsteht bei jedem Aufruf neu aus den Berechtigungen.
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string AreaKind { get; set; } = "";
+
     public string WebsiteUrl { get; set; } = "";
 
     // For Website servers: how it is opened (native proxy vs. a browser-farm VNC session).

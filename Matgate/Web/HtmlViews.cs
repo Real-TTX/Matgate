@@ -2536,8 +2536,11 @@ public sealed class HtmlViews
 
     // The client-side "availableServers" entry for one server (used by openServer / quick-connect
     // and to rebuild the New-connection panel live after a server is added/changed).
+    // Welche Art Ablage das ist, damit der Dateimanager sie gruppieren kann, ohne am Namen zu
+    // raten. Leer fuer alles, was keine Ablage ist.
     private static object ServerChoicePayload(ServerEndpoint server) => new
     {
+        areaKind = server.AreaKind,
         id = server.Id.ToString(),
         name = server.Name,
         protocol = server.Protocol.ToString().ToUpperInvariant(),
@@ -2654,7 +2657,11 @@ public sealed class HtmlViews
         // Eine Ablage ist ein Ordner auf dem Gateway, keine Verbindung zu einem Rechner. Als Karte
         // zwischen den Verbindungen las sie sich wie eine - mit demselben gefuellten Knopf und
         // alphabetisch dazwischensortiert.
-        var areas = servers.Where(server => server.Protocol == ServerProtocol.Local).ToList();
+        // Der Ordner einer laufenden Sitzung gehoert nicht auf die Startseite: er ist so lange da
+        // wie die Sitzung und wird ueber sie erreicht, nicht ueber eine Kachel.
+        var areas = servers
+            .Where(server => server.Protocol == ServerProtocol.Local && server.AreaKind != "session")
+            .ToList();
         var connections = servers.Where(server => server.Protocol != ServerProtocol.Local).ToList();
         var placesSection = PlacesSection(context, user, areas, returnUrl, de);
         var connectionsSection = ConnectionsSection(context, user, connections, includeEditButtons, returnUrl, de);
@@ -3712,7 +3719,7 @@ public sealed class HtmlViews
             pasteToActiveTab = Language(context) == "de" ? "In aktiven Tab einfuegen" : "Paste to active tab",
             clipboardTyped = Language(context) == "de" ? "Als Tasten getippt" : "Pasted as keystrokes",
             xferUpload = Language(context) == "de" ? "Dateien in die Sitzung übertragen" : "Send files to the session",
-            xferDriveReady = Language(context) == "de" ? "Laufwerk 'Matgate' bereit" : "'Matgate' drive ready",
+            xferDriveReady = Language(context) == "de" ? "Laufwerk \"Files\" bereit" : "\"Files\" drive ready",
             xferDriveUnavailable = Language(context) == "de" ? "Dateiübertragung für diese Sitzung nicht verfügbar" : "File transfer is not available for this session",
             xferUploading = Language(context) == "de" ? "Lade hoch" : "Uploading",
             xferUploaded = Language(context) == "de" ? "Hochgeladen" : "Uploaded",
@@ -3790,6 +3797,8 @@ public sealed class HtmlViews
             fileAccessFailed = Language(context) == "de" ? "Dateizugriff fehlgeschlagen" : "File access failed",
             uploadQueue = T(context, "Upload queue"),
             places = Language(context) == "de" ? "Ablagen" : "Places",
+            placesCurrent = Language(context) == "de" ? "Aktuell" : "Current",
+            placesOther = Language(context) == "de" ? "Andere Verbindungen" : "Other connections",
             uploadCancelled = Language(context) == "de" ? "Abgebrochen" : "Cancelled",
             copyTo = Language(context) == "de" ? "Kopieren nach ..." : "Copy to ...",
             copyToTarget = Language(context) == "de" ? "Zielort" : "Target place",
@@ -3797,8 +3806,8 @@ public sealed class HtmlViews
             sendTargetFolder = Language(context) == "de" ? "Zielordner auf dem Server" : "Target folder on the server",
             sendTargetDrive = Language(context) == "de" ? "Ordner auf dem Matgate-Laufwerk" : "Folder on the Matgate drive",
             sendTargetDriveHint = Language(context) == "de"
-                ? "Erscheint in der Sitzung als Laufwerk \"Matgate\"."
-                : "Appears in the session as the \"Matgate\" drive.",
+                ? "Erscheint in der Sitzung als Laufwerk \"Files auf Matgate\"."
+                : "Appears in the session as the \"Files on Matgate\" drive.",
             dropFilesHere = T(context, "Drop files here to upload"),
             currentFolder = T(context, "Current folder"),
             clearFinished = T(context, "Clear finished"),
@@ -7371,6 +7380,28 @@ public sealed class HtmlViews
                     };
                 }
 
+                // Zwei Gruppen statt einer langen Liste: oben, was zum Hier gehoert - der Ordner
+                // dieser Sitzung, der Ort, in dem man steht, die eigenen und die gemeinsamen
+                // Dateien. Darunter die Ablagen der uebrigen Verbindungen.
+                function placeOptionGroups(places, currentId) {
+                    const hierher = place => place.id === currentId
+                        || ['session', 'user', 'global'].includes(place.areaKind || '');
+                    const rang = place => place.areaKind === 'session'
+                        ? 0
+                        : (place.id === currentId ? 1 : (place.areaKind === 'user' ? 2 : 3));
+                    const aktuell = places.filter(hierher).sort((a, b) => rang(a) - rang(b));
+                    const andere = places.filter(place => !hierher(place));
+                    const option = place => `<option value="${escapeHtml(place.id)}"${place.id === currentId ? ' selected' : ''}>${escapeHtml(place.name)}</option>`;
+                    const gruppe = (label, liste) => (liste.length
+                        ? `<optgroup label="${escapeHtml(label)}">${liste.map(option).join('')}</optgroup>`
+                        : '');
+
+                    // Ohne zweite Gruppe keine Ueberschrift - eine einzelne Gruppe ist nur Rahmen.
+                    return andere.length
+                        ? gruppe(ui('placesCurrent'), aktuell) + gruppe(ui('placesOther'), andere)
+                        : aktuell.map(option).join('');
+                }
+
                 // The areas this user can reach, so one dialog manages all of them instead of showing
                 // whichever one it happened to be opened with. The connection's own area comes first
                 // when the dialog was opened from a session - that is the one meant by "its files".
@@ -7380,20 +7411,18 @@ public sealed class HtmlViews
                     return preferred.concat(areas.filter(server => server.id !== preferredId));
                 }
 
-                function openFileAreaDialog(areaId) {
+                async function openFileAreaDialog(areaId) {
+                    // Die Orte koennen sich geaendert haben, seit die Seite geladen wurde: eine
+                    // zweite Sitzung ist dazugekommen, eine andere beendet.
+                    await refreshConnectionsPanel();
                     const choices = fileAreaChoices(areaId);
                     if (!choices.length) {
                         return;
                     }
 
-                    // Die Orte ins Auswahlfeld; der gemeinte steht vorn.
-                    fileAreaDialogSelect.replaceChildren();
-                    choices.forEach(place => {
-                        const option = document.createElement('option');
-                        option.value = place.id;
-                        option.textContent = place.name;
-                        fileAreaDialogSelect.appendChild(option);
-                    });
+                    // Dieselben zwei Gruppen wie im Dateimanager: oben das Hier, darunter die
+                    // Ablagen der uebrigen Verbindungen.
+                    fileAreaDialogSelect.innerHTML = placeOptionGroups(choices, choices[0].id);
 
                     showFileArea(choices[0].id);
 
@@ -8348,6 +8377,10 @@ public sealed class HtmlViews
                         releaseSessionFiles(tab);
                         if (launch.sessionId) {
                             tab.fileSessionId = launch.sessionId;
+                            // Mit der Sitzung entsteht ihr Ordner - die Liste der Orte kennt ihn
+                            // erst, wenn sie neu geholt wird, sonst fehlt "Session" bis zum
+                            // naechsten Seitenaufbau.
+                            refreshConnectionsPanel();
                             startSessionKeepalive(tab);
                         }
 
@@ -8412,7 +8445,7 @@ public sealed class HtmlViews
                         client.onfilesystem = (object, name) => {
                             tab.filesystem = object;
                             updateTabActions();
-                            flashStatus(tab, uiText.xferDriveReady || "'Matgate' drive ready");
+                            flashStatus(tab, uiText.xferDriveReady || "\"Files\" drive ready");
 
                             // Files chosen while the session was away (picking one backgrounds the page,
                             // and a phone may drop the tunnel meanwhile) go out now that the drive is
@@ -8784,7 +8817,7 @@ public sealed class HtmlViews
                     const placeList = isFileProtocol(tab.protocol) ? fileAreaChoices('') : [];
                     const placeSelect = placeList.length > 1 ? `
                         <select class="toolbar-input file-place-select" data-file-place-select aria-label="${escapeHtml(ui('places'))}" title="${escapeHtml(ui('places'))}">
-                            ${placeList.map(place => `<option value="${escapeHtml(place.id)}"${place.id === tab.serverId ? ' selected' : ''}>${escapeHtml(place.name)}</option>`).join('')}
+                            ${placeOptionGroups(placeList, tab.serverId)}
                         </select>` : '';
 
                     const manager = document.createElement('div');
@@ -10677,7 +10710,7 @@ public sealed class HtmlViews
                         // Datei liegt danach auf dem umgeleiteten Laufwerk, nicht auf der Festplatte
                         // des entfernten Rechners. Den letzten Schritt macht man im Gast selbst.
                         sendTargetHint.textContent = uiText.sendTargetDriveHint
-                            || "Erscheint in der Sitzung als Laufwerk \"Matgate\".";
+                            || "Erscheint in der Sitzung als Laufwerk \"Files\".";
                         sftpTargetPath.classList.add('hidden');
                         sftpTargetPath.removeAttribute('required');
                         sftpTargetArea.classList.remove('hidden');

@@ -99,6 +99,8 @@ public sealed class FileShareService
 
     public static Guid ConnectionAreaId(Guid serverId) => AreaId("connection:" + serverId.ToString("N"));
 
+    public static Guid SessionAreaId(string sessionId) => AreaId("session:" + sessionId);
+
     // Every area this user may open, as something the file manager understands. The caller passes the
     // connections the user already has access to - a connection's area is reachable exactly while its
     // connection is.
@@ -114,12 +116,40 @@ public sealed class FileShareService
 
         if (permissions.Global)
         {
-            areas.Add(AreaEndpoint(user, GlobalAreaId, "Global", GlobalDirectory));
+            areas.Add(AreaEndpoint(user, GlobalAreaId, "Global", GlobalDirectory, "global"));
         }
 
         if (permissions.Personal)
         {
-            areas.Add(AreaEndpoint(user, PersonalAreaId(user.Id), "User", PersonalDirectory(user.Id)));
+            areas.Add(AreaEndpoint(user, PersonalAreaId(user.Id), "User", PersonalDirectory(user.Id), "user"));
+        }
+
+        // Der Ablageordner der laufenden Sitzungen. Er gehoert zu KEINER Berechtigung: es ist der
+        // Ordner dieser einen Sitzung, den man ohnehin ueber das umgeleitete Laufwerk sieht - er im
+        // Dateimanager zu fehlen war der Bruch. Gelistet werden nur Sitzungen, die sich noch melden
+        // und deren Verzeichnis es gibt, und nur die eigenen: die Liste kommt aus dem
+        // Lebenszeichen-Register, das den Besitzer kennt.
+        foreach (var (sessionId, _) in LiveSessionsOf(user.Id))
+        {
+            var directory = SessionDirectory(sessionId);
+            if (!Directory.Exists(directory))
+            {
+                continue;
+            }
+
+            // Die Sitzungs-Id beginnt mit der Id ihrer Verbindung - daraus wird der Name, damit man
+            // bei mehreren offenen Sitzungen weiss, welche gemeint ist.
+            var name = "Session";
+            if (sessionId.Length >= 32 && Guid.TryParseExact(sessionId[..32], "N", out var serverId))
+            {
+                var server = accessibleServers.FirstOrDefault(entry => entry.Id == serverId);
+                if (server is not null)
+                {
+                    name = "Session/" + (server.Name ?? "").Replace('/', '-');
+                }
+            }
+
+            areas.Add(AreaEndpoint(user, SessionAreaId(sessionId), name, directory, "session"));
         }
 
         if (permissions.Connection)
@@ -160,7 +190,8 @@ public sealed class FileShareService
                     user,
                     ConnectionAreaId(server.Id),
                     "Connection/" + label,
-                    ConnectionDirectory(server.Id)));
+                    ConnectionDirectory(server.Id),
+                    "connection"));
             }
         }
 
@@ -175,7 +206,7 @@ public sealed class FileShareService
         return ListAreas(user, accessibleServers).FirstOrDefault(area => area.Id == id);
     }
 
-    private ServerEndpoint AreaEndpoint(MatgateUser user, Guid id, string name, string directory)
+    private ServerEndpoint AreaEndpoint(MatgateUser user, Guid id, string name, string directory, string kind)
     {
         Directory.CreateDirectory(directory);
         OpenForGuacd(directory);
@@ -185,11 +216,24 @@ public sealed class FileShareService
             Id = id,
             Name = name,
             Protocol = ServerProtocol.Local,
+            AreaKind = kind,
             FileRootPath = directory,
             IsEnabled = true,
             // Owned by the caller, so the ordinary access check lets exactly them in.
             OwnerUserId = user.Id,
         };
+    }
+
+    // Die noch gemeldeten Sitzungen eines Benutzers. Nur lesen - wer hier nicht steht, bekommt auch
+    // keine Ablage, und damit kann niemand die Ablage einer fremden Sitzung oeffnen.
+    public IReadOnlyList<(string SessionId, DateTimeOffset LastSeen)> LiveSessionsOf(Guid userId)
+    {
+        var now = DateTimeOffset.UtcNow;
+        return _live
+            .Where(entry => entry.Value.UserId == userId && now - entry.Value.LastSeen <= IdleTimeout)
+            .OrderBy(entry => entry.Value.LastSeen)
+            .Select(entry => (entry.Key, entry.Value.LastSeen))
+            .ToList();
     }
 
     private static Guid AreaId(string key)

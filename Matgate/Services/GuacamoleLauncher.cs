@@ -89,6 +89,11 @@ public sealed class GuacamoleLauncher
             ["port"] = server.Port.ToString()
         };
 
+        // Der Ordner dieser einen Sitzung. Bei RDP wird daraus das umgeleitete Laufwerk, bei allen
+        // anderen bleibt er ein Ort im Dateimanager - vorhanden ist er immer, solange die Sitzung
+        // laeuft, sonst waere "Session" ein Ordner, den es mal gibt und mal nicht.
+        var view = _fileShares.CreateSessionView(user, server, sessionId, ephemeralServer);
+
         if (server.Protocol is ServerProtocol.Rdp or ServerProtocol.Ssh
             && !string.IsNullOrWhiteSpace(server.UserName))
         {
@@ -115,8 +120,9 @@ public sealed class GuacamoleLauncher
             parameters["resize-method"] = "reconnect";
             parameters["enable-wallpaper"] = "false";
 
-            // Report as "Matgate" instead of the default "Guacamole" so Windows shows the
-            // redirected drive as "Matgate on Matgate" rather than "... on Guacamole".
+            // Windows beschriftet ein umgeleitetes Laufwerk als "<Freigabe> auf <Client>". Der
+            // Client heisst Matgate (statt des voreingestellten "Guacamole"), die Freigabe "Files" -
+            // zusammen "Files auf Matgate" statt des doppelten "Matgate auf Matgate".
             parameters["client-name"] = "Matgate";
 
             // Redirect a drive into the session so files can be transferred like real RDP (drag &
@@ -129,9 +135,8 @@ public sealed class GuacamoleLauncher
             // ONE level below /tmp: guacd's create-drive-path is a single non-recursive mkdir(), so
             // a nested path would fail the moment its parent is missing.
             parameters["enable-drive"] = "true";
-            parameters["drive-name"] = "Matgate";
+            parameters["drive-name"] = "Files";
             parameters["create-drive-path"] = "true";
-            var view = _fileShares.CreateSessionView(user, server, sessionId, ephemeralServer);
             parameters["drive-path"] = view?.Path ?? $"/tmp/matgate-drive-{sessionId}";
 
             // guacd puts a "Download" folder of its own into every drive: anything dropped there is
