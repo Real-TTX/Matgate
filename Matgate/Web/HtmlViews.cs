@@ -3643,7 +3643,10 @@ public sealed class HtmlViews
             plus = Icon("plus"),
             mkdir = Icon("folder-plus"),
             refresh = Icon("refresh"),
-            menu = Icon("clipboard"),
+            menu = Icon("more"),
+            copyTo = Icon("external-link"),
+            queue = Icon("list"),
+            clear = Icon("x"),
             chevronDown = Icon("chevron-down"),
             upload = Icon("upload"),
             download = Icon("download"),
@@ -8802,13 +8805,13 @@ public sealed class HtmlViews
                                     Attr('title', ui('actions')),
                                     ToolbarMenuItem(ui('move'), fileIcon('move'), 'file-action-button file-menu-item', Attr('data-file-action', 'move') + Attr('title', ui('move')), true),
                                     ToolbarMenuItem(ui('copy'), fileIcon('copy'), 'file-action-button file-menu-item', Attr('data-file-action', 'copy') + Attr('title', ui('copy')), true),
-                                    ToolbarMenuItem(ui('copyTo'), fileIcon('move'), 'file-action-button file-menu-item', Attr('data-file-action', 'copy-to') + Attr('title', ui('copyTo')), true),
+                                    ToolbarMenuItem(ui('copyTo'), fileIcon('copyTo'), 'file-action-button file-menu-item', Attr('data-file-action', 'copy-to') + Attr('title', ui('copyTo')), true),
                                     ToolbarMenuItem(ui('downloadZip'), fileIcon('archive'), 'file-action-button file-menu-item', Attr('data-file-action', 'zip') + Attr('title', ui('downloadZip')), true),
                                     ToolbarMenuItem(ui('delete'), fileIcon('delete'), 'file-action-button danger file-menu-item', Attr('data-file-action', 'delete-selected') + Attr('title', ui('deleteSelected')), true)
                                 )
                             ),
                             ToolbarGroup('file-toolbar-transfer toolbar-group--end',
-                                `<button type="button" class="toolbar-button toolbar-icon-button file-upload-queue-toggle" data-file-action="toggle-upload-queue" title="${escapeHtml(ui('uploadQueue'))}" aria-label="${escapeHtml(ui('uploadQueue'))}">${fileIcon('upload')}<span class="file-upload-queue-badge hidden" data-file-upload-queue-badge></span></button>`,
+                                `<button type="button" class="toolbar-button toolbar-icon-button file-upload-queue-toggle" data-file-action="toggle-upload-queue" title="${escapeHtml(ui('uploadQueue'))}" aria-label="${escapeHtml(ui('uploadQueue'))}">${fileIcon('queue')}<span class="file-upload-queue-badge hidden" data-file-upload-queue-badge></span></button>`,
                                 ToolbarUploadButton(ui('upload'), fileIcon('upload'), 'file-upload-button')
                             )
                         )}
@@ -8816,7 +8819,7 @@ public sealed class HtmlViews
                             <div class="file-upload-queue-head">
                                 <strong>${escapeHtml(ui('uploadQueue'))}</strong>
                                 <span class="muted" data-file-upload-queue-summary>${escapeHtml(ui('ready'))}</span>
-                                <button type="button" class="file-action-button file-upload-clear-button" data-file-action="clear-upload-finished" title="${escapeHtml(ui('clearFinished'))}">${fileIcon('delete')}<span>${escapeHtml(ui('clearFinished'))}</span></button>
+                                <button type="button" class="file-action-button file-upload-clear-button" data-file-action="clear-upload-finished" title="${escapeHtml(ui('clearFinished'))}">${fileIcon('clear')}<span>${escapeHtml(ui('clearFinished'))}</span></button>
                             </div>
                             <div class="file-upload-queue-list" data-file-upload-queue-list></div>
                         </div>
@@ -8828,7 +8831,7 @@ public sealed class HtmlViews
                             </div>
                             <table class="file-table">
                                 <thead>
-                                    <tr><th class="file-select-heading" title="${escapeHtml(ui('selection'))}"></th><th>${escapeHtml(ui('name') || 'Name')}</th><th>${escapeHtml(ui('size'))}</th><th>${escapeHtml(ui('modified'))}</th><th class="file-actions-heading">${escapeHtml(ui('actions'))}</th></tr>
+                                    <tr><th class="file-select-heading"><input type="checkbox" class="file-select-all" data-file-select-all aria-label="${escapeHtml(ui('selectAll'))}" title="${escapeHtml(ui('selectAll'))}"></th><th>${escapeHtml(ui('name') || 'Name')}</th><th>${escapeHtml(ui('size'))}</th><th>${escapeHtml(ui('modified'))}</th><th class="file-actions-heading">${escapeHtml(ui('actions'))}</th></tr>
                                 </thead>
                                 <tbody></tbody>
                             </table>
@@ -8852,7 +8855,7 @@ public sealed class HtmlViews
                         createMenu: manager.querySelector('.file-create-menu'),
                         actionsMenu: manager.querySelector('.file-actions-menu'),
                         clearFinishedButton: manager.querySelector('[data-file-action="clear-upload-finished"]'),
-                        selectAllButton: null,
+                        selectAllBox: manager.querySelector('[data-file-select-all]'),
                         batchButtons: Array.from(manager.querySelectorAll('[data-file-action="zip"], [data-file-action="copy"], [data-file-action="copy-to"], [data-file-action="move"], [data-file-action="delete-selected"]'))
                     };
                     tab.fileUi.queueVisible = false;
@@ -8880,6 +8883,11 @@ public sealed class HtmlViews
                             }
                         });
                     });
+                    if (tab.fileUi.selectAllBox) {
+                        tab.fileUi.selectAllBox.addEventListener('change', () => {
+                            setAllFileSelections(tab, tab.fileUi.selectAllBox.checked);
+                        });
+                    }
                     manager.querySelector('[data-file-action="copy-to"]').addEventListener('click', () => {
                         closeFileMenus(tab);
                         openCopyToDialog(tab);
@@ -9108,10 +9116,7 @@ public sealed class HtmlViews
                     sizeCell.textContent = '-';
                     const modifiedCell = document.createElement('td');
                     modifiedCell.textContent = '-';
-                    const { actionCell, actions } = createFileActionCell();
-                    const selectAllButton = fileActionButton('check', ui('selectAll'), '', () => toggleFileSelectionAll(tab));
-                    tab.fileUi.selectAllButton = selectAllButton;
-                    actions.appendChild(selectAllButton);
+                    const { actionCell } = createFileActionCell();
                     parentRow.append(selectCell, nameCell, sizeCell, modifiedCell, actionCell);
                     tab.fileUi.tbody.appendChild(parentRow);
 
@@ -9222,16 +9227,6 @@ public sealed class HtmlViews
                     updateFileSelectionActions(tab);
                 }
 
-                function toggleFileSelectionAll(tab) {
-                    const checkboxes = Array.from(tab.fileUi.tbody.querySelectorAll('.file-select-entry'));
-                    if (!checkboxes.length) {
-                        return;
-                    }
-
-                    const allSelected = checkboxes.every(checkbox => checkbox.checked);
-                    setAllFileSelections(tab, !allSelected);
-                }
-
                 function selectedFilePaths(tab) {
                     return Array.from(tab.selectedFilePaths || []);
                 }
@@ -9245,11 +9240,13 @@ public sealed class HtmlViews
                     const selectableCheckboxes = Array.from(tab.fileUi.tbody.querySelectorAll('.file-select-entry'));
                     const selectableCount = selectableCheckboxes.length;
                     const allSelected = selectableCount > 0 && count === selectableCount;
-                    if (tab.fileUi.selectAllButton) {
-                        tab.fileUi.selectAllButton.disabled = selectableCount === 0;
-                        tab.fileUi.selectAllButton.classList.toggle('is-active', allSelected);
-                        tab.fileUi.selectAllButton.innerHTML = `${fileIcon('check')}<span>${escapeHtml(allSelected ? ui('clearSelection') : ui('selectAll'))}</span>`;
-                        tab.fileUi.selectAllButton.title = allSelected ? ui('clearSelection') : ui('selectAll');
+                    // Das Kaestchen im Kopf sagt dreierlei: nichts, teilweise, alles.
+                    const selectAllBox = tab.fileUi.selectAllBox;
+                    if (selectAllBox) {
+                        selectAllBox.disabled = selectableCount === 0;
+                        selectAllBox.checked = allSelected;
+                        selectAllBox.indeterminate = count > 0 && !allSelected;
+                        selectAllBox.title = allSelected ? ui('clearSelection') : ui('selectAll');
                     }
 
                     for (const button of tab.fileUi.batchButtons) {
@@ -15225,7 +15222,7 @@ public sealed class HtmlViews
                         width: 20px;
                     }
                     .is-directory .file-name-button .icon { color: var(--accent); }
-                    .is-directory .file-name-button { font-weight: 700; }
+                    .is-directory .file-name-button { font-weight: 600; }
                     .parent-directory .file-name-button:disabled {
                         color: var(--muted);
                         cursor: not-allowed;
@@ -15234,9 +15231,11 @@ public sealed class HtmlViews
                     .parent-directory .file-name-button:disabled .icon {
                         color: var(--muted);
                     }
-                    .parent-directory {
-                        background: var(--surface-2);
-                    }
+                    /* Die Zeile "eine Ebene hoeher" ist Navigation, kein Inhalt - sie war die
+                       einzige eingefaerbte Zeile der Tabelle und zog damit den Blick auf sich. */
+                    .file-manager .parent-directory { background: transparent; }
+                    .file-manager .parent-directory .file-name-button,
+                    .file-manager .parent-directory .file-name-button .icon { color: var(--muted); font-weight: 400; }
                     .file-row-actions {
                         display: inline-flex;
                         gap: 6px;
