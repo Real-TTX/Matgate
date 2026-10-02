@@ -3798,6 +3798,9 @@ public sealed class HtmlViews
             uploadQueue = T(context, "Upload queue"),
             places = Language(context) == "de" ? "Ablagen" : "Places",
             placesCurrent = Language(context) == "de" ? "Aktuell" : "Current",
+            dropIntoFolder = Language(context) == "de" ? "nach" : "into",
+            dropIntoSession = Language(context) == "de" ? "in die Sitzung" : "into the session",
+            dropNowhere = Language(context) == "de" ? "Hier nimmt gerade nichts Dateien an" : "Nothing here takes files right now",
             placesOther = Language(context) == "de" ? "Andere Verbindungen" : "Other connections",
             uploadCancelled = Language(context) == "de" ? "Abgebrochen" : "Cancelled",
             copyTo = Language(context) == "de" ? "Kopieren nach ..." : "Copy to ...",
@@ -3949,6 +3952,15 @@ public sealed class HtmlViews
                         <button id="copy-to-close" type="button">{{T(context, "Close")}}</button>
                     </div>
                 </form>
+                <!-- Faengt Dateien auf, die irgendwo im Fenster losgelassen werden. Ohne das oeffnet
+                     der Browser die Datei selbst und die Sitzung dahinter ist weg. -->
+                <div id="drop-catcher" class="drop-catcher hidden" aria-hidden="true">
+                    <div class="drop-catcher-box">
+                        {{Icon("upload")}}
+                        <strong>{{(Language(context) == "de" ? "Dateien hier ablegen" : "Drop files here")}}</strong>
+                        <span class="muted" data-drop-catcher-text></span>
+                    </div>
+                </div>
                 <div id="file-area-dialog" class="credential-dialog file-area-dialog hidden">
                     <div class="file-area-dialog-head">
                         <select id="file-area-dialog-select" class="file-area-dialog-select" aria-label="{{A(Language(context) == "de" ? "Ablage" : "Place")}}"></select>
@@ -4044,6 +4056,7 @@ public sealed class HtmlViews
                 const copyToPath = document.getElementById('copy-to-path');
                 const copyToError = document.getElementById('copy-to-error');
                 const copyToClose = document.getElementById('copy-to-close');
+                const dropCatcher = document.getElementById('drop-catcher');
                 const sendTargetLabel = document.getElementById('send-target-label');
                 const sendTargetHint = document.getElementById('send-target-hint');
                 const sftpTargetFiles = document.getElementById('sftp-target-files');
@@ -11069,11 +11082,103 @@ public sealed class HtmlViews
                     event.preventDefault();
                     addPendingFiles(event.dataTransfer && event.dataTransfer.files);
                 });
-                ['dragover', 'drop'].forEach(type => document.addEventListener(type, event => {
+                // Wohin eine Datei ginge, die man JETZT loslaesst - und damit auch, was auf dem
+                // Blatt steht, das beim Ziehen aufgeht.
+                function dropDestination() {
+                    const imDialog = fileAreaHost && !fileAreaDialog.classList.contains('hidden');
+                    const tab = imDialog ? fileAreaHost : tabs.get(activeTabId || '');
+                    if (!tab) {
+                        return null;
+                    }
+
+                    if (tab.fileUi) {
+                        return { tab, kind: 'files', text: `${uiText.dropIntoFolder || 'into'} ${tab.name || ''} ${tab.filePath || '/'}` };
+                    }
+
+                    if (tab.filesystem && !tab.terminal) {
+                        return { tab, kind: 'session', text: `${uiText.dropIntoSession || 'into the session'} ${tab.name || ''}` };
+                    }
+
+                    return { tab, kind: 'none', text: uiText.dropNowhere || '' };
+                }
+
+                let dropDepth = 0;
+
+                function showDropCatcher() {
+                    const ziel = dropDestination();
+                    const text = dropCatcher.querySelector('[data-drop-catcher-text]');
+                    if (text) {
+                        text.textContent = ziel ? ziel.text : (uiText.dropNowhere || '');
+                    }
+
+                    dropCatcher.classList.toggle('drop-catcher--idle', !ziel || ziel.kind === 'none');
+                    dropCatcher.classList.remove('hidden');
+                }
+
+                function hideDropCatcher() {
+                    dropDepth = 0;
+                    dropCatcher.classList.add('hidden');
+                }
+
+                // Eine Datei, die neben jeder Ablageflaeche landet, oeffnete der Browser bisher selbst
+                // - er navigiert zur Datei, und die Sitzung dahinter ist weg. Jetzt wird sie
+                // angenommen und geht dorthin, wo man gerade steht.
+                function acceptDroppedFiles(files) {
+                    const ziel = dropDestination();
+                    if (!ziel || !files.length) {
+                        return;
+                    }
+
+                    if (ziel.kind === 'files') {
+                        enqueueFileUploads(ziel.tab, files);
+                        return;
+                    }
+
+                    if (ziel.kind === 'session') {
+                        // Bewusst der Dialog und nicht gleich das Senden: eine Datei, die man
+                        // irgendwo im Fenster fallen laesst, soll nicht ungefragt auf einem
+                        // entfernten Rechner landen.
+                        askForTargetFolder(ziel.tab, files);
+                        return;
+                    }
+
+                    flashStatus(ziel.tab, uiText.dropNowhere || '');
+                }
+
+                document.addEventListener('dragenter', event => {
+                    if (!hasFileDragPayload(event)) {
+                        return;
+                    }
+
+                    dropDepth += 1;
+                    showDropCatcher();
+                });
+                document.addEventListener('dragleave', event => {
+                    if (!hasFileDragPayload(event)) {
+                        return;
+                    }
+
+                    dropDepth -= 1;
+                    if (dropDepth <= 0) {
+                        hideDropCatcher();
+                    }
+                });
+                // Im Einfangen zuerst, damit das Blatt auch dann verschwindet, wenn eine eigene
+                // Ablageflaeche den Rest uebernimmt.
+                document.addEventListener('drop', () => hideDropCatcher(), true);
+                document.addEventListener('dragover', event => {
                     if (hasFileDragPayload(event) && !event.defaultPrevented) {
                         event.preventDefault();
                     }
-                }));
+                });
+                document.addEventListener('drop', event => {
+                    if (!hasFileDragPayload(event) || event.defaultPrevented) {
+                        return;
+                    }
+
+                    event.preventDefault();
+                    acceptDroppedFiles(Array.from((event.dataTransfer && event.dataTransfer.files) || []));
+                });
                 document.addEventListener('pointerdown', event => {
                     if (fileAreaDialog.classList.contains('hidden')) {
                         return;
@@ -15599,6 +15704,38 @@ public sealed class HtmlViews
                        deliberately not full screen - seeing the session behind it is the point. */
                     /* Qualified with .credential-dialog so it does not depend on which rule comes last. */
                     .credential-dialog.send-files-dialog { max-width: 560px; width: min(560px, calc(100vw - 32px)); }
+                    /* Das Blatt, das beim Ziehen aufgeht. Keine Mausereignisse: es zeigt nur an,
+                       abgelegt wird darunter - sonst verschluckte es genau das Loslassen, das es
+                       ankuendigt. */
+                    .drop-catcher {
+                        align-items: center;
+                        background: color-mix(in srgb, var(--bg) 72%, transparent);
+                        backdrop-filter: blur(2px);
+                        display: flex;
+                        inset: 0;
+                        justify-content: center;
+                        pointer-events: none;
+                        position: fixed;
+                        z-index: 80;
+                    }
+                    .drop-catcher.hidden { display: none; }
+                    .drop-catcher-box {
+                        align-items: center;
+                        background: var(--surface);
+                        border: 2px dashed var(--accent);
+                        border-radius: 16px;
+                        box-shadow: var(--shadow-strong, 0 12px 28px rgb(0 0 0 / 18%));
+                        display: flex;
+                        flex-direction: column;
+                        gap: 8px;
+                        max-width: min(420px, calc(100vw - 48px));
+                        padding: 28px 36px;
+                        text-align: center;
+                    }
+                    .drop-catcher-box .icon { height: 28px; width: 28px; color: var(--accent); }
+                    .drop-catcher-box strong { font-size: 17px; }
+                    .drop-catcher--idle .drop-catcher-box { border-color: var(--line); }
+                    .drop-catcher--idle .drop-catcher-box .icon { color: var(--muted); }
                     .send-files-drop {
                         align-items: center;
                         background: var(--surface-2);
