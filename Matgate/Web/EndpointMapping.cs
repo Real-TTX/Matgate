@@ -3356,6 +3356,10 @@ public static class EndpointMapping
             current.DisplayName = Clean(form["displayName"].ToString(), current.DisplayName);
             current.PreferredLanguage = NormalizeLanguage(form["preferredLanguage"].ToString());
             current.PreferredTheme = NormalizeTheme(form["preferredTheme"].ToString());
+            // Welche Palette. Ein unbekannter Schluessel faellt beim Aufloesen auf die eingebaute
+            // zurueck, also genuegt hier das Saeubern.
+            var palette = (form["preferredThemeName"].ToString() ?? "").Trim().ToLowerInvariant();
+            current.PreferredThemeName = string.IsNullOrWhiteSpace(palette) ? ThemeService.DefaultKey : palette;
             current.RememberLoginByDefault = true;
             current.UpdatedAt = DateTimeOffset.UtcNow;
             updatedUser = current;

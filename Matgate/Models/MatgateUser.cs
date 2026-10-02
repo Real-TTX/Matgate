@@ -32,6 +32,10 @@ public sealed class MatgateUser
 
     public string PreferredTheme { get; set; } = "system";
 
+    // Welche Palette. "light | dark | system" oben sagt die Helligkeit, das hier die Farben - die
+    // beiden sind unabhaengig: jedes Thema hat einen hellen und einen dunklen Satz.
+    public string PreferredThemeName { get; set; } = "matgate";
+
     public bool RememberLoginByDefault { get; set; } = true;
 
     // Per-user session behaviour (display + keyboard helpers), applied to every remote session the

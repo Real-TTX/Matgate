@@ -131,6 +131,7 @@ builder.Services.AddSingleton<PasswordHasher>();
 builder.Services.AddSingleton<SecretProtector>();
 builder.Services.AddSingleton<JsonDataStore>();
 builder.Services.AddSingleton<GuacamoleConfigWriter>();
+builder.Services.AddSingleton<ThemeService>();
 builder.Services.AddSingleton<HtmlViews>();
 builder.Services.AddSingleton<FileShareService>();
 builder.Services.AddHostedService<FileShareReaper>();

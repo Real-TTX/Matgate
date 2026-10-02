@@ -1170,6 +1170,12 @@ public sealed class HtmlViews
                                         {{ThemeOptions(context, user.PreferredTheme)}}
                                     </select>
                                 </label>
+                                <label>{{(de ? "Farbschema" : "Colour scheme")}}
+                                    <select name="preferredThemeName">
+                                        {{ThemePaletteOptions(context, user.PreferredThemeName)}}
+                                    </select>
+                                    <small class="muted">{{(de ? "Jedes Schema hat einen hellen und einen dunklen Satz - was oben steht, entscheidet welchen." : "Every scheme has a light and a dark set - the setting above decides which.")}}</small>
+                                </label>
                                 <div class="actions"><button type="submit" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button></div>
                             </form>
                         </section>
@@ -11690,6 +11696,13 @@ public sealed class HtmlViews
     {
         var language = Language(context);
         var theme = Theme(context, user);
+        // Die Palette: pro Benutzer gewaehlt, aus dem Dienst aufgeloest. Layout ist statisch, also
+        // kommt der Dienst aus dem Anfragekontext - so machen es die Endpunkte auch.
+        var themes = context.RequestServices.GetService<ThemeService>();
+        var palette = themes?.Resolve(user?.PreferredThemeName);
+        var lightVars = ThemeCss(themes, palette, dark: false, indent: 12);
+        var darkVars = ThemeCss(themes, palette, dark: true, indent: 12);
+        var darkVarsDeep = ThemeCss(themes, palette, dark: true, indent: 16);
         var requestPath = context.Request.Path.Value ?? "/";
         var displayName = user is null ? "" : string.IsNullOrWhiteSpace(user.DisplayName) ? user.UserName : user.DisplayName;
         var canManageAdminArea = user is not null && (user.IsAdmin || user.CanManageServers);
@@ -11823,70 +11836,18 @@ public sealed class HtmlViews
                 <style>
                     :root {
                         color-scheme: light;
-                        --radius: 8px;
                         --shell-height: 34px;
-                        --bg: #f4f6f4;
-                        --panel: #ffffff;
-                        --surface: #ffffff;
-                        --surface-2: #eef2ef;
-                        --surface-3: #dfe7e3;
-                        --hover-bg: #f5f8f6;
-                        --hover-strong-bg: #eef4f1;
-                        --active-bg: #eef7f1;
-                        --text: #1f2725;
-                        --muted: #67706c;
-                        --line: #dce2de;
-                        --accent: #176b5b;
-                        --accent-2: #2b5876;
-                        --danger: #a63a3a;
-                        --primary-hover: #145d4f;
-                        --danger-hover: #923232;
-                        --shadow: 0 10px 24px rgb(31 39 37 / 8%);
-                        --shadow-strong: 0 12px 28px rgb(31 39 37 / 14%);
+                        {{lightVars}}
                     }
                     :root[data-theme="dark"] {
                         color-scheme: dark;
-                        --bg: #0f1412;
-                        --panel: #161c19;
-                        --surface: #171d1a;
-                        --surface-2: #1d2421;
-                        --surface-3: #232c28;
-                        --hover-bg: #202823;
-                        --hover-strong-bg: #26312c;
-                        --active-bg: #1f352f;
-                        --text: #edf2ef;
-                        --muted: #a0aca6;
-                        --line: #2f3d37;
-                        --accent: #5bc2a8;
-                        --accent-2: #8cb8e0;
-                        --danger: #d46f6f;
-                        --primary-hover: #4aa78f;
-                        --danger-hover: #bd5f5f;
-                        --shadow: 0 10px 24px rgb(0 0 0 / 32%);
-                        --shadow-strong: 0 12px 28px rgb(0 0 0 / 42%);
+                        {{darkVars}}
                     }
                     @media (prefers-color-scheme: dark) {
                         :root[data-theme="system"],
                         :root:not([data-theme="light"]):not([data-theme="dark"]) {
                             color-scheme: dark;
-                            --bg: #0f1412;
-                            --panel: #161c19;
-                            --surface: #171d1a;
-                            --surface-2: #1d2421;
-                            --surface-3: #232c28;
-                            --hover-bg: #202823;
-                            --hover-strong-bg: #26312c;
-                            --active-bg: #1f352f;
-                            --text: #edf2ef;
-                            --muted: #a0aca6;
-                            --line: #2f3d37;
-                            --accent: #5bc2a8;
-                            --accent-2: #8cb8e0;
-                            --danger: #d46f6f;
-                            --primary-hover: #4aa78f;
-                            --danger-hover: #bd5f5f;
-                            --shadow: 0 10px 24px rgb(0 0 0 / 32%);
-                            --shadow-strong: 0 12px 28px rgb(0 0 0 / 42%);
+                            {{darkVarsDeep}}
                         }
                     }
                     * { box-sizing: border-box; }
@@ -17465,6 +17426,32 @@ public sealed class HtmlViews
     {
         var normalized = (value ?? "").Trim().ToLowerInvariant();
         return normalized is "light" or "dark" or "system" ? normalized : "system";
+    }
+
+    // Die Token einer Palette als CSS-Zeilen. Faellt der Dienst aus, bleiben die eingebauten Werte -
+    // ohne Token gibt es keine Oberflaeche, das darf nicht an einer Datei haengen.
+    private static string ThemeCss(ThemeService? themes, ThemeDefinition? palette, bool dark, int indent)
+    {
+        var values = themes is not null && palette is not null
+            ? themes.Values(palette, dark)
+            : ThemeService.FallbackValues(dark);
+        var pad = new string(' ', indent);
+        return string.Join("\n" + pad, values.Select(entry => $"--{entry.Key}: {entry.Value};"));
+    }
+
+    private static string ThemePaletteOptions(HttpContext context, string selected)
+    {
+        var themes = context.RequestServices.GetService<ThemeService>();
+        var all = themes?.All ?? [];
+        if (all.Count == 0)
+        {
+            return $"""<option value="{A(ThemeService.DefaultKey)}" selected>Matgate</option>""";
+        }
+
+        var chosen = string.IsNullOrWhiteSpace(selected) ? ThemeService.DefaultKey : selected.Trim();
+        return string.Join("", all.Select(theme => $$"""
+            <option value="{{A(theme.Key)}}"{{(string.Equals(theme.Key, chosen, StringComparison.OrdinalIgnoreCase) ? " selected" : "")}}>{{E(theme.Name)}}</option>
+            """));
     }
 
     public static string Theme(HttpContext context, MatgateUser? user = null)
