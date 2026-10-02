@@ -630,8 +630,7 @@ public static class EndpointMapping
         {
             servers.AddRange(fileAreas.ListAreas(
                 user,
-                servers.Where(server => !ServerEndpoint.IsFileProtocol(server.Protocol)).ToList(),
-                HtmlViews.Language(context) == "de"));
+                servers.Where(server => !ServerEndpoint.IsFileProtocol(server.Protocol)).ToList()));
         }
 
         var allWorkspaces = await workspaceService.GetWorkspacesAsync(context.RequestAborted);
@@ -678,8 +677,7 @@ public static class EndpointMapping
         {
             servers.AddRange(shares.ListAreas(
                 user,
-                await AccessibleServersAsync(user, store, context.RequestAborted),
-                HtmlViews.Language(context) == "de"));
+                await AccessibleServersAsync(user, store, context.RequestAborted)));
         }
 
         var allWorkspaces = await workspaceService.GetWorkspacesAsync(context.RequestAborted);
@@ -3922,8 +3920,7 @@ public static class EndpointMapping
             var area = shares.ResolveArea(
                 user,
                 id,
-                await AccessibleServersAsync(user, store, context.RequestAborted),
-                HtmlViews.Language(context) == "de");
+                await AccessibleServersAsync(user, store, context.RequestAborted));
 
             if (area is not null)
             {

@@ -102,7 +102,12 @@ public sealed class FileShareService
     // Every area this user may open, as something the file manager understands. The caller passes the
     // connections the user already has access to - a connection's area is reachable exactly while its
     // connection is.
-    public IReadOnlyList<ServerEndpoint> ListAreas(MatgateUser user, IReadOnlyList<ServerEndpoint> accessibleServers, bool german)
+    // The names are the ones a session sees as folders on its redirected drive: Global, User and
+    // Connection. Saying "Eigene Dateien" here and "User" there described the same folder twice, and
+    // only one of the two names was on the drive - so they are the same word everywhere, in both
+    // languages. A connection's area is written as a path below Connection, which also sorts the way
+    // it reads.
+    public IReadOnlyList<ServerEndpoint> ListAreas(MatgateUser user, IReadOnlyList<ServerEndpoint> accessibleServers)
     {
         var permissions = user.FileShare ?? new FileSharePermissions();
         var areas = new List<ServerEndpoint>();
@@ -114,17 +119,19 @@ public sealed class FileShareService
 
         if (permissions.Personal)
         {
-            areas.Add(AreaEndpoint(user, PersonalAreaId(user.Id), german ? "Eigene Dateien" : "My files", PersonalDirectory(user.Id)));
+            areas.Add(AreaEndpoint(user, PersonalAreaId(user.Id), "User", PersonalDirectory(user.Id)));
         }
 
         if (permissions.Connection)
         {
-            foreach (var server in accessibleServers)
+            foreach (var server in accessibleServers.OrderBy(server => server.Name, StringComparer.CurrentCultureIgnoreCase))
             {
                 areas.Add(AreaEndpoint(
                     user,
                     ConnectionAreaId(server.Id),
-                    server.Name + (german ? " - Ablage" : " - files"),
+                    // A slash in the connection's own name would read as another level that is not
+                    // there; it becomes a dash so the first slash stays the one Matgate put in.
+                    "Connection/" + (server.Name ?? "").Replace('/', '-'),
                     ConnectionDirectory(server.Id)));
             }
         }
@@ -135,9 +142,9 @@ public sealed class FileShareService
     // Turns one of those ids back into something the file manager can open - but only if the user is
     // allowed that area. Returns null for anything else, so an id that is not an area simply falls
     // through to the normal server lookup.
-    public ServerEndpoint? ResolveArea(MatgateUser user, Guid id, IReadOnlyList<ServerEndpoint> accessibleServers, bool german)
+    public ServerEndpoint? ResolveArea(MatgateUser user, Guid id, IReadOnlyList<ServerEndpoint> accessibleServers)
     {
-        return ListAreas(user, accessibleServers, german).FirstOrDefault(area => area.Id == id);
+        return ListAreas(user, accessibleServers).FirstOrDefault(area => area.Id == id);
     }
 
     private ServerEndpoint AreaEndpoint(MatgateUser user, Guid id, string name, string directory)

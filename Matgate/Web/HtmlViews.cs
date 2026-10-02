@@ -3348,7 +3348,13 @@ public sealed class HtmlViews
         string extraHtml = "")
     {
         var searchIndex = $"{server.Name} {ServerTargetValue(server)} {server.FolderName} {ServerProtocolLabel(server.Protocol)}".ToLowerInvariant();
+
+        // Eine Ablage ist keine gespeicherte Verbindung: sie entsteht aus einer Berechtigung und hat
+        // keinen Datensatz. Das Zahnrad zeigte trotzdem auf /admin/servers/<id> - und damit auf eine
+        // Seite, die es nicht gibt (404).
+        var isArea = server.Protocol == ServerProtocol.Local;
         var canEdit = includeEditButtons
+            && !isArea
             && (user.IsAdmin
                 || server.OwnerUserId == user.Id
                 || (server.OwnerUserId is null && user.CanManageServers));
@@ -3372,12 +3378,12 @@ public sealed class HtmlViews
                         {{ServerIcon(server)}}
                         <div class="connection-choice-copy">
                             <div class="connection-choice-badges">
-                                <span class="badge">{{E(ServerProtocolLabel(server.Protocol))}}</span>
+                                <span class="badge">{{E(isArea ? (Language(context) == "de" ? "Ablage" : "Place") : ServerProtocolLabel(server.Protocol))}}</span>
                                 {{ServerFolderBadge(context, server)}}
-                                {{(server.OwnerUserId is null ? "" : ServerScopeBadge(context, server, currentUser: user))}}
+                                {{(server.OwnerUserId is null || isArea ? "" : ServerScopeBadge(context, server, currentUser: user))}}
                             </div>
                             <h3>{{E(server.Name)}}</h3>
-                            <p class="target">{{E(ServerTargetValue(server))}}</p>
+                            {{(isArea ? "" : $"""<p class="target">{E(ServerTargetValue(server))}</p>""")}}
                             {{extraHtml}}
                         </div>
                         <div class="connection-choice-corner">{{settingsCorner}}{{FavoriteToggleForm(context, user, server, returnUrl)}}</div>
