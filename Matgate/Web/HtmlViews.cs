@@ -3731,6 +3731,10 @@ public sealed class HtmlViews
             fileAccessFailed = Language(context) == "de" ? "Dateizugriff fehlgeschlagen" : "File access failed",
             uploadQueue = T(context, "Upload queue"),
             places = Language(context) == "de" ? "Ablagen" : "Places",
+            uploadCancelled = Language(context) == "de" ? "Abgebrochen" : "Cancelled",
+            copyTo = Language(context) == "de" ? "Kopieren nach ..." : "Copy to ...",
+            copyToTarget = Language(context) == "de" ? "Zielort" : "Target place",
+            copyToDone = Language(context) == "de" ? "kopiert" : "copied",
             sendTargetFolder = Language(context) == "de" ? "Zielordner auf dem Server" : "Target folder on the server",
             sendTargetDrive = Language(context) == "de" ? "Ordner auf dem Matgate-Laufwerk" : "Folder on the Matgate drive",
             sendTargetDriveHint = Language(context) == "de"
@@ -3860,6 +3864,23 @@ public sealed class HtmlViews
                         <button id="sftp-target-close" type="button">{{T(context, "Close")}}</button>
                     </div>
                 </form>
+                <!-- Kopieren von einem Ort in einen anderen. Das ging bisher nur als Umweg durch den
+                     Senden-Dialog einer laufenden Sitzung - jetzt dort, wo man ohnehin blaettert. -->
+                <form id="copy-to-dialog" class="credential-dialog copy-to-dialog hidden">
+                    <h2>{{(Language(context) == "de" ? "Kopieren nach" : "Copy to")}}</h2>
+                    <p id="copy-to-files" class="muted"></p>
+                    <label>{{(Language(context) == "de" ? "Zielort" : "Target place")}}
+                        <select id="copy-to-target"></select>
+                    </label>
+                    <label>{{(Language(context) == "de" ? "Ordner dort" : "Folder there")}}
+                        <input id="copy-to-path" type="text" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="/" value="/">
+                    </label>
+                    <p id="copy-to-error" class="muted hidden"></p>
+                    <div class="actions">
+                        <button type="submit" class="primary">{{Icon("copy")}}{{(Language(context) == "de" ? "Kopieren" : "Copy")}}</button>
+                        <button id="copy-to-close" type="button">{{T(context, "Close")}}</button>
+                    </div>
+                </form>
                 <div id="file-area-dialog" class="credential-dialog file-area-dialog hidden">
                     <div class="file-area-dialog-head">
                         <strong id="file-area-dialog-title" class="file-area-dialog-title"></strong>
@@ -3948,6 +3969,12 @@ public sealed class HtmlViews
                 const sftpTargetArea = document.getElementById('sftp-target-area');
                 const sendFilesDrop = document.getElementById('send-files-drop');
                 const sendFilesInput = document.getElementById('send-files-input');
+                const copyToDialog = document.getElementById('copy-to-dialog');
+                const copyToFiles = document.getElementById('copy-to-files');
+                const copyToTarget = document.getElementById('copy-to-target');
+                const copyToPath = document.getElementById('copy-to-path');
+                const copyToError = document.getElementById('copy-to-error');
+                const copyToClose = document.getElementById('copy-to-close');
                 const sendTargetLabel = document.getElementById('send-target-label');
                 const sendTargetHint = document.getElementById('send-target-hint');
                 const sftpTargetFiles = document.getElementById('sftp-target-files');
@@ -7275,12 +7302,67 @@ public sealed class HtmlViews
                     fileAreaDialog.classList.remove('hidden');
                 }
 
+                // Wechselt der Ort, gehoert die Warteschlange nicht mehr dorthin. Bisher verschwand
+                // sie lautlos: wer waehrend eines Schubs die Ablage wechselte, verlor den Rest ohne
+                // jede Meldung. Jetzt wird abgebrochen und es steht da.
+                function abandonUploads(tab) {
+                    let dropped = 0;
+                    ((tab && tab.uploadQueue) || []).forEach(item => {
+                        if (item.status !== 'queued' && item.status !== 'uploading') {
+                            return;
+                        }
+
+                        item.status = 'failed';
+                        item.error = uiText.uploadCancelled || 'Abgebrochen';
+                        dropped += 1;
+                        if (item.xhr) {
+                            try { item.xhr.abort(); } catch (e) { /* schon beendet */ }
+                        }
+                    });
+
+                    return dropped;
+                }
+
+                // Denselben Dateimanager auf einen anderen Ort richten, statt einen zweiten zu oeffnen.
+                function switchFileTabTo(tab, serverId) {
+                    const server = findServer(serverId);
+                    if (!tab || !server) {
+                        return;
+                    }
+
+                    const dropped = abandonUploads(tab);
+                    tab.serverId = server.id;
+                    tab.name = server.name;
+                    tab.protocol = server.protocol;
+                    tab.iconHtml = server.iconHtml;
+                    tab.iconKey = server.iconKey;
+                    tab.target = server.target;
+                    tab.fileAreaId = server.fileAreaId || '';
+                    tab.filePath = '/';
+                    tab.initialFilePath = '';
+                    tab.uploadQueue = [];
+                    const title = tab.tabMain ? tab.tabMain.querySelector('.session-tab-title') : null;
+                    if (title) {
+                        title.innerHTML = `${server.iconHtml || ''}<span>${escapeHtml(server.name)}</span>`;
+                    }
+
+                    startFileTab(tab);
+                    if (dropped) {
+                        setFileMessage(tab, `${dropped} ${uiText.uploadCancelled || 'Abgebrochen'}`, 'error');
+                    }
+
+                    updateStatusBar();
+                }
+
                 function showFileArea(areaId) {
                     const server = findServer(areaId);
                     if (!server) {
                         return;
                     }
 
+                    // Der bisherige Host verschwindet gleich - was er noch hochladen wollte, muss
+                    // abgebrochen und gemeldet werden, statt still zu verschwinden.
+                    abandonUploads(fileAreaHost);
                     fileAreaDialogTitle.textContent = server.name;
                     fileAreaHost = buildFileAreaHost(server);
                     fileAreaDialogBody.replaceChildren(fileAreaHost.panel);
@@ -7331,6 +7413,14 @@ public sealed class HtmlViews
 
                 function closeFileAreaDialog() {
                     // Nothing to put back and no tab to clean up - the dialog owned everything it used.
+                    const dropped = abandonUploads(fileAreaHost);
+                    if (dropped) {
+                        const sessionTab = tabs.get(activeTabId || '');
+                        if (sessionTab) {
+                            flashStatus(sessionTab, `${dropped} ${uiText.uploadCancelled || 'Abgebrochen'}`);
+                        }
+                    }
+
                     fileAreaDialog.classList.add('hidden');
                     fileAreaDialogBody.replaceChildren();
                     fileAreaHost = null;
@@ -8578,8 +8668,11 @@ public sealed class HtmlViews
                     // keinen Weg zu ihnen, im Dialog nur ein Auswahlfeld, das niemand als "die anderen
                     // Ordner" liest. Nur fuer die Ablagen des Gateways - eine entfernte Verbindung ist
                     // kein Ort, von dem aus man dorthin springt.
-                    const placeList = (tab.protocol || '').toUpperCase() === 'LOCAL' ? fileAreaChoices('') : [];
-                    const placesRow = placeList.length > 1 ? `
+                    // Die Ablagen des Gateways, in JEDEM Dateimanager - auch in dem einer SMB- oder
+                    // FTP-Verbindung. Vorher gab es die Leiste nur, wenn man ohnehin schon in einer
+                    // Ablage stand; von einer Verbindung aus fuehrte kein Weg dorthin.
+                    const placeList = isFileProtocol(tab.protocol) ? fileAreaChoices('') : [];
+                    const placesRow = placeList.length ? `
                         <div class="file-places" role="group" aria-label="${escapeHtml(ui('places'))}">
                             ${placeList.map(place => `<button type="button" class="file-place${place.id === tab.serverId ? ' active' : ''}" data-file-place="${escapeHtml(place.id)}" title="${escapeHtml(place.name)}">${fileIcon('folder')}<span>${escapeHtml(place.name)}</span></button>`).join('')}
                         </div>` : '';
@@ -8609,6 +8702,7 @@ public sealed class HtmlViews
                                     Attr('title', ui('actions')),
                                     ToolbarMenuItem(ui('move'), fileIcon('move'), 'file-action-button file-menu-item', Attr('data-file-action', 'move') + Attr('title', ui('move')), true),
                                     ToolbarMenuItem(ui('copy'), fileIcon('copy'), 'file-action-button file-menu-item', Attr('data-file-action', 'copy') + Attr('title', ui('copy')), true),
+                                    ToolbarMenuItem(ui('copyTo'), fileIcon('move'), 'file-action-button file-menu-item', Attr('data-file-action', 'copy-to') + Attr('title', ui('copyTo')), true),
                                     ToolbarMenuItem(ui('downloadZip'), fileIcon('archive'), 'file-action-button file-menu-item', Attr('data-file-action', 'zip') + Attr('title', ui('downloadZip')), true),
                                     ToolbarMenuItem(ui('delete'), fileIcon('delete'), 'file-action-button danger file-menu-item', Attr('data-file-action', 'delete-selected') + Attr('title', ui('deleteSelected')), true)
                                 )
@@ -8659,7 +8753,7 @@ public sealed class HtmlViews
                         actionsMenu: manager.querySelector('.file-actions-menu'),
                         clearFinishedButton: manager.querySelector('[data-file-action="clear-upload-finished"]'),
                         selectAllButton: null,
-                        batchButtons: Array.from(manager.querySelectorAll('[data-file-action="zip"], [data-file-action="copy"], [data-file-action="move"], [data-file-action="delete-selected"]'))
+                        batchButtons: Array.from(manager.querySelectorAll('[data-file-action="zip"], [data-file-action="copy"], [data-file-action="copy-to"], [data-file-action="move"], [data-file-action="delete-selected"]'))
                     };
                     tab.fileUi.queueVisible = false;
                     tab.uploadQueue = [];
@@ -8675,15 +8769,20 @@ public sealed class HtmlViews
                                 return;
                             }
 
-                            // Der Dialog bleibt stehen und tauscht seinen Inhalt; ein Tab gehoert zu
-                            // genau einer Verbindung, also bekommt der andere Ort seinen eigenen.
+                            // Beide Male derselbe Gedanke: der Dateimanager bleibt stehen und zeigt
+                            // einen anderen Ort. Frueher oeffnete jeder Klick in einem Tab einen
+                            // weiteren Tab - nach dreimal Umsehen waren es vier.
                             if (tab.id === 'file-area-dialog') {
                                 showFileArea(placeId);
                             }
                             else {
-                                openServer(placeId);
+                                switchFileTabTo(tab, placeId);
                             }
                         });
+                    });
+                    manager.querySelector('[data-file-action="copy-to"]').addEventListener('click', () => {
+                        closeFileMenus(tab);
+                        openCopyToDialog(tab);
                     });
                     manager.querySelector('[data-file-action="refresh"]').addEventListener('click', () => {
                         loadFilePath(tab, tab.filePath || '/');
@@ -9136,6 +9235,85 @@ public sealed class HtmlViews
                         });
                         await ensureFileResponse(response, action === 'copy' ? ui('copyFailed') : ui('moveFailed'));
                     });
+                }
+
+                // Kopieren an einen ANDEREN Ort. Die Bytes nimmt das Gateway selbst in die Hand; der
+                // Browser schickt nur, was wohin soll.
+                let copyToSource = null;
+
+                function openCopyToDialog(tab) {
+                    const paths = selectedFilePaths(tab);
+                    if (!paths.length) {
+                        setFileMessage(tab, uiText.selectFilesFirst || 'Select the files first', 'error');
+                        return;
+                    }
+
+                    copyToSource = { tab, paths };
+                    copyToFiles.textContent = paths.map(path => path.split('/').pop()).join(', ');
+                    copyToError.textContent = '';
+                    copyToError.classList.add('hidden');
+                    copyToPath.value = '/';
+                    copyToTarget.replaceChildren();
+                    availableServers
+                        .filter(server => isFileProtocol(server.protocol) && server.id !== tab.serverId)
+                        .forEach(server => {
+                            const option = document.createElement('option');
+                            option.value = server.id;
+                            option.textContent = server.name;
+                            copyToTarget.appendChild(option);
+                        });
+
+                    if (!copyToTarget.options.length) {
+                        copyToSource = null;
+                        setFileMessage(tab, uiText.noTargetPlace || 'Kein anderer Ort verfuegbar.', 'error');
+                        return;
+                    }
+
+                    copyToDialog.classList.remove('hidden');
+                }
+
+                function closeCopyToDialog() {
+                    copyToSource = null;
+                    copyToDialog.classList.add('hidden');
+                }
+
+                async function runCopyTo() {
+                    if (!copyToSource) {
+                        closeCopyToDialog();
+                        return;
+                    }
+
+                    const { tab, paths } = copyToSource;
+                    const targetServerId = copyToTarget.value;
+                    const targetPath = copyToPath.value.trim() || '/';
+                    try {
+                        const response = await fetch(`/api/files/${tab.serverId}/copy-to`, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                                'X-Matgate-Csrf': csrfToken
+                            },
+                            body: JSON.stringify({ paths, targetServerId, targetPath })
+                        });
+                        const payload = await response.json().catch(() => null);
+                        if (!response.ok) {
+                            throw new Error((payload && payload.error) || ui('actionFailed'));
+                        }
+
+                        closeCopyToDialog();
+                        const failed = (payload && payload.failed) || [];
+                        const copied = (payload && payload.copied) || 0;
+                        setFileMessage(
+                            tab,
+                            failed.length
+                                ? failed.join(' / ')
+                                : `${copied} ${uiText.copyToDone || 'kopiert'}`,
+                            failed.length ? 'error' : '');
+                    }
+                    catch (error) {
+                        copyToError.textContent = error instanceof Error ? error.message : String(error);
+                        copyToError.classList.remove('hidden');
+                    }
                 }
 
                 async function deleteSelectedEntries(tab) {
@@ -10688,6 +10866,11 @@ public sealed class HtmlViews
                 });
                 clipboardClose.addEventListener('click', closeClipboardDialog);
                 sftpTargetClose.addEventListener('click', closeTargetFolderDialog);
+                copyToClose.addEventListener('click', closeCopyToDialog);
+                copyToDialog.addEventListener('submit', event => {
+                    event.preventDefault();
+                    runCopyTo();
+                });
                 // The drop area is both: a button that opens the picker, and a target for dragging.
                 sendFilesDrop.addEventListener('click', () => sendFilesInput.click());
                 sendFilesInput.addEventListener('change', () => {

@@ -362,6 +362,7 @@ public static class EndpointMapping
         app.MapPost("/api/files/{id:guid}/extract", ExtractArchiveAsync).RequireAuthorization();
         app.MapPost("/api/files/{id:guid}/mkdir", CreateDirectoryAsync).RequireAuthorization();
         app.MapPost("/api/files/{id:guid}/copy", CopyFilesAsync).RequireAuthorization();
+        app.MapPost("/api/files/{id:guid}/copy-to", CopyFilesToServerAsync).RequireAuthorization();
         app.MapPost("/api/files/{id:guid}/move", MoveFilesAsync).RequireAuthorization();
         app.MapPost("/api/files/{id:guid}/delete", DeleteFilesAsync).RequireAuthorization();
         app.MapDelete("/api/files/{id:guid}", DeleteFileAsync).RequireAuthorization();
@@ -2632,7 +2633,79 @@ public static class EndpointMapping
         }
     }
 
+    // Kopieren von einem Ort in einen anderen - zwei Verbindungen, ein Vorgang. Vorher gab es das nur
+    // als Umweg durch den Senden-Dialog einer laufenden Sitzung: der Browser lud jede Datei herunter
+    // und wieder hoch. Hier bleibt der Strom auf dem Gateway, und beide Seiten gehen durch dieselbe
+    // Zugriffspruefung - sonst koennte man aus einer Ablage herauskopieren, die einem nicht gehoert.
+    private static async Task<IResult> CopyFilesToServerAsync(
+        Guid id,
+        HttpContext context,
+        JsonDataStore store,
+        IFileGatewayService files)
+    {
+        if (!ValidateCsrfHeader(context))
+        {
+            return Results.BadRequest(new { error = HtmlViews.Translate(context, "Invalid request") });
+        }
+
+        var source = await RequireFileServerAsync(id, context, store);
+        if (source.Result is not null)
+        {
+            return source.Result;
+        }
+
+        var request = await context.Request.ReadFromJsonAsync<FileCopyToRequest>(cancellationToken: context.RequestAborted);
+        var paths = CleanPathList(request?.Paths);
+        if (paths.Count == 0 || request?.TargetServerId is null)
+        {
+            return Results.BadRequest(new { error = HtmlViews.Translate(context, "Invalid request") });
+        }
+
+        var target = await RequireFileServerAsync(request.TargetServerId.Value, context, store);
+        if (target.Result is not null)
+        {
+            return target.Result;
+        }
+
+        // Das Ziel muss beschreibbar sein; die Quelle wird nur gelesen.
+        var readOnly = ReadOnlyGuard(context, target);
+        if (readOnly is not null)
+        {
+            return readOnly;
+        }
+
+        var copied = 0;
+        var failed = new List<string>();
+
+        foreach (var selectedPath in paths)
+        {
+            try
+            {
+                var download = await files.DownloadAsync(source.Server!, selectedPath, context.RequestAborted);
+                await using (download.Content)
+                {
+                    await files.UploadAsync(
+                        target.Server!,
+                        request.TargetPath,
+                        download.Content,
+                        download.FileName,
+                        context.RequestAborted);
+                }
+
+                copied++;
+            }
+            catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException)
+            {
+                // Eine Datei, die nicht geht, darf die anderen nicht aufhalten - gemeldet wird sie aber.
+                failed.Add($"{FileNameFromVirtualPath(selectedPath)}: {ex.Message}");
+            }
+        }
+
+        return Results.Ok(new { ok = failed.Count == 0, copied, failed });
+    }
+
     private static async Task<IResult> MoveFilesAsync(
+
         Guid id,
         HttpContext context,
         JsonDataStore store,
@@ -5059,6 +5132,8 @@ public static class EndpointMapping
     private sealed record FileZipCreateRequest(string? DestinationPath, string? ArchiveName, IReadOnlyList<string>? Paths);
 
     private sealed record FileBatchTransferRequest(IReadOnlyList<string>? Paths, string? DestinationPath);
+
+    private sealed record FileCopyToRequest(IReadOnlyList<string>? Paths, Guid? TargetServerId, string? TargetPath);
 
     private sealed record FileArchiveExtractRequest(string? Path, string? DestinationPath);
 
