@@ -1260,6 +1260,13 @@ public sealed class HtmlViews
                                             return;
                                         }
 
+                                        // Das Kaestchen gehoert dem Kaestchen. Ohne das hier fing der
+                                        // Zeiger-Fang des Eintrags den Klick ab, und "zeigen" liess sich
+                                        // nicht umstellen - gezogen wurde stattdessen.
+                                        if (event.target.closest('label, input')) {
+                                            return;
+                                        }
+
                                         dragged = item;
                                         item.classList.add('dragging');
                                         try { item.setPointerCapture(event.pointerId); } catch { }
@@ -11785,7 +11792,7 @@ public sealed class HtmlViews
             ? ""
             : $$"""
                 <div id="mobile-tab-menu" class="mobile-tab-menu" data-label-new="{{A(T(context, "New connection"))}}" data-label-tabs="{{A(Language(context) == "de" ? "Verbindungen" : "Connections")}}" data-label-close="{{A(T(context, "Close"))}}">
-                    <button type="button" class="tab-action-button mobile-tab-menu-trigger tab-action-more-trigger" title="Tabs" aria-label="Tabs">{{Icon("copy")}}<span class="mobile-tab-count" data-mobile-tab-count>0</span></button>
+                    <button type="button" class="tab-action-button mobile-tab-menu-trigger tab-action-more-trigger" aria-haspopup="true" aria-expanded="false" title="{{A(Language(context) == "de" ? "Verbindungen" : "Connections")}}">{{Icon("copy")}}<span class="mobile-tab-name" data-mobile-tab-name>{{(Language(context) == "de" ? "Verbindungen" : "Connections")}}</span><span class="mobile-tab-count" data-mobile-tab-count>0</span>{{Icon("chevron-down")}}</button>
                     <div class="tab-action-more-panel mobile-tab-menu-panel tab-action-overflow-panel" data-mobile-tab-panel></div>
                 </div>
                 """;
@@ -13071,6 +13078,15 @@ public sealed class HtmlViews
                         min-height: 34px;
                         padding: 0 10px;
                     }
+                    /* Der Name der offenen Verbindung auf dem Knopf: ein Symbol allein sagt nicht,
+                       was offen ist. Gedeckelt, damit die Aktionen daneben ihren Platz behalten. */
+                    .mobile-tab-name {
+                        max-width: 11ch;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        white-space: nowrap;
+                    }
+                    .mobile-tab-menu-trigger .icon:last-child { color: var(--muted); height: 14px; width: 14px; }
                     .mobile-tab-count {
                         background: var(--surface-2);
                         border: 1px solid var(--line);
@@ -16742,9 +16758,19 @@ public sealed class HtmlViews
                                 const root = document.getElementById('session-tabs');
                                 return root ? Array.from(root.querySelectorAll('.session-tab')) : [];
                             };
+                            const tabName = mobileTabMenu.querySelector('[data-mobile-tab-name]');
                             const updateTabCount = () => {
+                                const offen = listSessionTabs().filter(el => el.getAttribute('data-tab-kind') !== 'add');
                                 if (tabCount) {
-                                    tabCount.textContent = String(listSessionTabs().filter(el => el.getAttribute('data-tab-kind') !== 'add').length);
+                                    tabCount.textContent = String(offen.length);
+                                }
+
+                                if (tabName) {
+                                    const aktiv = offen.find(el => el.classList.contains('active'));
+                                    const titel = aktiv
+                                        ? ((aktiv.querySelector('.session-tab-title')?.textContent) || '').trim()
+                                        : '';
+                                    tabName.textContent = titel || (mobileTabMenu.getAttribute('data-label-tabs') || 'Connections');
                                 }
                             };
                             // On a phone the list takes the whole screen instead of being a dropdown in
@@ -16867,7 +16893,15 @@ public sealed class HtmlViews
                             });
                             const tabsRoot = document.getElementById('session-tabs');
                             if (tabsRoot && window.MutationObserver) {
-                                new MutationObserver(updateTabCount).observe(tabsRoot, { childList: true });
+                                // Nicht nur, wenn Tabs dazukommen oder gehen: auch beim Wechsel, denn
+                                // auf dem Knopf steht der Name des offenen - und der blieb sonst auf
+                                // dem vorigen stehen. "active" wandert als Klasse, also subtree.
+                                new MutationObserver(updateTabCount).observe(tabsRoot, {
+                                    attributeFilter: ['class'],
+                                    attributes: true,
+                                    childList: true,
+                                    subtree: true,
+                                });
                             }
                             updateTabCount();
                         }
