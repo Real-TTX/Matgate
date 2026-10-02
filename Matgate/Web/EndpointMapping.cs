@@ -290,6 +290,7 @@ public static class EndpointMapping
         });
         app.MapGet("/", HomeAsync).RequireAuthorization();
         app.MapGet("/api/connections/panel", ConnectionsPanelAsync).RequireAuthorization();
+        app.MapGet("/api/browser-farm/status", BrowserFarmStatusAsync).RequireAuthorization();
         app.MapGet("/forbidden", ForbiddenAsync).RequireAuthorization();
         app.MapGet("/connect/{id:guid}", ConnectAsync).RequireAuthorization();
         app.MapGet("/website/{id:guid}", WebsiteAsync).RequireAuthorization();
@@ -647,6 +648,44 @@ public static class EndpointMapping
         return Results.Content(
             views.SessionsWorkspace(context, user, servers, visibleWorkspaces, openServerId),
             "text/html");
+    }
+
+    // Wie viele Browser-Plaetze gerade frei sind. Steht auf der Startseite, weil eine Webseite "via
+    // Chromium VNC" genau daran scheitert, wenn alle belegt sind - und das sah man vorher erst beim
+    // Oeffnen. Nur Zahlen, keine Adressen: wer in welchem Platz sitzt, bleibt der Verwaltung
+    // vorbehalten. Der Sidecar wird hier gefragt, nicht beim Seitenaufbau, damit eine langsame oder
+    // abwesende Farm die Startseite nicht aufhaelt.
+    private static async Task<IResult> BrowserFarmStatusAsync(
+        HttpContext context,
+        JsonDataStore store,
+        BrowserFarmSessionManager farmSessions)
+    {
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        if (!farmSessions.IsConfigured)
+        {
+            return Results.Ok(new { configured = false });
+        }
+
+        var status = await farmSessions.GetFarmStatusAsync(context.RequestAborted);
+        if (status is null)
+        {
+            // Eingerichtet, aber nicht erreichbar - das ist etwas anderes als "nicht vorhanden".
+            return Results.Ok(new { configured = true, reachable = false });
+        }
+
+        return Results.Ok(new
+        {
+            configured = true,
+            reachable = true,
+            poolSize = status.PoolSize,
+            busy = status.Busy,
+            free = status.Free
+        });
     }
 
     // Live data for the New-connection panel (HTML + availableServers), so the shell can refresh it

@@ -2604,6 +2604,17 @@ public sealed class HtmlViews
             <section class="home2-head">
                 <div class="home2-head-copy">
                     <h1>{{(de ? "Verbindungen" : "Connections")}}</h1>
+                    <!-- Steht nur da, wenn eine Browser-Farm eingerichtet ist. Eine Webseite "via
+                         Chromium VNC" scheitert, wenn alle Plaetze belegt sind - das sah man bisher
+                         erst beim Oeffnen. Die Zahlen holt das Skript, damit eine langsame Farm die
+                         Seite nicht aufhaelt. -->
+                    <p class="home2-farm" data-home2-farm hidden
+                       data-label-free="{{A(de ? "Browser-Farm: {free} von {pool} frei" : "Browser farm: {free} of {pool} free")}}"
+                       data-label-full="{{A(de ? "Browser-Farm: alle {pool} Plaetze belegt" : "Browser farm: all {pool} slots busy")}}"
+                       data-label-down="{{A(de ? "Browser-Farm nicht erreichbar" : "Browser farm unreachable")}}">
+                        <span class="home2-farm-dot" data-home2-farm-dot></span>
+                        <span data-home2-farm-text></span>
+                    </p>
                 </div>
                 {{headerActions}}
             </section>
@@ -2681,7 +2692,6 @@ public sealed class HtmlViews
     // Single row of protocol chips + a "More" chip that opens the full protocol dialog.
     private static string QuickConnectSection(bool de, IReadOnlyCollection<string>? hiddenQuick)
     {
-        const int rowCount = 6;
         var protocols = QuickProtocols(de, hiddenQuick);
         if (protocols.Length == 0)
         {
@@ -2690,7 +2700,11 @@ public sealed class HtmlViews
             return "";
         }
 
-        var chips = string.Join("", protocols.Take(rowCount).Select(protocol => $$"""
+        // Alle, die der Benutzer behalten hat - vorher waren es die ersten sechs, womit WebDAV als
+        // achtes Protokoll nie auf der Startseite stand, obwohl es angekreuzt war. Welche hier
+        // erscheinen, entscheidet die Einstellung, nicht die Reihenfolge; die Reihe laesst sich
+        // schieben, wenn sie nicht passt.
+        var chips = string.Join("", protocols.Select(protocol => $$"""
             <button type="button" class="home2-proto-chip" data-home2-qc="{{A(protocol.Protocol)}}" style="--proto: {{protocol.Color}}" title="{{A(protocol.Desc)}}">
                 <span class="home2-proto-chip-icon">{{Icon(protocol.IconKey)}}</span>
                 <span class="home2-proto-chip-name">{{E(protocol.Name)}}</span>
@@ -4589,6 +4603,40 @@ public sealed class HtmlViews
                     const root = document.querySelector('[data-home2]');
                     if (!root) {
                         return;
+                    }
+
+                    // Der Zustand der Browser-Farm, falls eine da ist. Ein Fehlschlag bleibt still:
+                    // die Zeile ist eine Beigabe, kein Teil der Seite.
+                    const farmLine = root.querySelector('[data-home2-farm]');
+                    if (farmLine) {
+                        fetch('/api/browser-farm/status')
+                            .then(response => (response.ok ? response.json() : null))
+                            .then(data => {
+                                if (!data || !data.configured) {
+                                    return;
+                                }
+
+                                const text = farmLine.querySelector('[data-home2-farm-text]');
+                                const dot = farmLine.querySelector('[data-home2-farm-dot]');
+                                const fill = (template, values) => (template || '')
+                                    .replace('{free}', values.free)
+                                    .replace('{pool}', values.pool);
+                                if (!data.reachable) {
+                                    text.textContent = farmLine.dataset.labelDown || '';
+                                    dot.dataset.state = 'down';
+                                }
+                                else if (!data.free) {
+                                    text.textContent = fill(farmLine.dataset.labelFull, { free: data.free, pool: data.poolSize });
+                                    dot.dataset.state = 'busy';
+                                }
+                                else {
+                                    text.textContent = fill(farmLine.dataset.labelFree, { free: data.free, pool: data.poolSize });
+                                    dot.dataset.state = 'free';
+                                }
+
+                                farmLine.hidden = false;
+                            })
+                            .catch(() => { /* keine Farm, keine Zeile */ });
                     }
 
                     const searchInput = root.querySelector('[data-home2-search]');
@@ -13381,6 +13429,25 @@ public sealed class HtmlViews
                         text-transform: uppercase;
                     }
                     .home2-section-head h2 .icon { color: var(--accent); height: 15px; width: 15px; }
+                    .home2-farm {
+                        align-items: center;
+                        color: var(--muted);
+                        display: flex;
+                        font-size: 13px;
+                        gap: 7px;
+                        margin: 4px 0 0;
+                    }
+                    .home2-farm[hidden] { display: none; }
+                    .home2-farm-dot {
+                        background: var(--muted);
+                        border-radius: 999px;
+                        flex: 0 0 auto;
+                        height: 8px;
+                        width: 8px;
+                    }
+                    .home2-farm-dot[data-state="free"] { background: var(--accent); }
+                    .home2-farm-dot[data-state="busy"] { background: #e0863a; }
+                    .home2-farm-dot[data-state="down"] { background: var(--danger, #b3261e); }
                     .home2-quick-row {
                         display: flex;
                         gap: 10px;
