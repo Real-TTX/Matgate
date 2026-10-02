@@ -8782,17 +8782,17 @@ public sealed class HtmlViews
                     // FTP-Verbindung. Vorher gab es die Leiste nur, wenn man ohnehin schon in einer
                     // Ablage stand; von einer Verbindung aus fuehrte kein Weg dorthin.
                     const placeList = isFileProtocol(tab.protocol) ? fileAreaChoices('') : [];
-                    const placesRow = placeList.length ? `
-                        <div class="file-places" role="group" aria-label="${escapeHtml(ui('places'))}">
-                            ${placeList.map(place => `<button type="button" class="file-place${place.id === tab.serverId ? ' active' : ''}" data-file-place="${escapeHtml(place.id)}" title="${escapeHtml(place.name)}">${fileIcon('folder')}<span>${escapeHtml(place.name)}</span></button>`).join('')}
-                        </div>` : '';
+                    const placeSelect = placeList.length > 1 ? `
+                        <select class="toolbar-input file-place-select" data-file-place-select aria-label="${escapeHtml(ui('places'))}" title="${escapeHtml(ui('places'))}">
+                            ${placeList.map(place => `<option value="${escapeHtml(place.id)}"${place.id === tab.serverId ? ' selected' : ''}>${escapeHtml(place.name)}</option>`).join('')}
+                        </select>` : '';
 
                     const manager = document.createElement('div');
                     manager.className = 'file-manager';
                     manager.innerHTML = `
-                        ${placesRow}
                         ${Toolbar('file-toolbar',
                             ToolbarGroup('file-toolbar-main toolbar-group--grow',
+                                placeSelect,
                                 ToolbarIconButton(ui('refresh'), fileIcon('refresh'), 'file-tool-button', Attr('data-file-action', 'refresh') + Attr('title', ui('refresh'))),
                                 ToolbarInput('file-path-input', '/', ui('path')),
                                 ToolbarMenu(
@@ -8872,9 +8872,9 @@ public sealed class HtmlViews
                     tab.uploadQueueRefreshPath = '';
                     tab.uploadDragDepth = 0;
 
-                    manager.querySelectorAll('[data-file-place]').forEach(button => {
-                        button.addEventListener('click', () => {
-                            const placeId = button.getAttribute('data-file-place') || '';
+                    manager.querySelectorAll('[data-file-place-select]').forEach(select => {
+                        select.addEventListener('change', () => {
+                            const placeId = select.value || '';
                             if (!placeId || placeId === tab.serverId) {
                                 return;
                             }
@@ -14873,43 +14873,13 @@ public sealed class HtmlViews
                         height: 100%;
                         padding: 0;
                     }
-                    /* Die Ablagen des Gateways als Leiste über der Liste. Die Knoepfe tragen keinen
-                       eigenen Rahmen - sie sitzen bereits in einem umrandeten Panel, und Rahmen auf
-                       Rahmen ist genau das, was auf einem schmalen Schirm bricht. Der aktive Ort wird
-                       durch Flaeche kenntlich gemacht, nicht durch eine zusätzliche Linie. */
-                    .file-places {
-                        border-bottom: 1px solid var(--line);
-                        display: flex;
-                        gap: 4px;
-                        overflow-x: auto;
-                        padding: 6px 8px;
-                        scrollbar-width: none;
-                    }
-                    .file-places::-webkit-scrollbar { display: none; }
-                    .file-place {
-                        align-items: center;
-                        background: none;
-                        border: 0;
-                        border-radius: var(--radius);
-                        color: var(--muted);
-                        cursor: pointer;
-                        display: inline-flex;
-                        flex: 0 0 auto;
-                        font: inherit;
-                        gap: 6px;
-                        min-height: 34px;
-                        padding: 0 10px;
-                        white-space: nowrap;
-                    }
-                    .file-place:hover,
-                    .file-place:focus-visible {
-                        background: var(--hover-bg);
-                        color: var(--text);
-                    }
-                    .file-place.active {
-                        background: var(--surface-2);
-                        color: var(--text);
-                        font-weight: 600;
+                    /* Der Ort, in dem man steht - dasselbe Mittel wie im Kopf des Dialogs, damit es
+                       nicht zwei Bedienungen fuer dieselbe Sache gibt. */
+                    .file-place-select {
+                        flex: 0 1 auto;
+                        font-family: inherit;
+                        max-width: 240px;
+                        min-width: 0;
                     }
                     .file-upload-queue-toggle {
                         position: relative;
@@ -15641,7 +15611,8 @@ public sealed class HtmlViews
                     .file-area-dialog-select { flex: 0 1 auto; max-width: 320px; min-width: 0; }
                     /* Im Dialog waehlt das Feld oben den Ort - die Leiste im Manager waere dasselbe
                        noch einmal. In einem Tab gibt es keinen Kopf, dort bleibt sie der Weg. */
-                    #file-area-dialog .file-places { display: none; }
+                    /* Im Dialog waehlt das Feld im Kopf - das in der Leiste waere dasselbe zweimal. */
+                    #file-area-dialog .file-place-select { display: none; }
                     .file-area-host { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; min-width: 0; position: relative; }
                     .file-area-dialog-head {
                         align-items: center;
@@ -16007,7 +15978,7 @@ public sealed class HtmlViews
                             width: 40px;
                         }
                         .pagination-button { min-width: 40px; }
-                        .file-place { min-height: 40px; padding: 0 12px; }
+                        .file-place-select { max-width: 150px; min-height: 40px; }
                         /* Comfortable ~40px tap targets across the session chrome on phones. */
                         .status-info-button {
                             height: 40px;
