@@ -478,8 +478,8 @@ public sealed class HtmlViews
                 <section class="panel">
                     <h2>{{T(context, "Profile")}}</h2>
                     <div class="form-grid">
-                        <label>{{T(context, "Username")}}
-                            <input name="username" required minlength="3" maxlength="64">
+                        <label><span>{{T(context, "Username")}}<span class="req" aria-hidden="true">*</span></span>
+                            <input name="username" required aria-required="true" minlength="3" maxlength="64">
                         </label>
                         <label>{{T(context, "Email (optional)")}}
                             <input name="email" type="email" maxlength="200">
@@ -487,8 +487,8 @@ public sealed class HtmlViews
                         <label>{{T(context, "Display name")}}
                             <input name="displayName">
                         </label>
-                        <label>{{T(context, "Initial password")}}
-                            <input name="password" type="password" minlength="10" required>
+                        <label><span>{{T(context, "Initial password")}}<span class="req" aria-hidden="true">*</span></span>
+                            <input name="password" type="password" minlength="10" required aria-required="true">
                         </label>
                     <label>{{T(context, "Preferred language")}}
                         <select name="preferredLanguage">
@@ -3492,11 +3492,18 @@ public sealed class HtmlViews
 
     public string Message(HttpContext context, MatgateUser? user, string title, string message)
     {
+        // Diese Seite erscheint fast immer, weil ein Formular nicht angenommen wurde - und bisher
+        // fuehrte von ihr nur ein Weg: zur Startseite, womit das Getippte verloren war. "Zurueck"
+        // bringt das Formular mitsamt Eingaben wieder.
+        var de = Language(context) == "de";
         var body = $$"""
-            <section class="panel">
+            <section class="panel message-panel">
                 <h1>{{E(title)}}</h1>
-                <p>{{E(message)}}</p>
-                <p><a class="button" href="/">{{Icon("home")}}{{T(context, "To Home")}}</a></p>
+                <p role="alert">{{E(message)}}</p>
+                <div class="form-actions">
+                    <button type="button" class="primary" onclick="history.back()">{{Icon("arrow-left")}}{{(de ? "Zurück" : "Back")}}</button>
+                    <a class="button" href="/">{{Icon("home")}}{{T(context, "To Home")}}</a>
+                </div>
             </section>
             """;
 
@@ -12290,6 +12297,8 @@ public sealed class HtmlViews
                         overflow-wrap: anywhere;
                         word-break: break-word;
                     }
+                    .req { color: var(--danger); font-weight: 700; margin-left: 3px; }
+                    .form-legend { color: var(--muted); font-size: 12px; margin: 0 0 14px; }
                     .page-head { align-items: center; display: flex; gap: 18px; justify-content: space-between; margin-bottom: 18px; }
                     .panel, .card, .auth-panel {
                         background: var(--panel);
@@ -16830,8 +16839,8 @@ public sealed class HtmlViews
                         {{ServerProtocolPicker(context, effectiveProtocol)}}
                     </label>
                     <div class="form-grid">
-                        <label>{{T(context, "Name")}}
-                            <input name="name" value="{{A(server?.Name)}}" required>
+                        <label><span>{{T(context, "Name")}}<span class="req" aria-hidden="true">*</span></span>
+                            <input name="name" value="{{A(server?.Name)}}" required aria-required="true">
                         </label>
                         <label>{{T(context, "Scope")}}
                             {{scopeControl}}
@@ -16861,8 +16870,8 @@ public sealed class HtmlViews
             <section class="panel server-form-section" data-protocols="rdp,vnc,ssh,sftp,ftp,smb,webdav">
                 <h2>{{T(context, "Target")}}</h2>
                 <div class="form-grid">
-                    <label>{{T(context, "Host or IP")}}
-                        <input name="host" value="{{A(server?.Host)}}" placeholder="PC-Terminal / Host" required>
+                    <label><span>{{T(context, "Host or IP")}}<span class="req" aria-hidden="true">*</span></span>
+                        <input name="host" value="{{A(server?.Host)}}" placeholder="PC-Terminal / Host" required aria-required="true">
                     </label>
                     <label>Port
                         <input name="port" type="number" min="1" max="65535" value="{{A(port)}}" placeholder="3389 / 5900 / 22 / 21 / 445">
@@ -16872,8 +16881,8 @@ public sealed class HtmlViews
             <section class="panel server-form-section" data-protocols="website">
                 <h2>{{T(context, "Website settings")}}</h2>
                 <div class="form-grid">
-                    <label>{{T(context, "Website URL")}}
-                        <input name="websiteUrl" value="{{A(websiteUrl)}}" placeholder="https://nas.local/admin/" required>
+                    <label><span>{{T(context, "Website URL")}}<span class="req" aria-hidden="true">*</span></span>
+                        <input name="websiteUrl" value="{{A(websiteUrl)}}" placeholder="https://nas.local/admin/" required aria-required="true">
                     </label>
                     <label>{{T(context, "Open as")}}
                         <select name="websiteRenderMode">
