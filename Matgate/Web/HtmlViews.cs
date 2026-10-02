@@ -7903,10 +7903,25 @@ public sealed class HtmlViews
                         mode = (tab.pinchZoom || 1) > 1.02 ? 'transform' : null;
                     };
 
+                    // Im Modus mit fester Aufloesung gehoert die Geste der Vergroesserung der Sitzung.
+                    // Ohne das hier zoomte der Browser stattdessen die ganze Oberflaeche - mal ja, mal
+                    // nein, je nachdem wo die Finger aufsetzen, was genau der Eindruck "geht teilweise"
+                    // ist. Gescrollt wird weiterhin mit einem Finger.
+                    let deskDist = 0;
+                    let deskZoom = 1;
                     root.addEventListener('touchstart', event => {
+                        if (isDesktopDisplayMode(tab)) {
+                            if (event.touches.length === 2) {
+                                deskDist = distance(event.touches);
+                                deskZoom = tab.zoom || 1;
+                                swallow(event);
+                            }
+
+                            return;
+                        }
+
                         // Single-finger touches belong to Guacamole (remote cursor); leave them alone.
-                        // Pinch/scroll take-over is a fit-mode feature; fixed-resolution mode uses native scroll.
-                        if (event.touches.length < 2 || isDesktopDisplayMode(tab)) {
+                        if (event.touches.length < 2) {
                             return;
                         }
                         if (event.touches.length === 2) {
@@ -7921,11 +7936,25 @@ public sealed class HtmlViews
                     }, { passive: false, capture: true });
 
                     root.addEventListener('touchmove', event => {
+                        if (isDesktopDisplayMode(tab)) {
+                            if (event.touches.length === 2 && deskDist > 0) {
+                                swallow(event);
+                                const faktor = distance(event.touches) / deskDist;
+                                const ziel = Math.min(3, Math.max(0.25, deskZoom * faktor));
+                                if (Math.abs(ziel - (tab.zoom || 1)) > 0.01) {
+                                    tab.zoom = Math.round(ziel * 100) / 100;
+                                    fitDisplay(tab);
+                                }
+                            }
+
+                            return;
+                        }
+
                         if (mode && event.touches.length < 2) {
                             swallow(event); // own the tail of a committed gesture
                             return;
                         }
-                        if (event.touches.length < 2 || isDesktopDisplayMode(tab)) {
+                        if (event.touches.length < 2) {
                             return;
                         }
                         if (event.touches.length !== 2) {
@@ -8000,6 +8029,12 @@ public sealed class HtmlViews
                     }, { passive: false, capture: true });
 
                     const end = event => {
+                        // Die Geste im Modus mit fester Aufloesung endet hier, sonst wirkt die naechste
+                        // Beruehrung wie die Fortsetzung der vorigen.
+                        if (event.touches.length < 2) {
+                            deskDist = 0;
+                        }
+
                         if (mode) {
                             swallow(event); // own the tail touchend/touchcancel of a committed gesture
                         }
