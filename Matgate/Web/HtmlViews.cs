@@ -1061,10 +1061,9 @@ public sealed class HtmlViews
                 </tr>
                 """));
         var tab = context.Request.Query["tab"].ToString().ToLowerInvariant();
-        if (tab is not ("profile" or "appearance" or "security" or "favorites" or "session"))
+        if (tab is not ("security" or "favorites" or "session"))
         {
-            // Die Info zuerst: sie sagt, womit man es zu tun hat, bevor man etwas verstellt.
-            tab = "info";
+            tab = "profile";
         }
         var de = Language(context) == "de";
         var prefs = user.Session;
@@ -1144,17 +1143,12 @@ public sealed class HtmlViews
             </section>
             <section class="tabs" data-tabs>
                 <div class="tab-strip" role="tablist">
-                    <a class="tab-button{{(tab == "info" ? " active" : "")}}" href="?tab=info" data-tab-target="info" role="tab" aria-selected="{{(tab == "info" ? "true" : "false")}}">{{Icon("info")}}<span>{{(de ? "Info" : "About")}}</span></a>
                     <a class="tab-button{{(tab == "profile" ? " active" : "")}}" href="?tab=profile" data-tab-target="profile" role="tab" aria-selected="{{(tab == "profile" ? "true" : "false")}}">{{Icon("user")}}<span>{{(de ? "Profil" : "Profile")}}</span></a>
-                    <a class="tab-button{{(tab == "appearance" ? " active" : "")}}" href="?tab=appearance" data-tab-target="appearance" role="tab" aria-selected="{{(tab == "appearance" ? "true" : "false")}}">{{Icon("sun")}}<span>{{(de ? "Darstellung" : "Appearance")}}</span></a>
                     <a class="tab-button{{(tab == "security" ? " active" : "")}}" href="?tab=security" data-tab-target="security" role="tab" aria-selected="{{(tab == "security" ? "true" : "false")}}">{{Icon("key")}}<span>{{(de ? "Sicherheit" : "Security")}}</span></a>
                     <a class="tab-button{{(tab == "session" ? " active" : "")}}" href="?tab=session" data-tab-target="session" role="tab" aria-selected="{{(tab == "session" ? "true" : "false")}}">{{Icon("monitor")}}<span>{{(de ? "Sitzung" : "Session")}}</span></a>
                     <a class="tab-button{{(tab == "favorites" ? " active" : "")}}" href="?tab=favorites" data-tab-target="favorites" role="tab" aria-selected="{{(tab == "favorites" ? "true" : "false")}}">{{Icon("star")}}<span>{{(de ? "Favoriten" : "Favorites")}}</span></a>
                 </div>
                 <div class="tab-panels">
-                    <div class="tab-panel{{(tab == "info" ? "" : " hidden")}}" data-tab-panel="info">
-                        {{AboutCard(context)}}
-                    </div>
                     <div class="tab-panel{{(tab == "profile" ? "" : " hidden")}}" data-tab-panel="profile">
                         <section class="panel">
                             <h2>{{(de ? "Profil" : "Profile")}}</h2>
@@ -1174,8 +1168,6 @@ public sealed class HtmlViews
                                 <div class="actions"><button type="submit" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button></div>
                             </form>
                         </section>
-                    </div>
-                    <div class="tab-panel{{(tab == "appearance" ? "" : " hidden")}}" data-tab-panel="appearance">
                         <section class="panel">
                             <h2>{{(de ? "Darstellung" : "Appearance")}}</h2>
                             <p class="muted settings-lead">{{(de ? "Gilt auf jedem Gerät, auf dem du angemeldet bist." : "Applies on every device you are signed in on.")}}</p>
@@ -1958,44 +1950,6 @@ public sealed class HtmlViews
             """;
 
         return Layout(context, user, T(context, "Tools"), body);
-    }
-
-    // Dieselbe Auskunft wie die About-Seite, nur ohne deren Seitenkopf - als erstes Blatt der
-    // Einstellungen. Was auf einer eigenen Seite stand, sucht hier ohnehin niemand.
-    private static string AboutCard(HttpContext context)
-    {
-        var version = ApplicationVersion();
-        var buildTag = BuildTagLabel();
-        var buildTime = BuildTimestampLabel();
-        var de = Language(context) == "de";
-        var zeilen = new List<string>
-        {
-            $$"""<div class="about-fact"><dt>{{(de ? "Version" : "Version")}}</dt><dd>{{E(version)}}</dd></div>""",
-        };
-
-        if (!string.IsNullOrWhiteSpace(buildTime))
-        {
-            zeilen.Add($$"""<div class="about-fact"><dt>Build</dt><dd>{{E(buildTime)}}</dd></div>""");
-        }
-
-        if (!string.IsNullOrWhiteSpace(buildTag))
-        {
-            zeilen.Add($$"""<div class="about-fact"><dt>{{(de ? "Stand" : "Channel")}}</dt><dd><span class="badge">{{E(buildTag)}}</span></dd></div>""");
-        }
-
-        return $$"""
-            <section class="panel about-panel">
-                <div class="about-panel-head">
-                    <span class="about-panel-mark" aria-hidden="true"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><path d="M17 48 V16 H47 V48 H40 V23 H24 V48 Z" fill="currentColor"/></svg></span>
-                    <div>
-                        <h2>Matgate</h2>
-                        <p class="muted settings-lead">{{(de ? "Selbst betriebenes Tor zu den eigenen Rechnern." : "A self-hosted gateway to your own machines.")}}</p>
-                    </div>
-                </div>
-                <dl class="about-facts">{{string.Join("", zeilen)}}</dl>
-                <p class="muted about-copyright">&copy; {{DateTimeOffset.Now.Year}} Matthias Schmoldt</p>
-            </section>
-            """;
     }
 
     private static string AboutBody(HttpContext context, string version)
@@ -12650,16 +12604,6 @@ public sealed class HtmlViews
                     .quick-protocol-grid .check svg { color: var(--muted); flex: 0 0 auto; }
                     /* Einstellungen: Abschnitte mit Luft, Beschriftung ueber dem Feld, eine Spalte
                        von hoechstens 640px - laengere Zeilen liest niemand gern. */
-                    /* Die Auskunft als erstes Blatt der Einstellungen: Marke, zwei Zeilen Fakten. */
-                    .about-panel-head { align-items: center; display: flex; gap: 14px; margin-bottom: 18px; }
-                    .about-panel-mark { align-items: center; background: var(--accent); border-radius: 14px; color: var(--bg); display: flex; flex: 0 0 auto; height: 52px; justify-content: center; width: 52px; }
-                    .about-panel-mark svg { height: 30px; width: 30px; }
-                    .about-panel-head h2 { margin: 0 0 2px; }
-                    .about-facts { display: grid; gap: 10px; margin: 0; max-width: 420px; }
-                    .about-fact { align-items: baseline; border-top: 1px solid var(--line); display: flex; gap: 16px; justify-content: space-between; padding-top: 10px; }
-                    .about-fact dt { color: var(--muted); font-size: 13px; }
-                    .about-fact dd { font-weight: 600; margin: 0; }
-                    .about-copyright { border-top: 1px solid var(--line); font-size: 12px; margin: 18px 0 0; max-width: 420px; padding-top: 12px; }
                     .settings-form { display: grid; gap: 22px; max-width: 640px; }
                     .settings-lead { margin: -6px 0 16px; }
                     .settings-group { border: 0; margin: 0; padding: 0; }
