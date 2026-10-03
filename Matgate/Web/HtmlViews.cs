@@ -3820,6 +3820,7 @@ public sealed class HtmlViews
             dropIntoFolder = Language(context) == "de" ? "nach" : "into",
             dropIntoSession = Language(context) == "de" ? "in die Sitzung" : "into the session",
             dropNowhere = Language(context) == "de" ? "Hier nimmt gerade nichts Dateien an" : "Nothing here takes files right now",
+            pastedImageName = Language(context) == "de" ? "Bild" : "Image",
             placesOther = Language(context) == "de" ? "Andere Verbindungen" : "Other connections",
             uploadCancelled = Language(context) == "de" ? "Abgebrochen" : "Cancelled",
             copyTo = Language(context) == "de" ? "Kopieren nach ..." : "Copy to ...",
@@ -11244,6 +11245,64 @@ public sealed class HtmlViews
                         closeFileAreaDialog();
                     }
                 }, true);
+                // Ein Bild aus der Zwischenablage ist eine Datei, nur ohne Namen - und ohne Namen
+                // nimmt sie niemand an. Matgate gibt ihr einen und schickt sie denselben Weg wie eine
+                // hineingezogene: im Dateimanager in den offenen Ordner, in einer Sitzung ueber den
+                // Senden-Dialog. Text bleibt unberuehrt, den tragen Felder und die Sitzung selbst.
+                function filesFromClipboard(data) {
+                    if (!data) {
+                        return [];
+                    }
+
+                    const gefunden = Array.from(data.files || []).filter(Boolean);
+                    if (!gefunden.length) {
+                        Array.from(data.items || []).forEach(item => {
+                            if (item.kind === 'file') {
+                                const datei = item.getAsFile();
+                                if (datei) {
+                                    gefunden.push(datei);
+                                }
+                            }
+                        });
+                    }
+
+                    if (!gefunden.length) {
+                        return [];
+                    }
+
+                    const jetzt = new Date();
+                    const zwei = n => String(n).padStart(2, '0');
+                    const stempel = `${jetzt.getFullYear()}-${zwei(jetzt.getMonth() + 1)}-${zwei(jetzt.getDate())}-${zwei(jetzt.getHours())}${zwei(jetzt.getMinutes())}${zwei(jetzt.getSeconds())}`;
+                    return gefunden.map((datei, index) => {
+                        // Ein Bildschirmfoto heisst ueberall "image.png" - das waere im Zielordner
+                        // beim zweiten Mal dieselbe Datei.
+                        const eigenerName = datei.name && !/^image.[a-z0-9]+$/i.test(datei.name);
+                        if (eigenerName) {
+                            return datei;
+                        }
+
+                        const endung = ((datei.type || '').split('/')[1] || 'png').replace('jpeg', 'jpg');
+                        const nummer = gefunden.length > 1 ? `-${index + 1}` : '';
+                        return new File([datei], `${uiText.pastedImageName || 'Bild'}-${stempel}${nummer}.${endung}`, { type: datei.type });
+                    });
+                }
+
+                document.addEventListener('paste', event => {
+                    const dateien = filesFromClipboard(event.clipboardData);
+                    if (!dateien.length) {
+                        return;
+                    }
+
+                    event.preventDefault();
+                    // Steht der Senden-Dialog schon offen, kommt das Bild einfach dazu.
+                    if (!sftpTargetDialog.classList.contains('hidden')) {
+                        addPendingFiles(dateien);
+                        return;
+                    }
+
+                    acceptDroppedFiles(dateien);
+                });
+
                 document.addEventListener('pointerdown', event => {
                     if (sftpTargetDialog.classList.contains('hidden')) {
                         return;
