@@ -1165,17 +1165,26 @@ public sealed class HtmlViews
                                         {{LanguageOptions(context, user.PreferredLanguage)}}
                                     </select>
                                 </label>
-                                <label>{{T(context, "Preferred theme")}}
-                                    <select name="preferredTheme">
-                                        {{ThemeOptions(context, user.PreferredTheme)}}
-                                    </select>
-                                </label>
-                                <label>{{(de ? "Farbschema" : "Colour scheme")}}
-                                    <select name="preferredThemeName">
-                                        {{ThemePaletteOptions(context, user.PreferredThemeName)}}
-                                    </select>
-                                    <small class="muted">{{(de ? "Jedes Schema hat einen hellen und einen dunklen Satz - was oben steht, entscheidet welchen." : "Every scheme has a light and a dark set - the setting above decides which.")}}</small>
-                                </label>
+                                <div class="actions"><button type="submit" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button></div>
+                            </form>
+                        </section>
+                        <section class="panel">
+                            <h2>{{(de ? "Darstellung" : "Appearance")}}</h2>
+                            <p class="muted settings-lead">{{(de ? "Gilt auf jedem Gerät, auf dem du angemeldet bist." : "Applies on every device you are signed in on.")}}</p>
+                            <form method="post" action="/account" class="settings-form">
+                                {{Csrf(context)}}
+                                <input type="hidden" name="displayName" value="{{A(user.DisplayName)}}">
+                                <input type="hidden" name="email" value="{{A(user.Email)}}">
+                                <input type="hidden" name="preferredLanguage" value="{{A(user.PreferredLanguage)}}">
+                                <fieldset class="settings-group">
+                                    <legend>{{(de ? "Hell oder dunkel" : "Light or dark")}}</legend>
+                                    <div class="mode-choice">{{ThemeModeChooser(context, user.PreferredTheme)}}</div>
+                                </fieldset>
+                                <fieldset class="settings-group">
+                                    <legend>{{(de ? "Farbschema" : "Colour scheme")}}</legend>
+                                    <p class="muted settings-hint">{{(de ? "Jedes Schema hat einen hellen und einen dunklen Satz – die Wahl darüber entscheidet, welcher gilt." : "Every scheme has a light and a dark set – the choice above decides which one applies.")}}</p>
+                                    <div class="theme-cards">{{ThemeCards(context, user.PreferredThemeName)}}</div>
+                                </fieldset>
                                 <div class="actions"><button type="submit" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button></div>
                             </form>
                         </section>
@@ -12530,6 +12539,114 @@ public sealed class HtmlViews
                     }
                     .quick-protocol-grid .check { align-items: center; display: flex; gap: 8px; }
                     .quick-protocol-grid .check svg { color: var(--muted); flex: 0 0 auto; }
+                    /* Einstellungen: Abschnitte mit Luft, Beschriftung ueber dem Feld, eine Spalte
+                       von hoechstens 640px - laengere Zeilen liest niemand gern. */
+                    .settings-form { display: grid; gap: 22px; max-width: 640px; }
+                    .settings-lead { margin: -6px 0 16px; }
+                    .settings-group { border: 0; margin: 0; padding: 0; }
+                    .settings-group > legend {
+                        color: var(--muted);
+                        font-size: 12px;
+                        font-weight: 700;
+                        letter-spacing: .06em;
+                        padding: 0;
+                        text-transform: uppercase;
+                    }
+                    .settings-hint { font-size: 13px; margin: 6px 0 0; }
+
+                    /* Hell / Dunkel / System: drei Felder nebeneinander, das gewaehlte traegt die
+                       Akzentfarbe. Das Funkfeld selbst bleibt im Baum, nur unsichtbar - sonst waere
+                       die Wahl mit der Tastatur nicht erreichbar. */
+                    .mode-choice { display: flex; gap: 10px; margin-top: 10px; }
+                    .mode-option {
+                        align-items: center;
+                        background: var(--surface);
+                        border: 1px solid var(--line);
+                        border-radius: var(--radius);
+                        cursor: pointer;
+                        display: flex;
+                        flex: 1 1 0;
+                        font-weight: 500;
+                        gap: 8px;
+                        justify-content: center;
+                        min-height: 44px;
+                        padding: 0 12px;
+                        transition: background-color .12s ease, border-color .12s ease, color .12s ease;
+                    }
+                    .mode-option input {
+                        border: 0;
+                        clip-path: inset(50%);
+                        height: 1px;
+                        margin: -1px;
+                        padding: 0;
+                        position: absolute;
+                        width: 1px;
+                    }
+                    .mode-option:hover { background: var(--hover-bg); }
+                    .mode-option.is-selected {
+                        background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+                        border-color: var(--accent);
+                        color: var(--accent);
+                    }
+                    .mode-option:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+                    /* Ein Thema zeigt man, statt es zu beschreiben: zwei kleine Fenster, hell und
+                       dunkel, in den Farben des Themas. */
+                    .theme-cards {
+                        display: grid;
+                        gap: 12px;
+                        grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+                        margin-top: 12px;
+                    }
+                    .theme-card {
+                        background: var(--surface);
+                        border: 1px solid var(--line);
+                        border-radius: calc(var(--radius) + 4px);
+                        cursor: pointer;
+                        display: grid;
+                        gap: 10px;
+                        padding: 10px;
+                        transition: border-color .12s ease, box-shadow .12s ease;
+                    }
+                    .theme-card input {
+                        border: 0;
+                        clip-path: inset(50%);
+                        height: 1px;
+                        margin: -1px;
+                        padding: 0;
+                        position: absolute;
+                        width: 1px;
+                    }
+                    .theme-card:hover { border-color: var(--surface-3); }
+                    .theme-card.is-selected {
+                        border-color: var(--accent);
+                        box-shadow: 0 0 0 1px var(--accent);
+                    }
+                    .theme-card:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+                    .theme-card-previews { display: grid; gap: 6px; grid-template-columns: 1fr 1fr; }
+                    .theme-preview {
+                        background: var(--p-bg);
+                        border: 1px solid var(--p-line);
+                        border-radius: var(--p-radius);
+                        display: block;
+                        overflow: hidden;
+                        padding: 0;
+                    }
+                    .tp-bar { background: var(--p-surface); border-bottom: 1px solid var(--p-line); display: block; height: 12px; }
+                    .tp-body { display: grid; gap: 5px; padding: 8px; }
+                    .tp-line { background: var(--p-muted); border-radius: 999px; display: block; height: 4px; opacity: .55; }
+                    .tp-short { width: 60%; }
+                    .tp-pill { background: var(--p-accent); border-radius: 999px; display: block; height: 9px; width: 52%; }
+                    .theme-card-foot { align-items: center; display: flex; gap: 8px; justify-content: space-between; }
+                    .theme-card-name { font-weight: 600; }
+                    .theme-card-dots { display: flex; gap: 4px; }
+                    .theme-card-dots i {
+                        border: 1px solid color-mix(in srgb, var(--text) 18%, transparent);
+                        border-radius: 999px;
+                        display: block;
+                        height: 12px;
+                        width: 12px;
+                    }
                     .action-order-list { display: flex; flex-direction: column; gap: 6px; list-style: none; margin: 6px 0 0; padding: 0; }
                     .action-order-item {
                         align-items: center;
@@ -17623,6 +17740,75 @@ public sealed class HtmlViews
             """;
     }
 
+    // Hell / Dunkel / System als drei Felder nebeneinander statt als Auswahlliste: drei Dinge, die
+    // man vergleicht, zeigt man nebeneinander - und man sieht auf einen Blick, was gilt.
+    private static string ThemeModeChooser(HttpContext context, string selected)
+    {
+        var normalized = NormalizeThemeCode(selected);
+        var de = Language(context) == "de";
+        (string Value, string Icon, string Label)[] modes =
+        [
+            ("light", "sun", de ? "Hell" : "Light"),
+            ("dark", "moon", de ? "Dunkel" : "Dark"),
+            ("system", "monitor", "System"),
+        ];
+
+        return string.Join("", modes.Select(mode => $$"""
+            <label class="mode-option{{(normalized == mode.Value ? " is-selected" : "")}}">
+                <input type="radio" name="preferredTheme" value="{{A(mode.Value)}}"{{(normalized == mode.Value ? " checked" : "")}}>
+                {{Icon(mode.Icon)}}<span>{{E(mode.Label)}}</span>
+            </label>
+            """));
+    }
+
+    // Ein Thema beschreibt man nicht, man zeigt es. Jede Karte traegt eine kleine Vorschau in hell
+    // und dunkel - mit genau den Farben, die die Oberflaeche danach benutzt, direkt aus dem Dienst.
+    private static string ThemeCards(HttpContext context, string selectedKey)
+    {
+        var themes = context.RequestServices.GetService<ThemeService>();
+        if (themes is null)
+        {
+            return "";
+        }
+
+        var chosen = string.IsNullOrWhiteSpace(selectedKey) ? ThemeService.DefaultKey : selectedKey.Trim();
+        return string.Join("", themes.All.Select(theme =>
+        {
+            var hell = themes.Values(theme, dark: false);
+            var dunkel = themes.Values(theme, dark: true);
+            var istGewaehlt = string.Equals(theme.Key, chosen, StringComparison.OrdinalIgnoreCase);
+
+            return $$"""
+                <label class="theme-card{{(istGewaehlt ? " is-selected" : "")}}">
+                    <input type="radio" name="preferredThemeName" value="{{A(theme.Key)}}"{{(istGewaehlt ? " checked" : "")}}>
+                    <span class="theme-card-previews">
+                        {{ThemePreview(hell)}}
+                        {{ThemePreview(dunkel)}}
+                    </span>
+                    <span class="theme-card-foot">
+                        <span class="theme-card-name">{{E(theme.Name)}}</span>
+                        <span class="theme-card-dots"><i style="background: {{A(hell.GetValueOrDefault("accent", "#333"))}}"></i><i style="background: {{A(dunkel.GetValueOrDefault("accent", "#333"))}}"></i></span>
+                    </span>
+                </label>
+                """;
+        }));
+    }
+
+    // Ein Fenster in klein: Leiste, zwei Zeilen Text, ein gefuellter Knopf.
+    private static string ThemePreview(IReadOnlyDictionary<string, string> v)
+    {
+        var style = $"--p-bg: {v.GetValueOrDefault("bg", "#fff")}; --p-surface: {v.GetValueOrDefault("surface", "#fff")};"
+            + $" --p-line: {v.GetValueOrDefault("line", "#ddd")}; --p-accent: {v.GetValueOrDefault("accent", "#333")};"
+            + $" --p-muted: {v.GetValueOrDefault("muted", "#888")}; --p-radius: {v.GetValueOrDefault("radius", "8px")}";
+
+        return $$"""
+            <span class="theme-preview" style="{{A(style)}}">
+                <span class="tp-bar"></span>
+                <span class="tp-body"><span class="tp-line"></span><span class="tp-line tp-short"></span><span class="tp-pill"></span></span>
+            </span>
+            """;
+    }
+
     private static string ThemeOptions(HttpContext context, string selectedTheme)
     {
         var normalized = NormalizeThemeCode(selectedTheme);
@@ -17780,6 +17966,8 @@ public sealed class HtmlViews
             "pointer" => """<path d="m4 3 7 17 2.2-6.8L20 11z"/>""",
             "keyboard" => """<rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/>""",
             "monitor" => """<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>""",
+            "sun" => """<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>""",
+            "moon" => """<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>""",
             "command" => """<path d="M15 6a3 3 0 1 1 3 3h-3zm0 0v12m0-6h3a3 3 0 1 1-3 3zm-6 0H6a3 3 0 1 0 3 3zm0 0V6a3 3 0 1 0-3 3h3zm0 0h6"/>""",
             "zoom-in" => """<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M11 8v6M8 11h6"/>""",
             "zoom-out" => """<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6"/>""",
