@@ -3324,7 +3324,7 @@ public static class EndpointMapping
         }
 
         var accountEmail = form["email"].ToString().Trim();
-        if (accountEmail.Length > 0 && !IsValidEmail(accountEmail))
+        if (form.ContainsKey("email") && accountEmail.Length > 0 && !IsValidEmail(accountEmail))
         {
             return Results.Content(views.Message(
                 context,
@@ -3352,18 +3352,46 @@ public static class EndpointMapping
                 return;
             }
 
-            current.Email = accountEmail;
-            current.DisplayName = Clean(form["displayName"].ToString(), current.DisplayName);
-            current.PreferredLanguage = NormalizeLanguage(form["preferredLanguage"].ToString());
-            current.PreferredTheme = NormalizeTheme(form["preferredTheme"].ToString());
-            // Welche Palette. Ein unbekannter Schluessel faellt beim Aufloesen auf die eingebaute
-            // zurueck, also genuegt hier das Saeubern.
-            var palette = (form["preferredThemeName"].ToString() ?? "").Trim().ToLowerInvariant();
-            current.PreferredThemeName = string.IsNullOrWhiteSpace(palette) ? ThemeService.DefaultKey : palette;
-            // Leer oder Unsinn heisst: die Farbe des Themas.
-            var accent = (form["accentColor"].ToString() ?? "").Trim();
-            var accentOn = IsChecked(form, "accentOwn");
-            current.AccentColor = accentOn && ThemeService.IsColour(accent) ? accent.ToLowerInvariant() : "";
+            // Auf dieser Adresse sitzen mehrere Formulare - Profil und Darstellung. Jedes schickt
+            // nur seine eigenen Felder, und wer alle Felder schreibt, loescht beim Speichern des
+            // einen die Einstellungen des anderen: genau so sprang das Thema zurueck. Geschrieben
+            // wird deshalb nur, was auch gesendet wurde.
+            if (form.ContainsKey("email"))
+            {
+                current.Email = accountEmail;
+            }
+
+            if (form.ContainsKey("displayName"))
+            {
+                current.DisplayName = Clean(form["displayName"].ToString(), current.DisplayName);
+            }
+
+            if (form.ContainsKey("preferredLanguage"))
+            {
+                current.PreferredLanguage = NormalizeLanguage(form["preferredLanguage"].ToString());
+            }
+
+            if (form.ContainsKey("preferredTheme"))
+            {
+                current.PreferredTheme = NormalizeTheme(form["preferredTheme"].ToString());
+            }
+
+            if (form.ContainsKey("preferredThemeName"))
+            {
+                // Ein unbekannter Schluessel faellt beim Aufloesen auf die eingebaute Palette
+                // zurueck, also genuegt hier das Saeubern.
+                var palette = (form["preferredThemeName"].ToString() ?? "").Trim().ToLowerInvariant();
+                current.PreferredThemeName = string.IsNullOrWhiteSpace(palette) ? ThemeService.DefaultKey : palette;
+            }
+
+            // Das Kaestchen wird nur gesendet, wenn es angekreuzt ist - ob das Formular ueberhaupt
+            // von der Darstellung kam, verraet deshalb das Farbfeld.
+            if (form.ContainsKey("accentColor"))
+            {
+                var accent = (form["accentColor"].ToString() ?? "").Trim();
+                var accentOn = IsChecked(form, "accentOwn");
+                current.AccentColor = accentOn && ThemeService.IsColour(accent) ? accent.ToLowerInvariant() : "";
+            }
             current.RememberLoginByDefault = true;
             current.UpdatedAt = DateTimeOffset.UtcNow;
             updatedUser = current;

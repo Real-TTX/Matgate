@@ -1173,9 +1173,6 @@ public sealed class HtmlViews
                             <p class="muted settings-lead">{{(de ? "Gilt auf jedem Gerät, auf dem du angemeldet bist." : "Applies on every device you are signed in on.")}}</p>
                             <form method="post" action="/account" class="settings-form">
                                 {{Csrf(context)}}
-                                <input type="hidden" name="displayName" value="{{A(user.DisplayName)}}">
-                                <input type="hidden" name="email" value="{{A(user.Email)}}">
-                                <input type="hidden" name="preferredLanguage" value="{{A(user.PreferredLanguage)}}">
                                 <fieldset class="settings-group">
                                     <legend>{{(de ? "Hell oder dunkel" : "Light or dark")}}</legend>
                                     <div class="mode-choice">{{ThemeModeChooser(context, user.PreferredTheme)}}</div>
@@ -12458,7 +12455,8 @@ public sealed class HtmlViews
                         cursor: pointer;
                         display: inline-flex;
                         align-items: center;
-                        min-height: 30px;
+                        /* Hoehe der Bedienelemente aus dem Thema: enger oder luftiger. */
+                        min-height: var(--control-height, 30px);
                         padding: 4px 9px;
                         text-decoration: none;
                         font: inherit;
@@ -12579,10 +12577,11 @@ public sealed class HtmlViews
                     .req { color: var(--danger); font-weight: 700; margin-left: 3px; }
                     .form-legend { color: var(--muted); font-size: 12px; margin: 0 0 14px; }
                     .page-head { align-items: center; display: flex; gap: 18px; justify-content: space-between; margin-bottom: 18px; }
+                    /* Flaechen runden staerker als Bedienelemente - ein Thema bestimmt beides. */
                     .panel, .card, .auth-panel {
                         background: var(--panel);
                         border: 1px solid var(--line);
-                        border-radius: var(--radius);
+                        border-radius: var(--radius-lg, var(--radius));
                         padding: 18px;
                         box-shadow: var(--shadow);
                     }

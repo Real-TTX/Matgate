@@ -21,7 +21,7 @@ public sealed class ThemeService
         "hover-bg", "hover-strong-bg", "active-bg",
         "text", "muted", "line",
         "accent", "accent-2", "danger", "primary-hover", "danger-hover",
-        "shadow", "shadow-strong", "radius",
+        "shadow", "shadow-strong", "radius", "radius-lg", "control-height",
     ];
 
     private readonly ILogger<ThemeService> _logger;
@@ -349,6 +349,8 @@ public sealed class ThemeService
                 ["shadow"] = "0 10px 24px rgb(31 39 37 / 8%)",
                 ["shadow-strong"] = "0 12px 28px rgb(31 39 37 / 14%)",
                 ["radius"] = "8px",
+                ["radius-lg"] = "12px",
+                ["control-height"] = "32px",
             },
             Protocols = new(StringComparer.OrdinalIgnoreCase)
             {
@@ -383,6 +385,8 @@ public sealed class ThemeService
                 ["shadow"] = "0 10px 24px rgb(0 0 0 / 32%)",
                 ["shadow-strong"] = "0 12px 28px rgb(0 0 0 / 42%)",
                 ["radius"] = "8px",
+                ["radius-lg"] = "12px",
+                ["control-height"] = "32px",
             },
         };
 
@@ -412,6 +416,8 @@ public sealed class ThemeService
                 ["shadow"] = "0 10px 24px rgb(27 31 37 / 8%)",
                 ["shadow-strong"] = "0 12px 28px rgb(27 31 37 / 14%)",
                 ["radius"] = "6px",
+                ["radius-lg"] = "8px",
+                ["control-height"] = "32px",
             },
             Dark = new(StringComparer.OrdinalIgnoreCase)
             {
@@ -434,6 +440,8 @@ public sealed class ThemeService
                 ["shadow"] = "0 10px 24px rgb(0 0 0 / 34%)",
                 ["shadow-strong"] = "0 12px 28px rgb(0 0 0 / 44%)",
                 ["radius"] = "6px",
+                ["radius-lg"] = "8px",
+                ["control-height"] = "32px",
             },
         };
 
@@ -465,6 +473,8 @@ public sealed class ThemeService
                 ["shadow"] = "0 10px 24px rgb(42 35 32 / 9%)",
                 ["shadow-strong"] = "0 12px 28px rgb(42 35 32 / 16%)",
                 ["radius"] = "12px",
+                ["radius-lg"] = "18px",
+                ["control-height"] = "38px",
             },
             Dark = new(StringComparer.OrdinalIgnoreCase)
             {
@@ -487,6 +497,8 @@ public sealed class ThemeService
                 ["shadow"] = "0 10px 24px rgb(0 0 0 / 38%)",
                 ["shadow-strong"] = "0 12px 28px rgb(0 0 0 / 50%)",
                 ["radius"] = "12px",
+                ["radius-lg"] = "18px",
+                ["control-height"] = "38px",
             },
             Protocols = new(StringComparer.OrdinalIgnoreCase)
             {
