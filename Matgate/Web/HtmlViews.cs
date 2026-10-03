@@ -1242,8 +1242,8 @@ public sealed class HtmlViews
                     <div class="tab-panel{{(tab == "security" ? "" : " hidden")}}" data-tab-panel="security">
                         <section class="panel">
                             <h2>{{(de ? "Passwort ändern" : "Change password")}}</h2>
-                            <p class="muted">{{(de ? "Mindestens 8 Zeichen." : "At least 8 characters.")}}</p>
-                            <form method="post" action="/account/password" class="form-grid">
+                            <p class="muted settings-lead">{{(de ? "Mindestens 8 Zeichen. Nach dem Ändern bleibst du angemeldet." : "At least 8 characters. You stay signed in after changing it.")}}</p>
+                            <form method="post" action="/account/password" class="settings-form form-grid">
                                 {{Csrf(context)}}
                                 <label>{{(de ? "Aktuelles Passwort" : "Current password")}}
                                     <input type="password" name="currentPassword" autocomplete="current-password" required>
@@ -1261,31 +1261,41 @@ public sealed class HtmlViews
                     <div class="tab-panel{{(tab == "session" ? "" : " hidden")}}" data-tab-panel="session">
                         <section class="panel">
                             <h2>{{(de ? "Sitzungs-Einstellungen" : "Session settings")}}</h2>
-                            <p class="muted">{{(de ? "Gelten für alle deine Remote-Sitzungen (RDP/VNC/SSH), auf jedem Geraet." : "Apply to all your remote sessions (RDP/VNC/SSH), on every device.")}}</p>
-                            <form method="post" action="/account/session" class="session-prefs">
+                            <p class="muted settings-lead">{{(de ? "Gelten für alle deine Remote-Sitzungen (RDP/VNC/SSH), auf jedem Gerät." : "Apply to all your remote sessions (RDP/VNC/SSH), on every device.")}}</p>
+                            <form method="post" action="/account/session" class="session-prefs settings-form">
                                 {{Csrf(context)}}
-                                <h3 class="session-prefs-group">{{(de ? "Anzeige (bei fester Auflösung)" : "Display (in fixed-resolution mode)")}}</h3>
+                                <fieldset class="settings-group">
+                                    <legend>{{(de ? "Anzeige (bei fester Auflösung)" : "Display (in fixed-resolution mode)")}}</legend>
                                 {{Toggle("edgePanning", prefs.EdgePanning, "Maus-Rand-Panning", "Mouse-edge panning", "Maus an den Fensterrand -> Ausschnitt wandert (wie auf einer Karte).", "Move the mouse to the window edge -> the view pans (like a map).")}}
                                 {{Toggle("dragPanning", prefs.DragPanning, "Ziehen mit Maustaste", "Drag to pan", "Ausschnitt mit gedrückter mittlerer Maustaste verschieben.", "Pan the view by holding the middle mouse button.")}}
                                 {{Toggle("stretchToWindow", prefs.StretchToWindow, "Stretch auf Fenster", "Stretch to window", "Remote-Bild füllt das ganze Fenster (kann leicht verzerren).", "Stretch the remote image to fill the window (may distort).")}}
-                                <h3 class="session-prefs-group">{{(de ? "Tastatur" : "Keyboard")}}</h3>
+                                </fieldset>
+                                <fieldset class="settings-group">
+                                    <legend>{{(de ? "Tastatur" : "Keyboard")}}</legend>
                                 {{Toggle("systemCombos", prefs.SystemCombos, "Browser-Tasten durchreichen (Vollbild)", "Pass browser keys through (fullscreen)", "Im Vollbild Windows-Taste, Alt+Tab, Alt+F4, Strg+W/T usw. an die Session statt an den Browser.", "In fullscreen, send Windows key, Alt+Tab, Alt+F4, Ctrl+W/T etc. to the session instead of the browser.")}}
                                 {{Toggle("functionKeys", prefs.FunctionKeys, "Funktionstasten F1-F12", "Function keys F1-F12", "Zusätzliche F-Tasten-Reihe auf der Bildschirmtastatur.", "Extra F-key row on the on-screen keyboard.")}}
                                 {{Toggle("ctrlAltDelHotkey", prefs.CtrlAltDelHotkey, "Strg+Alt+Entf als Button", "Ctrl+Alt+Del button", "Zusätzlich zur Bildschirmtastatur auch als Toolbar-Button.", "In addition to the on-screen keyboard, also as a toolbar button.")}}
-                                <h3 class="session-prefs-group">{{(de ? "Zwischenablage" : "Clipboard")}}</h3>
+                                </fieldset>
+                                <fieldset class="settings-group">
+                                    <legend>{{(de ? "Zwischenablage" : "Clipboard")}}</legend>
                                 {{Toggle("pasteAsKeystrokes", prefs.PasteAsKeystrokes, "Einfuegen als Tastatureingaben", "Paste as keystrokes", "Text wird Zeichen für Zeichen getippt statt über die Zwischenablage geschickt - nötig z. B. bei SSH-Terminals.", "Text is typed character by character instead of sent over the clipboard - needed e.g. for SSH terminals.")}}
-                                <h3 class="session-prefs-group">{{(de ? "Schnell verbinden" : "Quick connect")}}</h3>
-                                <p class="muted">{{(de
-                                    ? "Welche Protokolle auf der Startseite als Kachel angeboten werden."
-                                    : "Which protocols are offered as a chip on the start page.")}}</p>
+                                </fieldset>
+                                <fieldset class="settings-group">
+                                    <legend>{{(de ? "Schnell verbinden" : "Quick connect")}}</legend>
+                                    <p class="muted settings-hint">{{(de
+                                        ? "Welche Protokolle auf der Startseite als Kachel angeboten werden."
+                                        : "Which protocols are offered as a chip on the start page.")}}</p>
                                 <div class="quick-protocol-grid">{{quickProtocolChecks}}</div>
-                                <h3 class="session-prefs-group">{{(de ? "Reihenfolge der Aktionen" : "Order of the actions")}}</h3>
-                                <p class="muted">{{(de
-                                    ? "Auf schmalen Bildschirmen passen nur die vordersten in die Leiste - der Rest landet im Drei-Punkte-Menü. Zum Sortieren ziehen. Trennen bleibt immer ganz rechts."
-                                    : "On narrow screens only the first ones fit in the bar - the rest go into the three-dots menu. Drag to sort. Disconnect always stays on the right.")}}</p>
+                                </fieldset>
+                                <fieldset class="settings-group">
+                                    <legend>{{(de ? "Aktionen in der Sitzungsleiste" : "Actions in the session bar")}}</legend>
+                                    <p class="muted settings-hint">{{(de
+                                        ? "Zum Sortieren ziehen, mit dem Haken ein- oder ausblenden. Auf schmalen Schirmen passen nur die vordersten in die Leiste – der Rest landet im Drei-Punkte-Menü. Trennen bleibt immer ganz rechts."
+                                        : "Drag to sort, use the tick to show or hide. On narrow screens only the first ones fit in the bar – the rest go into the three-dots menu. Disconnect always stays on the right.")}}</p>
                                 <ol id="action-order-list" class="action-order-list">{{actionOrderItems}}</ol>
                                 <input type="hidden" name="actionOrder" id="action-order-value" value="">
                                 <input type="hidden" name="hiddenActions" id="action-hidden-value" value="">
+                                </fieldset>
                                 <div class="actions"><button type="submit" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button></div>
                             </form>
                             <script>
@@ -1367,7 +1377,7 @@ public sealed class HtmlViews
                     <div class="tab-panel{{(tab == "favorites" ? "" : " hidden")}}" data-tab-panel="favorites">
                         <section class="panel">
                             <h2>{{T(context, "Favorite servers")}}</h2>
-                            <p class="muted">{{T(context, "Favorites are stored per user.")}}</p>
+                            <p class="muted settings-lead">{{T(context, "Favorites are stored per user.")}}</p>
                             <div class="table-wrap">
                                 <table>
                                     <thead>
@@ -11972,7 +11982,10 @@ public sealed class HtmlViews
                 <meta charset="utf-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
                 {{cacheControlMarkup}}
-                <meta name="theme-color" content="#171d1a">
+                <!-- Die Farbe der Systemleiste folgt dem Thema, nicht einem festen Dunkelton:
+                     im hellen Modus war der Balken darueber sonst schwarz. -->
+                <meta name="theme-color" content="{{A(ThemeBarColour(themes, palette, dark: false))}}" media="(prefers-color-scheme: light)">
+                <meta name="theme-color" content="{{A(ThemeBarColour(themes, palette, dark: true))}}" media="(prefers-color-scheme: dark)">
                 <script>
                     try {
                         // Any page rendered inside the shell's tab iframe must hide its own header.
@@ -12580,8 +12593,7 @@ public sealed class HtmlViews
                     .stack { display: grid; gap: 14px; }
                     .form-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); align-items: end; }
                     /* Session-preferences toggle list (Account -> Session). */
-                    .session-prefs { display: grid; gap: 10px; max-width: 620px; }
-                    .session-prefs-group { margin: 12px 0 2px; font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+                    /* Die Gruppen kommen jetzt aus .settings-group, wie bei der Darstellung. */
                     .quick-protocol-grid {
                         display: grid;
                         gap: 4px 14px;
@@ -12754,7 +12766,6 @@ public sealed class HtmlViews
                         font-size: 13px;
                         gap: 6px;
                     }
-                    .session-prefs-group:first-of-type { margin-top: 0; }
                     .toggle-row { display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: start; font-weight: 500; cursor: pointer; padding: 6px 0; position: relative; }
                     /* display: none nimmt das Kaestchen aus der Tabulatorreihenfolge UND aus dem
                        Baum fuer Hilfsmittel - die ganze Seite war nur mit der Maus bedienbar. Es
@@ -17760,6 +17771,15 @@ public sealed class HtmlViews
 
     // Die Token einer Palette als CSS-Zeilen. Faellt der Dienst aus, bleiben die eingebauten Werte -
     // ohne Token gibt es keine Oberflaeche, das darf nicht an einer Datei haengen.
+    // Die Farbe, die das Betriebssystem fuer seine Leiste nimmt - dieselbe wie die Kopfzeile.
+    private static string ThemeBarColour(ThemeService? themes, ThemeDefinition? palette, bool dark)
+    {
+        var values = themes is not null && palette is not null
+            ? themes.Values(palette, dark)
+            : ThemeService.FallbackValues(dark);
+        return values.GetValueOrDefault("surface", dark ? "#171d1a" : "#ffffff");
+    }
+
     private static string ThemeCss(ThemeService? themes, ThemeDefinition? palette, bool dark, int indent, string? accent = null)
     {
         var values = themes is not null && palette is not null
