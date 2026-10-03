@@ -3360,6 +3360,10 @@ public static class EndpointMapping
             // zurueck, also genuegt hier das Saeubern.
             var palette = (form["preferredThemeName"].ToString() ?? "").Trim().ToLowerInvariant();
             current.PreferredThemeName = string.IsNullOrWhiteSpace(palette) ? ThemeService.DefaultKey : palette;
+            // Leer oder Unsinn heisst: die Farbe des Themas.
+            var accent = (form["accentColor"].ToString() ?? "").Trim();
+            var accentOn = IsChecked(form, "accentOwn");
+            current.AccentColor = accentOn && ThemeService.IsColour(accent) ? accent.ToLowerInvariant() : "";
             current.RememberLoginByDefault = true;
             current.UpdatedAt = DateTimeOffset.UtcNow;
             updatedUser = current;

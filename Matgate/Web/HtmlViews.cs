@@ -1185,6 +1185,56 @@ public sealed class HtmlViews
                                     <p class="muted settings-hint">{{(de ? "Jedes Schema hat einen hellen und einen dunklen Satz – die Wahl darüber entscheidet, welcher gilt." : "Every scheme has a light and a dark set – the choice above decides which one applies.")}}</p>
                                     <div class="theme-cards">{{ThemeCards(context, user.PreferredThemeName)}}</div>
                                 </fieldset>
+                                <fieldset class="settings-group">
+                                    <legend>{{(de ? "Akzentfarbe" : "Accent colour")}}</legend>
+                                    <p class="muted settings-hint">{{(de ? "Die Farbe der Knöpfe und Hervorhebungen. Matgate hält sie lesbar: der Farbton bleibt, die Helligkeit wird angepasst, wenn die Schrift darauf sonst verschwindet." : "The colour of buttons and highlights. Matgate keeps it readable: the hue stays, the lightness is adjusted when the label on it would otherwise vanish.")}}</p>
+                                    <div class="accent-choice">
+                                        <label class="accent-switch">
+                                            <input type="checkbox" name="accentOwn" data-accent-own{{(ThemeService.IsColour(user.AccentColor) ? " checked" : "")}}>
+                                            <span>{{(de ? "Eigene Farbe" : "Own colour")}}</span>
+                                        </label>
+                                        <label class="accent-wheel">
+                                            <input type="color" name="accentColor" data-accent-value value="{{A(ThemeService.IsColour(user.AccentColor) ? user.AccentColor : AccentFallback(context, user))}}">
+                                            <span class="muted">{{(de ? "Farbkreis" : "Colour wheel")}}</span>
+                                        </label>
+                                        <div class="accent-presets" data-accent-presets>{{AccentPresets()}}</div>
+                                    </div>
+                                </fieldset>
+                                <script>
+                                    (() => {
+                                        const schalter = document.querySelector("[data-accent-own]");
+                                        const feld = document.querySelector("[data-accent-value]");
+                                        const tupfer = document.querySelector("[data-accent-presets]");
+                                        if (!schalter || !feld || !tupfer) {
+                                            return;
+                                        }
+
+                                        // Ein Tupfer setzt die Farbe und schaltet sie zugleich ein - sonst
+                                        // waehlt man eine Farbe und nichts geschieht.
+                                        tupfer.addEventListener("click", event => {
+                                            const knopf = event.target.closest("[data-accent-preset]");
+                                            if (!knopf) {
+                                                return;
+                                            }
+
+                                            event.preventDefault();
+                                            feld.value = knopf.dataset.accentPreset;
+                                            schalter.checked = true;
+                                            markiere();
+                                        });
+                                        feld.addEventListener("input", () => { schalter.checked = true; markiere(); });
+                                        schalter.addEventListener("change", markiere);
+
+                                        function markiere() {
+                                            tupfer.querySelectorAll("[data-accent-preset]").forEach(knopf => {
+                                                knopf.classList.toggle("is-selected",
+                                                    schalter.checked && knopf.dataset.accentPreset.toLowerCase() === feld.value.toLowerCase());
+                                            });
+                                        }
+
+                                        markiere();
+                                    })();
+                                </script>
                                 <div class="actions"><button type="submit" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button></div>
                             </form>
                         </section>
@@ -11816,9 +11866,10 @@ public sealed class HtmlViews
         // kommt der Dienst aus dem Anfragekontext - so machen es die Endpunkte auch.
         var themes = context.RequestServices.GetService<ThemeService>();
         var palette = themes?.Resolve(user?.PreferredThemeName);
-        var lightVars = ThemeCss(themes, palette, dark: false, indent: 12);
-        var darkVars = ThemeCss(themes, palette, dark: true, indent: 12);
-        var darkVarsDeep = ThemeCss(themes, palette, dark: true, indent: 16);
+        var accent = user?.AccentColor;
+        var lightVars = ThemeCss(themes, palette, dark: false, indent: 12, accent);
+        var darkVars = ThemeCss(themes, palette, dark: true, indent: 12, accent);
+        var darkVarsDeep = ThemeCss(themes, palette, dark: true, indent: 16, accent);
         var requestPath = context.Request.Path.Value ?? "/";
         var displayName = user is null ? "" : string.IsNullOrWhiteSpace(user.DisplayName) ? user.UserName : user.DisplayName;
         var canManageAdminArea = user is not null && (user.IsAdmin || user.CanManageServers);
@@ -12647,6 +12698,34 @@ public sealed class HtmlViews
                         height: 12px;
                         width: 12px;
                     }
+                    /* Akzentfarbe: ein Schalter, der Farbkreis des Systems und zehn Tupfer fuer den
+                       schnellen Griff. Der Farbwaehler selbst ist der des Betriebssystems - ein
+                       nachgebauter waere kleiner, ungenauer und koennte keine Pipette. */
+                    .accent-choice { align-items: center; display: flex; flex-wrap: wrap; gap: 14px; margin-top: 12px; }
+                    .accent-switch { align-items: center; display: flex; gap: 8px; font-weight: 500; }
+                    .accent-wheel { align-items: center; display: inline-flex; gap: 8px; white-space: nowrap; }
+                    .accent-wheel input[type="color"] {
+                        background: none;
+                        border: 1px solid var(--line);
+                        border-radius: 999px;
+                        cursor: pointer;
+                        height: 38px;
+                        padding: 3px;
+                        width: 46px;
+                    }
+                    .accent-presets { display: flex; flex-wrap: wrap; gap: 6px; }
+                    .accent-preset {
+                        background: var(--dot);
+                        border: 2px solid transparent;
+                        border-radius: 999px;
+                        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 16%, transparent);
+                        cursor: pointer;
+                        height: 26px;
+                        padding: 0;
+                        width: 26px;
+                    }
+                    .accent-preset:hover { transform: scale(1.08); }
+                    .accent-preset.is-selected { border-color: var(--text); }
                     .action-order-list { display: flex; flex-direction: column; gap: 6px; list-style: none; margin: 6px 0 0; padding: 0; }
                     .action-order-item {
                         align-items: center;
@@ -17681,10 +17760,10 @@ public sealed class HtmlViews
 
     // Die Token einer Palette als CSS-Zeilen. Faellt der Dienst aus, bleiben die eingebauten Werte -
     // ohne Token gibt es keine Oberflaeche, das darf nicht an einer Datei haengen.
-    private static string ThemeCss(ThemeService? themes, ThemeDefinition? palette, bool dark, int indent)
+    private static string ThemeCss(ThemeService? themes, ThemeDefinition? palette, bool dark, int indent, string? accent = null)
     {
         var values = themes is not null && palette is not null
-            ? themes.Values(palette, dark)
+            ? themes.Values(palette, dark, accent)
             : ThemeService.FallbackValues(dark);
         var pad = new string(' ', indent);
         // Gefiltert: ein Wert aus einer Datei wird hier woertlich in ein <style> geschrieben.
@@ -17807,6 +17886,35 @@ public sealed class HtmlViews
                 <span class="tp-body"><span class="tp-line"></span><span class="tp-line tp-short"></span><span class="tp-pill"></span></span>
             </span>
             """;
+    }
+
+    // Ein Satz Vorschlaege quer durch den Farbkreis - wer nur schnell etwas anderes will, muss
+    // dafuer keinen Farbwaehler oeffnen. Die Werte sind mitteldunkel gewaehlt, damit sie in beiden
+    // Modi ohne grosse Nachbesserung durchkommen.
+    private static string AccentPresets()
+    {
+        string[] farben =
+        [
+            "#176b5b", "#15609e", "#4a51c4", "#7a3fb5", "#a8307c",
+            "#b22a28", "#9a4f16", "#8a6410", "#1a7a4e", "#15707c",
+        ];
+
+        return string.Join("", farben.Select(farbe => $$"""
+            <button type="button" class="accent-preset" data-accent-preset="{{A(farbe)}}" style="--dot: {{A(farbe)}}" title="{{A(farbe)}}" aria-label="{{A(farbe)}}"></button>
+            """));
+    }
+
+    // Womit der Farbwaehler aufgeht, wenn noch keine eigene Farbe gesetzt ist: mit der des Themas.
+    private static string AccentFallback(HttpContext context, MatgateUser user)
+    {
+        var themes = context.RequestServices.GetService<ThemeService>();
+        if (themes is null)
+        {
+            return "#176b5b";
+        }
+
+        var palette = themes.Resolve(user.PreferredThemeName);
+        return themes.Values(palette, dark: false).GetValueOrDefault("accent", "#176b5b");
     }
 
     private static string ThemeOptions(HttpContext context, string selectedTheme)

@@ -36,6 +36,10 @@ public sealed class MatgateUser
     // beiden sind unabhaengig: jedes Thema hat einen hellen und einen dunklen Satz.
     public string PreferredThemeName { get; set; } = "matgate";
 
+    // Eine eigene Akzentfarbe, die über der des Themas liegt. Leer heißt: die des Themas. Gespeichert
+    // wird, was gewählt wurde; was angezeigt wird, kann davon abweichen - siehe ThemeService.SafeAccent.
+    public string AccentColor { get; set; } = "";
+
     public bool RememberLoginByDefault { get; set; } = true;
 
     // Per-user session behaviour (display + keyboard helpers), applied to every remote session the

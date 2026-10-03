@@ -76,7 +76,7 @@ public sealed class ThemeService
     }
 
     // Die fertigen Werte eines Themas für einen Modus: erst die Grundpalette, dann das Thema darüber.
-    public IReadOnlyDictionary<string, string> Values(ThemeDefinition theme, bool dark)
+    public IReadOnlyDictionary<string, string> Values(ThemeDefinition theme, bool dark, string? accentOverride = null)
     {
         var baseTheme = All.First(entry => entry.Key == DefaultKey);
         var values = new Dictionary<string, string>(dark ? baseTheme.Dark : baseTheme.Light, StringComparer.OrdinalIgnoreCase);
@@ -106,6 +106,17 @@ public sealed class ThemeService
         if (stroke.Length > 0)
         {
             values["icon-stroke"] = stroke;
+        }
+
+        // Die eigene Akzentfarbe zuletzt, damit sie auch ein Thema aus der Datei ueberstimmt. Was
+        // gewaehlt wurde, ist nicht zwingend, was gesetzt wird: die Schrift darauf ist --bg.
+        if (IsColour(accentOverride))
+        {
+            var hintergrund = values.GetValueOrDefault("bg", dark ? "#0f1412" : "#ffffff");
+            var sicher = SafeAccent(accentOverride!, hintergrund);
+            values["accent"] = sicher;
+            values["primary-hover"] = HoverAccent(sicher, hintergrund);
+            values["proto-local"] = sicher;
         }
 
         return values;
@@ -211,6 +222,96 @@ public sealed class ThemeService
             _themes = themes;
             _loadedAt = DateTimeOffset.UtcNow;
         }
+    }
+
+    // Schrift auf einer Akzentfläche ist --bg. Eine frei gewählte Farbe kann dort also unlesbar
+    // werden - hellgrün auf fast weiß ist 1,4 statt der nötigen 4,5. Statt die Wahl abzulehnen wird
+    // der Farbton behalten und die Helligkeit so lange in die Gegenrichtung geschoben, bis es
+    // reicht: der Benutzer bekommt seine Farbe, nur in einer Nuance, die man lesen kann.
+    public static string SafeAccent(string hex, string background, double minimum = 4.5)
+    {
+        if (!TryParse(hex, out var r, out var g, out var b) || !TryParse(background, out var br, out var bg2, out var bb))
+        {
+            return hex;
+        }
+
+        var backgroundLum = Luminance(br, bg2, bb);
+        var dunklerHintergrund = backgroundLum < 0.5;
+
+        for (var schritt = 0; schritt <= 100; schritt++)
+        {
+            var (rr, gg, bbb) = Shift(r, g, b, dunklerHintergrund ? schritt : -schritt);
+            if (Contrast(Luminance(rr, gg, bbb), backgroundLum) >= minimum)
+            {
+                return $"#{rr:x2}{gg:x2}{bbb:x2}";
+            }
+        }
+
+        return dunklerHintergrund ? "#ffffff" : "#000000";
+    }
+
+    // Dieselbe Farbe, eine Spur kräftiger - für den Zustand beim Zeigen.
+    public static string HoverAccent(string hex, string background)
+    {
+        if (!TryParse(hex, out var r, out var g, out var b) || !TryParse(background, out _, out _, out _))
+        {
+            return hex;
+        }
+
+        var dunkel = Luminance(r, g, b) < 0.4;
+        var (rr, gg, bb) = Shift(r, g, b, dunkel ? 8 : -8);
+        return SafeAccent($"#{rr:x2}{gg:x2}{bb:x2}", background);
+    }
+
+    public static bool IsColour(string? value)
+    {
+        return !string.IsNullOrWhiteSpace(value) && TryParse(value, out _, out _, out _);
+    }
+
+    private static (int R, int G, int B) Shift(int r, int g, int b, int prozent)
+    {
+        int Einzeln(int wert) => prozent >= 0
+            ? (int)Math.Round(wert + (255 - wert) * (prozent / 100.0))
+            : (int)Math.Round(wert * (1 + prozent / 100.0));
+        return (Math.Clamp(Einzeln(r), 0, 255), Math.Clamp(Einzeln(g), 0, 255), Math.Clamp(Einzeln(b), 0, 255));
+    }
+
+    private static bool TryParse(string? hex, out int r, out int g, out int b)
+    {
+        r = g = b = 0;
+        var wert = (hex ?? "").Trim().TrimStart('#');
+        if (wert.Length == 3)
+        {
+            wert = string.Concat(wert.Select(c => new string(c, 2)));
+        }
+
+        if (wert.Length != 6 || !wert.All(Uri.IsHexDigit))
+        {
+            return false;
+        }
+
+        r = Convert.ToInt32(wert[..2], 16);
+        g = Convert.ToInt32(wert.Substring(2, 2), 16);
+        b = Convert.ToInt32(wert.Substring(4, 2), 16);
+        return true;
+    }
+
+    private static double Luminance(int r, int g, int b)
+    {
+        double Kanal(int wert)
+        {
+            var v = wert / 255.0;
+            return v <= 0.03928 ? v / 12.92 : Math.Pow((v + 0.055) / 1.055, 2.4);
+        }
+
+        return 0.2126 * Kanal(r) + 0.7152 * Kanal(g) + 0.0722 * Kanal(b);
+    }
+
+    private static double Contrast(double a, double b)
+    {
+        var hell = Math.Max(a, b);
+        var dunkel = Math.Min(a, b);
+        return (hell + 0.05) / (dunkel + 0.05);
     }
 
     // Ohne Dienst: die eingebaute Grundpalette. Wird nur gebraucht, wenn die Aufloesung aus dem
