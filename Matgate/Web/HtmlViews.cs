@@ -611,51 +611,66 @@ public sealed class HtmlViews
                 </div>
                 <a class="button" href="/admin/users">{{T(context, "Back")}}</a>
             </section>
-            <form method="post" action="/admin/users/{{editedUser.Id}}/update" class="stack">
-                {{Csrf(context)}}
-                <section class="panel">
-                    <h2>{{T(context, "Profile")}}</h2>
-                    <div class="form-grid">
-                        <label>{{T(context, "Display name")}}
-                            <input name="displayName" value="{{A(editedUser.DisplayName)}}">
-                        </label>
-                        <label>{{T(context, "Email (optional)")}}
-                            <input name="email" type="email" maxlength="200" value="{{A(editedUser.Email)}}">
-                        </label>
-                        <label>{{T(context, "Preferred language")}}
-                            <select name="preferredLanguage">
-                                {{LanguageOptions(context, editedUser.PreferredLanguage)}}
-                            </select>
-                        </label>
-                        <label>{{T(context, "Preferred theme")}}
-                            <select name="preferredTheme">
-                                {{ThemeOptions(context, editedUser.PreferredTheme)}}
-                            </select>
-                        </label>
-                        <label class="check"><input type="checkbox" name="isEnabled"{{Checked(editedUser.IsEnabled)}}> {{T(context, "Enabled")}}</label>
-                    </div>
-                </section>
-                <section class="panel">
-                    <h2>{{T(context, "Permissions")}}</h2>
-                    <div class="form-grid">
-                        <label class="check"><input type="checkbox" name="isAdmin"{{Checked(editedUser.IsAdmin)}}> {{T(context, "Administrator")}}</label>
-                        <label class="check"><input type="checkbox" name="canManageServers"{{Checked(editedUser.CanManageServers)}}> {{T(context, "Manage servers")}}</label>
-                        <label class="check"><input type="checkbox" name="canCreateServers"{{Checked(editedUser.CanCreateServers)}}> {{T(context, "Can create own servers")}}</label>
-                        <label class="check"><input type="checkbox" name="canQuickConnect"{{Checked(editedUser.CanQuickConnect)}}> {{(de ? "Quick-Connect erlauben" : "Allow quick connect")}}</label>
-                        <label class="check"><input type="checkbox" name="fileShareGlobal"{{Checked(editedUser.FileShare.Global)}}> {{(de ? "Ordner \"Global\" (für alle Benutzer)" : "\"Global\" folder (shared with everyone)")}}</label>
-                        <label class="check"><input type="checkbox" name="fileShareConnection"{{Checked(editedUser.FileShare.Connection)}}> {{(de ? "Ordner \"Connection\" (je Verbindung)" : "\"Connection\" folder (one per connection)")}}</label>
-                        <label class="check"><input type="checkbox" name="fileSharePersonal"{{Checked(editedUser.FileShare.Personal)}}> {{(de ? "Ordner \"User\" (eigener Ordner)" : "\"User\" folder (their own)")}}</label>
-                        <small class="muted">{{(de ? "Änderungen an den Ablagen wirken erst, wenn der Benutzer eine Sitzung neu aufbaut - laufende Sitzungen behalten ihre Ordner." : "Changes to the areas take effect the next time the user connects; sessions already running keep their folders.")}}</small>
-                    </div>
-                </section>
-                <div class="actions"><button type="submit" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button></div>
-            </form>
+            <section class="panel">
+                <h2>{{T(context, "Profile")}}</h2>
+                <form method="post" action="/admin/users/{{editedUser.Id}}/update" class="settings-form">
+                    {{Csrf(context)}}
+                    <fieldset class="settings-group">
+                        <legend>{{(de ? "Angaben" : "Details")}}</legend>
+                        <div class="form-grid">
+                            <label>{{T(context, "Display name")}}
+                                <input name="displayName" value="{{A(editedUser.DisplayName)}}">
+                            </label>
+                            <label>{{T(context, "Email (optional)")}}
+                                <input name="email" type="email" maxlength="200" value="{{A(editedUser.Email)}}">
+                            </label>
+                            <label>{{T(context, "Preferred language")}}
+                                <select name="preferredLanguage">
+                                    {{LanguageOptions(context, editedUser.PreferredLanguage)}}
+                                </select>
+                            </label>
+                            <label>{{T(context, "Preferred theme")}}
+                                <select name="preferredTheme">
+                                    {{ThemeOptions(context, editedUser.PreferredTheme)}}
+                                </select>
+                            </label>
+                        </div>
+                        <label class="check"><input type="checkbox" name="isEnabled"{{Checked(editedUser.IsEnabled)}}> <span>{{T(context, "Enabled")}}</span></label>
+                    </fieldset>
+                    <fieldset class="settings-group">
+                        <legend>{{(de ? "Was dieser Benutzer darf" : "What this user may do")}}</legend>
+                        <p class="muted settings-hint">{{(de
+                            ? "Ein Administrator darf ohnehin alles - die übrigen Haken fallen dann nicht mehr ins Gewicht."
+                            : "An administrator may do everything anyway - the other ticks then no longer carry weight.")}}</p>
+                        <label class="check"><input type="checkbox" name="isAdmin"{{Checked(editedUser.IsAdmin)}}> <span>{{T(context, "Administrator")}}</span></label>
+                        <label class="check"><input type="checkbox" name="canManageServers"{{Checked(editedUser.CanManageServers)}}> <span>{{T(context, "Manage servers")}}</span></label>
+                        <label class="check"><input type="checkbox" name="canCreateServers"{{Checked(editedUser.CanCreateServers)}}> <span>{{T(context, "Can create own servers")}}</span></label>
+                        <label class="check"><input type="checkbox" name="canQuickConnect"{{Checked(editedUser.CanQuickConnect)}}> <span>{{(de ? "Quick-Connect erlauben" : "Allow quick connect")}}</span></label>
+                    </fieldset>
+                    <fieldset class="settings-group">
+                        <legend>{{(de ? "Ablagen" : "Places")}}</legend>
+                        <p class="muted settings-hint">{{(de
+                            ? "Welche Ordner dieser Benutzer im Dateimanager und auf dem umgeleiteten Laufwerk sieht. Eine Änderung wirkt erst, wenn er eine Sitzung neu aufbaut - laufende Sitzungen behalten ihre Ordner."
+                            : "Which folders this user sees in the file manager and on the redirected drive. A change takes effect the next time they connect; sessions already running keep their folders.")}}</p>
+                        <label class="check"><input type="checkbox" name="fileShareGlobal"{{Checked(editedUser.FileShare.Global)}}> <span>{{(de ? "Ordner \"Global\" (für alle Benutzer)" : "\"Global\" folder (shared with everyone)")}}</span></label>
+                        <label class="check"><input type="checkbox" name="fileShareConnection"{{Checked(editedUser.FileShare.Connection)}}> <span>{{(de ? "Ordner \"Connection\" (je Verbindung)" : "\"Connection\" folder (one per connection)")}}</span></label>
+                        <label class="check"><input type="checkbox" name="fileSharePersonal"{{Checked(editedUser.FileShare.Personal)}}> <span>{{(de ? "Ordner \"User\" (eigener Ordner)" : "\"User\" folder (their own)")}}</span></label>
+                    </fieldset>
+                    <div class="actions"><button type="submit" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button></div>
+                </form>
+            </section>
             <section class="panel">
                 <h2>{{T(context, "Server access")}}</h2>
+                <p class="muted settings-lead">{{(de
+                    ? (editedUser.IsAdmin
+                        ? "Administratoren sehen ohnehin alle Server - hier ist deshalb nichts einzustellen."
+                        : "Nur globale Server. Eigene Server stehen ihrem Besitzer immer zur Verfügung.")
+                    : (editedUser.IsAdmin
+                        ? "Administrators see every server anyway - so there is nothing to set here."
+                        : "Global servers only. Own servers are always available to their owner."))}}</p>
                 <form method="post" action="/admin/users/{{editedUser.Id}}/access" class="stack">
                     {{Csrf(context)}}
-                    <label class="check"><input type="checkbox" name="allServers"{{Checked(allServersChecked)}}{{(editedUser.IsAdmin ? " disabled" : "")}}> {{T(context, "All global servers (*)")}}</label>
-                    <p class="muted">{{T(context, "Global servers only. Own servers are automatically available to the owner.")}}</p>
+                    <label class="check"><input type="checkbox" name="allServers"{{Checked(allServersChecked)}}{{(editedUser.IsAdmin ? " disabled" : "")}}> <span>{{T(context, "All global servers (*)")}}</span></label>
                     <div class="table-wrap">
                         <table class="access-table">
                             <thead>
@@ -672,11 +687,13 @@ public sealed class HtmlViews
                         </table>
                     </div>
                     <div class="actions"><button type="submit" class="primary"{{(editedUser.IsAdmin ? " disabled" : "")}}>{{Icon("save")}}{{T(context, "Save access")}}</button></div>
-                    <p class="muted">{{T(context, "Administrators always see all servers.")}}</p>
                 </form>
             </section>
             <section class="panel">
                 <h2>{{T(context, "Password")}}</h2>
+                <p class="muted settings-lead">{{(de
+                    ? "Mindestens 10 Zeichen. Der Benutzer bleibt angemeldet, wo er es schon ist - sag ihm das neue Passwort auf einem anderen Weg als per Mail."
+                    : "At least 10 characters. The user stays signed in where they already are - tell them the new password by some route other than email.")}}</p>
                 <form method="post" action="/admin/users/{{editedUser.Id}}/password" class="form-grid">
                     {{Csrf(context)}}
                     <label>{{T(context, "New password")}}
