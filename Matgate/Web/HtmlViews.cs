@@ -12446,12 +12446,16 @@ public sealed class HtmlViews
                         text-decoration: none;
                         white-space: nowrap;
                     }
+                    /* Das Zeichen oben links trug die beiden Farben der eingebauten Palette fest
+                       eingetragen - wer ein anderes Thema oder eigene Akzente waehlte, sah weiter
+                       Gruen auf Blau. Es ist die sichtbarste Stelle, an der die zweite Akzentfarbe
+                       ueberhaupt vorkommt. */
                     .brand-mark {
                         align-items: center;
-                        background: linear-gradient(135deg, #176b5b, #2b5876);
+                        background: linear-gradient(135deg, var(--accent), var(--accent-2));
                         border-radius: var(--radius);
-                        box-shadow: inset 0 0 0 1px rgb(255 255 255 / 28%);
-                        color: #ffffff;
+                        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--bg) 28%, transparent);
+                        color: var(--bg);
                         display: inline-flex;
                         height: 30px;
                         justify-content: center;
@@ -13621,8 +13625,10 @@ public sealed class HtmlViews
                         font-size: 16px;
                     }
                     /* In-app on-screen keyboard (touch sessions), slides up over the session bottom. */
+                    /* Die eingeblendete Tastatur ist Teil der Anwendung, nicht der fernen Sitzung -
+                       sie nimmt deshalb die Farbe des Themas statt eines festen Dunkelgrau. */
                     .matgate-osk {
-                        background: rgba(20, 24, 22, .97);
+                        background: color-mix(in srgb, var(--panel) 97%, transparent);
                         border-top: 1px solid var(--line);
                         bottom: 0;
                         display: flex;
@@ -16342,10 +16348,12 @@ public sealed class HtmlViews
                     .file-viewer-dialog-loading.error {
                         color: var(--danger);
                     }
+                    /* Liegt ueber der eigenen Flaeche, solange eine Verbindung aufgebaut wird - dort
+                       ist noch nichts Fremdes zu sehen, also gilt das Thema. */
                     .connection-overlay {
                         align-items: center;
-                        background: rgb(17 22 20 / 90%);
-                        color: #ffffff;
+                        background: color-mix(in srgb, var(--panel) 92%, transparent);
+                        color: var(--text);
                         display: flex;
                         inset: 0;
                         justify-content: center;
