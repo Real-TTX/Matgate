@@ -17081,23 +17081,26 @@ public sealed class HtmlViews
                         }
                         html[data-view-mode="minimal"] .brand { order: 0; }
                         html[data-view-mode="minimal"] .shell-burger { order: 1; flex: 0 0 auto; }
+                        /* The actions get the rest of the row - and may shrink, which is what lets
+                           them be counted out into the overflow menu instead of running over. */
+                        html[data-view-mode="minimal"] .shell-merge-slot {
+                            flex: 1 1 auto;
+                            min-width: 0;
+                            order: 2;
+                        }
+                        /* Die Verbindungen ganz rechts: dort ist der Daumen, wenn man das Telefon in
+                           einer Hand haelt. Der Trenner wandert mit und steht jetzt VOR dem Knopf -
+                           sonst trennte er nichts mehr. */
                         html[data-view-mode="minimal"] .shell-header-sep {
                             align-self: center;
                             background: var(--line);
                             display: block;
                             flex: 0 0 auto;
                             height: 22px;
-                            order: 2;
+                            order: 3;
                             width: 1px;
                         }
-                        html[data-view-mode="minimal"] .mobile-tab-menu { order: 3; flex: 0 0 auto; }
-                        /* The actions get the rest of the row - and may shrink, which is what lets
-                           them be counted out into the overflow menu instead of running over. */
-                        html[data-view-mode="minimal"] .shell-merge-slot {
-                            flex: 1 1 auto;
-                            min-width: 0;
-                            order: 4;
-                        }
+                        html[data-view-mode="minimal"] .mobile-tab-menu { order: 4; flex: 0 0 auto; }
                         /* The bar itself has to be allowed to shrink, not just the slot around it -
                            otherwise it keeps its natural width, spills out of the row, and its own
                            overflow measurement reports "fits" because the overflow is one level up. */
