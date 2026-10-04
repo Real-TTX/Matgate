@@ -13487,16 +13487,22 @@ public sealed class HtmlViews
                     .session-tab--compact .session-tab-description {
                         display: none;
                     }
+                    /* Wie ein richtiger Reiter aufgebaut - Zeile fuer den Titel, Zeile fuer die
+                       Beschreibung -, damit die Leiste nicht niedriger ist, solange nur das Plus
+                       darin steht, und beim ersten Reiter nach unten springt. */
                     .session-tab--add .session-tab-main {
-                        align-items: center;
-                        display: flex;
-                        justify-content: center;
+                        align-content: center;
+                        display: grid;
+                        justify-items: center;
                         min-width: 0;
-                        padding: 0 9px;
                         width: 34px;
                     }
                     .session-tab--add .session-tab-title {
                         justify-content: center;
+                        /* Ein Reitertitel ist eine Textzeile hoch; hier steht nur ein 15px-Symbol
+                           darin. Ohne dieses Mass waere die Leiste niedriger, solange nur das Plus
+                           darin steht, und spraenge beim ersten Reiter nach unten. */
+                        min-height: 1.5em;
                         width: auto;
                     }
                     .session-tab-title {
@@ -13532,9 +13538,11 @@ public sealed class HtmlViews
                         white-space: nowrap;
                         width: 100%;
                     }
+                    /* Unsichtbar, aber da: die leere Zeile haelt die Hoehe. Kein eigenes display,
+                       damit sie in der kompakten Ansicht und auf dem Telefon genauso verschwindet
+                       wie bei den anderen Reitern - sonst waere die Leiste dort wieder ungleich. */
                     .session-tab--add .session-tab-description {
                         color: transparent;
-                        display: none;
                         min-width: 0;
                         overflow: hidden;
                         padding: 0;
@@ -17250,8 +17258,15 @@ public sealed class HtmlViews
                                 return;
                             }
 
-                            const keepMenu = target.closest('details.toolbar-menu, details.file-menu, details.shell-menu, details.tab-action-more');
-                            closeOpenMenus(keepMenu);
+                            // Ein Klick INNERHALB eines Menues liess es bisher ausnahmslos offen -
+                            // auch der Klick auf einen Eintrag. Deshalb blieb das Burger-Menue nach
+                            // der Auswahl stehen. Offen bleiben soll es nur, solange man nichts
+                            // ausgewaehlt hat: auf dem Griff selbst, auf einer Ueberschrift, auf
+                            // einem Schalter oder Feld, das man im Menue bedient. Wer einen Eintrag
+                            // trifft - einen Link oder einen Knopf -, hat gewaehlt, und dann geht es zu.
+                            const inMenu = target.closest('details.toolbar-menu, details.file-menu, details.shell-menu, details.tab-action-more');
+                            const gewaehlt = target.closest('a[href], button, [role="menuitem"]');
+                            closeOpenMenus(inMenu && !gewaehlt ? inMenu : null);
                         });
 
                         document.addEventListener('keydown', (event) => {
