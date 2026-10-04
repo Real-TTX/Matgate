@@ -343,6 +343,7 @@ public static class EndpointMapping
         app.MapGet("/about", AboutAsync).RequireAuthorization();
         app.MapPost("/account", UpdateAccountAsync).RequireAuthorization();
         app.MapPost("/account/session", UpdateSessionPreferencesAsync).RequireAuthorization();
+        app.MapPost("/account/home", UpdateHomeLayoutAsync).RequireAuthorization();
         app.MapPost("/account/password", ChangeOwnPasswordAsync).RequireAuthorization();
         app.MapPost("/account/favorites/{id:guid}/toggle", ToggleFavoriteServerAsync).RequireAuthorization();
         app.MapPost("/api/tools/ping", ToolsPingAsync).RequireAuthorization();
@@ -2970,6 +2971,9 @@ public static class EndpointMapping
                 HtmlViews.Translate(context, "Please enter a valid email address.")), "text/html");
         }
 
+        // Vor dem Schreiben lesen: das Anlegen laeuft unter der Sperre der Benutzerliste, und die
+        // Vorgaben liegen in einer eigenen Datei hinter derselben Sperre.
+        var vorgaben = await store.GetDefaultsAsync(context.RequestAborted);
         var exists = false;
         var emailTaken = false;
         await store.UpdateUsersAsync(users =>
@@ -3005,6 +3009,10 @@ public static class EndpointMapping
                 },
                 PreferredLanguage = NormalizeLanguage(form["preferredLanguage"].ToString()),
                 PreferredTheme = NormalizeTheme(form["preferredTheme"].ToString()),
+                // Die Startseite, wie ein Administrator sie als Vorgabe hinterlegt hat. Ist nichts
+                // hinterlegt, bleiben die Listen leer und es gilt die eingebaute Reihenfolge.
+                HomeSections = [.. vorgaben.HomeSections],
+                HiddenHomeSections = [.. vorgaben.HiddenHomeSections],
                 RememberLoginByDefault = true,
                 IsEnabled = true,
                 CreatedAt = now,
@@ -3461,6 +3469,60 @@ public static class EndpointMapping
         }
 
         return Results.Redirect(EmbedAwareRedirect(context, "/account"));
+    }
+
+    // Welche Abschnitte die Startseite zeigt und in welcher Reihenfolge. Beides kommt als eine
+    // Liste aus der Zieh-Liste; gefiltert wird gegen die bekannten Schluessel, damit ein alter
+    // oder von Hand gebauter Wert nichts Fremdes hineintragen kann.
+    private static async Task<IResult> UpdateHomeLayoutAsync(
+        HttpContext context,
+        JsonDataStore store,
+        HtmlViews views)
+    {
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            return Results.Redirect("/login");
+        }
+
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        if (!ValidateCsrf(context, form))
+        {
+            return BadRequest(context, user, views);
+        }
+
+        static List<string> Liste(IFormCollection f, string name) => f[name].ToString()
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(HomeLayout.IsKnown)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        await store.UpdateUsersAsync(users =>
+        {
+            var current = users.FirstOrDefault(candidate => candidate.Id == user.Id);
+            if (current is null)
+            {
+                return;
+            }
+
+            current.HomeSections = Liste(form, "homeSections");
+            current.HiddenHomeSections = Liste(form, "hiddenHomeSections");
+            current.UpdatedAt = DateTimeOffset.UtcNow;
+        }, context.RequestAborted);
+
+        // Ein Administrator kann seine Anordnung zugleich zur Vorgabe machen. Bestehende Benutzer
+        // bleiben davon unberuehrt - sonst wuerde die Vorgabe stillschweigend ueberschreiben, was
+        // jemand fuer sich eingerichtet hat.
+        if (user.IsAdmin && IsChecked(form, "asDefault"))
+        {
+            await store.UpdateDefaultsAsync(defaults =>
+            {
+                defaults.HomeSections = Liste(form, "homeSections");
+                defaults.HiddenHomeSections = Liste(form, "hiddenHomeSections");
+            }, context.RequestAborted);
+        }
+
+        return Results.Redirect("/account?tab=home");
     }
 
     private static async Task<IResult> UpdateSessionPreferencesAsync(

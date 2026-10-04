@@ -49,6 +49,13 @@ public sealed class MatgateUser
     // Lesbarkeit mitnimmt.
     public string BackgroundColor { get; set; } = "";
 
+    // Die Startseite: welche Abschnitte sie zeigt und in welcher Reihenfolge. Leer heisst die
+    // Vorgabe - und die steht in HomeSectionKeys, nicht in der Datenbank, damit ein neuer
+    // Abschnitt bei allen auftaucht, die nie etwas eingestellt haben.
+    public List<string> HomeSections { get; set; } = [];
+
+    public List<string> HiddenHomeSections { get; set; } = [];
+
     public bool RememberLoginByDefault { get; set; } = true;
 
     // Per-user session behaviour (display + keyboard helpers), applied to every remote session the
@@ -79,6 +86,46 @@ public sealed class MatgateUser
 
 // Per-user remote-session behaviour. All independent on/off switches with sensible defaults; the
 // session UI reads these at load and enables the matching controls/behaviours.
+public static class HomeLayout
+{
+    // Die Abschnitte der Startseite in ihrer eingebauten Reihenfolge. Wer nichts einstellt,
+    // sieht genau das.
+    public static readonly string[] Keys =
+    [
+        "search", "quick", "folders", "recent", "connections", "places", "workspaces", "farm",
+    ];
+
+    public static bool IsKnown(string key)
+    {
+        return Keys.Contains(key, StringComparer.Ordinal);
+    }
+
+    // Die gespeicherte Reihenfolge, ergaenzt um alles, was noch nicht darin steht. Ein Abschnitt,
+    // den es beim letzten Speichern noch nicht gab, verschwindet so nicht - er haengt sich hinten
+    // an und laesst sich von dort wegziehen.
+    public static IReadOnlyList<string> Order(IEnumerable<string>? gespeichert)
+    {
+        var reihe = new List<string>();
+        foreach (var key in gespeichert ?? [])
+        {
+            if (IsKnown(key) && !reihe.Contains(key, StringComparer.Ordinal))
+            {
+                reihe.Add(key);
+            }
+        }
+
+        foreach (var key in Keys)
+        {
+            if (!reihe.Contains(key, StringComparer.Ordinal))
+            {
+                reihe.Add(key);
+            }
+        }
+
+        return reihe;
+    }
+}
+
 public sealed class SessionPreferences
 {
     // --- Display (only relevant in the fixed-resolution "desktop" display mode) ---

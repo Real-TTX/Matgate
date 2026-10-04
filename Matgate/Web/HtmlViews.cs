@@ -1061,7 +1061,7 @@ public sealed class HtmlViews
                 </tr>
                 """));
         var tab = context.Request.Query["tab"].ToString().ToLowerInvariant();
-        if (tab is not ("security" or "favorites" or "session"))
+        if (tab is not ("security" or "favorites" or "session" or "home"))
         {
             tab = "profile";
         }
@@ -1146,6 +1146,7 @@ public sealed class HtmlViews
                     <a class="tab-button{{(tab == "profile" ? " active" : "")}}" href="?tab=profile" data-tab-target="profile" role="tab" aria-selected="{{(tab == "profile" ? "true" : "false")}}">{{Icon("user")}}<span>{{(de ? "Profil" : "Profile")}}</span></a>
                     <a class="tab-button{{(tab == "security" ? " active" : "")}}" href="?tab=security" data-tab-target="security" role="tab" aria-selected="{{(tab == "security" ? "true" : "false")}}">{{Icon("key")}}<span>{{(de ? "Sicherheit" : "Security")}}</span></a>
                     <a class="tab-button{{(tab == "session" ? " active" : "")}}" href="?tab=session" data-tab-target="session" role="tab" aria-selected="{{(tab == "session" ? "true" : "false")}}">{{Icon("monitor")}}<span>{{(de ? "Sitzung" : "Session")}}</span></a>
+                    <a class="tab-button{{(tab == "home" ? " active" : "")}}" href="?tab=home" data-tab-target="home" role="tab" aria-selected="{{(tab == "home" ? "true" : "false")}}">{{Icon("home")}}<span>{{(de ? "Startseite" : "Start page")}}</span></a>
                     <a class="tab-button{{(tab == "favorites" ? " active" : "")}}" href="?tab=favorites" data-tab-target="favorites" role="tab" aria-selected="{{(tab == "favorites" ? "true" : "false")}}">{{Icon("star")}}<span>{{(de ? "Favoriten" : "Favorites")}}</span></a>
                 </div>
                 <div class="tab-panels">
@@ -1349,86 +1350,133 @@ public sealed class HtmlViews
                                     <p class="muted settings-hint">{{(de
                                         ? "Zum Sortieren ziehen, mit dem Haken ein- oder ausblenden. Auf schmalen Schirmen passen nur die vordersten in die Leiste – der Rest landet im Drei-Punkte-Menü. Trennen bleibt immer ganz rechts."
                                         : "Drag to sort, use the tick to show or hide. On narrow screens only the first ones fit in the bar – the rest go into the three-dots menu. Disconnect always stays on the right.")}}</p>
-                                <ol id="action-order-list" class="action-order-list">{{actionOrderItems}}</ol>
-                                <input type="hidden" name="actionOrder" id="action-order-value" value="">
-                                <input type="hidden" name="hiddenActions" id="action-hidden-value" value="">
+                                <div data-order-group>
+                                    <ol id="action-order-list" class="action-order-list" data-order-list>{{actionOrderItems}}</ol>
+                                    <input type="hidden" name="actionOrder" data-order-value value="">
+                                    <input type="hidden" name="hiddenActions" data-order-hidden value="">
+                                </div>
                                 </fieldset>
                                 <div class="actions"><button type="submit" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button></div>
                             </form>
                             <script>
-                                (() => {
-                                    const list = document.getElementById('action-order-list');
-                                    const field = document.getElementById('action-order-value');
-                                    const hiddenField = document.getElementById('action-hidden-value');
-                                    if (!list || !field || !hiddenField) {
-                                        return;
-                                    }
-
-                                    const sync = () => {
-                                        const items = Array.from(list.children);
-                                        field.value = items.map(item => item.dataset.action).filter(Boolean).join(',');
-                                        // Unticked means hidden, so the form carries what to leave out.
-                                        hiddenField.value = items
-                                            .filter(item => !item.querySelector('[data-action-visible]')?.checked)
-                                            .map(item => item.dataset.action)
-                                            .filter(Boolean)
-                                            .join(',');
-                                    };
-                                    sync();
-                                    list.addEventListener('change', sync);
-
-                                    // Pointer events, not HTML5 drag and drop: that one does not fire at
-                                    // all on iOS Safari, which is where this setting matters most.
-                                    let dragged = null;
-                                    list.addEventListener('pointerdown', event => {
-                                        const item = event.target.closest('.action-order-item');
-                                        if (!item) {
+                                // Eine Sortierliste, zweimal gebraucht: die Aktionen der Sitzungsleiste und die
+                                // Abschnitte der Startseite. Jede Gruppe traegt ihre eigenen versteckten Felder,
+                                // damit dasselbe Stueck Code beide bedienen kann.
+                                // Erst wenn die Seite steht: die zweite Liste - die Abschnitte der
+                                // Startseite - steht im Dokument NACH diesem Skript. Wer gleich hier
+                                // sucht, findet sie nicht und schickt beim Speichern zwei leere Felder.
+                                const starteSortierlisten = () => {
+                                    document.querySelectorAll('[data-order-group]').forEach(gruppe => {
+                                        const list = gruppe.querySelector('[data-order-list]');
+                                        const field = gruppe.querySelector('[data-order-value]');
+                                        const hiddenField = gruppe.querySelector('[data-order-hidden]');
+                                        if (!list || !field || !hiddenField) {
                                             return;
                                         }
-
-                                        // Das Kaestchen gehoert dem Kaestchen. Ohne das hier fing der
-                                        // Zeiger-Fang des Eintrags den Klick ab, und "zeigen" liess sich
-                                        // nicht umstellen - gezogen wurde stattdessen.
-                                        if (event.target.closest('label, input')) {
-                                            return;
-                                        }
-
-                                        dragged = item;
-                                        item.classList.add('dragging');
-                                        try { item.setPointerCapture(event.pointerId); } catch { }
-                                    });
-                                    list.addEventListener('pointermove', event => {
-                                        if (!dragged) {
-                                            return;
-                                        }
-
-                                        // The item has the pointer captured, so what is under the finger
-                                        // has to be looked up rather than read off the event target.
-                                        const under = document.elementFromPoint(event.clientX, event.clientY);
-                                        const over = under && under.closest ? under.closest('.action-order-item') : null;
-                                        if (!over || over === dragged || over.parentElement !== list) {
-                                            return;
-                                        }
-
-                                        const items = Array.from(list.children);
-                                        list.insertBefore(
-                                            dragged,
-                                            items.indexOf(dragged) < items.indexOf(over) ? over.nextSibling : over);
+                            
+                                        const schluessel = item => item.dataset.orderKey || item.dataset.action || '';
+                                        const sync = () => {
+                                            const items = Array.from(list.children);
+                                            field.value = items.map(schluessel).filter(Boolean).join(',');
+                                            // Unticked means hidden, so the form carries what to leave out.
+                                            hiddenField.value = items
+                                                .filter(item => !item.querySelector('[data-order-visible], [data-action-visible]')?.checked)
+                                                .map(schluessel)
+                                                .filter(Boolean)
+                                                .join(',');
+                                        };
                                         sync();
+                                        list.addEventListener('change', sync);
+                            
+                                        // Pointer events, not HTML5 drag and drop: that one does not fire at
+                                        // all on iOS Safari, which is where this setting matters most.
+                                        let dragged = null;
+                                        list.addEventListener('pointerdown', event => {
+                                            const item = event.target.closest('.action-order-item');
+                                            if (!item) {
+                                                return;
+                                            }
+                            
+                                            // Das Kaestchen gehoert dem Kaestchen. Ohne das hier fing der
+                                            // Zeiger-Fang des Eintrags den Klick ab, und "zeigen" liess sich
+                                            // nicht umstellen - gezogen wurde stattdessen.
+                                            if (event.target.closest('label, input')) {
+                                                return;
+                                            }
+                            
+                                            dragged = item;
+                                            item.classList.add('dragging');
+                                            try { item.setPointerCapture(event.pointerId); } catch { }
+                                        });
+                                        list.addEventListener('pointermove', event => {
+                                            if (!dragged) {
+                                                return;
+                                            }
+                            
+                                            // The item has the pointer captured, so what is under the finger
+                                            // has to be looked up rather than read off the event target.
+                                            const under = document.elementFromPoint(event.clientX, event.clientY);
+                                            const over = under && under.closest ? under.closest('.action-order-item') : null;
+                                            if (!over || over === dragged || over.parentElement !== list) {
+                                                return;
+                                            }
+                            
+                                            const items = Array.from(list.children);
+                                            list.insertBefore(
+                                                dragged,
+                                                items.indexOf(dragged) < items.indexOf(over) ? over.nextSibling : over);
+                                            sync();
+                                        });
+                                        const endDrag = () => {
+                                            if (!dragged) {
+                                                return;
+                                            }
+                            
+                                            dragged.classList.remove('dragging');
+                                            dragged = null;
+                                            sync();
+                                        };
+                                        list.addEventListener('pointerup', endDrag);
+                                        list.addEventListener('pointercancel', endDrag);
                                     });
-                                    const endDrag = () => {
-                                        if (!dragged) {
-                                            return;
-                                        }
-
-                                        dragged.classList.remove('dragging');
-                                        dragged = null;
-                                        sync();
-                                    };
-                                    list.addEventListener('pointerup', endDrag);
-                                    list.addEventListener('pointercancel', endDrag);
-                                })();
+                                };
+                                if (document.readyState === 'loading') {
+                                    document.addEventListener('DOMContentLoaded', starteSortierlisten);
+                                }
+                                else {
+                                    starteSortierlisten();
+                                }
                             </script>
+                        </section>
+                    </div>
+                    <div class="tab-panel{{(tab == "home" ? "" : " hidden")}}" data-tab-panel="home">
+                        <section class="panel">
+                            <h2>{{(de ? "Startseite" : "Start page")}}</h2>
+                            <p class="muted settings-lead">{{(de ? "Was auf der Seite \"Neue Verbindung\" steht und in welcher Reihenfolge." : "What the \"New connection\" page shows, and in which order.")}}</p>
+                            <form method="post" action="/account/home" class="settings-form">
+                                {{Csrf(context)}}
+                                <fieldset class="settings-group">
+                                    <legend>{{(de ? "Abschnitte" : "Sections")}}</legend>
+                                    <p class="muted settings-hint">{{(de
+                                        ? "Zum Sortieren ziehen, mit dem Haken ein- oder ausblenden. Ein Abschnitt ohne Inhalt bleibt ohnehin weg - ein leerer Ordner-Streifen erscheint also nicht, nur weil er angekreuzt ist."
+                                        : "Drag to sort, use the tick to show or hide. A section with nothing in it stays away regardless - an empty folder strip will not appear just because it is ticked.")}}</p>
+                                    <div data-order-group>
+                                        <ol id="home-order-list" class="action-order-list" data-order-list>{{HomeSectionItems(context, user)}}</ol>
+                                        <input type="hidden" name="homeSections" data-order-value value="">
+                                        <input type="hidden" name="hiddenHomeSections" data-order-hidden value="">
+                                    </div>
+                                </fieldset>
+                                {{(user.IsAdmin ? $$"""
+                                    <fieldset class="settings-group">
+                                        <legend>{{(de ? "Vorgabe für neue Benutzer" : "Default for new users")}}</legend>
+                                        <p class="muted settings-hint">{{(de
+                                            ? "Wer ab jetzt angelegt wird, startet mit genau dieser Anordnung. Wer schon da ist, behält seine eigene - eine Vorgabe soll nicht stillschweigend überschreiben, was jemand für sich eingerichtet hat."
+                                            : "Anyone created from now on starts with exactly this arrangement. Everyone already here keeps their own - a default should not quietly overwrite what someone set up for themselves.")}}</p>
+                                        <label class="check"><input type="checkbox" name="asDefault"> <span>{{(de ? "Diese Anordnung beim Speichern als Vorgabe übernehmen" : "Also store this arrangement as the default when saving")}}</span></label>
+                                    </fieldset>
+                                    """ : "")}}
+                                <div class="actions"><button type="submit" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button></div>
+                            </form>
                         </section>
                     </div>
                     <div class="tab-panel{{(tab == "favorites" ? "" : " hidden")}}" data-tab-panel="favorites">
@@ -2746,17 +2794,6 @@ public sealed class HtmlViews
             <section class="home2-head">
                 <div class="home2-head-copy">
                     <h1>{{(de ? "Verbindungen" : "Connections")}}</h1>
-                    <!-- Steht nur da, wenn eine Browser-Farm eingerichtet ist. Eine Webseite "via
-                         Chromium VNC" scheitert, wenn alle Plätze belegt sind - das sah man bisher
-                         erst beim Öffnen. Die Zahlen holt das Skript, damit eine langsame Farm die
-                         Seite nicht aufhaelt. -->
-                    <p class="home2-farm" data-home2-farm hidden
-                       data-label-free="{{A(de ? "Browser-Farm: {free} von {pool} frei" : "Browser farm: {free} of {pool} free")}}"
-                       data-label-full="{{A(de ? "Browser-Farm: alle {pool} Plätze belegt" : "Browser farm: all {pool} slots busy")}}"
-                       data-label-down="{{A(de ? "Browser-Farm nicht erreichbar" : "Browser farm unreachable")}}">
-                        <span class="home2-farm-dot" data-home2-farm-dot></span>
-                        <span data-home2-farm-text></span>
-                    </p>
                 </div>
                 {{headerActions}}
             </section>
@@ -2790,6 +2827,21 @@ public sealed class HtmlViews
             </section>
             """;
 
+        // Der Hinweis zur Browser-Farm: steht nur da, wenn eine eingerichtet ist. Eine Webseite
+        // "via Chromium VNC" scheitert, wenn alle Plaetze belegt sind - das sah man bisher erst
+        // beim Oeffnen. Die Zahlen holt das Skript, damit eine langsame Farm die Seite nicht aufhaelt.
+        var farmHinweis = $$"""
+            <section class="home2-section home2-farm-section">
+                <p class="home2-farm" data-home2-farm hidden
+                   data-label-free="{{A(de ? "Browser-Farm: {free} von {pool} frei" : "Browser farm: {free} of {pool} free")}}"
+                   data-label-full="{{A(de ? "Browser-Farm: alle {pool} Plätze belegt" : "Browser farm: all {pool} slots busy")}}"
+                   data-label-down="{{A(de ? "Browser-Farm nicht erreichbar" : "Browser farm unreachable")}}">
+                    <span class="home2-farm-dot" data-home2-farm-dot></span>
+                    <span data-home2-farm-text></span>
+                </p>
+            </section>
+            """;
+
         var quickConnect = canQuick ? QuickConnectSection(de, hiddenQuick) : "";
         var filterRow = FilterTilesSection(context, user, servers, de);
         var recentSection = RecentConnectionsSection(context, user, servers, includeEditButtons, returnUrl, de);
@@ -2805,15 +2857,28 @@ public sealed class HtmlViews
         var placesSection = PlacesSection(context, user, areas, returnUrl, de);
         var connectionsSection = ConnectionsSection(context, user, connections, includeEditButtons, returnUrl, de);
 
+        // Welche Abschnitte, in welcher Reihenfolge: eingestellt unter Konto -> Startseite. Was
+        // nicht angekreuzt ist, wird gar nicht erst gebaut.
+        var teile = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["search"] = searchBox,
+            ["quick"] = quickConnect,
+            ["folders"] = filterRow,
+            ["recent"] = recentSection,
+            ["connections"] = connectionsSection,
+            ["places"] = placesSection,
+            ["workspaces"] = WorkspacesSection(context, workspaces, de),
+            ["farm"] = farmHinweis,
+        };
+        var versteckt = (user.HiddenHomeSections ?? []).ToHashSet(StringComparer.Ordinal);
+        var spalte = string.Join("", HomeLayout.Order(user.HomeSections)
+            .Where(key => !versteckt.Contains(key))
+            .Select(key => teile.GetValueOrDefault(key, "")));
+
         return $$"""
             <section class="home2" data-home2="1">
                 {{head}}
-                {{searchBox}}
-                {{quickConnect}}
-                {{filterRow}}
-                {{recentSection}}
-                {{connectionsSection}}
-                {{placesSection}}
+                {{spalte}}
                 <section class="home2-noresults hidden" data-home2-noresults>
                     <p class="muted">{{(de ? "Keine Treffer." : "No matches.")}}</p>
                 </section>
@@ -3088,6 +3153,50 @@ public sealed class HtmlViews
                 </div>
                 <div class="home2-card-grid">
                     {{cards}}
+                </div>
+            </section>
+            """;
+    }
+
+    // Die Workspaces auf der Startseite: bisher kam man nur ueber das Menue hin. Als Karten neben
+    // den Verbindungen sind sie dort, wo man ohnehin hinschaut - abschaltbar wie jeder Abschnitt.
+    private static string WorkspacesSection(HttpContext context, IReadOnlyList<WorkspaceDefinition> workspaces, bool de)
+    {
+        var sichtbar = workspaces.Where(workspace => workspace.IsEnabled).OrderBy(workspace => workspace.Name).ToList();
+        if (sichtbar.Count == 0)
+        {
+            return "";
+        }
+
+        var karten = string.Join("", sichtbar.Select(workspace => $$"""
+            <article class="connection-choice" data-home2-card="1" data-search="{{A((workspace.Name + " " + workspace.Description).ToLowerInvariant())}}" style="--proto: var(--accent-2)">
+                <div class="connection-choice-body">
+                    <div class="server-title connection-choice-title">
+                        <span class="server-icon" title="WORKSPACE">{{Icon("briefcase")}}</span>
+                        <div class="connection-choice-copy">
+                            <div class="connection-choice-badges">
+                                <span class="badge">{{(de ? "Workspace" : "Workspace")}}</span>
+                                {{(workspace.IsPrivate ? $"""<span class="badge">{E(de ? "privat" : "private")}</span>""" : "")}}
+                            </div>
+                            <h3>{{E(workspace.Name)}}</h3>
+                            {{(string.IsNullOrWhiteSpace(workspace.Description) ? "" : $"""<p class="target">{E(workspace.Description)}</p>""")}}
+                        </div>
+                    </div>
+                </div>
+                <div class="connection-choice-actions">
+                    <a class="button primary" href="/workspaces/{{workspace.Id}}" data-shell-open-tab="1" data-shell-title="{{A(workspace.Name)}}">{{Icon("folder")}}{{(de ? "Öffnen" : "Open")}}</a>
+                </div>
+            </article>
+            """));
+
+        return $$"""
+            <section class="home2-section home2-workspaces-section" data-home2-workspaces>
+                <div class="home2-section-head">
+                    <h2>{{Icon("briefcase")}}{{(de ? "Workspaces" : "Workspaces")}}</h2>
+                    <span class="badge">{{sichtbar.Count}}</span>
+                </div>
+                <div class="home2-card-grid">
+                    {{karten}}
                 </div>
             </section>
             """;
@@ -18108,6 +18217,32 @@ public sealed class HtmlViews
         return string.Join("", farben.Select(farbe => $$"""
             <button type="button" class="accent-preset" data-colour-preset="{{A(farbe)}}" style="--dot: {{A(farbe)}}" title="{{A(farbe)}}" aria-label="{{A(farbe)}}"></button>
             """));
+    }
+    // Die Abschnitte der Startseite als Zieh-Liste - dieselbe Form wie die Aktionen der
+    // Sitzungsleiste, damit man sie nicht zweimal lernen muss.
+    private static string HomeSectionItems(HttpContext context, MatgateUser user)
+    {
+        var de = Language(context) == "de";
+        var namen = new Dictionary<string, (string Label, string Icon)>(StringComparer.Ordinal)
+        {
+            ["search"] = (de ? "Suche" : "Search", "search"),
+            ["quick"] = (de ? "Schnell verbinden" : "Quick connect", "play"),
+            ["folders"] = (de ? "Ordner" : "Folders", "folder"),
+            ["recent"] = (de ? "Zuletzt verwendet" : "Recently used", "clock"),
+            ["connections"] = (de ? "Alle Verbindungen" : "All connections", "server"),
+            ["places"] = (de ? "Ablagen" : "Places", "archive"),
+            ["workspaces"] = ("Workspaces", "briefcase"),
+            ["farm"] = (de ? "Browser-Farm" : "Browser farm", "globe"),
+        };
+        var versteckt = (user.HiddenHomeSections ?? []).ToHashSet(StringComparer.Ordinal);
+
+        return string.Join("", HomeLayout.Order(user.HomeSections).Select(key =>
+        {
+            var (label, icon) = namen.TryGetValue(key, out var eintrag) ? eintrag : (key, "square");
+            return $$"""
+                <li class="action-order-item" data-order-key="{{A(key)}}"><span class="action-order-grip" aria-hidden="true">{{Icon("menu")}}</span><span class="action-order-icon" aria-hidden="true">{{Icon(icon)}}</span><span class="action-order-name">{{E(label)}}</span><label class="action-order-show"><input type="checkbox" data-order-visible{{(versteckt.Contains(key) ? "" : " checked")}}> {{E(de ? "zeigen" : "show")}}</label></li>
+                """;
+        }));
     }
     // Ein Satz Vorschlaege quer durch den Farbkreis - wer nur schnell etwas anderes will, muss
     // dafuer keinen Farbwaehler oeffnen. Die Werte sind mitteldunkel gewaehlt, damit sie in beiden

@@ -45,6 +45,62 @@ public sealed class JsonDataStore
 
     private string WorkspacesPath => Path.Combine(DataDirectory, "workspaces.json");
 
+    private string DefaultsPath => Path.Combine(DataDirectory, "defaults.json");
+
+    // Keine Liste, sondern ein einzelner Satz Vorgaben - deshalb eigene Lese- und Schreibwege:
+    // eine Datei mit einem einelementigen Array waere fuer den, der sie aufmacht, nur Raetselraten.
+    public async Task<AppDefaults> GetDefaultsAsync(CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            if (!File.Exists(DefaultsPath))
+            {
+                return new AppDefaults();
+            }
+
+            await using var stream = File.OpenRead(DefaultsPath);
+            return await JsonSerializer.DeserializeAsync<AppDefaults>(stream, JsonOptions, cancellationToken)
+                ?? new AppDefaults();
+        }
+        catch (JsonException exception)
+        {
+            // Eine kaputte Datei darf die Anmeldung nicht aufhalten: dann gelten die eingebauten
+            // Vorgaben, und es steht im Protokoll.
+            _logger.LogWarning(exception, "defaults.json is not readable - built-in defaults apply.");
+            return new AppDefaults();
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task UpdateDefaultsAsync(Action<AppDefaults> update, CancellationToken cancellationToken = default)
+    {
+        var current = await GetDefaultsAsync(cancellationToken);
+        update(current);
+        current.UpdatedAt = DateTimeOffset.UtcNow;
+
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            Directory.CreateDirectory(DataDirectory);
+            var tempPath = DefaultsPath + ".tmp";
+            await using (var stream = File.Create(tempPath))
+            {
+                await JsonSerializer.SerializeAsync(stream, current, JsonOptions, cancellationToken);
+                await stream.FlushAsync(cancellationToken);
+            }
+
+            File.Move(tempPath, DefaultsPath, overwrite: true);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     public async Task<IReadOnlyList<MatgateUser>> GetUsersAsync(CancellationToken cancellationToken = default)
     {
         await _gate.WaitAsync(cancellationToken);
