@@ -793,7 +793,8 @@ public static class EndpointMapping
         {
             servers.AddRange(fileAreas.ListAreas(
                 user,
-                servers.Where(server => !ServerEndpoint.IsFileProtocol(server.Protocol)).ToList()));
+                servers.Where(server => !ServerEndpoint.IsFileProtocol(server.Protocol)).ToList(),
+                await WorkspaceAreasAsync(context, user, context.RequestAborted)));
         }
 
         var allWorkspaces = await workspaceService.GetWorkspacesAsync(context.RequestAborted);
@@ -895,7 +896,8 @@ public static class EndpointMapping
         {
             servers.AddRange(shares.ListAreas(
                 user,
-                await AccessibleServersAsync(user, store, context.RequestAborted)));
+                await AccessibleServersAsync(user, store, context.RequestAborted),
+                await WorkspaceAreasAsync(context, user, context.RequestAborted)));
         }
 
         var allWorkspaces = await workspaceService.GetWorkspacesAsync(context.RequestAborted);
@@ -904,6 +906,33 @@ public static class EndpointMapping
         return Results.Content(
             views.ConnectionsPanelPayload(context, user, servers, visibleWorkspaces),
             "application/json");
+    }
+
+    // Die Workspaces, so wie der Dateimanager sie als Ablage braucht. Gefiltert wird mit derselben
+    // Regel wie auf der Workspace-Seite - zwei Regeln fuer dieselbe Frage waeren eine zu viel.
+    private static async Task<IReadOnlyList<FileShareService.WorkspaceArea>> WorkspaceAreasAsync(
+        HttpContext context,
+        MatgateUser user,
+        CancellationToken cancellationToken)
+    {
+        var service = context.RequestServices.GetService<WorkspaceService>();
+        if (service is null)
+        {
+            return [];
+        }
+
+        var sichtbar = VisibleWorkspacesForUser(user, await service.GetWorkspacesAsync(cancellationToken));
+        return
+        [
+            .. sichtbar
+                .Where(workspace => workspace.IsEnabled)
+                .Select(workspace => new FileShareService.WorkspaceArea(
+                    workspace.Id,
+                    // Ein Schraegstrich im Namen laese sich als weitere Ebene, die es nicht gibt.
+                    (workspace.Name ?? "").Replace('/', '-'),
+                    service.GetWorkspaceFilesRoot(workspace),
+                    workspace.AllowUploads)),
+        ];
     }
 
     private static IReadOnlyList<WorkspaceDefinition> VisibleWorkspacesForUser(
@@ -4488,7 +4517,8 @@ public static class EndpointMapping
             var area = shares.ResolveArea(
                 user,
                 id,
-                await AccessibleServersAsync(user, store, context.RequestAborted));
+                await AccessibleServersAsync(user, store, context.RequestAborted),
+                await WorkspaceAreasAsync(context, user, context.RequestAborted));
 
             if (area is not null)
             {
@@ -4626,7 +4656,12 @@ public static class EndpointMapping
             }
         }
 
-        return new FileServerAccess(effectiveServer, null, rule?.ReadOnly ?? false);
+        // Zwei Gruende, nur lesen zu duerfen, und beide zaehlen: die Regel fuer diesen Benutzer, und
+        // die Ablage selbst - ein Workspace mit abgeschalteten Uploads ist fuer alle nur lesbar,
+        // auch fuer seinen Besitzer. Hier zusammengefuehrt, damit alle elf Schreibwege dieselbe
+        // Antwort geben statt einer Ausnahme aus der Tiefe.
+        var nurLesen = (rule?.ReadOnly ?? false) || effectiveServer.IsReadOnly;
+        return new FileServerAccess(effectiveServer, null, nurLesen);
     }
 
     // 403 for a write attempt on a connection the caller only has read-only access to.

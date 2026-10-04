@@ -2792,6 +2792,10 @@ public sealed class HtmlViews
     private static object ServerChoicePayload(ServerEndpoint server) => new
     {
         areaKind = server.AreaKind,
+        // Nur lesen: der Dateimanager blendet die Knoepfe aus, die hier nichts ausrichten wuerden.
+        // Abgewiesen wird ein Schreibversuch ohnehin im FileGatewayService.
+        readOnly = server.IsReadOnly,
+        areaSourceId = server.AreaSourceId?.ToString() ?? "",
         id = server.Id.ToString(),
         name = server.Name,
         protocol = server.Protocol.ToString().ToUpperInvariant(),
@@ -2914,8 +2918,15 @@ public sealed class HtmlViews
         // alphabetisch dazwischensortiert.
         // Der Ordner einer laufenden Sitzung gehoert nicht auf die Startseite: er ist so lange da
         // wie die Sitzung und wird ueber sie erreicht, nicht ueber eine Kachel.
+        // Der Ordner eines Workspaces steht nicht zweimal da: er hat seinen eigenen Abschnitt, und
+        // dort oeffnet er dieselbe Ablage.
         var areas = servers
-            .Where(server => server.Protocol == ServerProtocol.Local && server.AreaKind != "session")
+            .Where(server => server.Protocol == ServerProtocol.Local
+                && server.AreaKind != "session"
+                && server.AreaKind != "workspace")
+            .ToList();
+        var workspaceAreas = servers
+            .Where(server => server.Protocol == ServerProtocol.Local && server.AreaKind == "workspace")
             .ToList();
         var connections = servers.Where(server => server.Protocol != ServerProtocol.Local).ToList();
         var placesSection = PlacesSection(context, user, areas, returnUrl, de);
@@ -2931,7 +2942,7 @@ public sealed class HtmlViews
             ["recent"] = recentSection,
             ["connections"] = connectionsSection,
             ["places"] = placesSection,
-            ["workspaces"] = WorkspacesSection(context, workspaces, de),
+            ["workspaces"] = WorkspacesSection(context, workspaces, workspaceAreas, de),
             ["farm"] = farmHinweis,
         };
         var versteckt = (user.HiddenHomeSections ?? []).ToHashSet(StringComparer.Ordinal);
@@ -3224,7 +3235,11 @@ public sealed class HtmlViews
 
     // Die Workspaces auf der Startseite: bisher kam man nur ueber das Menue hin. Als Karten neben
     // den Verbindungen sind sie dort, wo man ohnehin hinschaut - abschaltbar wie jeder Abschnitt.
-    private static string WorkspacesSection(HttpContext context, IReadOnlyList<WorkspaceDefinition> workspaces, bool de)
+    private static string WorkspacesSection(
+        HttpContext context,
+        IReadOnlyList<WorkspaceDefinition> workspaces,
+        IReadOnlyList<ServerEndpoint> areas,
+        bool de)
     {
         var sichtbar = workspaces.Where(workspace => workspace.IsEnabled).OrderBy(workspace => workspace.Name).ToList();
         if (sichtbar.Count == 0)
@@ -3232,26 +3247,18 @@ public sealed class HtmlViews
             return "";
         }
 
-        var karten = string.Join("", sichtbar.Select(workspace => $$"""
-            <article class="connection-choice" data-home2-card="1" data-search="{{A((workspace.Name + " " + workspace.Description).ToLowerInvariant())}}" style="--proto: var(--accent-2)">
-                <div class="connection-choice-body">
-                    <div class="server-title connection-choice-title">
-                        <span class="server-icon" title="WORKSPACE">{{Icon("briefcase")}}</span>
-                        <div class="connection-choice-copy">
-                            <div class="connection-choice-badges">
-                                <span class="badge">{{(de ? "Workspace" : "Workspace")}}</span>
-                                {{(workspace.IsPrivate ? $"""<span class="badge">{E(de ? "privat" : "private")}</span>""" : "")}}
-                            </div>
-                            <h3>{{E(workspace.Name)}}</h3>
-                            {{(string.IsNullOrWhiteSpace(workspace.Description) ? "" : $"""<p class="target">{E(workspace.Description)}</p>""")}}
-                        </div>
-                    </div>
-                </div>
-                <div class="connection-choice-actions">
-                    <a class="button primary" href="/workspaces/{{workspace.Id}}" data-shell-open-tab="1" data-shell-title="{{A(workspace.Name)}}">{{Icon("folder")}}{{(de ? "Öffnen" : "Open")}}</a>
-                </div>
-            </article>
-            """));
+        var karten = string.Join("", sichtbar.Select(workspace =>
+        {
+            // "Oeffnen" fuehrt in den Dateimanager, nicht auf die alte Workspace-Seite: dort sieht
+            // man die Dateien mit demselben Werkzeug wie ueberall sonst. Die Seite daneben bleibt
+            // fuer das, was nur sie kann - Passwort, Ablauf, Rechte und der Link.
+            var ablage = areas.FirstOrDefault(area => area.AreaSourceId == workspace.Id);
+            var oeffnen = ablage is null
+                ? $$"""<a class="button primary" href="/workspaces/{{workspace.Id}}" data-shell-open-tab="1" data-shell-title="{{A(workspace.Name)}}">{{Icon("folder")}}{{(de ? "Öffnen" : "Open")}}</a>"""
+                : $$"""<button type="button" class="button primary workspace-open-button connection-choice-open" data-server-id="{{ablage.Id}}">{{Icon("folder")}}{{(de ? "Öffnen" : "Open")}}</button>""";
+            var einstellungen = $$"""<a class="button favorite-toggle connection-choice-settings-corner" href="/workspaces/{{workspace.Id}}" data-shell-open-tab="1" data-shell-title="{{A(workspace.Name)}}" data-shell-description="{{A(de ? "Einstellungen" : "Settings")}}" title="{{A(de ? "Einstellungen und Link" : "Settings and link")}}" aria-label="{{A(de ? "Einstellungen und Link" : "Settings and link")}}">{{Icon("settings")}}</a>""";
+            return WorkspaceCard(workspace, oeffnen, einstellungen, de);
+        }));
 
         return $$"""
             <section class="home2-section home2-workspaces-section" data-home2-workspaces>
@@ -3263,6 +3270,32 @@ public sealed class HtmlViews
                     {{karten}}
                 </div>
             </section>
+            """;
+    }
+
+    // Eine Workspace-Karte neben den Verbindungen: dieselbe Form, damit die Startseite nicht in
+    // zwei Gestaltungen zerfaellt. Was der Knopf tut, entscheidet der Aufrufer.
+    private static string WorkspaceCard(WorkspaceDefinition workspace, string oeffnen, string einstellungen, bool de)
+    {
+        return $$"""
+            <article class="connection-choice" data-home2-card="1" data-search="{{A((workspace.Name + " " + workspace.Description).ToLowerInvariant())}}" style="--proto: var(--accent-2)">
+                <div class="connection-choice-body">
+                    <div class="server-title connection-choice-title">
+                        <span class="server-icon" title="WORKSPACE">{{Icon("briefcase")}}</span>
+                        <div class="connection-choice-copy">
+                            <div class="connection-choice-badges">
+                                <span class="badge">Workspace</span>
+                                {{(workspace.IsPrivate ? $"""<span class="badge">{E(de ? "privat" : "private")}</span>""" : "")}}
+                                {{(workspace.AllowUploads ? "" : $"""<span class="badge">{E(de ? "nur lesen" : "read-only")}</span>""")}}
+                            </div>
+                            <h3>{{E(workspace.Name)}}</h3>
+                            {{(string.IsNullOrWhiteSpace(workspace.Description) ? "" : $"""<p class="target">{E(workspace.Description)}</p>""")}}
+                        </div>
+                        <div class="connection-choice-corner">{{einstellungen}}</div>
+                    </div>
+                </div>
+                <div class="connection-choice-actions">{{oeffnen}}</div>
+            </article>
             """;
     }
 
@@ -4121,6 +4154,8 @@ public sealed class HtmlViews
             dropNowhere = Language(context) == "de" ? "Hier nimmt gerade nichts Dateien an" : "Nothing here takes files right now",
             pastedImageName = Language(context) == "de" ? "Bild" : "Image",
             placesOther = Language(context) == "de" ? "Andere Verbindungen" : "Other connections",
+            placesWorkspaces = "Workspaces",
+            workspaceSettings = Language(context) == "de" ? "Workspace-Einstellungen" : "Workspace settings",
             uploadCancelled = Language(context) == "de" ? "Abgebrochen" : "Cancelled",
             copyTo = Language(context) == "de" ? "Kopieren nach ..." : "Copy to ...",
             copyToTarget = Language(context) == "de" ? "Zielort" : "Target place",
@@ -7716,21 +7751,28 @@ public sealed class HtmlViews
                 // dieser Sitzung, der Ort, in dem man steht, die eigenen und die gemeinsamen
                 // Dateien. Darunter die Ablagen der uebrigen Verbindungen.
                 function placeOptionGroups(places, currentId) {
-                    const hierher = place => place.id === currentId
-                        || ['session', 'user', 'global'].includes(place.areaKind || '');
+                    // Ein Workspace ist keine Verbindung - er bekommt deshalb seine eigene Gruppe
+                    // und nicht die Ueberschrift "Andere Verbindungen".
+                    const istWorkspace = place => (place.areaKind || '') === 'workspace';
+                    const hierher = place => !istWorkspace(place)
+                        && (place.id === currentId
+                            || ['session', 'user', 'global'].includes(place.areaKind || ''));
                     const rang = place => place.areaKind === 'session'
                         ? 0
                         : (place.id === currentId ? 1 : (place.areaKind === 'user' ? 2 : 3));
                     const aktuell = places.filter(hierher).sort((a, b) => rang(a) - rang(b));
-                    const andere = places.filter(place => !hierher(place));
+                    const werkstaetten = places.filter(istWorkspace);
+                    const andere = places.filter(place => !hierher(place) && !istWorkspace(place));
                     const option = place => `<option value="${escapeHtml(place.id)}"${place.id === currentId ? ' selected' : ''}>${escapeHtml(place.name)}</option>`;
                     const gruppe = (label, liste) => (liste.length
                         ? `<optgroup label="${escapeHtml(label)}">${liste.map(option).join('')}</optgroup>`
                         : '');
 
                     // Ohne zweite Gruppe keine Ueberschrift - eine einzelne Gruppe ist nur Rahmen.
-                    return andere.length
-                        ? gruppe(ui('placesCurrent'), aktuell) + gruppe(ui('placesOther'), andere)
+                    return (andere.length || werkstaetten.length)
+                        ? gruppe(ui('placesCurrent'), aktuell)
+                            + gruppe(ui('placesWorkspaces'), werkstaetten)
+                            + gruppe(ui('placesOther'), andere)
                         : aktuell.map(option).join('');
                 }
 
@@ -9169,7 +9211,12 @@ public sealed class HtmlViews
                     tab.connectedAt ??= Date.now();
                     tab.filePath = tab.initialFilePath || tab.filePath || '/';
                     tab.initialFilePath = '';
-                    tab.displayRoot.className = 'file-display';
+                    // Eine Ablage, in die nicht geschrieben werden darf - heute ein Workspace mit
+                    // abgeschalteten Uploads -, zeigt die Knoepfe gar nicht erst, die dort nichts
+                    // ausrichten. Abgewiesen wuerde ein Versuch ohnehin auf dem Server.
+                    const dieseAblage = availableServers.find(server => server.id === tab.serverId);
+                    const nurLesen = !!(dieseAblage && dieseAblage.readOnly);
+                    tab.displayRoot.className = 'file-display' + (nurLesen ? ' file-display--readonly' : '');
                     tab.displayRoot.replaceChildren();
                     setStatus(tab, ui('loading'));
                     setOverlay(tab, ui('fileManagerOpening'), `${tab.name} ${uiText.isLoading || 'is loading'}.`, false);
@@ -9187,12 +9234,20 @@ public sealed class HtmlViews
                             ${placeOptionGroups(placeList, tab.serverId)}
                         </select>` : '';
 
+                    // Ein Workspace wird hier gezeigt, eingestellt wird er auf seiner eigenen Seite -
+                    // Passwort, Ablauf, Rechte und der Link, den man weitergibt. Der Weg dorthin
+                    // gehoert in die Leiste, sonst muesste man ihn ueber das Menue suchen.
+                    const werkstattKnopf = (dieseAblage && dieseAblage.areaKind === 'workspace' && dieseAblage.areaSourceId)
+                        ? `<a class="toolbar-button file-tool-button" href="/workspaces/${escapeHtml(dieseAblage.areaSourceId)}" data-shell-open-tab="1" data-shell-title="${escapeHtml(dieseAblage.name)}" title="${escapeHtml(ui('workspaceSettings'))}">${fileIcon('settings')}<span>${escapeHtml(ui('workspaceSettings'))}</span></a>`
+                        : '';
+
                     const manager = document.createElement('div');
                     manager.className = 'file-manager';
                     manager.innerHTML = `
                         ${Toolbar('file-toolbar',
                             ToolbarGroup('file-toolbar-main toolbar-group--grow',
                                 placeSelect,
+                                werkstattKnopf,
                                 ToolbarIconButton(ui('refresh'), fileIcon('refresh'), 'file-tool-button', Attr('data-file-action', 'refresh') + Attr('title', ui('refresh'))),
                                 ToolbarInput('file-path-input', '/', ui('path')),
                                 ToolbarMenu(
@@ -9584,12 +9639,14 @@ public sealed class HtmlViews
                                 fileActionButton('view', ui('view'), '', () => viewFileEntry(tab, entryPath)),
                                 fileActionButton('download', ui('download'), '', () => downloadFileEntry(tab, entryPath)));
                             if (isArchiveFileName(name)) {
-                                actions.appendChild(fileActionButton('archive', ui('unzip'), '', () => unzipFileEntry(tab, entryPath)));
+                                // Entpacken legt Dateien an - in einer Ablage, in die nicht
+                                // geschrieben werden darf, hat der Knopf nichts zu suchen.
+                                actions.appendChild(fileActionButton('archive', ui('unzip'), 'file-action-unzip', () => unzipFileEntry(tab, entryPath)));
                             }
                         }
 
                         if (!isSmbShareRootEntry(tab, isDirectory)) {
-                            actions.appendChild(fileActionButton('delete', ui('delete'), 'danger', () => deleteFileEntry(tab, entryPath, name)));
+                            actions.appendChild(fileActionButton('delete', ui('delete'), 'danger file-action-delete', () => deleteFileEntry(tab, entryPath, name)));
                         }
 
                         row.append(selectCell, nameCell, sizeCell, modifiedCell, actionCell);
@@ -15550,6 +15607,19 @@ public sealed class HtmlViews
                         min-height: 0;
                         width: 100%;
                     }
+                    /* Nur lesen: weg mit allem, was schreiben will. Anlegen, Hochladen, die
+                       Warteschlange dafuer, und im Aktionsmenue Verschieben und Loeschen - Kopieren
+                       und Herunterladen bleiben, die nehmen nur etwas heraus. */
+                    .file-display--readonly .file-create-menu,
+                    .file-display--readonly .file-upload-button,
+                    .file-display--readonly .file-upload-queue-toggle,
+                    .file-display--readonly .file-upload-queue-shell,
+                    .file-display--readonly [data-file-action="move"],
+                    .file-display--readonly [data-file-action="delete-selected"],
+                    .file-display--readonly [data-file-action="rename"],
+                    .file-display--readonly .file-action-delete,
+                    .file-display--readonly .file-action-unzip,
+                    .file-display--readonly [data-file-action="delete"] { display: none; }
                     .file-display {
                         background: var(--surface);
                         color: var(--text);

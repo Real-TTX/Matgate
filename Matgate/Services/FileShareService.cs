@@ -109,7 +109,17 @@ public sealed class FileShareService
     // only one of the two names was on the drive - so they are the same word everywhere, in both
     // languages. A connection's area is written as a path below Connection, which also sorts the way
     // it reads.
-    public IReadOnlyList<ServerEndpoint> ListAreas(MatgateUser user, IReadOnlyList<ServerEndpoint> accessibleServers)
+    // Ein Workspace, so wie der Dateimanager ihn braucht: ein Name, ein Ordner und die Frage, ob
+    // hineingeschrieben werden darf. Wer darf, wird nicht hier entschieden - die Liste kommt schon
+    // gefiltert herein, wie bei den Verbindungen auch.
+    public sealed record WorkspaceArea(Guid Id, string Name, string Directory, bool AllowUploads);
+
+    public static Guid WorkspaceAreaId(Guid workspaceId) => AreaId("workspace:" + workspaceId.ToString("N"));
+
+    public IReadOnlyList<ServerEndpoint> ListAreas(
+        MatgateUser user,
+        IReadOnlyList<ServerEndpoint> accessibleServers,
+        IReadOnlyList<WorkspaceArea>? workspaces = null)
     {
         var permissions = user.FileShare ?? new FileSharePermissions();
         var areas = new List<ServerEndpoint>();
@@ -195,18 +205,48 @@ public sealed class FileShareService
             }
         }
 
+        // Die Workspaces: bisher eine eigene Oberflaeche neben dem Dateimanager, obwohl beide
+        // dasselbe tun - Ordner zeigen und Dateien hin- und herschieben. Als Ablage stehen sie in
+        // derselben Liste wie alles andere. Der Ordner ist der "files"-Teil des Workspaces, nicht
+        // sein Wurzelverzeichnis: daneben liegt die geteilte Notiz, und die gehoert nicht zwischen
+        // die Dateien.
+        foreach (var workspace in workspaces ?? [])
+        {
+            areas.Add(AreaEndpoint(
+                user,
+                WorkspaceAreaId(workspace.Id),
+                "Workspaces/" + workspace.Name,
+                workspace.Directory,
+                "workspace",
+                // Ein Workspace, in den niemand hochladen darf, ist auch hier keiner, in den man
+                // hochladen darf. Dieselbe Einstellung, derselbe Satz Regeln.
+                readOnly: !workspace.AllowUploads,
+                sourceId: workspace.Id));
+        }
+
         return areas;
     }
 
     // Turns one of those ids back into something the file manager can open - but only if the user is
     // allowed that area. Returns null for anything else, so an id that is not an area simply falls
     // through to the normal server lookup.
-    public ServerEndpoint? ResolveArea(MatgateUser user, Guid id, IReadOnlyList<ServerEndpoint> accessibleServers)
+    public ServerEndpoint? ResolveArea(
+        MatgateUser user,
+        Guid id,
+        IReadOnlyList<ServerEndpoint> accessibleServers,
+        IReadOnlyList<WorkspaceArea>? workspaces = null)
     {
-        return ListAreas(user, accessibleServers).FirstOrDefault(area => area.Id == id);
+        return ListAreas(user, accessibleServers, workspaces).FirstOrDefault(area => area.Id == id);
     }
 
-    private ServerEndpoint AreaEndpoint(MatgateUser user, Guid id, string name, string directory, string kind)
+    private ServerEndpoint AreaEndpoint(
+        MatgateUser user,
+        Guid id,
+        string name,
+        string directory,
+        string kind,
+        bool readOnly = false,
+        Guid? sourceId = null)
     {
         Directory.CreateDirectory(directory);
         OpenForGuacd(directory);
@@ -218,6 +258,8 @@ public sealed class FileShareService
             Protocol = ServerProtocol.Local,
             AreaKind = kind,
             FileRootPath = directory,
+            IsReadOnly = readOnly,
+            AreaSourceId = sourceId,
             IsEnabled = true,
             // Owned by the caller, so the ordinary access check lets exactly them in.
             OwnerUserId = user.Id,

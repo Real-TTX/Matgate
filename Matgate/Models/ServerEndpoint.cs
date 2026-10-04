@@ -52,6 +52,16 @@ public sealed class ServerEndpoint
     [System.Text.Json.Serialization.JsonIgnore]
     public string AreaKind { get; set; } = "";
 
+    // Nur lesen: gesetzt für Ablagen, in die nicht geschrieben werden darf - heute der Ordner eines
+    // Workspaces, dessen Uploads abgeschaltet sind. Durchgesetzt wird das im FileGatewayService,
+    // nicht in der Oberfläche; die versteckt den Knopf nur zusätzlich.
+    public bool IsReadOnly { get; set; }
+
+    // Woraus die Ablage entstanden ist - heute die Kennung des Workspaces. Ihre eigene Id ist aus
+    // dem Namen abgeleitet und laesst sich nicht zurueckrechnen; ohne das hier fuehrte aus dem
+    // Dateimanager kein Weg zu den Einstellungen und zum Link des Workspaces.
+    public Guid? AreaSourceId { get; set; }
+
     public string WebsiteUrl { get; set; } = "";
 
     // For Website servers: how it is opened (native proxy vs. a browser-farm VNC session).
