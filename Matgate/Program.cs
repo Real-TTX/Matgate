@@ -152,6 +152,46 @@ app.UseForwardedHeaders();
 // Never let a browser / installed PWA serve a stale app shell: HTML pages carry the whole app
 // (CSS + JS are inlined), so mark every HTML response no-store. Assets served with their own
 // cache headers (manifest, icons, proxied content) are text/* or binary and unaffected.
+// Ein Fehler beim Dateizugriff kam bisher als leeres 500 an: auf dem Bildschirm geschah nichts,
+// und warum, stand nur im Protokoll des Servers. Gerade die häufigsten Fälle - keine Rechte, Pfad
+// weg - sind aber die, die man dem Benutzer sagen kann, denn er hat den Pfad selbst genannt.
+// Alles Übrige bleibt eine Zeile ohne Innenleben; was schiefging, gehört ins Protokoll, nicht in
+// die Antwort.
+app.Use(async (context, next) =>
+{
+    if (!(context.Request.Path.Value ?? "").StartsWith("/api/files", StringComparison.OrdinalIgnoreCase))
+    {
+        await next();
+        return;
+    }
+
+    try
+    {
+        await next();
+    }
+    catch (Exception exception) when (!context.Response.HasStarted)
+    {
+        var (status, meldung) = exception switch
+        {
+            Renci.SshNet.Common.SftpPermissionDeniedException => (StatusCodes.Status403Forbidden, "Keine Berechtigung für diesen Pfad."),
+            UnauthorizedAccessException => (StatusCodes.Status403Forbidden, "Keine Berechtigung für diesen Pfad."),
+            Renci.SshNet.Common.SftpPathNotFoundException => (StatusCodes.Status404NotFound, "Dieser Pfad existiert nicht."),
+            FileNotFoundException => (StatusCodes.Status404NotFound, "Dieser Pfad existiert nicht."),
+            DirectoryNotFoundException => (StatusCodes.Status404NotFound, "Dieser Pfad existiert nicht."),
+            InvalidOperationException => (StatusCodes.Status400BadRequest, exception.Message),
+            _ => (StatusCodes.Status500InternalServerError, "Der Dateizugriff ist fehlgeschlagen."),
+        };
+
+        context.RequestServices.GetRequiredService<ILoggerFactory>()
+            .CreateLogger("Matgate.Files")
+            .LogWarning(exception, "File access failed with {Status} on {Path}.", status, context.Request.Path);
+
+        context.Response.Clear();
+        context.Response.StatusCode = status;
+        await context.Response.WriteAsJsonAsync(new { error = meldung });
+    }
+});
+
 app.Use(async (context, next) =>
 {
     context.Response.OnStarting(() =>
