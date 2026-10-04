@@ -2914,7 +2914,11 @@ public sealed class HtmlViews
         var headerActions = (canQuick || canCreate)
             ? $$"""<div class="home2-head-actions">{{quickButton}}{{createButtons}}</div>"""
             : "";
-        var hiddenQuick = (user?.Session?.HiddenQuickProtocols ?? []).ToHashSet(StringComparer.Ordinal);
+        // Kein Fragezeichen hinter user: an dieser Stelle gibt es ihn. Das frühere "user?." war ein
+        // Rest, der dem Übersetzer sagte, er könne fehlen - woraufhin er jede Weitergabe an die
+        // Abschnitte darunter als möglichen Nullwert anmahnte. Zwei Zeilen tiefer wird er ohnehin
+        // ohne Fragezeichen benutzt; eine der beiden Lesarten musste weg.
+        var hiddenQuick = (user.Session?.HiddenQuickProtocols ?? []).ToHashSet(StringComparer.Ordinal);
         var protocolDialog = canQuick ? ProtocolDialog(de, hiddenQuick) : "";
 
         var head = $$"""

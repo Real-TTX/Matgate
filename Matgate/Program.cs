@@ -79,7 +79,12 @@ builder.WebHost.ConfigureKestrel(options =>
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
     options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
-    options.KnownNetworks.Clear();
+    // KnownNetworks heißt seit .NET 10 KnownIPNetworks - derselbe Zweck, neuer Name. Beide Listen
+    // werden geleert: jeder Vordermann gilt als vertrauenswürdig. Das trägt nur, solange Matgate
+    // wirklich nur über den Randproxy erreichbar ist (im mitgelieferten Compose-Stapel gibt allein
+    // "edge" einen Port nach außen). Läge der Port offen, könnte ein Aufrufer seine eigene Adresse
+    // und "https" behaupten - und damit die Bremse der Anmeldung aushebeln.
+    options.KnownIPNetworks.Clear();
     options.KnownProxies.Clear();
 });
 
