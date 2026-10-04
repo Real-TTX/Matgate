@@ -1741,7 +1741,8 @@ public sealed class HtmlViews
             baseUrl: $"/workspaces/{workspace.Id}",
             publicUrl: publicUrl,
             defaultRootPath: defaultRootPath,
-            currentPath: currentPath);
+            currentPath: currentPath,
+            fileManagerAreaId: FileShareService.WorkspaceAreaId(workspace.Id).ToString());
 
         return Layout(context, currentUser, workspace.Name, body, "workspace-detail-main");
     }
@@ -1808,7 +1809,8 @@ public sealed class HtmlViews
                 baseUrl: $"/workspace/{workspace.Id}",
                 publicUrl: publicUrl,
                 defaultRootPath: "",
-                currentPath: listing?.Path ?? "/")}}
+                currentPath: listing?.Path ?? "/",
+                fileManagerAreaId: "")}}
             """;
 
         return Layout(context, null, workspace.Name, body, "workspace-public-main");
@@ -2377,6 +2379,26 @@ public sealed class HtmlViews
             """;
     }
 
+    // Die Dateien eines Workspaces liegen im Dateimanager - als Ablage "Workspaces/<Name>", mit
+    // demselben Werkzeug wie ueberall sonst. Hier stand bisher eine zweite, kleinere Dateiansicht
+    // daneben; zwei Oberflaechen fuer dieselbe Sache sind eine zu viel. Was die Seite behaelt, ist
+    // das, was nur sie kann: der Link, das Passwort, der Ablauf und die geteilte Notiz.
+    private static string WorkspaceFilesPointer(HttpContext context, WorkspaceDefinition workspace, string areaId)
+    {
+        var de = Language(context) == "de";
+        return $$"""
+            <section class="panel workspace-files-pointer">
+                <h3>{{(de ? "Die Dateien liegen im Dateimanager" : "The files live in the file manager")}}</h3>
+                <p class="muted">{{(de
+                    ? "Dieser Workspace erscheint dort als Ablage „Workspaces/" + E(workspace.Name) + "“ - mit Suche, Mehrfachauswahl, Ziehen und Ablegen und allem anderen, was der Dateimanager kann."
+                    : "This workspace shows up there as the place “Workspaces/" + E(workspace.Name) + "” - with search, multiple selection, drag and drop and everything else the file manager can do.")}}</p>
+                {{(workspace.AllowUploads ? "" : $"""<p class="muted">{E(de ? "Uploads sind für diesen Workspace abgeschaltet - die Ablage ist dort nur lesbar." : "Uploads are off for this workspace - the place is read-only there.")}</p>""")}}
+                <div class="actions">
+                    <button type="button" class="button primary" data-shell-open-server="{{A(areaId)}}">{{Icon("folder")}}{{(de ? "Im Dateimanager öffnen" : "Open in the file manager")}}</button>
+                </div>
+            </section>
+            """;
+    }
     private static string WorkspaceContentShell(
         HttpContext context,
         WorkspaceDefinition workspace,
@@ -2392,7 +2414,11 @@ public sealed class HtmlViews
         string baseUrl,
         string publicUrl,
         string defaultRootPath,
-        string currentPath)
+        string currentPath,
+        // Die Ablage im Dateimanager - gesetzt nur fuer den angemeldeten Blick. Die oeffentliche
+        // Seite hat sie nicht: dort ist niemand angemeldet, und der Dateimanager liegt hinter der
+        // Anmeldung. Deshalb zeigt sie die Dateien weiter selbst.
+        string fileManagerAreaId)
     {
         var textTabActive = selectedTab == "text";
         var filesTabActive = selectedTab == "files";
@@ -2417,7 +2443,9 @@ public sealed class HtmlViews
                     </div>
                     """ : "")}}
                     <div class="workspace-tab-panel{{(filesTabActive ? "" : " hidden")}}" data-workspace-panel="files">
-                        {{WorkspaceFilesPanel(context, workspace, listing, canEditSelected, workspace.AllowUploads, baseUrl)}}
+                        {{(string.IsNullOrEmpty(fileManagerAreaId)
+                            ? WorkspaceFilesPanel(context, workspace, listing, canEditSelected, workspace.AllowUploads, baseUrl)
+                            : WorkspaceFilesPointer(context, workspace, fileManagerAreaId))}}
                     </div>
                     {{(includeInfo ? $$"""
                     <div class="workspace-tab-panel{{(infoTabActive ? "" : " hidden")}}" data-workspace-panel="info">
@@ -5547,6 +5575,10 @@ public sealed class HtmlViews
                 }
 
                 window.MatgateOpenShellTab = openShellTab;
+                // Eine eingebettete Seite kann bisher nur eine SEITE als Reiter oeffnen. Damit die
+                // Workspace-Seite auf ihre eigene Ablage im Dateimanager zeigen kann, braucht sie
+                // auch den Weg zu einer Verbindung.
+                window.MatgateOpenServerTab = (serverId) => openServer(serverId);
 
                 function restoreShellTabs() {
                     if (!tabsRoot || !shellPagePanels) {
@@ -17343,6 +17375,28 @@ public sealed class HtmlViews
                         rewriteEmbeddedNavigation(document);
 
                         if (embeddedPage) {
+                            // Ein Knopf, der nicht auf eine Seite zeigt, sondern auf eine Ablage:
+                            // die Workspace-Seite schickt damit in den Dateimanager, statt die
+                            // Dateien ein zweites Mal selbst zu zeigen.
+                            document.addEventListener('click', (event) => {
+                                const ziel = event.target instanceof Element
+                                    ? event.target.closest('[data-shell-open-server]')
+                                    : null;
+                                if (!ziel || event.defaultPrevented || event.button !== 0) {
+                                    return;
+                                }
+
+                                const oeffner = window.top && window.top !== window && typeof window.top.MatgateOpenServerTab === 'function'
+                                    ? window.top.MatgateOpenServerTab
+                                    : null;
+                                if (!oeffner) {
+                                    return;
+                                }
+
+                                event.preventDefault();
+                                oeffner(ziel.getAttribute('data-shell-open-server'));
+                            }, true);
+
                             document.addEventListener('click', (event) => {
                                 const target = event.target instanceof Element
                                     ? event.target.closest('a[data-shell-open-tab="1"]')
