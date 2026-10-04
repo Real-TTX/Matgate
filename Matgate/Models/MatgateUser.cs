@@ -56,6 +56,23 @@ public sealed class MatgateUser
 
     public List<string> HiddenHomeSections { get; set; } = [];
 
+    // Der zweite Faktor. Das Geheimnis liegt verschlüsselt in der Datei (siehe JsonDataStore);
+    // eingeschaltet ist er erst, wenn einmal ein gültiger Code eingegeben wurde - sonst sperrt
+    // sich aus, wer die Einrichtung abbricht.
+    public string TotpSecret { get; set; } = "";
+
+    public bool TotpEnabled { get; set; }
+
+    public DateTimeOffset? TotpConfirmedAt { get; set; }
+
+    // Der zuletzt verbrauchte Zeitschritt. Ein Code gilt 30 Sekunden - lange genug, dass ein
+    // Mitleser ihn ein zweites Mal verwenden könnte. Alles, was nicht neuer ist, wird abgewiesen.
+    public long TotpLastStep { get; set; }
+
+    // Nur die Abdrücke der Wiederherstellungs-Codes, nie die Codes selbst. Ein gebrauchter wird
+    // aus der Liste genommen.
+    public List<string> TotpRecoveryHashes { get; set; } = [];
+
     public bool RememberLoginByDefault { get; set; } = true;
 
     // Per-user session behaviour (display + keyboard helpers), applied to every remote session the

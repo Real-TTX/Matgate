@@ -106,7 +106,16 @@ public sealed class JsonDataStore
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            return await ReadListAsync<MatgateUser>(UsersPath, cancellationToken);
+            var users = await ReadListAsync<MatgateUser>(UsersPath, cancellationToken);
+            foreach (var user in users)
+            {
+                // Das Geheimnis des zweiten Faktors ist so gut wie ein Passwort: wer es hat, kann
+                // jeden Code ausrechnen. Es liegt deshalb verschluesselt in der Datei, wie die
+                // Kennwoerter der Verbindungen.
+                user.TotpSecret = _protector.Unprotect(user.TotpSecret);
+            }
+
+            return users;
         }
         finally
         {
@@ -227,7 +236,17 @@ public sealed class JsonDataStore
         try
         {
             var users = await ReadListAsync<MatgateUser>(UsersPath, cancellationToken);
+            foreach (var user in users)
+            {
+                user.TotpSecret = _protector.Unprotect(user.TotpSecret);
+            }
+
             update(users);
+            foreach (var user in users)
+            {
+                user.TotpSecret = _protector.Protect(user.TotpSecret);
+            }
+
             await WriteListAsync(UsersPath, users, cancellationToken);
         }
         finally

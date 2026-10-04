@@ -351,6 +351,43 @@ public sealed class HtmlViews
         return Layout(context, null, "Login", body, "login-main");
     }
 
+    // Der zweite Schritt der Anmeldung. Hier ist noch niemand angemeldet - was den Browser
+    // hierherbringt, ist ein kurzlebiger, signierter Ausweis in einem eigenen Keks, nicht eine
+    // halbe Sitzung. Deshalb steht hier auch kein Name: wer das Passwort nicht hat, soll aus
+    // dieser Seite nicht erfahren, ob es ein Konto gibt.
+    public string TotpChallenge(HttpContext context, string? error = null)
+    {
+        var de = Language(context) == "de";
+        var errorHtml = string.IsNullOrWhiteSpace(error)
+            ? ""
+            : $"""<div class="notice error">{E(error)}</div>""";
+
+        var body = $$"""
+            <section class="login-shell">
+                <div class="login-card">
+                    <div class="login-brand">
+                        <span class="login-glyph" aria-hidden="true"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><path d="M17 48 V16 H47 V48 H40 V23 H24 V48 Z" fill="currentColor"/></svg></span>
+                        <span class="login-word"><span>MAT</span>GATE</span>
+                    </div>
+                    <h1 class="login-title">{{(de ? "Zweiter Schritt" : "Second step")}}</h1>
+                    <p class="login-sub">{{(de
+                        ? "Der sechsstellige Code aus deiner Authenticator-App. Ein Wiederherstellungs-Code geht auch."
+                        : "The six-digit code from your authenticator app. A recovery code works too.")}}</p>
+                    {{errorHtml}}
+                    <form method="post" action="/login/totp" class="login-form">
+                        <label class="login-field"><span>{{(de ? "Code" : "Code")}}</span>
+                            <span class="login-input-wrap">{{Icon("key")}}<input name="code" inputmode="numeric" autocomplete="one-time-code" autofocus required spellcheck="false"></span>
+                        </label>
+                        <button type="submit" class="login-submit">{{Icon("arrow-right")}}{{T(context, "Sign in")}}</button>
+                    </form>
+                    <p class="login-sub"><a href="/login">{{(de ? "Noch einmal von vorn" : "Start over")}}</a></p>
+                </div>
+            </section>
+            """;
+
+        return Layout(context, null, "Login", body, "login-main");
+    }
+
     // First-run setup wizard: shown only while no user exists (see /setup endpoints); creates the
     // administrator account with username + email + password.
     public string Setup(HttpContext context, string? error = null, string? userName = null, string? email = null)
@@ -647,6 +684,20 @@ public sealed class HtmlViews
                     </label>
                     <div class="actions"><button type="submit" class="primary">{{Icon("key")}}{{T(context, "Set password")}}</button></div>
                 </form>
+            </section>
+            <section class="panel">
+                <h2>{{(Language(context) == "de" ? "Zwei-Faktor-Anmeldung" : "Two-factor sign-in")}}</h2>
+                {{(editedUser.TotpEnabled
+                    ? $$"""
+                        <p class="muted settings-lead">{{(Language(context) == "de"
+                            ? $"Eingeschaltet, {editedUser.TotpRecoveryHashes.Count} Wiederherstellungs-Codes übrig. Abschalten hilft, wenn Telefon und Codes weg sind - danach ist das Konto wieder nur durch das Passwort geschützt, bis es neu eingerichtet wird."
+                            : $"On, {editedUser.TotpRecoveryHashes.Count} recovery codes left. Switching it off helps when the phone and the codes are gone - after that the account is protected by the password alone until it is set up again.")}}</p>
+                        <form method="post" action="/admin/users/{{editedUser.Id}}/totp-reset">
+                            {{Csrf(context)}}
+                            <div class="actions"><button type="submit" class="danger">{{Icon("x")}}{{(Language(context) == "de" ? "Zwei-Faktor abschalten" : "Turn two-factor off")}}</button></div>
+                        </form>
+                        """
+                    : $$"""<p class="muted settings-lead">{{(Language(context) == "de" ? "Nicht eingeschaltet. Einrichten kann sie nur der Benutzer selbst - das Geheimnis darf niemand sonst zu sehen bekommen." : "Not on. Only the user can set it up - nobody else may get to see the secret.")}}</p>""")}}
             </section>
             <section class="panel danger-zone">
                 <h2>{{T(context, "Remove")}}</h2>
@@ -1041,7 +1092,11 @@ public sealed class HtmlViews
         return Layout(context, currentUser, T(context, "Create server"), body);
     }
 
-    public string Account(HttpContext context, MatgateUser user, IReadOnlyList<ServerEndpoint> servers)
+    public string Account(
+        HttpContext context,
+        MatgateUser user,
+        IReadOnlyList<ServerEndpoint> servers,
+        IReadOnlyList<string>? recoveryCodes = null)
     {
         var displayName = string.IsNullOrWhiteSpace(user.DisplayName) ? user.UserName : user.DisplayName;
         var favoriteServers = servers
@@ -1064,6 +1119,14 @@ public sealed class HtmlViews
         if (tab is not ("security" or "favorites" or "session" or "home"))
         {
             tab = "profile";
+        }
+
+        // Nach dem Einschalten des zweiten Faktors wird diese Seite direkt ausgeliefert, nicht
+        // ueber eine Adresse mit ?tab= - ohne das hier laegen die Wiederherstellungs-Codes im
+        // ausgeblendeten Reiter, und man saehe sie nie.
+        if (recoveryCodes is not null && recoveryCodes.Count > 0)
+        {
+            tab = "security";
         }
         var de = Language(context) == "de";
         var prefs = user.Session;
@@ -1315,6 +1378,7 @@ public sealed class HtmlViews
                                 <div class="actions"><button type="submit" class="primary">{{Icon("key")}}{{(de ? "Passwort ändern" : "Change password")}}</button></div>
                             </form>
                         </section>
+                        {{TotpPanel(context, user, recoveryCodes)}}
                     </div>
                     <div class="tab-panel{{(tab == "session" ? "" : " hidden")}}" data-tab-panel="session">
                         <section class="panel">
@@ -12920,6 +12984,13 @@ public sealed class HtmlViews
                     }
                     .accent-preset:hover { transform: scale(1.08); }
                     .accent-preset.is-selected { border-color: var(--text); }
+                    /* Der zweite Faktor: QR neben der Handeingabe, damit beide Wege gleich weit weg sind. */
+                    .totp-setup { align-items: start; display: flex; flex-wrap: wrap; gap: 20px; margin: 16px 0; }
+                    .totp-qr { background: #fff; border: 1px solid var(--line); border-radius: var(--radius); height: 174px; padding: 6px; width: 174px; }
+                    .totp-secret code { background: var(--surface-2); border-radius: var(--radius); display: inline-block; font-size: 15px; letter-spacing: .12em; padding: 8px 10px; word-break: break-all; }
+                    .totp-state { align-items: center; display: flex; gap: 8px; margin: 12px 0 0; }
+                    .totp-codes { columns: 2; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 15px; letter-spacing: .06em; list-style: none; margin: 10px 0 0; padding: 0; }
+                    .totp-codes li { padding: 2px 0; }
                     .action-order-list { display: flex; flex-direction: column; gap: 6px; list-style: none; margin: 6px 0 0; padding: 0; }
                     .action-order-item {
                         align-items: center;
@@ -18218,6 +18289,113 @@ public sealed class HtmlViews
             <button type="button" class="accent-preset" data-colour-preset="{{A(farbe)}}" style="--dot: {{A(farbe)}}" title="{{A(farbe)}}" aria-label="{{A(farbe)}}"></button>
             """));
     }
+    // Der zweite Faktor in den Sicherheits-Einstellungen. Drei Zustaende, die einander ausschliessen:
+    // noch nichts eingerichtet, eingerichtet aber noch nicht bestaetigt, und in Betrieb.
+    private static string TotpPanel(HttpContext context, MatgateUser user, IReadOnlyList<string>? recoveryCodes)
+    {
+        var de = Language(context) == "de";
+        var fehler = context.Request.Query["totp"].ToString();
+        var hinweis = fehler switch
+        {
+            "falsch" => $"""<div class="notice error">{E(de ? "Der Code stimmt nicht. Prüf die Uhrzeit auf dem Telefon und versuch es noch einmal." : "That code is not right. Check the clock on your phone and try again.")}</div>""",
+            "passwort" => $"""<div class="notice error">{E(de ? "Das Passwort stimmt nicht." : "That password is not right.")}</div>""",
+            _ => "",
+        };
+
+        // Die Wiederherstellungs-Codes gibt es genau einmal zu sehen - gespeichert sind nur ihre
+        // Abdruecke. Deshalb stehen sie hier gross und mit der Bitte, sie wegzulegen.
+        var codesHtml = recoveryCodes is null || recoveryCodes.Count == 0
+            ? ""
+            : $$"""
+                <div class="notice">
+                    <strong>{{E(de ? "Wiederherstellungs-Codes" : "Recovery codes")}}</strong>
+                    <p>{{E(de
+                        ? "Schreib sie auf und leg sie weg. Jeder gilt einmal und ersetzt den Code aus der App, wenn das Telefon weg ist. Ein zweites Mal kann sie niemand anzeigen - gespeichert sind nur ihre Abdrücke."
+                        : "Write them down and put them away. Each works once and stands in for the app's code when the phone is gone. Nobody can show them a second time - only their fingerprints are stored.")}}</p>
+                    <ul class="totp-codes">{{string.Join("", recoveryCodes.Select(code => $"<li>{E(code)}</li>"))}}</ul>
+                </div>
+                """;
+
+        if (user.TotpEnabled)
+        {
+            var seit = user.TotpConfirmedAt is null
+                ? ""
+                : $"""<p class="muted settings-hint">{E((de ? "Eingeschaltet seit " : "On since ") + user.TotpConfirmedAt.Value.ToLocalTime().ToString("dd.MM.yyyy HH:mm"))}</p>""";
+            return $$"""
+                <section class="panel">
+                    <h2>{{(de ? "Zwei-Faktor-Anmeldung" : "Two-factor sign-in")}}</h2>
+                    <p class="muted settings-lead">{{(de
+                        ? "Beim Anmelden fragt Matgate nach dem Passwort und danach nach einem Code aus deiner Authenticator-App."
+                        : "When signing in, Matgate asks for the password and then for a code from your authenticator app.")}}</p>
+                    {{hinweis}}
+                    {{codesHtml}}
+                    <p class="totp-state"><span class="badge">{{(de ? "eingeschaltet" : "on")}}</span> {{E(de ? $"{user.TotpRecoveryHashes.Count} Wiederherstellungs-Codes übrig" : $"{user.TotpRecoveryHashes.Count} recovery codes left")}}</p>
+                    {{seit}}
+                    <form method="post" action="/account/totp/disable" class="settings-form form-grid">
+                        {{Csrf(context)}}
+                        <label>{{(de ? "Zum Abschalten: dein Passwort" : "To switch it off: your password")}}
+                            <input type="password" name="currentPassword" autocomplete="current-password" required>
+                        </label>
+                        <div class="actions"><button type="submit" class="danger">{{Icon("x")}}{{(de ? "Zwei-Faktor abschalten" : "Turn two-factor off")}}</button></div>
+                    </form>
+                </section>
+                """;
+        }
+
+        if (!string.IsNullOrWhiteSpace(user.TotpSecret))
+        {
+            var name = string.IsNullOrWhiteSpace(user.Email) ? user.UserName : user.Email;
+            var uri = TotpService.Uri("Matgate", name, user.TotpSecret);
+            return $$"""
+                <section class="panel">
+                    <h2>{{(de ? "Zwei-Faktor-Anmeldung einrichten" : "Set up two-factor sign-in")}}</h2>
+                    <p class="muted settings-lead">{{(de
+                        ? "Scann den Code mit deiner Authenticator-App und tipp dann die sechs Ziffern ein, die sie anzeigt. Erst danach ist der zweite Faktor eingeschaltet - wer hier abbricht, sperrt sich nicht aus."
+                        : "Scan the code with your authenticator app, then type the six digits it shows. Only then is the second factor on - stopping here does not lock you out.")}}</p>
+                    {{hinweis}}
+                    <div class="totp-setup">
+                        <img class="totp-qr" alt="{{A(de ? "QR-Code für die Authenticator-App" : "QR code for the authenticator app")}}" src="{{A(QrDataUri(uri))}}">
+                        <div>
+                            <p class="muted settings-hint">{{(de ? "Keine Kamera zur Hand? Dann von Hand eintragen:" : "No camera at hand? Then type it in:")}}</p>
+                            <p class="totp-secret"><code>{{E(user.TotpSecret)}}</code></p>
+                        </div>
+                    </div>
+                    <form method="post" action="/account/totp/confirm" class="settings-form form-grid">
+                        {{Csrf(context)}}
+                        <label>{{(de ? "Code aus der App" : "Code from the app")}}
+                            <input name="code" inputmode="numeric" autocomplete="one-time-code" required spellcheck="false">
+                        </label>
+                        <div class="actions"><button type="submit" class="primary">{{Icon("check")}}{{(de ? "Einschalten" : "Turn on")}}</button></div>
+                    </form>
+                </section>
+                """;
+        }
+
+        return $$"""
+            <section class="panel">
+                <h2>{{(de ? "Zwei-Faktor-Anmeldung" : "Two-factor sign-in")}}</h2>
+                <p class="muted settings-lead">{{(de
+                    ? "Ein Passwort allein kann abhandenkommen. Mit dem zweiten Faktor fragt Matgate beim Anmelden zusätzlich nach einem Code, den deine Authenticator-App alle 30 Sekunden neu ausrechnet - übertragen wird dabei nichts."
+                    : "A password alone can go astray. With the second factor Matgate also asks for a code that your authenticator app works out anew every 30 seconds - nothing is transmitted in the process.")}}</p>
+                {{hinweis}}
+                <form method="post" action="/account/totp/start">
+                    {{Csrf(context)}}
+                    <div class="actions"><button type="submit" class="primary">{{Icon("key")}}{{(de ? "Einrichten" : "Set up")}}</button></div>
+                </form>
+            </section>
+            """;
+    }
+
+    // Der QR-Code als Bild in der Seite selbst - kein eigener Aufruf, bei dem das Geheimnis noch
+    // einmal ueber eine Adresse ginge.
+    private static string QrDataUri(string text)
+    {
+        using var generator = new QRCoder.QRCodeGenerator();
+        var daten = generator.CreateQrCode(text, QRCoder.QRCodeGenerator.ECCLevel.M);
+        var png = new QRCoder.PngByteQRCode(daten).GetGraphic(6);
+        return "data:image/png;base64," + Convert.ToBase64String(png);
+    }
+
     // Die Abschnitte der Startseite als Zieh-Liste - dieselbe Form wie die Aktionen der
     // Sitzungsleiste, damit man sie nicht zweimal lernen muss.
     private static string HomeSectionItems(HttpContext context, MatgateUser user)

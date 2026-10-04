@@ -1,7 +1,9 @@
 using System.Buffers.Binary;
 using System.Security.Claims;
+using System.Security.Cryptography;
 using System.IO.Compression;
 using System.Text;
+using Microsoft.AspNetCore.DataProtection;
 using SharpCompress.Common;
 using SharpCompress.Readers;
 using Matgate.Models;
@@ -274,6 +276,9 @@ public static class EndpointMapping
         });
 
         app.MapPost("/login", SignInAsync).RequireRateLimiting("login");
+        // Derselbe Zaehler wie die Anmeldung: ein sechsstelliger Code ist in einer Million Versuchen
+        // zu erraten, und ohne Bremse sind das Minuten.
+        app.MapPost("/login/totp", SignInTotpAsync).RequireRateLimiting("login");
         app.MapPost("/logout", SignOutAsync).RequireAuthorization();
 
         // First-run setup wizard: only reachable while NO user exists (see the gate in Program.cs
@@ -344,6 +349,9 @@ public static class EndpointMapping
         app.MapPost("/account", UpdateAccountAsync).RequireAuthorization();
         app.MapPost("/account/session", UpdateSessionPreferencesAsync).RequireAuthorization();
         app.MapPost("/account/home", UpdateHomeLayoutAsync).RequireAuthorization();
+        app.MapPost("/account/totp/start", TotpStartAsync).RequireAuthorization();
+        app.MapPost("/account/totp/confirm", TotpConfirmAsync).RequireAuthorization();
+        app.MapPost("/account/totp/disable", TotpDisableAsync).RequireAuthorization();
         app.MapPost("/account/password", ChangeOwnPasswordAsync).RequireAuthorization();
         app.MapPost("/account/favorites/{id:guid}/toggle", ToggleFavoriteServerAsync).RequireAuthorization();
         app.MapPost("/api/tools/ping", ToolsPingAsync).RequireAuthorization();
@@ -382,6 +390,7 @@ public static class EndpointMapping
         app.MapPost("/admin/users/{id:guid}/update", UpdateUserAsync).RequireAuthorization();
         app.MapPost("/admin/users/{id:guid}/access", UpdateUserAccessAsync).RequireAuthorization();
         app.MapPost("/admin/users/{id:guid}/password", ResetUserPasswordAsync).RequireAuthorization();
+        app.MapPost("/admin/users/{id:guid}/totp-reset", ResetUserTotpAsync).RequireAuthorization();
         app.MapPost("/admin/users/{id:guid}/delete", DeleteUserAsync).RequireAuthorization();
 
         app.MapGet("/admin/servers", () => Results.Redirect("/admin?tab=servers")).RequireAuthorization();
@@ -451,6 +460,7 @@ public static class EndpointMapping
         HttpContext context,
         JsonDataStore store,
         PasswordHasher hasher,
+        IDataProtectionProvider protection,
         HtmlViews views)
     {
         var form = await context.Request.ReadFormAsync(context.RequestAborted);
@@ -466,12 +476,33 @@ public static class EndpointMapping
                 "text/html");
         }
 
+        var returnUrl = NormalizeReturnUrl(form["returnUrl"].ToString());
+
+        // Das Passwort stimmt - angemeldet ist damit aber noch niemand. Statt einer halben Sitzung
+        // bekommt der Browser einen kurzlebigen, signierten Ausweis fuer genau diesen einen
+        // Zwischenschritt; er traegt nichts weiter als die Kennung, das Ziel und ein Ablaufdatum.
+        if (user.TotpEnabled && !string.IsNullOrWhiteSpace(user.TotpSecret))
+        {
+            AppendTotpTicket(context, protection, user.Id, returnUrl);
+            return Results.Content(views.TotpChallenge(context), "text/html");
+        }
+
+        return await CompleteSignInAsync(context, user, hasher, returnUrl);
+    }
+
+    // Der gemeinsame Abschluss: ueber diese Stelle laeuft jede Anmeldung, mit oder ohne zweiten
+    // Faktor. Zwei Kopien davon waeren zwei Stellen, an denen eines Tages etwas fehlt.
+    private static async Task<IResult> CompleteSignInAsync(
+        HttpContext context,
+        MatgateUser user,
+        PasswordHasher hasher,
+        string returnUrl)
+    {
         await context.SignInAsync(
             CookieAuthenticationDefaults.AuthenticationScheme,
             BuildPrincipal(user, hasher.GenerateSecret(24), user.PreferredLanguage, user.PreferredTheme, true),
             BuildAuthProperties(true));
 
-        var returnUrl = NormalizeReturnUrl(form["returnUrl"].ToString());
         AppendRememberLoginCookie(context, true);
         context.Response.Cookies.Append(
             HtmlViews.ThemeCookie,
@@ -485,6 +516,130 @@ public static class EndpointMapping
             });
 
         return Results.Redirect(returnUrl);
+    }
+
+    private const string TotpTicketCookie = "Matgate.Totp";
+
+    private static IDataProtector TotpProtector(IDataProtectionProvider protection)
+    {
+        return protection.CreateProtector("Matgate.Totp.v1");
+    }
+
+    private static void AppendTotpTicket(
+        HttpContext context,
+        IDataProtectionProvider protection,
+        Guid userId,
+        string returnUrl)
+    {
+        var ablauf = DateTimeOffset.UtcNow.AddMinutes(5).ToUnixTimeSeconds();
+        var inhalt = TotpProtector(protection).Protect($"{userId:N}|{ablauf}|{returnUrl}");
+        context.Response.Cookies.Append(TotpTicketCookie, inhalt, new CookieOptions
+        {
+            // Nur fuer den einen Schritt und nur fuer diese Sitzung des Browsers: kein Ablaufdatum
+            // im Keks, das Ablaufdatum steht im Ausweis selbst und wird geprueft.
+            HttpOnly = true,
+            SameSite = SameSiteMode.Lax,
+            Secure = context.Request.IsHttps,
+        });
+    }
+
+    private static (Guid UserId, string ReturnUrl)? ReadTotpTicket(HttpContext context, IDataProtectionProvider protection)
+    {
+        var roh = context.Request.Cookies[TotpTicketCookie];
+        if (string.IsNullOrWhiteSpace(roh))
+        {
+            return null;
+        }
+
+        string inhalt;
+        try
+        {
+            inhalt = TotpProtector(protection).Unprotect(roh);
+        }
+        catch (System.Security.Cryptography.CryptographicException)
+        {
+            // Veraendert, abgelaufener Schluessel, fremder Keks - in jedem Fall kein Ausweis.
+            return null;
+        }
+
+        var teile = inhalt.Split('|', 3);
+        if (teile.Length != 3
+            || !Guid.TryParseExact(teile[0], "N", out var userId)
+            || !long.TryParse(teile[1], out var ablauf)
+            || DateTimeOffset.UtcNow.ToUnixTimeSeconds() > ablauf)
+        {
+            return null;
+        }
+
+        return (userId, NormalizeReturnUrl(teile[2]));
+    }
+
+    private static void ClearTotpTicket(HttpContext context)
+    {
+        context.Response.Cookies.Delete(TotpTicketCookie, new CookieOptions
+        {
+            HttpOnly = true,
+            SameSite = SameSiteMode.Lax,
+            Secure = context.Request.IsHttps,
+        });
+    }
+
+    // Der zweite Schritt: derselbe Weg fuer den Code aus der App und fuer einen
+    // Wiederherstellungs-Code. Welcher es war, sagt die Laenge nicht sicher genug - deshalb wird
+    // erst der Zeit-Code geprueft und dann die Liste der Abdruecke.
+    private static async Task<IResult> SignInTotpAsync(
+        HttpContext context,
+        JsonDataStore store,
+        PasswordHasher hasher,
+        IDataProtectionProvider protection,
+        HtmlViews views)
+    {
+        var ticket = ReadTotpTicket(context, protection);
+        if (ticket is null)
+        {
+            ClearTotpTicket(context);
+            return Results.Content(
+                views.Login(context, HtmlViews.Translate(context, "Please sign in again.")),
+                "text/html");
+        }
+
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        var eingabe = form["code"].ToString();
+
+        MatgateUser? angemeldet = null;
+        await store.UpdateUsersAsync(users =>
+        {
+            var current = users.FirstOrDefault(candidate => candidate.Id == ticket.Value.UserId);
+            if (current is null || !current.IsEnabled || !current.TotpEnabled)
+            {
+                return;
+            }
+
+            if (TotpService.Verify(current.TotpSecret, eingabe, current.TotpLastStep, out var schritt))
+            {
+                current.TotpLastStep = schritt;
+                angemeldet = current;
+                return;
+            }
+
+            // Kein gueltiger Zeit-Code: vielleicht ein Wiederherstellungs-Code. Der gilt genau
+            // einmal und wird dabei verbraucht.
+            var abdruck = TotpService.HashRecoveryCode(eingabe);
+            if (eingabe.Length > 0 && current.TotpRecoveryHashes.Remove(abdruck))
+            {
+                angemeldet = current;
+            }
+        }, context.RequestAborted);
+
+        if (angemeldet is null)
+        {
+            return Results.Content(
+                views.TotpChallenge(context, HtmlViews.Translate(context, "That code is not valid.")),
+                "text/html");
+        }
+
+        ClearTotpTicket(context);
+        return await CompleteSignInAsync(context, angemeldet, hasher, ticket.Value.ReturnUrl);
     }
 
     // Basic sanity check for email addresses (MailAddress accepts the practically valid forms).
@@ -3525,6 +3680,138 @@ public static class EndpointMapping
         return Results.Redirect("/account?tab=home");
     }
 
+    // Einrichten: ein neues Geheimnis legen, aber noch nichts einschalten. Erst der erste gueltige
+    // Code beweist, dass die App es auch bekommen hat - wer hier abbricht, sperrt sich sonst aus.
+    private static async Task<IResult> TotpStartAsync(HttpContext context, JsonDataStore store, HtmlViews views)
+    {
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            return Results.Redirect("/login");
+        }
+
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        if (!ValidateCsrf(context, form))
+        {
+            return BadRequest(context, user, views);
+        }
+
+        await store.UpdateUsersAsync(users =>
+        {
+            var current = users.FirstOrDefault(candidate => candidate.Id == user.Id);
+            if (current is null || current.TotpEnabled)
+            {
+                // Ein eingeschalteter zweiter Faktor wird nicht im Vorbeigehen durch ein neues
+                // Geheimnis ersetzt - dafuer gibt es das Abschalten.
+                return;
+            }
+
+            current.TotpSecret = TotpService.NewSecret();
+            current.TotpLastStep = 0;
+            current.UpdatedAt = DateTimeOffset.UtcNow;
+        }, context.RequestAborted);
+
+        return Results.Redirect("/account?tab=security");
+    }
+
+    private static async Task<IResult> TotpConfirmAsync(HttpContext context, JsonDataStore store, HtmlViews views)
+    {
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            return Results.Redirect("/login");
+        }
+
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        if (!ValidateCsrf(context, form))
+        {
+            return BadRequest(context, user, views);
+        }
+
+        var code = form["code"].ToString();
+        IReadOnlyList<string> codes = [];
+        var ok = false;
+
+        await store.UpdateUsersAsync(users =>
+        {
+            var current = users.FirstOrDefault(candidate => candidate.Id == user.Id);
+            if (current is null || current.TotpEnabled || string.IsNullOrWhiteSpace(current.TotpSecret))
+            {
+                return;
+            }
+
+            if (!TotpService.Verify(current.TotpSecret, code, current.TotpLastStep, out var schritt))
+            {
+                return;
+            }
+
+            codes = TotpService.NewRecoveryCodes();
+            current.TotpEnabled = true;
+            current.TotpConfirmedAt = DateTimeOffset.UtcNow;
+            current.TotpLastStep = schritt;
+            current.TotpRecoveryHashes = [.. codes.Select(TotpService.HashRecoveryCode)];
+            current.UpdatedAt = DateTimeOffset.UtcNow;
+            ok = true;
+        }, context.RequestAborted);
+
+        if (!ok)
+        {
+            return Results.Redirect("/account?tab=security&totp=falsch");
+        }
+
+        // Die Codes stehen genau einmal da - gespeichert sind nur ihre Abdruecke, ein zweites Mal
+        // kann sie niemand anzeigen. Deshalb kein Umleiten, sondern die Seite direkt.
+        var frisch = await store.FindUserByIdAsync(user.Id, context.RequestAborted) ?? user;
+        var servers = (await store.GetServersAsync(context.RequestAborted))
+            .Where(server => server.IsEnabled && CanAccessServer(frisch, server))
+            .ToList();
+        return Results.Content(views.Account(context, frisch, servers, codes), "text/html");
+    }
+
+    private static async Task<IResult> TotpDisableAsync(
+        HttpContext context,
+        JsonDataStore store,
+        PasswordHasher hasher,
+        HtmlViews views)
+    {
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            return Results.Redirect("/login");
+        }
+
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        if (!ValidateCsrf(context, form))
+        {
+            return BadRequest(context, user, views);
+        }
+
+        // Abschalten ist der Weg zurueck zu einem Faktor - dafuer das Passwort, sonst genuegte ein
+        // offener Rechner.
+        if (!hasher.Verify(form["currentPassword"].ToString(), user.PasswordHash))
+        {
+            return Results.Redirect("/account?tab=security&totp=passwort");
+        }
+
+        await store.UpdateUsersAsync(users =>
+        {
+            var current = users.FirstOrDefault(candidate => candidate.Id == user.Id);
+            if (current is null)
+            {
+                return;
+            }
+
+            current.TotpEnabled = false;
+            current.TotpSecret = "";
+            current.TotpConfirmedAt = null;
+            current.TotpLastStep = 0;
+            current.TotpRecoveryHashes = [];
+            current.UpdatedAt = DateTimeOffset.UtcNow;
+        }, context.RequestAborted);
+
+        return Results.Redirect("/account?tab=security");
+    }
+
     private static async Task<IResult> UpdateSessionPreferencesAsync(
         HttpContext context,
         JsonDataStore store,
@@ -3753,6 +4040,47 @@ public static class EndpointMapping
         }, context.RequestAborted);
 
         await configWriter.SynchronizeAsync(context.RequestAborted);
+        return Results.Redirect(EmbedAwareRedirect(context, $"/admin/users/{id}"));
+    }
+
+    // Wer Telefon UND Wiederherstellungs-Codes verliert, kaeme sonst gar nicht mehr hinein - ausser
+    // jemand macht die Benutzerdatei auf. Dafuer dieser Weg: ein Administrator schaltet den zweiten
+    // Faktor ab, der Betroffene richtet ihn neu ein. Dass dabei ein Faktor wegfaellt, ist der Preis;
+    // deshalb steht es sichtbar auf der Seite und nicht in einem Menue.
+    private static async Task<IResult> ResetUserTotpAsync(
+        Guid id,
+        HttpContext context,
+        JsonDataStore store,
+        HtmlViews views)
+    {
+        var currentUser = await RequireAdminAsync(context, store);
+        if (currentUser is null)
+        {
+            return Results.Redirect("/forbidden");
+        }
+
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        if (!ValidateCsrf(context, form))
+        {
+            return BadRequest(context, currentUser, views);
+        }
+
+        await store.UpdateUsersAsync(users =>
+        {
+            var user = users.FirstOrDefault(candidate => candidate.Id == id);
+            if (user is null)
+            {
+                return;
+            }
+
+            user.TotpEnabled = false;
+            user.TotpSecret = "";
+            user.TotpConfirmedAt = null;
+            user.TotpLastStep = 0;
+            user.TotpRecoveryHashes = [];
+            user.UpdatedAt = DateTimeOffset.UtcNow;
+        }, context.RequestAborted);
+
         return Results.Redirect(EmbedAwareRedirect(context, $"/admin/users/{id}"));
     }
 
