@@ -11953,7 +11953,7 @@ public sealed class HtmlViews
             ? ""
             : $$"""
                 <div id="mobile-tab-menu" class="mobile-tab-menu" data-label-new="{{A(T(context, "New connection"))}}" data-label-tabs="{{A(Language(context) == "de" ? "Verbindungen" : "Connections")}}" data-label-close="{{A(T(context, "Close"))}}">
-                    <button type="button" class="tab-action-button mobile-tab-menu-trigger tab-action-more-trigger" aria-haspopup="true" aria-expanded="false" title="{{A(Language(context) == "de" ? "Verbindungen" : "Connections")}}">{{Icon("copy")}}<span class="mobile-tab-name" data-mobile-tab-name>{{(Language(context) == "de" ? "Verbindungen" : "Connections")}}</span><span class="mobile-tab-count" data-mobile-tab-count>0</span>{{Icon("chevron-down")}}</button>
+                    <button type="button" class="tab-action-button icon-only mobile-tab-menu-trigger" aria-haspopup="true" aria-expanded="false" title="{{A(Language(context) == "de" ? "Verbindungen" : "Connections")}}" aria-label="{{A(Language(context) == "de" ? "Verbindungen" : "Connections")}}"><span class="mobile-tab-count" data-mobile-tab-count>0</span><span class="mobile-tab-plus" data-mobile-tab-plus aria-hidden="true">{{Icon("plus")}}</span></button>
                     <div class="tab-action-more-panel mobile-tab-menu-panel tab-action-overflow-panel" data-mobile-tab-panel></div>
                 </div>
                 """;
@@ -13370,34 +13370,31 @@ public sealed class HtmlViews
                     }
                     /* Header tab-menu (compact view on phones): hidden everywhere else. */
                     .mobile-tab-menu { display: none; }
+                    /* Auf dem Knopf steht nur noch, WIE VIELE Verbindungen offen sind - welche davon
+                       gerade vorn ist, sagt die Statuszeile der Sitzung ohnehin. Der Name daneben
+                       nahm fast die halbe Kopfzeile ein. Ansonsten ist es derselbe Knopf wie die
+                       Aktionen am anderen Ende der Leiste: gleiches Quadrat, gleicher Rahmen,
+                       gleiche Rundung. */
                     .mobile-tab-menu-trigger {
                         align-items: center;
                         display: flex;
-                        gap: 6px;
                         justify-content: center;
-                        min-height: 34px;
-                        padding: 0 10px;
+                        padding: 0;
                     }
-                    /* Der Name der offenen Verbindung auf dem Knopf: ein Symbol allein sagt nicht,
-                       was offen ist. Gedeckelt, damit die Aktionen daneben ihren Platz behalten. */
-                    .mobile-tab-name {
-                        max-width: 11ch;
-                        overflow: hidden;
-                        text-overflow: ellipsis;
-                        white-space: nowrap;
-                    }
-                    .mobile-tab-menu-trigger .icon:last-child { color: var(--muted); height: 14px; width: 14px; }
+                    /* Eine Zahl, kein Plaettchen: ein Rahmen im Rahmen waren zwei Linien dicht
+                       beieinander - genau die Umrandung, die stoerte. */
                     .mobile-tab-count {
-                        background: var(--surface-2);
-                        border: 1px solid var(--line);
-                        border-radius: 999px;
-                        font-size: 11px;
+                        font-size: 14px;
+                        font-variant-numeric: tabular-nums;
                         font-weight: 700;
-                        line-height: 1.4;
-                        min-width: 18px;
-                        padding: 0 5px;
-                        text-align: center;
+                        line-height: 1;
                     }
+                    .mobile-tab-plus { align-items: center; display: flex; }
+                    /* Ohne offene Verbindung gibt es nichts zu zaehlen - dann ist es schlicht ein Plus,
+                       und ein Druck darauf legt gleich einen neuen Reiter an, statt eine Liste mit
+                       einem einzigen Eintrag aufzuschlagen. */
+                    .mobile-tab-menu[data-empty="true"] .mobile-tab-count,
+                    .mobile-tab-menu:not([data-empty="true"]) .mobile-tab-plus { display: none; }
                     .mobile-tab-item { align-items: center; display: flex; gap: 4px; }
                     .mobile-tab-item-main { flex: 1 1 auto; }
                     .mobile-tab-item.active .mobile-tab-item-main {
@@ -16516,7 +16513,17 @@ public sealed class HtmlViews
                         /* Compact (minimal) view on phones: the tab strip row stays hidden - the header
                            tab-menu button (#mobile-tab-menu) lists/switches the open tabs instead, so the
                            compact view is a true single bar. */
-                        html[data-view-mode="minimal"] .mobile-tab-menu { display: flex; }
+                        /* Mittig, nicht oben: der Kasten ist so hoch wie die ganze Zeile, der Knopf
+                           darin aber 40px - ohne das haengt er oben und steht 4,5px hoeher als die
+                           Aktionsknoepfe, deren Leiste von sich aus zentriert. */
+                        html[data-view-mode="minimal"] .mobile-tab-menu { align-items: center; display: flex; }
+                        /* Genauso gross wie die Aktionsknoepfe am anderen Ende der Leiste. */
+                        .mobile-tab-menu-trigger {
+                            height: 40px;
+                            min-height: 40px;
+                            min-width: 40px;
+                            width: 40px;
+                        }
                         /* The connection list takes the whole screen on a phone instead of being a
                            320px dropdown in the corner: names stay readable, rows are finger sized,
                            and closing a session is no longer a neighbour of switching to it. */
@@ -17049,30 +17056,49 @@ public sealed class HtmlViews
                             const tabPanel = mobileTabMenu.querySelector('[data-mobile-tab-panel]');
                             const tabTrigger = mobileTabMenu.querySelector('.mobile-tab-menu-trigger');
                             const tabCount = mobileTabMenu.querySelector('[data-mobile-tab-count]');
-                            const hideTabPanel = () => {
-                                if (tabPanel) {
-                                    tabPanel.style.display = 'none';
+                            // Die Sichtbarkeit laeuft ueber EINE Stelle, und die loescht jeden noch
+                            // offenen Zeitgeber gleich mit. Vorher stellte das Schliessen eines Reiters
+                            // das Blatt 60ms spaeter wieder auf sichtbar - wer in dieser Zeit eine
+                            // andere Verbindung antippte, wechselte zwar, bekam das Blatt aber nicht
+                            // mehr weg.
+                            let wiederOeffnen = 0;
+                            const setTabPanel = (offen) => {
+                                if (wiederOeffnen) {
+                                    window.clearTimeout(wiederOeffnen);
+                                    wiederOeffnen = 0;
+                                }
+
+                                if (!tabPanel) {
+                                    return;
+                                }
+
+                                tabPanel.style.display = offen ? 'flex' : 'none';
+                                if (tabTrigger) {
+                                    tabTrigger.setAttribute('aria-expanded', offen ? 'true' : 'false');
                                 }
                             };
+                            const hideTabPanel = () => setTabPanel(false);
                             const listSessionTabs = () => {
                                 const root = document.getElementById('session-tabs');
                                 return root ? Array.from(root.querySelectorAll('.session-tab')) : [];
                             };
-                            const tabName = mobileTabMenu.querySelector('[data-mobile-tab-name]');
                             const updateTabCount = () => {
                                 const offen = listSessionTabs().filter(el => el.getAttribute('data-tab-kind') !== 'add');
                                 if (tabCount) {
                                     tabCount.textContent = String(offen.length);
                                 }
 
-                                if (tabName) {
-                                    const aktiv = offen.find(el => el.classList.contains('active'));
-                                    const titel = aktiv
-                                        ? ((aktiv.querySelector('.session-tab-title')?.textContent) || '').trim()
-                                        : '';
-                                    tabName.textContent = titel || (mobileTabMenu.getAttribute('data-label-tabs') || 'Connections');
+                                // Ohne offene Verbindung zeigt der Knopf ein Plus und heisst auch so.
+                                mobileTabMenu.setAttribute('data-empty', offen.length ? 'false' : 'true');
+                                if (tabTrigger) {
+                                    const name = offen.length
+                                        ? (mobileTabMenu.getAttribute('data-label-tabs') || 'Connections') + ' (' + offen.length + ')'
+                                        : (mobileTabMenu.getAttribute('data-label-new') || 'New connection');
+                                    tabTrigger.setAttribute('aria-label', name);
+                                    tabTrigger.setAttribute('title', name);
                                 }
                             };
+                            const addTabButton = () => listSessionTabs().find(el => el.getAttribute('data-tab-kind') === 'add');
                             // On a phone the list takes the whole screen instead of being a dropdown in
                             // the corner: with several sessions the 320px popover left the names cut
                             // off and put the close "x" right next to the switch, which ends sessions
@@ -17114,8 +17140,10 @@ public sealed class HtmlViews
                                     label.textContent = titleText;
                                     main.appendChild(label);
                                     main.addEventListener('click', () => {
+                                        // Erst zu, dann wechseln. Andersherum kann alles, was der
+                                        // Wechsel nach sich zieht, das Schliessen noch ueberholen.
+                                        setTabPanel(false);
                                         (tabEl.querySelector('.session-tab-main') || tabEl).click();
-                                        hideTabPanel();
                                     });
                                     item.appendChild(main);
                                     const closeButton = tabEl.querySelector('.session-tab-close');
@@ -17132,8 +17160,9 @@ public sealed class HtmlViews
                                             // and the generic outside-close handler hides this panel
                                             // (the tab strip is not "inside" it) - the list must stay
                                             // open so several tabs can be closed in a row.
-                                            tabPanel.style.display = 'flex';
-                                            window.setTimeout(() => {
+                                            setTabPanel(true);
+                                            wiederOeffnen = window.setTimeout(() => {
+                                                wiederOeffnen = 0;
                                                 rebuildTabList();
                                                 updateTabCount();
                                                 tabPanel.style.display = 'flex';
@@ -17147,8 +17176,17 @@ public sealed class HtmlViews
                             if (tabTrigger && tabPanel) {
                                 tabTrigger.addEventListener('click', () => {
                                     if (tabPanel.style.display === 'flex') {
-                                        hideTabPanel();
+                                        setTabPanel(false);
                                         return;
+                                    }
+                                    // Ohne offene Verbindung waere die Liste ein Blatt mit einem
+                                    // einzigen Eintrag. Dann ist der Knopf ein Plus und tut auch das.
+                                    if (mobileTabMenu.getAttribute('data-empty') === 'true') {
+                                        const add = addTabButton();
+                                        if (add) {
+                                            (add.querySelector('.session-tab-main') || add).click();
+                                            return;
+                                        }
                                     }
                                     rebuildTabList();
                                     // Single-open + per-panel trigger binding: the session script's
@@ -17169,14 +17207,14 @@ public sealed class HtmlViews
                                         tabPanel.style.top = '';
                                         tabPanel.style.left = '';
                                         tabPanel.style.right = '';
-                                        tabPanel.style.display = 'flex';
+                                        setTabPanel(true);
                                         return;
                                     }
 
                                     tabPanel.classList.remove('mobile-tab-sheet');
                                     tabPanel.style.top = Math.round(rect.bottom + 6) + 'px';
                                     tabPanel.style.right = 'auto';
-                                    tabPanel.style.display = 'flex';
+                                    setTabPanel(true);
                                     // Clamp both ways using the real width so the list stays on screen.
                                     const width = tabPanel.getBoundingClientRect().width;
                                     let left = Math.max(8, Math.round(rect.left));
