@@ -56,6 +56,10 @@ public sealed class MatgateUser
 
     public List<string> HiddenHomeSections { get; set; } = [];
 
+    // Verbindungen, die auf der Startseite als Knopf in der Aktionsleiste stehen - ein Druck
+    // verbindet. Die Reihenfolge ist die der Liste; was nicht darin steht, erscheint nicht.
+    public List<Guid> ActionBarServerIds { get; set; } = [];
+
     // Der zweite Faktor. Das Geheimnis liegt verschlüsselt in der Datei (siehe JsonDataStore);
     // eingeschaltet ist er erst, wenn einmal ein gültiger Code eingegeben wurde - sonst sperrt
     // sich aus, wer die Einrichtung abbricht.

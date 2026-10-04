@@ -3691,6 +3691,22 @@ public static class EndpointMapping
 
             current.HomeSections = Liste(form, "homeSections");
             current.HiddenHomeSections = Liste(form, "hiddenHomeSections");
+
+            // Die Knoepfe in der Aktionsleiste: ausgewaehlt und in der gezogenen Reihenfolge. Was
+            // hier nicht als Kennung durchgeht, faellt heraus - welche Verbindungen jemand sehen
+            // darf, entscheidet beim Anzeigen ohnehin die uebliche Pruefung.
+            var ausgeblendet = form["hiddenActionBarServers"].ToString()
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            current.ActionBarServerIds =
+            [
+                .. form["actionBarServers"].ToString()
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Where(eintrag => !ausgeblendet.Contains(eintrag))
+                    .Select(eintrag => Guid.TryParse(eintrag, out var id) ? id : Guid.Empty)
+                    .Where(id => id != Guid.Empty)
+                    .Distinct(),
+            ];
             current.UpdatedAt = DateTimeOffset.UtcNow;
         }, context.RequestAborted);
 

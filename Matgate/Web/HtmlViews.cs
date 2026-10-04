@@ -1547,6 +1547,17 @@ public sealed class HtmlViews
                                         <input type="hidden" name="hiddenHomeSections" data-order-hidden value="">
                                     </div>
                                 </fieldset>
+                                <fieldset class="settings-group">
+                                    <legend>{{(de ? "Knöpfe in der Aktionsleiste" : "Buttons in the action bar")}}</legend>
+                                    <p class="muted settings-hint">{{(de
+                                        ? "Angekreuzte Verbindungen stehen auf der Startseite oben rechts als Knopf - ein Druck verbindet, ohne den Weg über die Karten. Zum Sortieren ziehen. Auf schmalen Schirmen passen nur die vordersten hin."
+                                        : "Ticked connections sit at the top right of the start page as a button - one press connects, without going via the cards. Drag to sort. On narrow screens only the first ones fit.")}}</p>
+                                    <div data-order-group>
+                                        <ol id="action-bar-list" class="action-order-list" data-order-list>{{ActionBarItems(context, user, servers)}}</ol>
+                                        <input type="hidden" name="actionBarServers" data-order-value value="">
+                                        <input type="hidden" name="hiddenActionBarServers" data-order-hidden value="">
+                                    </div>
+                                </fieldset>
                                 {{(user.IsAdmin ? $$"""
                                     <fieldset class="settings-group">
                                         <legend>{{(de ? "Vorgabe für neue Benutzer" : "Default for new users")}}</legend>
@@ -2846,6 +2857,9 @@ public sealed class HtmlViews
         protocol = server.Protocol.ToString().ToUpperInvariant(),
         iconKey = ServerEndpoint.EffectiveIconKey(server.Protocol, server.IconKey),
         iconHtml = Icon(ServerEndpoint.EffectiveIconKey(server.Protocol, server.IconKey)),
+        // Der Farbtupfer des Protokolls - damit ein Knopf in der Leiste denselben Ton traegt wie
+        // die Karte, aus der er stammt.
+        protoColor = ProtocolAccent(server.Protocol),
         target = ServerTargetValue(server),
         // "native" | "chromiumvnc" | "firefoxvnc" - farm modes open a VNC session instead of a proxy tab.
         renderMode = server.Protocol == ServerProtocol.Website
@@ -4040,6 +4054,9 @@ public sealed class HtmlViews
         var availableServers = JsonSerializer.Serialize(
             servers.Select(ServerChoicePayload),
             new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        var actionBarServers = JsonSerializer.Serialize(
+            (user.ActionBarServerIds ?? []).Select(id => id.ToString()),
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
         var initialOpenServerId = JsonSerializer.Serialize(openServerId?.ToString() ?? "");
         var csrfToken = JsonSerializer.Serialize(context.User.FindFirstValue("csrf") ?? "");
         var sessionPrefs = JsonSerializer.Serialize(user.Session, new JsonSerializerOptions(JsonSerializerDefaults.Web));
@@ -4406,6 +4423,8 @@ public sealed class HtmlViews
             <script>
             (() => {
                 const availableServers = {{availableServers}};
+                // Verbindungen, die auf der Startseite als Knopf in der Leiste stehen sollen.
+                const actionBarServers = {{actionBarServers}};
                 const sessionPrefs = Object.assign({ edgePanning: true, dragPanning: true, stretchToWindow: false, systemCombos: true, functionKeys: false, ctrlAltDelHotkey: true, pasteAsKeystrokes: false, actionOrder: [], hiddenActions: [] }, {{sessionPrefs}});
                 const initialOpenServerId = {{initialOpenServerId}};
                 // This window was popped out of another (a tab opened in its own window). It shows a
@@ -6680,6 +6699,30 @@ public sealed class HtmlViews
                     const shellTab = connectionTab ? null : shellTabs.get(activeShellTabId) || null;
                     const tab = connectionTab || shellTab;
                     if (!tab) {
+                        // Kein Reiter offen heisst: die Startseite steht vorn. Dort traegt die Leiste
+                        // die Verbindungen, die man sich hineingelegt hat - ein Druck verbindet,
+                        // ohne den Weg ueber die Karten.
+                        (Array.isArray(actionBarServers) ? actionBarServers : []).forEach(id => {
+                            const server = availableServers.find(entry => entry.id === id);
+                            if (!server) {
+                                // Weggenommen oder nicht mehr freigegeben - dann fehlt der Knopf,
+                                // statt ins Leere zu zeigen.
+                                return;
+                            }
+
+                            const button = createTabActionButton(
+                                server.iconHtml || '',
+                                server.name || '',
+                                () => openServer(server.id),
+                                'tab-action-shortcut');
+                            button.style.setProperty('--proto', server.protoColor || 'var(--accent)');
+                            // Welche Verbindung dahintersteckt - zwei duerfen denselben Namen tragen.
+                            button.dataset.serverId = server.id;
+                            connectionTabActions.appendChild(button);
+                        });
+                        // Auf einem schmalen Schirm passen nicht alle in die Zeile - der Rest wandert
+                        // ins Drei-Punkte-Menue, wie bei den Aktionen einer Sitzung auch.
+                        collapseConnectionActions(connectionTabActions);
                         updateStatusBar();
                         return;
                     }
@@ -13574,6 +13617,17 @@ public sealed class HtmlViews
                     .tab-action-button.active {
                         color: var(--accent);
                     }
+                    /* Eine Verbindung als Knopf in der Leiste: das Symbol traegt den Ton ihres
+                       Protokolls, damit man sie wiedererkennt, ohne den Namen zu lesen. Der Name
+                       selbst ist gedeckelt - sonst schiebt eine lang benannte Verbindung die
+                       uebrigen aus der Zeile. */
+                    .tab-action-shortcut .icon { color: var(--proto, var(--accent)); }
+                    .tab-action-shortcut > span {
+                        max-width: 14ch;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        white-space: nowrap;
+                    }
                     .resolution-options {
                         display: grid;
                         gap: 8px;
@@ -18543,6 +18597,39 @@ public sealed class HtmlViews
         var daten = generator.CreateQrCode(text, QRCoder.QRCodeGenerator.ECCLevel.M);
         var png = new QRCoder.PngByteQRCode(daten).GetGraphic(6);
         return "data:image/png;base64," + Convert.ToBase64String(png);
+    }
+
+    // Welche Verbindungen als Knopf in der Aktionsleiste stehen. Dieselbe Zieh-Liste wie bei den
+    // Abschnitten - die gewaehlten zuerst und in ihrer Reihenfolge, danach der Rest zum Ankreuzen.
+    // Ablagen und Ordner sind hier nicht dabei: ein Knopf, der nur einen Ordner aufmacht, gehoert
+    // nicht in eine Leiste, die sonst Verbindungen startet.
+    private static string ActionBarItems(HttpContext context, MatgateUser user, IReadOnlyList<ServerEndpoint> servers)
+    {
+        var de = Language(context) == "de";
+        var waehlbar = servers
+            .Where(server => server.Protocol != ServerProtocol.Local)
+            .ToList();
+        var gewaehlt = (user.ActionBarServerIds ?? [])
+            .Select(id => waehlbar.FirstOrDefault(server => server.Id == id))
+            .Where(server => server is not null)
+            .Select(server => server!)
+            .ToList();
+        var rest = waehlbar
+            .Where(server => !gewaehlt.Any(treffer => treffer.Id == server.Id))
+            .OrderBy(server => server.Name, StringComparer.CurrentCultureIgnoreCase)
+            .ToList();
+
+        if (waehlbar.Count == 0)
+        {
+            return $$"""<li class="action-order-item"><span class="action-order-name muted">{{E(de ? "Noch keine Verbindungen." : "No connections yet.")}}</span></li>""";
+        }
+
+        string Eintrag(ServerEndpoint server, bool an) => $$"""
+            <li class="action-order-item" data-order-key="{{A(server.Id.ToString())}}"><span class="action-order-grip" aria-hidden="true">{{Icon("menu")}}</span><span class="action-order-icon" aria-hidden="true">{{Icon(ServerEndpoint.EffectiveIconKey(server.Protocol, server.IconKey))}}</span><span class="action-order-name">{{E(server.Name)}}</span><label class="action-order-show"><input type="checkbox" data-order-visible{{(an ? " checked" : "")}}> {{E(de ? "zeigen" : "show")}}</label></li>
+            """;
+
+        return string.Join("", gewaehlt.Select(server => Eintrag(server, true)))
+            + string.Join("", rest.Select(server => Eintrag(server, false)));
     }
 
     // Die Abschnitte der Startseite als Zieh-Liste - dieselbe Form wie die Aktionen der
