@@ -40,6 +40,15 @@ public sealed class MatgateUser
     // wird, was gewählt wurde; was angezeigt wird, kann davon abweichen - siehe ThemeService.SafeAccent.
     public string AccentColor { get; set; } = "";
 
+    // Die zweite Akzentfarbe: das Zeichen, die Verläufe und die Nebenhervorhebungen. Leer heißt
+    // wieder die des Themas.
+    public string AccentColor2 { get; set; } = "";
+
+    // Der Hintergrund der Anwendung. Leer heißt der des Themas. Aus ihm leitet der Dienst die
+    // Flächen darüber ab - Felder, Linien, Schrift -, damit eine frei gewählte Farbe nicht die
+    // Lesbarkeit mitnimmt.
+    public string BackgroundColor { get; set; } = "";
+
     public bool RememberLoginByDefault { get; set; } = true;
 
     // Per-user session behaviour (display + keyboard helpers), applied to every remote session the

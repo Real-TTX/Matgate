@@ -76,7 +76,12 @@ public sealed class ThemeService
     }
 
     // Die fertigen Werte eines Themas für einen Modus: erst die Grundpalette, dann das Thema darüber.
-    public IReadOnlyDictionary<string, string> Values(ThemeDefinition theme, bool dark, string? accentOverride = null)
+    public IReadOnlyDictionary<string, string> Values(
+        ThemeDefinition theme,
+        bool dark,
+        string? accentOverride = null,
+        string? accent2Override = null,
+        string? backgroundOverride = null)
     {
         var baseTheme = All.First(entry => entry.Key == DefaultKey);
         var values = new Dictionary<string, string>(dark ? baseTheme.Dark : baseTheme.Light, StringComparer.OrdinalIgnoreCase);
@@ -108,18 +113,94 @@ public sealed class ThemeService
             values["icon-stroke"] = stroke;
         }
 
-        // Die eigene Akzentfarbe zuletzt, damit sie auch ein Thema aus der Datei ueberstimmt. Was
+        // Der eigene Hintergrund zuerst: alles Weitere - auch die Lesbarkeit der Akzente - haengt
+        // daran, worauf es am Ende liegt.
+        if (IsColour(backgroundOverride))
+        {
+            ApplyBackground(values, backgroundOverride!, dark ? baseTheme.Dark : baseTheme.Light,
+                dark ? baseTheme.Light : baseTheme.Dark);
+        }
+
+        // Die eigenen Akzentfarben zuletzt, damit sie auch ein Thema aus der Datei ueberstimmen. Was
         // gewaehlt wurde, ist nicht zwingend, was gesetzt wird: die Schrift darauf ist --bg.
+        var grund = values.GetValueOrDefault("bg", dark ? "#0f1412" : "#ffffff");
         if (IsColour(accentOverride))
         {
-            var hintergrund = values.GetValueOrDefault("bg", dark ? "#0f1412" : "#ffffff");
-            var sicher = SafeAccent(accentOverride!, hintergrund);
+            var sicher = SafeAccent(accentOverride!, grund);
             values["accent"] = sicher;
-            values["primary-hover"] = HoverAccent(sicher, hintergrund);
+            values["primary-hover"] = HoverAccent(sicher, grund);
             values["proto-local"] = sicher;
         }
 
+        // Die zweite Akzentfarbe traegt keine Schrift - sie faerbt Zeichen, Verlaeufe und
+        // Nebenhervorhebungen. Deshalb genuegt ihr die Schwelle fuer Flaechen (3.0) statt der
+        // fuer Text (4.5); strenger gemessen wuerde jeder zweite Ton unnoetig aufgehellt.
+        if (IsColour(accent2Override))
+        {
+            values["accent-2"] = SafeAccent(accent2Override!, grund, 3.0);
+        }
+
         return values;
+    }
+
+    // Ein frei gewaehlter Hintergrund ist nur so gut wie das, was darauf liegt. Aus ihm werden
+    // deshalb die Flaechen abgeleitet - Felder, Linien, Schweben -, und Schrift und Schatten kommen
+    // von der Seite, die zu seiner Helligkeit passt: wer im hellen Thema Schwarz waehlt, bekommt
+    // die helle Schrift des dunklen, sonst stuende Dunkel auf Dunkel.
+    private static void ApplyBackground(
+        Dictionary<string, string> values,
+        string background,
+        IReadOnlyDictionary<string, string> gleicheSeite,
+        IReadOnlyDictionary<string, string> andereSeite)
+    {
+        if (!TryParse(background, out var r, out var g, out var b))
+        {
+            return;
+        }
+
+        var dunkel = Luminance(r, g, b) < 0.4;
+        var passend = dunkel == IstDunkel(gleicheSeite) ? gleicheSeite : andereSeite;
+
+        foreach (var token in new[] { "text", "muted", "shadow", "shadow-strong" })
+        {
+            if (passend.TryGetValue(token, out var wert) && !string.IsNullOrWhiteSpace(wert))
+            {
+                values[token] = wert.Trim();
+            }
+        }
+
+        values["bg"] = Normalise(background);
+
+        // Ein dunkler Grund traegt hellere Flaechen, ein heller traegt weisse Felder und
+        // abgesetzte Mulden. Die Zahlen sind an den eingebauten Paletten abgelesen.
+        (string Token, int Prozent)[] schritte = dunkel
+            ?
+            [
+                ("panel", 6), ("surface", 7), ("surface-2", 12), ("surface-3", 18),
+                ("hover-bg", 14), ("hover-strong-bg", 20), ("active-bg", 24), ("line", 28),
+            ]
+            :
+            [
+                ("panel", 45), ("surface", 45), ("surface-2", -4), ("surface-3", -12),
+                ("hover-bg", 25), ("hover-strong-bg", -3), ("active-bg", -8), ("line", -14),
+            ];
+
+        foreach (var (token, prozent) in schritte)
+        {
+            var (sr, sg, sb) = Shift(r, g, b, prozent);
+            values[token] = $"#{sr:x2}{sg:x2}{sb:x2}";
+        }
+    }
+
+    private static bool IstDunkel(IReadOnlyDictionary<string, string> seite)
+    {
+        return TryParse(seite.GetValueOrDefault("bg", "#ffffff"), out var r, out var g, out var b)
+            && Luminance(r, g, b) < 0.4;
+    }
+
+    private static string Normalise(string hex)
+    {
+        return TryParse(hex, out var r, out var g, out var b) ? $"#{r:x2}{g:x2}{b:x2}" : hex.Trim();
     }
 
     private static IEnumerable<KeyValuePair<string, string>> ProtocolValues(ThemeDefinition theme, bool dark)

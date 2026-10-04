@@ -291,6 +291,11 @@ public static class EndpointMapping
         app.MapGet("/", HomeAsync).RequireAuthorization();
         app.MapGet("/api/connections/panel", ConnectionsPanelAsync).RequireAuthorization();
         app.MapGet("/api/browser-farm/status", BrowserFarmStatusAsync).RequireAuthorization();
+        // Die Vorschau der Darstellung rechnet der Server, nicht die Seite: so sieht man beim
+        // Einstellen genau das, was nach dem Speichern auch herauskommt - samt der Nachbesserung,
+        // die eine zu blasse Farbe lesbar haelt. Dieselbe Rechnung zweimal zu schreiben hiesse,
+        // dass die beiden Fassungen frueher oder spaeter auseinanderlaufen.
+        app.MapGet("/api/theme/preview", ThemePreview).RequireAuthorization();
         app.MapGet("/forbidden", ForbiddenAsync).RequireAuthorization();
         app.MapGet("/connect/{id:guid}", ConnectAsync).RequireAuthorization();
         app.MapGet("/website/{id:guid}", WebsiteAsync).RequireAuthorization();
@@ -655,6 +660,23 @@ public static class EndpointMapping
     // Oeffnen. Nur Zahlen, keine Adressen: wer in welchem Platz sitzt, bleibt der Verwaltung
     // vorbehalten. Der Sidecar wird hier gefragt, nicht beim Seitenaufbau, damit eine langsame oder
     // abwesende Farm die Startseite nicht aufhaelt.
+    // Was die Oberflaeche mit den gewaehlten Farben saehe - hell und dunkel in einem Zug, damit
+    // ein Wechsel der Betriebsart keinen zweiten Aufruf braucht.
+    private static IResult ThemePreview(HttpContext context, ThemeService themes)
+    {
+        var palette = themes.Resolve(context.Request.Query["theme"].ToString());
+        var accent = context.Request.Query["accent"].ToString();
+        var accent2 = context.Request.Query["accent2"].ToString();
+        var background = context.Request.Query["background"].ToString();
+
+        Dictionary<string, string> Satz(bool dark) => themes
+            .Values(palette, dark, accent, accent2, background)
+            .Where(entry => ThemeService.Accept(entry.Key, entry.Value))
+            .ToDictionary(entry => "--" + entry.Key, entry => entry.Value);
+
+        return Results.Json(new { light = Satz(false), dark = Satz(true) });
+    }
+
     private static async Task<IResult> BrowserFarmStatusAsync(
         HttpContext context,
         JsonDataStore store,
@@ -3388,9 +3410,17 @@ public static class EndpointMapping
             // von der Darstellung kam, verraet deshalb das Farbfeld.
             if (form.ContainsKey("accentColor"))
             {
-                var accent = (form["accentColor"].ToString() ?? "").Trim();
-                var accentOn = IsChecked(form, "accentOwn");
-                current.AccentColor = accentOn && ThemeService.IsColour(accent) ? accent.ToLowerInvariant() : "";
+                // Drei Farben nach demselben Muster: das Kaestchen sagt, ob die eigene gilt, das
+                // Feld daneben welche. Nicht angekreuzt heisst leer, und leer heisst: die des Themas.
+                string Eigene(string feld, string kaestchen)
+                {
+                    var wert = (form[feld].ToString() ?? "").Trim();
+                    return IsChecked(form, kaestchen) && ThemeService.IsColour(wert) ? wert.ToLowerInvariant() : "";
+                }
+
+                current.AccentColor = Eigene("accentColor", "accentOwn");
+                current.AccentColor2 = Eigene("accentColor2", "accent2Own");
+                current.BackgroundColor = Eigene("backgroundColor", "backgroundOwn");
             }
             current.RememberLoginByDefault = true;
             current.UpdatedAt = DateTimeOffset.UtcNow;

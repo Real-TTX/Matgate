@@ -1182,54 +1182,114 @@ public sealed class HtmlViews
                                     <p class="muted settings-hint">{{(de ? "Jedes Schema hat einen hellen und einen dunklen Satz – die Wahl darüber entscheidet, welcher gilt." : "Every scheme has a light and a dark set – the choice above decides which one applies.")}}</p>
                                     <div class="theme-cards">{{ThemeCards(context, user.PreferredThemeName)}}</div>
                                 </fieldset>
-                                <fieldset class="settings-group">
-                                    <legend>{{(de ? "Akzentfarbe" : "Accent colour")}}</legend>
-                                    <p class="muted settings-hint">{{(de ? "Die Farbe der Knöpfe und Hervorhebungen. Matgate hält sie lesbar: der Farbton bleibt, die Helligkeit wird angepasst, wenn die Schrift darauf sonst verschwindet." : "The colour of buttons and highlights. Matgate keeps it readable: the hue stays, the lightness is adjusted when the label on it would otherwise vanish.")}}</p>
-                                    <div class="accent-choice">
-                                        <label class="accent-switch">
-                                            <input type="checkbox" name="accentOwn" data-accent-own{{(ThemeService.IsColour(user.AccentColor) ? " checked" : "")}}>
-                                            <span>{{(de ? "Eigene Farbe" : "Own colour")}}</span>
-                                        </label>
-                                        <label class="accent-wheel">
-                                            <input type="color" name="accentColor" data-accent-value value="{{A(ThemeService.IsColour(user.AccentColor) ? user.AccentColor : AccentFallback(context, user))}}">
-                                            <span class="muted">{{(de ? "Farbkreis" : "Colour wheel")}}</span>
-                                        </label>
-                                        <div class="accent-presets" data-accent-presets>{{AccentPresets()}}</div>
-                                    </div>
-                                </fieldset>
+                                {{ColourGroups(context, user)}}
                                 <script>
                                     (() => {
-                                        const schalter = document.querySelector("[data-accent-own]");
-                                        const feld = document.querySelector("[data-accent-value]");
-                                        const tupfer = document.querySelector("[data-accent-presets]");
-                                        if (!schalter || !feld || !tupfer) {
+                                        // Was man einstellt, soll man sehen - und zwar das, was nach dem Speichern
+                                        // herauskommt. Gerechnet wird deshalb auf dem Server (/api/theme/preview):
+                                        // dieselbe Funktion, die auch die Seite baut, samt der Nachbesserung, die eine
+                                        // zu blasse Farbe lesbar haelt.
+                                        const form = document.currentScript.closest("form");
+                                        if (!form) {
                                             return;
                                         }
-
-                                        // Ein Tupfer setzt die Farbe und schaltet sie zugleich ein - sonst
-                                        // waehlt man eine Farbe und nichts geschieht.
-                                        tupfer.addEventListener("click", event => {
-                                            const knopf = event.target.closest("[data-accent-preset]");
-                                            if (!knopf) {
+                                
+                                        form.querySelectorAll("[data-colour-field]").forEach(feld => {
+                                            const schalter = feld.querySelector("[data-colour-own]");
+                                            const wert = feld.querySelector("[data-colour-value]");
+                                            const tupfer = feld.querySelector("[data-colour-presets]");
+                                            if (!schalter || !wert || !tupfer) {
                                                 return;
                                             }
-
-                                            event.preventDefault();
-                                            feld.value = knopf.dataset.accentPreset;
-                                            schalter.checked = true;
-                                            markiere();
+                                
+                                            // Ein Tupfer setzt die Farbe und schaltet sie zugleich ein - sonst waehlt
+                                            // man eine Farbe und nichts geschieht.
+                                            tupfer.addEventListener("click", event => {
+                                                const knopf = event.target.closest("[data-colour-preset]");
+                                                if (!knopf) {
+                                                    return;
+                                                }
+                                
+                                                event.preventDefault();
+                                                wert.value = knopf.dataset.colourPreset;
+                                                schalter.checked = true;
+                                                markiere(feld);
+                                                vorschau();
+                                            });
+                                            wert.addEventListener("input", () => { schalter.checked = true; markiere(feld); vorschau(); });
+                                            schalter.addEventListener("change", () => { markiere(feld); vorschau(); });
+                                            markiere(feld);
                                         });
-                                        feld.addEventListener("input", () => { schalter.checked = true; markiere(); });
-                                        schalter.addEventListener("change", markiere);
-
-                                        function markiere() {
-                                            tupfer.querySelectorAll("[data-accent-preset]").forEach(knopf => {
+                                
+                                        function markiere(feld) {
+                                            const schalter = feld.querySelector("[data-colour-own]");
+                                            const wert = feld.querySelector("[data-colour-value]");
+                                            feld.classList.toggle("is-own", schalter.checked);
+                                            feld.querySelectorAll("[data-colour-preset]").forEach(knopf => {
                                                 knopf.classList.toggle("is-selected",
-                                                    schalter.checked && knopf.dataset.accentPreset.toLowerCase() === feld.value.toLowerCase());
+                                                    schalter.checked && knopf.dataset.colourPreset.toLowerCase() === wert.value.toLowerCase());
                                             });
                                         }
-
-                                        markiere();
+                                
+                                        // Die Karten des Farbschemas und die Wahl hell/dunkel gehoeren zur selben Vorschau.
+                                        form.querySelectorAll("[name='preferredThemeName'], [name='preferredTheme']")
+                                            .forEach(el => el.addEventListener("change", () => {
+                                                form.querySelectorAll(".theme-card").forEach(karte =>
+                                                    karte.classList.toggle("is-selected", !!karte.querySelector("input:checked")));
+                                                vorschau();
+                                            }));
+                                
+                                        let warten = 0;
+                                        let laeuft = null;
+                                        function vorschau() {
+                                            window.clearTimeout(warten);
+                                            warten = window.setTimeout(hole, 120);
+                                        }
+                                
+                                        function eigene(name, schalterName) {
+                                            const feld = form.querySelector("[name='" + name + "']");
+                                            const an = form.querySelector("[name='" + schalterName + "']");
+                                            return feld && an && an.checked ? feld.value : "";
+                                        }
+                                
+                                        async function hole() {
+                                            const modus = (form.querySelector("[name='preferredTheme']:checked") || {}).value || "system";
+                                            const schema = (form.querySelector("[name='preferredThemeName']:checked") || {}).value || "matgate";
+                                            const frage = new URLSearchParams({
+                                                theme: schema,
+                                                accent: eigene("accentColor", "accentOwn"),
+                                                accent2: eigene("accentColor2", "accent2Own"),
+                                                background: eigene("backgroundColor", "backgroundOwn"),
+                                            });
+                                
+                                            if (laeuft) {
+                                                laeuft.abort();
+                                            }
+                                
+                                            laeuft = new AbortController();
+                                            let satz;
+                                            try {
+                                                const antwort = await fetch("/api/theme/preview?" + frage, { signal: laeuft.signal });
+                                                if (!antwort.ok) {
+                                                    return;
+                                                }
+                                
+                                                satz = await antwort.json();
+                                            }
+                                            catch (e) {
+                                                // Abgebrochen oder keine Verbindung: dann bleibt stehen, was zu sehen war.
+                                                return;
+                                            }
+                                
+                                            const dunkel = modus === "dark"
+                                                || (modus === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+                                            document.documentElement.dataset.theme = modus;
+                                            // Inline gesetzt schlaegt es beide :root-Bloecke - bis zum naechsten Laden,
+                                            // und dann liefert der Server dasselbe noch einmal.
+                                            Object.entries(satz[dunkel ? "dark" : "light"] || {}).forEach(([name, farbe]) => {
+                                                document.documentElement.style.setProperty(name, farbe);
+                                            });
+                                        }
                                     })();
                                 </script>
                                 <div class="actions"><button type="submit" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button></div>
@@ -11874,9 +11934,11 @@ public sealed class HtmlViews
         var themes = context.RequestServices.GetService<ThemeService>();
         var palette = themes?.Resolve(user?.PreferredThemeName);
         var accent = user?.AccentColor;
-        var lightVars = ThemeCss(themes, palette, dark: false, indent: 12, accent);
-        var darkVars = ThemeCss(themes, palette, dark: true, indent: 12, accent);
-        var darkVarsDeep = ThemeCss(themes, palette, dark: true, indent: 16, accent);
+        var accent2 = user?.AccentColor2;
+        var ownBackground = user?.BackgroundColor;
+        var lightVars = ThemeCss(themes, palette, dark: false, indent: 12, accent, accent2, ownBackground);
+        var darkVars = ThemeCss(themes, palette, dark: true, indent: 12, accent, accent2, ownBackground);
+        var darkVarsDeep = ThemeCss(themes, palette, dark: true, indent: 16, accent, accent2, ownBackground);
         var requestPath = context.Request.Path.Value ?? "/";
         var displayName = user is null ? "" : string.IsNullOrWhiteSpace(user.DisplayName) ? user.UserName : user.DisplayName;
         var canManageAdminArea = user is not null && (user.IsAdmin || user.CanManageServers);
@@ -12699,6 +12761,8 @@ public sealed class HtmlViews
                     .tp-line { background: var(--p-muted); border-radius: 999px; display: block; height: 4px; opacity: .55; }
                     .tp-short { width: 60%; }
                     .tp-pill { background: var(--p-accent); border-radius: 999px; display: block; height: 9px; width: 52%; }
+                    /* Der zweite Akzent: ein Punkt neben dem Knopf, damit im Bildchen beide Farben vorkommen. */
+                    .tp-dot { background: var(--p-accent-2); border-radius: 999px; display: block; height: 9px; margin-top: -9px; margin-left: 58%; width: 9px; }
                     .theme-card-foot { align-items: center; display: flex; gap: 8px; justify-content: space-between; }
                     .theme-card-name { font-weight: 600; }
                     .theme-card-dots { display: flex; gap: 4px; }
@@ -12715,11 +12779,18 @@ public sealed class HtmlViews
                     .accent-choice { align-items: center; display: flex; flex-wrap: wrap; gap: 14px; margin-top: 12px; }
                     .accent-switch { align-items: center; display: flex; gap: 8px; font-weight: 500; }
                     .accent-wheel { align-items: center; display: inline-flex; gap: 8px; white-space: nowrap; }
-                    .accent-wheel input[type="color"] {
+                    /* Eine Klasse mehr im Namen, als man braucht: die allgemeine Feldregel weiter
+                       unten (input:not(...)) ist genauso spezifisch und steht spaeter, also gaebe
+                       sie dem Farbfeld ihre volle Breite - und aus dem Tupfer wuerde ein Balken,
+                       der die Beschriftung daneben verdeckt. */
+                    .accent-choice .accent-wheel input[type="color"] {
                         background: none;
                         border: 1px solid var(--line);
                         border-radius: 999px;
                         cursor: pointer;
+                        /* Ohne das schrumpft das Feld in der Reihe zu einem Strich zusammen und man
+                           sieht die gewaehlte Farbe nicht mehr, auf die es hier gerade ankommt. */
+                        flex: 0 0 auto;
                         height: 38px;
                         padding: 3px;
                         width: 46px;
@@ -12729,7 +12800,10 @@ public sealed class HtmlViews
                         background: var(--dot);
                         border: 2px solid transparent;
                         border-radius: 999px;
-                        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 16%, transparent);
+                        /* Kraeftiger als frueher: unter den Vorschlaegen sind jetzt auch dunkle
+                           Hintergruende, und ein dunkler Tupfer auf dunklem Grund verschwindet
+                           ohne sichtbaren Rand. */
+                        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 26%, transparent);
                         cursor: pointer;
                         height: 26px;
                         padding: 0;
@@ -17832,10 +17906,17 @@ public sealed class HtmlViews
         return values.GetValueOrDefault("surface", dark ? "#171d1a" : "#ffffff");
     }
 
-    private static string ThemeCss(ThemeService? themes, ThemeDefinition? palette, bool dark, int indent, string? accent = null)
+    private static string ThemeCss(
+        ThemeService? themes,
+        ThemeDefinition? palette,
+        bool dark,
+        int indent,
+        string? accent = null,
+        string? accent2 = null,
+        string? background = null)
     {
         var values = themes is not null && palette is not null
-            ? themes.Values(palette, dark, accent)
+            ? themes.Values(palette, dark, accent, accent2, background)
             : ThemeService.FallbackValues(dark);
         var pad = new string(' ', indent);
         // Gefiltert: ein Wert aus einer Datei wird hier woertlich in ein <style> geschrieben.
@@ -17950,16 +18031,84 @@ public sealed class HtmlViews
     {
         var style = $"--p-bg: {v.GetValueOrDefault("bg", "#fff")}; --p-surface: {v.GetValueOrDefault("surface", "#fff")};"
             + $" --p-line: {v.GetValueOrDefault("line", "#ddd")}; --p-accent: {v.GetValueOrDefault("accent", "#333")};"
+            + $" --p-accent-2: {v.GetValueOrDefault("accent-2", v.GetValueOrDefault("accent", "#333"))};"
             + $" --p-muted: {v.GetValueOrDefault("muted", "#888")}; --p-radius: {v.GetValueOrDefault("radius", "8px")}";
 
+        // Der zweite Akzent als Tupfer neben dem Knopf - sonst saehe man im Bildchen nicht, dass
+        // es ihn gibt; in der Anwendung traegt er das Zeichen und die Verlaeufe.
         return $$"""
             <span class="theme-preview" style="{{A(style)}}">
                 <span class="tp-bar"></span>
-                <span class="tp-body"><span class="tp-line"></span><span class="tp-line tp-short"></span><span class="tp-pill"></span></span>
+                <span class="tp-body"><span class="tp-line"></span><span class="tp-line tp-short"></span><span class="tp-pill"></span><span class="tp-dot"></span></span>
             </span>
             """;
     }
 
+    // Drei Farben nach demselben Muster: der Akzent, der zweite Akzent und der Hintergrund.
+    // Jede hat einen Schalter - eigene Farbe oder die des Themas -, einen Farbwaehler und einen
+    // Satz Tupfer fuer den schnellen Griff. Was leer bleibt, kommt weiter aus dem Thema.
+    private static string ColourGroups(HttpContext context, MatgateUser user)
+    {
+        var de = Language(context) == "de";
+        var themes = context.RequestServices.GetService<ThemeService>();
+        var palette = themes?.Resolve(user.PreferredThemeName);
+        var werte = themes is not null && palette is not null
+            ? themes.Values(palette, dark: false)
+            : ThemeService.FallbackValues(dark: false);
+
+        string Gruppe(string legende, string hinweis, string schalter, string feld, string wert, string ersatz, string tupfer)
+            => $$"""
+                <fieldset class="settings-group">
+                    <legend>{{E(legende)}}</legend>
+                    <p class="muted settings-hint">{{E(hinweis)}}</p>
+                    <div class="accent-choice" data-colour-field>
+                        <label class="accent-switch">
+                            <input type="checkbox" name="{{A(schalter)}}" data-colour-own{{(ThemeService.IsColour(wert) ? " checked" : "")}}>
+                            <span>{{(de ? "Eigene Farbe" : "Own colour")}}</span>
+                        </label>
+                        <label class="accent-wheel">
+                            <input type="color" name="{{A(feld)}}" data-colour-value value="{{A(ThemeService.IsColour(wert) ? wert : ersatz)}}">
+                            <span class="muted">{{(de ? "Farbkreis" : "Colour wheel")}}</span>
+                        </label>
+                        <div class="accent-presets" data-colour-presets>{{tupfer}}</div>
+                    </div>
+                </fieldset>
+                """;
+
+        return Gruppe(
+            de ? "Akzentfarbe" : "Accent colour",
+            de
+                ? "Die Farbe der Knöpfe und Hervorhebungen. Matgate hält sie lesbar: der Farbton bleibt, die Helligkeit wird angepasst, wenn die Schrift darauf sonst verschwindet."
+                : "The colour of buttons and highlights. Matgate keeps it readable: the hue stays, the lightness is adjusted when the label on it would otherwise vanish.",
+            "accentOwn", "accentColor", user.AccentColor, werte.GetValueOrDefault("accent", "#176b5b"), AccentPresets())
+            + Gruppe(
+                de ? "Zweite Akzentfarbe" : "Second accent colour",
+                de
+                    ? "Für das Zeichen, die Verläufe und alles, was nebenbei hervorgehoben wird. Sie trägt keine Schrift, darf also kräftiger sein als die erste."
+                    : "For the mark, the gradients and anything highlighted in passing. It carries no text, so it may be bolder than the first.",
+                "accent2Own", "accentColor2", user.AccentColor2, werte.GetValueOrDefault("accent-2", "#2b5876"), AccentPresets())
+            + Gruppe(
+                de ? "Hintergrund" : "Background",
+                de
+                    ? "Der Grund, auf dem alles liegt. Aus ihm leitet Matgate die Flächen darüber ab - Felder, Linien, Schrift -, damit eine frei gewählte Farbe nicht die Lesbarkeit mitnimmt."
+                    : "The ground everything sits on. Matgate derives the surfaces above it - panels, lines, text - so a freely chosen colour does not take readability with it.",
+                "backgroundOwn", "backgroundColor", user.BackgroundColor, werte.GetValueOrDefault("bg", "#f4f6f4"), BackgroundPresets());
+    }
+
+    // Hintergruende, hell wie dunkel - ein eigener Satz, weil ein Grund andere Toene braucht
+    // als ein Akzent: gedeckt, nicht leuchtend.
+    private static string BackgroundPresets()
+    {
+        string[] farben =
+        [
+            "#ffffff", "#f4f6f4", "#f3f4f6", "#faf6f0", "#eef2f7",
+            "#0f1412", "#111317", "#15110d", "#0d1420", "#1b1b1f",
+        ];
+
+        return string.Join("", farben.Select(farbe => $$"""
+            <button type="button" class="accent-preset" data-colour-preset="{{A(farbe)}}" style="--dot: {{A(farbe)}}" title="{{A(farbe)}}" aria-label="{{A(farbe)}}"></button>
+            """));
+    }
     // Ein Satz Vorschlaege quer durch den Farbkreis - wer nur schnell etwas anderes will, muss
     // dafuer keinen Farbwaehler oeffnen. Die Werte sind mitteldunkel gewaehlt, damit sie in beiden
     // Modi ohne grosse Nachbesserung durchkommen.
@@ -17972,7 +18121,7 @@ public sealed class HtmlViews
         ];
 
         return string.Join("", farben.Select(farbe => $$"""
-            <button type="button" class="accent-preset" data-accent-preset="{{A(farbe)}}" style="--dot: {{A(farbe)}}" title="{{A(farbe)}}" aria-label="{{A(farbe)}}"></button>
+            <button type="button" class="accent-preset" data-colour-preset="{{A(farbe)}}" style="--dot: {{A(farbe)}}" title="{{A(farbe)}}" aria-label="{{A(farbe)}}"></button>
             """));
     }
 
