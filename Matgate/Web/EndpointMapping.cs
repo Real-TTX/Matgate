@@ -3832,8 +3832,10 @@ public static class EndpointMapping
         }
 
         // Abschalten ist der Weg zurueck zu einem Faktor - dafuer das Passwort, sonst genuegte ein
-        // offener Rechner.
-        if (!hasher.Verify(form["currentPassword"].ToString(), user.PasswordHash))
+        // offener Rechner. Eine ANGEFANGENE Einrichtung ist etwas anderes: dort ist noch nichts
+        // eingeschaltet und nichts geschuetzt, also waere ein Passwort nur eine Huerde vor dem
+        // Abbrechen. Ohne diesen Unterschied blieb man auf der Bestaetigungsseite haengen.
+        if (user.TotpEnabled && !hasher.Verify(form["currentPassword"].ToString(), user.PasswordHash))
         {
             return Results.Redirect("/account?tab=security&totp=passwort");
         }

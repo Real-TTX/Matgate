@@ -18697,6 +18697,14 @@ public sealed class HtmlViews
                         </label>
                         <div class="actions"><button type="submit" class="primary">{{Icon("check")}}{{(de ? "Einschalten" : "Turn on")}}</button></div>
                     </form>
+                    <!-- Wer hier aufhoeren will, muss das koennen. Ohne diesen Weg blieb man auf
+                         dieser Seite haengen: eingeschaltet war nichts, aber der Knopf "Einrichten"
+                         kam auch nicht wieder, weil das Geheimnis schon lag. Ein Passwort braucht es
+                         dafuer nicht - geschuetzt ist noch gar nichts. -->
+                    <form method="post" action="/account/totp/disable">
+                        {{Csrf(context)}}
+                        <div class="actions"><button type="submit">{{Icon("x")}}{{(de ? "Abbrechen" : "Cancel")}}</button></div>
+                    </form>
                 </section>
                 """;
         }
