@@ -1,0 +1,13 @@
+{
+  "name": "matgate-tests",
+  "version": "0.0.0",
+  "private": true,
+  "description": "End-to-end UI tests for Matgate, driven with Playwright against the stack in tests/docker-compose.yml.",
+  "scripts": {
+    "test": "node run-all.js",
+    "seed": "node seed.js"
+  },
+  "devDependencies": {
+    "playwright-core": "^1.63.0"
+  }
+}

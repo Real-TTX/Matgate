@@ -6,3 +6,9 @@ data/
 .env
 .env.*
 !.env.example
+
+# UI tests pull playwright-core; the browser itself is the one already on the machine.
+tests/node_modules/
+tests/*.png
+run-out.txt
+suite-out.txt

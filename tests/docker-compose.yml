@@ -1,0 +1,80 @@
+# The stack the UI tests run against: a complete Matgate behind the same edge proxy as in
+# production, plus Guacamole and an SSH host to connect to. Separate from the development stack on
+# purpose - the tests create and delete users, places and shares, and they must not do that in
+# anything anyone is working in.
+#
+#   docker compose -f tests/docker-compose.yml up -d --build
+#   node tests/run-all.js
+#
+# Everything in here is test data: the credentials below exist only inside this stack, which
+# publishes a single port on localhost.
+name: matgate-tests
+services:
+  edge:
+    image: caddy:2
+    depends_on: [matgate, guacamole]
+    ports: ["18091:8088"]
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        printf "%s\n" \
+          ":8088 {" \
+          "  encode zstd gzip" \
+          "  handle /guacamole* {" \
+          "    forward_auth matgate:8080 {" \
+          "      uri /internal/guac-authz" \
+          "    }" \
+          "    reverse_proxy guacamole:8080" \
+          "  }" \
+          "  handle {" \
+          "    reverse_proxy matgate:8080" \
+          "  }" \
+          "}" > /tmp/Caddyfile && exec caddy run --config /tmp/Caddyfile --adapter caddyfile
+  matgate:
+    build:
+      context: ..
+      dockerfile: Matgate/Dockerfile
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      MATGATE_DATA_DIR: /data
+      MATGATE_ADMIN_USER: admin
+      MATGATE_ADMIN_PASSWORD: test-only-pw
+      MATGATE_ADMIN_EMAIL: admin@example.invalid
+    volumes: [mgdata:/data, secrets:/run/matgate-secrets, files:/files]
+    healthcheck:
+      test: ["CMD-SHELL", "test -s /run/matgate-secrets/guac.key"]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+  guacd:
+    environment:
+      GUACD_LOG_LEVEL: debug
+    image: guacamole/guacd:1.6.0
+  guacamole:
+    image: guacamole/guacamole:1.6.0
+    depends_on:
+      guacd: { condition: service_started }
+      matgate: { condition: service_healthy }
+    environment:
+      GUACD_HOSTNAME: guacd
+      JSON_ENABLED: "true"
+      JSON_SECRET_KEY_FILE: /run/matgate-secrets/guac.key
+      WEBAPP_CONTEXT: guacamole
+    volumes: [secrets:/run/matgate-secrets:ro]
+  ssh:
+    image: lscr.io/linuxserver/openssh-server:latest
+    environment:
+      USER_NAME: demo
+      USER_PASSWORD: demo-only-pw
+      PASSWORD_ACCESS: "true"
+      SUDO_ACCESS: "false"
+volumes: { mgdata: , secrets: , files: }
+# A fixed subnet, because Docker's default pools run out on a machine with many stacks
+# ("all predefined address pools have been fully subnetted"). Change it if 10.253.81.0/24 is
+# already taken here.
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 10.253.81.0/24
