@@ -47,8 +47,8 @@ public sealed class JsonDataStore
 
     private string DefaultsPath => Path.Combine(DataDirectory, "defaults.json");
 
-    // Keine Liste, sondern ein einzelner Satz Vorgaben - deshalb eigene Lese- und Schreibwege:
-    // eine Datei mit einem einelementigen Array waere fuer den, der sie aufmacht, nur Raetselraten.
+    // Not a list but a single set of defaults - hence its own read and write paths: a file holding a
+    // one-element array would be a riddle for whoever opens it.
     public async Task<AppDefaults> GetDefaultsAsync(CancellationToken cancellationToken = default)
     {
         await _gate.WaitAsync(cancellationToken);
@@ -65,8 +65,8 @@ public sealed class JsonDataStore
         }
         catch (JsonException exception)
         {
-            // Eine kaputte Datei darf die Anmeldung nicht aufhalten: dann gelten die eingebauten
-            // Vorgaben, und es steht im Protokoll.
+            // A broken file must not hold up signing in: the built-in defaults apply instead, and it goes
+            // into the log.
             _logger.LogWarning(exception, "defaults.json is not readable - built-in defaults apply.");
             return new AppDefaults();
         }
@@ -109,9 +109,8 @@ public sealed class JsonDataStore
             var users = await ReadListAsync<MatgateUser>(UsersPath, cancellationToken);
             foreach (var user in users)
             {
-                // Das Geheimnis des zweiten Faktors ist so gut wie ein Passwort: wer es hat, kann
-                // jeden Code ausrechnen. Es liegt deshalb verschluesselt in der Datei, wie die
-                // Kennwoerter der Verbindungen.
+                // The second factor's secret is as good as a password: whoever holds it can compute every code.
+                // It is therefore stored encrypted in the file, like the connections' passwords.
                 user.TotpSecret = _protector.Unprotect(user.TotpSecret);
             }
 

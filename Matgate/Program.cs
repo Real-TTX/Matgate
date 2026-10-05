@@ -79,11 +79,11 @@ builder.WebHost.ConfigureKestrel(options =>
 builder.Services.Configure<ForwardedHeadersOptions>(options =>
 {
     options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto;
-    // KnownNetworks heißt seit .NET 10 KnownIPNetworks - derselbe Zweck, neuer Name. Beide Listen
-    // werden geleert: jeder Vordermann gilt als vertrauenswürdig. Das trägt nur, solange Matgate
-    // wirklich nur über den Randproxy erreichbar ist (im mitgelieferten Compose-Stapel gibt allein
-    // "edge" einen Port nach außen). Läge der Port offen, könnte ein Aufrufer seine eigene Adresse
-    // und "https" behaupten - und damit die Bremse der Anmeldung aushebeln.
+    // KnownNetworks is called KnownIPNetworks as of .NET 10 - same purpose, new name. Both lists are
+    // cleared: every upstream hop counts as trusted. That only holds as long as Matgate really is
+    // reachable through the edge proxy alone (in the bundled compose stack only "edge" publishes a
+    // port). With the port exposed, a caller could claim their own address and "https" - and with
+    // that defeat the login rate limit.
     options.KnownIPNetworks.Clear();
     options.KnownProxies.Clear();
 });
@@ -157,11 +157,10 @@ app.UseForwardedHeaders();
 // Never let a browser / installed PWA serve a stale app shell: HTML pages carry the whole app
 // (CSS + JS are inlined), so mark every HTML response no-store. Assets served with their own
 // cache headers (manifest, icons, proxied content) are text/* or binary and unaffected.
-// Ein Fehler beim Dateizugriff kam bisher als leeres 500 an: auf dem Bildschirm geschah nichts,
-// und warum, stand nur im Protokoll des Servers. Gerade die häufigsten Fälle - keine Rechte, Pfad
-// weg - sind aber die, die man dem Benutzer sagen kann, denn er hat den Pfad selbst genannt.
-// Alles Übrige bleibt eine Zeile ohne Innenleben; was schiefging, gehört ins Protokoll, nicht in
-// die Antwort.
+// A file-access error used to arrive as an empty 500: nothing happened on screen, and the reason
+// was only in the server log. Yet the most common cases - no permission, path gone - are exactly
+// the ones that can be told to the user, since they named the path themselves. Everything else
+// stays a line without detail; what went wrong belongs in the log, not in the response.
 app.Use(async (context, next) =>
 {
     if (!(context.Request.Path.Value ?? "").StartsWith("/api/files", StringComparison.OrdinalIgnoreCase))
@@ -176,15 +175,23 @@ app.Use(async (context, next) =>
     }
     catch (Exception exception) when (!context.Response.HasStarted)
     {
-        var (status, meldung) = exception switch
+        // The message is read by a person, so it follows their language like every other text.
+        var de = Matgate.Web.HtmlViews.Language(context) == "de";
+        var (status, message) = exception switch
         {
-            Renci.SshNet.Common.SftpPermissionDeniedException => (StatusCodes.Status403Forbidden, "Keine Berechtigung für diesen Pfad."),
-            UnauthorizedAccessException => (StatusCodes.Status403Forbidden, "Keine Berechtigung für diesen Pfad."),
-            Renci.SshNet.Common.SftpPathNotFoundException => (StatusCodes.Status404NotFound, "Dieser Pfad existiert nicht."),
-            FileNotFoundException => (StatusCodes.Status404NotFound, "Dieser Pfad existiert nicht."),
-            DirectoryNotFoundException => (StatusCodes.Status404NotFound, "Dieser Pfad existiert nicht."),
+            Renci.SshNet.Common.SftpPermissionDeniedException => (StatusCodes.Status403Forbidden,
+                de ? "Keine Berechtigung für diesen Pfad." : "No permission for this path."),
+            UnauthorizedAccessException => (StatusCodes.Status403Forbidden,
+                de ? "Keine Berechtigung für diesen Pfad." : "No permission for this path."),
+            Renci.SshNet.Common.SftpPathNotFoundException => (StatusCodes.Status404NotFound,
+                de ? "Dieser Pfad existiert nicht." : "This path does not exist."),
+            FileNotFoundException => (StatusCodes.Status404NotFound,
+                de ? "Dieser Pfad existiert nicht." : "This path does not exist."),
+            DirectoryNotFoundException => (StatusCodes.Status404NotFound,
+                de ? "Dieser Pfad existiert nicht." : "This path does not exist."),
             InvalidOperationException => (StatusCodes.Status400BadRequest, exception.Message),
-            _ => (StatusCodes.Status500InternalServerError, "Der Dateizugriff ist fehlgeschlagen."),
+            _ => (StatusCodes.Status500InternalServerError,
+                de ? "Der Dateizugriff ist fehlgeschlagen." : "File access failed."),
         };
 
         context.RequestServices.GetRequiredService<ILoggerFactory>()
@@ -193,7 +200,7 @@ app.Use(async (context, next) =>
 
         context.Response.Clear();
         context.Response.StatusCode = status;
-        await context.Response.WriteAsJsonAsync(new { error = meldung });
+        await context.Response.WriteAsJsonAsync(new { error = message });
     }
 });
 

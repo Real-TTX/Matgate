@@ -3,18 +3,18 @@ using Matgate.Models;
 
 namespace Matgate.Services;
 
-// Die Paletten: eingebaut, und darüber das, was eine Datei im Datenverzeichnis ergänzt oder ersetzt.
+// The palettes: the built-in ones, and on top of them whatever a file in the data directory adds
 //
-// Eine Palette definiert nur, was sie ändern will. Alles Übrige fällt auf "matgate" zurück - deshalb
-// kann eine Datei aus drei Zeilen bestehen ("Akzent anders") und trotzdem ein vollständiges Thema
-// ergeben. Fehlt die Datei, ist sie kaputt oder nennt sie Unsinn, bleiben die eingebauten stehen und
-// es steht im Protokoll; eine unleserliche Datei darf die Oberfläche nicht mitnehmen.
+// or replaces. A palette only defines what it wants to change. Everything else falls back to
+// "matgate" - which is why a file can be three lines long ("different accent") and still yield a
+// complete theme. If the file is missing, broken or nonsense, the built-in ones stay and it goes
+// into the log; an unreadable file must not take the UI down with it.
 public sealed class ThemeService
 {
     public const string DefaultKey = "matgate";
 
-    // Die Farbtoken, die das Stylesheet liest. Ein Thema darf jedes davon setzen; was es auslässt,
-    // kommt aus der Grundpalette.
+    // The colour tokens the stylesheet reads. A theme may set any of them; what it leaves out comes
+    // from the base palette.
     public static readonly string[] Tokens =
     [
         "bg", "panel", "surface", "surface-2", "surface-3",
@@ -49,8 +49,8 @@ public sealed class ThemeService
     {
         get
         {
-            // Die Datei darf im Betrieb geändert werden - gelesen wird sie, wenn sie sich gerührt
-            // hat, höchstens aber alle paar Sekunden, damit jede Seite nicht auf die Platte geht.
+            // The file may be edited while running - it is re-read when it has changed, but at most every few
+            // seconds, so that not every page hits the disk.
             if (DateTimeOffset.UtcNow - _loadedAt > TimeSpan.FromSeconds(5))
             {
                 var stamp = File.Exists(_filePath) ? File.GetLastWriteTimeUtc(_filePath) : DateTime.MinValue;
@@ -75,7 +75,7 @@ public sealed class ThemeService
             ?? all.First(theme => theme.Key == DefaultKey);
     }
 
-    // Die fertigen Werte eines Themas für einen Modus: erst die Grundpalette, dann das Thema darüber.
+    // The finished values of a theme for one mode: the base palette first, then the theme on top.
     public IReadOnlyDictionary<string, string> Values(
         ThemeDefinition theme,
         bool dark,
@@ -94,9 +94,8 @@ public sealed class ThemeService
             }
         }
 
-        // Die Farbtupfer der Protokolle: erst die der Grundpalette, dann die des Themas. Getrennt
-        // nach Modus, weil ein Ton, der im Dunkeln leuchtet, im Hellen auf seiner eigenen Toenung
-        // verschwindet.
+        // The protocol colour dots: the base palette's first, then the theme's. Kept separate per mode,
+        // because a shade that glows in the dark disappears into its own tint in the light.
         foreach (var (token, value) in ProtocolValues(baseTheme, dark))
         {
             values["proto-" + token] = value;
@@ -113,67 +112,67 @@ public sealed class ThemeService
             values["icon-stroke"] = stroke;
         }
 
-        // Der eigene Hintergrund zuerst: alles Weitere - auch die Lesbarkeit der Akzente - haengt
-        // daran, worauf es am Ende liegt.
+        // The user's own background first: everything after it - including how readable the accents are -
+        // depends on what it ends up sitting on.
         if (IsColour(backgroundOverride))
         {
             ApplyBackground(values, backgroundOverride!, dark ? baseTheme.Dark : baseTheme.Light,
                 dark ? baseTheme.Light : baseTheme.Dark);
         }
 
-        // Die eigenen Akzentfarben zuletzt, damit sie auch ein Thema aus der Datei ueberstimmen. Was
-        // gewaehlt wurde, ist nicht zwingend, was gesetzt wird: die Schrift darauf ist --bg.
-        var grund = values.GetValueOrDefault("bg", dark ? "#0f1412" : "#ffffff");
+        // The user's own accent colours last, so they also override a theme loaded from file. What was
+        // picked is not necessarily what gets set: the text on top of it is --bg.
+        var background = values.GetValueOrDefault("bg", dark ? "#0f1412" : "#ffffff");
         if (IsColour(accentOverride))
         {
-            var sicher = SafeAccent(accentOverride!, grund);
-            values["accent"] = sicher;
-            values["primary-hover"] = HoverAccent(sicher, grund);
-            values["proto-local"] = sicher;
+            var safe = SafeAccent(accentOverride!, background);
+            values["accent"] = safe;
+            values["primary-hover"] = HoverAccent(safe, background);
+            values["proto-local"] = safe;
         }
 
-        // Die zweite Akzentfarbe traegt keine Schrift - sie faerbt Zeichen, Verlaeufe und
-        // Nebenhervorhebungen. Deshalb genuegt ihr die Schwelle fuer Flaechen (3.0) statt der
-        // fuer Text (4.5); strenger gemessen wuerde jeder zweite Ton unnoetig aufgehellt.
+        // The second accent carries no text - it colours the logo, gradients and secondary highlights. So
+        // the threshold for surfaces (3.0) is enough for it instead of the one for text (4.5); measured
+        // more strictly, every other shade would be lightened for no reason.
         if (IsColour(accent2Override))
         {
-            values["accent-2"] = SafeAccent(accent2Override!, grund, 3.0);
+            values["accent-2"] = SafeAccent(accent2Override!, background, 3.0);
         }
 
         return values;
     }
 
-    // Ein frei gewaehlter Hintergrund ist nur so gut wie das, was darauf liegt. Aus ihm werden
-    // deshalb die Flaechen abgeleitet - Felder, Linien, Schweben -, und Schrift und Schatten kommen
-    // von der Seite, die zu seiner Helligkeit passt: wer im hellen Thema Schwarz waehlt, bekommt
-    // die helle Schrift des dunklen, sonst stuende Dunkel auf Dunkel.
+    // A freely chosen background is only as good as what sits on it. The surfaces are therefore
+    // derived from it - fields, lines, hover - and text and shadow come from whichever side matches
+    // its brightness: picking black in a light theme gets the light text of the dark one, otherwise
+    // it would be dark on dark.
     private static void ApplyBackground(
         Dictionary<string, string> values,
         string background,
-        IReadOnlyDictionary<string, string> gleicheSeite,
-        IReadOnlyDictionary<string, string> andereSeite)
+        IReadOnlyDictionary<string, string> sameSide,
+        IReadOnlyDictionary<string, string> otherSide)
     {
         if (!TryParse(background, out var r, out var g, out var b))
         {
             return;
         }
 
-        var dunkel = Luminance(r, g, b) < 0.4;
-        var passend = dunkel == IstDunkel(gleicheSeite) ? gleicheSeite : andereSeite;
+        var isDark = Luminance(r, g, b) < 0.4;
+        var matching = isDark == IsDark(sameSide) ? sameSide : otherSide;
 
         foreach (var token in new[] { "text", "muted", "shadow", "shadow-strong" })
         {
-            if (passend.TryGetValue(token, out var wert) && !string.IsNullOrWhiteSpace(wert))
+            if (matching.TryGetValue(token, out var value) && !string.IsNullOrWhiteSpace(value))
             {
-                values[token] = wert.Trim();
+                values[token] = value.Trim();
             }
         }
 
         values["bg"] = Normalise(background);
 
-        // Ein dunkler Grund traegt hellere Flaechen, ein heller traegt weisse Felder und
-        // abgesetzte Mulden. Die Zahlen sind an den eingebauten Paletten abgelesen.
-        (string Token, int Prozent)[] schritte = dunkel
+        // A dark ground carries lighter surfaces, a light one carries white fields and recessed wells.
+        // The numbers are read off the built-in palettes.
+        (string Token, int Percent)[] steps = isDark
             ?
             [
                 ("panel", 6), ("surface", 7), ("surface-2", 12), ("surface-3", 18),
@@ -185,16 +184,16 @@ public sealed class ThemeService
                 ("hover-bg", 25), ("hover-strong-bg", -3), ("active-bg", -8), ("line", -14),
             ];
 
-        foreach (var (token, prozent) in schritte)
+        foreach (var (token, percent) in steps)
         {
-            var (sr, sg, sb) = Shift(r, g, b, prozent);
+            var (sr, sg, sb) = Shift(r, g, b, percent);
             values[token] = $"#{sr:x2}{sg:x2}{sb:x2}";
         }
     }
 
-    private static bool IstDunkel(IReadOnlyDictionary<string, string> seite)
+    private static bool IsDark(IReadOnlyDictionary<string, string> side)
     {
-        return TryParse(seite.GetValueOrDefault("bg", "#ffffff"), out var r, out var g, out var b)
+        return TryParse(side.GetValueOrDefault("bg", "#ffffff"), out var r, out var g, out var b)
             && Luminance(r, g, b) < 0.4;
     }
 
@@ -210,9 +209,9 @@ public sealed class ThemeService
             .Select(entry => new KeyValuePair<string, string>(entry.Key.Trim().ToLowerInvariant(), entry.Value.Trim()));
     }
 
-    // Was in ein Stylesheet geschrieben werden darf. Ohne diese Pruefung koennte ein Wert wie
-    // "#fff; } html { display: none" die Regel schliessen und eine eigene aufmachen - die Datei
-    // liegt zwar im Datenverzeichnis, aber eine Konfiguration soll keine Oberflaeche kapern.
+    // What may be written into a stylesheet. Without this check a value like "#fff; } html { display:
+    // none" could close the rule and open one of its own - the file does live in the data directory,
+    // but a configuration should not be able to hijack a UI.
     public static bool Accept(string token, string value)
     {
         if (string.IsNullOrWhiteSpace(token) || string.IsNullOrWhiteSpace(value))
@@ -228,13 +227,13 @@ public sealed class ThemeService
             }
         }
 
-        // Erlaubt ist, was Farben und Schatten brauchen: Ziffern, Buchstaben, Raute, Prozent,
-        // Klammern, Punkt, Komma, Schraegstrich, Leerzeichen, Minus.
+        // Allowed is what colours and shadows need: digits, letters, hash, percent, parentheses, dot,
+        // comma, slash, space, minus.
         foreach (var c in value)
         {
-            var erlaubt = char.IsAsciiLetterOrDigit(c)
+            var allowed = char.IsAsciiLetterOrDigit(c)
                 || c is '#' or '%' or '(' or ')' or '.' or ',' or '/' or ' ' or '-' or '+';
-            if (!erlaubt)
+            if (!allowed)
             {
                 return false;
             }
@@ -262,7 +261,7 @@ public sealed class ThemeService
                     {
                         if (string.IsNullOrWhiteSpace(theme.Key))
                         {
-                            _logger.LogWarning("Ein Thema in {Path} hat keinen Schlüssel und wird übergangen.", _filePath);
+                            _logger.LogWarning("A theme in {Path} has no key and is skipped.", _filePath);
                             continue;
                         }
 
@@ -272,8 +271,8 @@ public sealed class ThemeService
                             theme.Name = theme.Key;
                         }
 
-                        // Gleicher Schlüssel heißt ersetzen: so lässt sich auch ein eingebautes Thema
-                        // anpassen, ohne dass es zweimal in der Liste steht.
+                        // The same key means replace: that way a built-in theme can be adjusted without ending up in the
+                        // list twice.
                         var existing = themes.FindIndex(entry => entry.Key == theme.Key);
                         if (existing >= 0)
                         {
@@ -285,7 +284,7 @@ public sealed class ThemeService
                         }
                     }
 
-                    _logger.LogInformation("{Count} Themen geladen, davon {Extra} aus {Path}.",
+                    _logger.LogInformation("{Count} themes loaded, {Extra} of them from {Path}.",
                         themes.Count, (fromFile ?? []).Count, _filePath);
                 }
                 else
@@ -295,8 +294,8 @@ public sealed class ThemeService
             }
             catch (Exception ex)
             {
-                // Lieber die eingebauten Themen als gar keine Oberfläche.
-                _logger.LogWarning(ex, "{Path} konnte nicht gelesen werden; es gelten die eingebauten Themen.", _filePath);
+                // Better the built-in themes than no UI at all.
+                _logger.LogWarning(ex, "{Path} could not be read; the built-in themes apply.", _filePath);
                 _fileStamp = DateTime.MinValue;
             }
 
@@ -305,10 +304,10 @@ public sealed class ThemeService
         }
     }
 
-    // Schrift auf einer Akzentfläche ist --bg. Eine frei gewählte Farbe kann dort also unlesbar
-    // werden - hellgrün auf fast weiß ist 1,4 statt der nötigen 4,5. Statt die Wahl abzulehnen wird
-    // der Farbton behalten und die Helligkeit so lange in die Gegenrichtung geschoben, bis es
-    // reicht: der Benutzer bekommt seine Farbe, nur in einer Nuance, die man lesen kann.
+    // Text on an accent surface is --bg, so a freely chosen colour can become unreadable there - light
+    // green on near-white is 1.4 instead of the required 4.5. Rather than rejecting the choice, the
+    // hue is kept and the lightness pushed in the opposite direction until it is enough: the user gets
+    // their colour, just in a shade that can be read.
     public static string SafeAccent(string hex, string background, double minimum = 4.5)
     {
         if (!TryParse(hex, out var r, out var g, out var b) || !TryParse(background, out var br, out var bg2, out var bb))
@@ -317,21 +316,21 @@ public sealed class ThemeService
         }
 
         var backgroundLum = Luminance(br, bg2, bb);
-        var dunklerHintergrund = backgroundLum < 0.5;
+        var darkBackground = backgroundLum < 0.5;
 
-        for (var schritt = 0; schritt <= 100; schritt++)
+        for (var step = 0; step <= 100; step++)
         {
-            var (rr, gg, bbb) = Shift(r, g, b, dunklerHintergrund ? schritt : -schritt);
+            var (rr, gg, bbb) = Shift(r, g, b, darkBackground ? step : -step);
             if (Contrast(Luminance(rr, gg, bbb), backgroundLum) >= minimum)
             {
                 return $"#{rr:x2}{gg:x2}{bbb:x2}";
             }
         }
 
-        return dunklerHintergrund ? "#ffffff" : "#000000";
+        return darkBackground ? "#ffffff" : "#000000";
     }
 
-    // Dieselbe Farbe, eine Spur kräftiger - für den Zustand beim Zeigen.
+    // The same colour, a touch stronger - for the hover state.
     public static string HoverAccent(string hex, string background)
     {
         if (!TryParse(hex, out var r, out var g, out var b) || !TryParse(background, out _, out _, out _))
@@ -339,8 +338,8 @@ public sealed class ThemeService
             return hex;
         }
 
-        var dunkel = Luminance(r, g, b) < 0.4;
-        var (rr, gg, bb) = Shift(r, g, b, dunkel ? 8 : -8);
+        var isDark = Luminance(r, g, b) < 0.4;
+        var (rr, gg, bb) = Shift(r, g, b, isDark ? 8 : -8);
         return SafeAccent($"#{rr:x2}{gg:x2}{bb:x2}", background);
     }
 
@@ -349,54 +348,54 @@ public sealed class ThemeService
         return !string.IsNullOrWhiteSpace(value) && TryParse(value, out _, out _, out _);
     }
 
-    private static (int R, int G, int B) Shift(int r, int g, int b, int prozent)
+    private static (int R, int G, int B) Shift(int r, int g, int b, int percent)
     {
-        int Einzeln(int wert) => prozent >= 0
-            ? (int)Math.Round(wert + (255 - wert) * (prozent / 100.0))
-            : (int)Math.Round(wert * (1 + prozent / 100.0));
-        return (Math.Clamp(Einzeln(r), 0, 255), Math.Clamp(Einzeln(g), 0, 255), Math.Clamp(Einzeln(b), 0, 255));
+        int Scaled(int value) => percent >= 0
+            ? (int)Math.Round(value + (255 - value) * (percent / 100.0))
+            : (int)Math.Round(value * (1 + percent / 100.0));
+        return (Math.Clamp(Scaled(r), 0, 255), Math.Clamp(Scaled(g), 0, 255), Math.Clamp(Scaled(b), 0, 255));
     }
 
     private static bool TryParse(string? hex, out int r, out int g, out int b)
     {
         r = g = b = 0;
-        var wert = (hex ?? "").Trim().TrimStart('#');
-        if (wert.Length == 3)
+        var value = (hex ?? "").Trim().TrimStart('#');
+        if (value.Length == 3)
         {
-            wert = string.Concat(wert.Select(c => new string(c, 2)));
+            value = string.Concat(value.Select(c => new string(c, 2)));
         }
 
-        if (wert.Length != 6 || !wert.All(Uri.IsHexDigit))
+        if (value.Length != 6 || !value.All(Uri.IsHexDigit))
         {
             return false;
         }
 
-        r = Convert.ToInt32(wert[..2], 16);
-        g = Convert.ToInt32(wert.Substring(2, 2), 16);
-        b = Convert.ToInt32(wert.Substring(4, 2), 16);
+        r = Convert.ToInt32(value[..2], 16);
+        g = Convert.ToInt32(value.Substring(2, 2), 16);
+        b = Convert.ToInt32(value.Substring(4, 2), 16);
         return true;
     }
 
     private static double Luminance(int r, int g, int b)
     {
-        double Kanal(int wert)
+        double Channel(int value)
         {
-            var v = wert / 255.0;
+            var v = value / 255.0;
             return v <= 0.03928 ? v / 12.92 : Math.Pow((v + 0.055) / 1.055, 2.4);
         }
 
-        return 0.2126 * Kanal(r) + 0.7152 * Kanal(g) + 0.0722 * Kanal(b);
+        return 0.2126 * Channel(r) + 0.7152 * Channel(g) + 0.0722 * Channel(b);
     }
 
     private static double Contrast(double a, double b)
     {
-        var hell = Math.Max(a, b);
-        var dunkel = Math.Min(a, b);
-        return (hell + 0.05) / (dunkel + 0.05);
+        var lighter = Math.Max(a, b);
+        var darker = Math.Min(a, b);
+        return (lighter + 0.05) / (darker + 0.05);
     }
 
-    // Ohne Dienst: die eingebaute Grundpalette. Wird nur gebraucht, wenn die Aufloesung aus dem
-    // Anfragekontext fehlschlaegt.
+    // Without the service: the built-in base palette. Only needed when resolving it from the request
+    // context fails.
     public static IReadOnlyDictionary<string, string> FallbackValues(bool dark)
     {
         var basis = BuiltIn().First();
@@ -471,7 +470,7 @@ public sealed class ThemeService
             },
         };
 
-        // Kuehl und neutral: Grafit mit einem blauen Akzent, etwas kantiger (Radius 6).
+        // Cool and neutral: graphite with a blue accent, a little more angular (radius 6).
         yield return new ThemeDefinition
         {
             Key = "graphit",
@@ -526,8 +525,8 @@ public sealed class ThemeService
             },
         };
 
-        // Warm: im Hellen gebranntes Kupfer, im Dunklen Amber. Umgekehrt ginge es nicht - Amber ist
-        // selbst hell, und die Schrift auf einer Akzentfuellung ist --bg.
+        // Warm: burnt copper in light mode, amber in dark. The other way round would not work - amber is
+        // light itself, and the text on an accent fill is --bg.
         yield return new ThemeDefinition
         {
             Key = "bernstein",

@@ -10,10 +10,10 @@ public sealed class WorkspaceDefinition
 
     public string RootPath { get; set; } = "";
 
-    // Zeigt die Freigabe auf eine Ablage, die es schon gibt? Dann steht hier deren Kennung, und
-    // RootPath ist deren Ordner - nicht ein eigens angelegter. Der Unterschied ist einer von zweien:
-    // eine Freigabe mit eigenem Ordner legt darin ein Unterverzeichnis "files" an, eine Freigabe
-    // auf eine vorhandene Ablage nimmt deren Ordner, wie er ist. Leer heißt: eigener Ordner.
+    // Does this share point at a place that already exists? Then its id is here and RootPath is that
+    // place's folder - not one created for the share. The difference matters: a share with its own
+    // folder creates a "files" subdirectory inside it, a share on an existing place takes that folder
+    // as it is. Empty means: own folder.
     public Guid? AreaId { get; set; }
 
     public bool SharesExistingPlace => AreaId.HasValue;

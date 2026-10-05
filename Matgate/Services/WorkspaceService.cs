@@ -49,18 +49,17 @@ public sealed class WorkspaceService
         Directory.CreateDirectory(root);
         if (!workspace.SharesExistingPlace)
         {
-            // Nur eine Freigabe mit eigenem Ordner bekommt ihr "files" darunter. Eine Freigabe auf
-            // eine vorhandene Ablage darf dort nichts anlegen - sie ist Gast in einem Ordner, der
-            // jemand anderem gehoert.
+            // Only a share with a folder of its own gets its "files" below it. A share on an existing place
+            // must not create anything there - it is a guest in a folder that belongs to someone else.
             Directory.CreateDirectory(Path.Combine(root, "files"));
         }
 
         return root;
     }
 
-    // Wo die Dateien der Freigabe liegen. Bei einer Freigabe mit eigenem Ordner ist das sein
-    // Unterverzeichnis "files" - daneben lag frueher die geteilte Notiz. Zeigt die Freigabe dagegen
-    // auf eine vorhandene Ablage, IST ihr Ordner schon der richtige.
+    // Where the share's files live. For a share with its own folder that is its "files" subdirectory
+    // - the shared note used to sit next to it. For a share pointing at an existing place, that
+    // place's folder already IS the right one.
     public string GetWorkspaceFilesRoot(WorkspaceDefinition workspace)
     {
         return workspace.SharesExistingPlace

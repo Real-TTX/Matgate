@@ -1871,10 +1871,10 @@ public sealed class WebsiteProxyService
 
         if (isHttps)
         {
-            // SameSite=None ohne Secure verwirft jeder aktuelle Browser - ersatzlos und ohne
-            // Meldung. Genau dieser Fall tritt ein, wenn eine interne Anwendung ihre Cookies
-            // über HTTP setzt und Matgate von außen über HTTPS erreicht wird: das Anmelde-Cookie
-            // kommt nie an, und die Anwendung schickt einen wieder auf die Anmeldeseite.
+            // Every current browser drops SameSite=None without Secure - silently and with no replacement.
+            // That is exactly what happens when an internal application sets its cookies over HTTP while
+            // Matgate is reached over HTTPS from outside: the login cookie never arrives, and the application
+            // sends the user back to its sign-in page.
             if (Regex.IsMatch(cookie, @"(?i);\s*SameSite=None\b")
                 && !Regex.IsMatch(cookie, @"(?i);\s*Secure\b"))
             {

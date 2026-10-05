@@ -46,20 +46,20 @@ public sealed class ServerEndpoint
 
     public string FileRootPath { get; set; } = "";
 
-    // Nur fuer die Ablagen des Gateways gesetzt ("global" | "user" | "connection" | "session"), damit
-    // der Dateimanager sie gruppieren kann, ohne am Namen zu raten. Wird nicht gespeichert - eine
-    // Ablage entsteht bei jedem Aufruf neu aus den Berechtigungen.
+    // Only set for the gateway's own places ("global" | "user" | "connection" | "session") so the file
+    // manager can group them without guessing from the name. Not persisted - a place is built fresh
+    // from the permissions on every request.
     [System.Text.Json.Serialization.JsonIgnore]
     public string AreaKind { get; set; } = "";
 
-    // Nur lesen: gesetzt für Ablagen, in die nicht geschrieben werden darf - heute der Ordner eines
-    // Workspaces, dessen Uploads abgeschaltet sind. Durchgesetzt wird das im FileGatewayService,
-    // nicht in der Oberfläche; die versteckt den Knopf nur zusätzlich.
+    // Read-only: set for places that must not be written to - today the folder of a workspace whose
+    // uploads are switched off. Enforced in FileGatewayService, not in the UI; the UI only hides the
+    // button on top of that.
     public bool IsReadOnly { get; set; }
 
-    // Woraus die Ablage entstanden ist - heute die Kennung des Workspaces. Ihre eigene Id ist aus
-    // dem Namen abgeleitet und laesst sich nicht zurueckrechnen; ohne das hier fuehrte aus dem
-    // Dateimanager kein Weg zu den Einstellungen und zum Link des Workspaces.
+    // What the place was created from - today the workspace's id. A place's own id is derived from its
+    // name and cannot be computed back; without this there would be no way from the file manager to the
+    // workspace's settings and its link.
     public Guid? AreaSourceId { get; set; }
 
     public string WebsiteUrl { get; set; } = "";

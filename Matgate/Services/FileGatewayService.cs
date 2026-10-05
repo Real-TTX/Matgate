@@ -126,9 +126,9 @@ public sealed class FileGatewayService : IFileGatewayService
         };
     }
 
-    // Eine Ablage kann schreibgeschuetzt sein - heute der Ordner eines Workspaces, dessen Uploads
-    // abgeschaltet sind. Die Pruefung steht vor der Protokollwahl, damit sie fuer jedes Protokoll
-    // gilt und nicht fuenfmal wiederholt werden muss.
+    // A place can be read-only - today the folder of a workspace whose uploads are switched off. The
+    // check sits in front of the protocol switch so it holds for every protocol and does not have to
+    // be repeated five times.
     private static void EnsureWritable(ServerEndpoint server)
     {
         if (server.IsReadOnly)
@@ -144,8 +144,8 @@ public sealed class FileGatewayService : IFileGatewayService
         string fileName,
         CancellationToken cancellationToken = default)
     {
-        // Nur lesen heisst nur lesen - an einer Stelle durchgesetzt, nicht an fuenf je Protokoll.
-        // Die Oberflaeche versteckt den Knopf zusaetzlich; verlassen darf man sich darauf nicht.
+        // Read-only means read-only - enforced in one place, not in five, one per protocol. The UI hides
+        // the button on top of that; that alone must not be relied on.
         EnsureWritable(server);
         return server.Protocol switch
         {
@@ -164,8 +164,8 @@ public sealed class FileGatewayService : IFileGatewayService
         string fileName,
         CancellationToken cancellationToken = default)
     {
-        // Nur lesen heisst nur lesen - an einer Stelle durchgesetzt, nicht an fuenf je Protokoll.
-        // Die Oberflaeche versteckt den Knopf zusaetzlich; verlassen darf man sich darauf nicht.
+        // Read-only means read-only - enforced in one place, not in five, one per protocol. The UI hides
+        // the button on top of that; that alone must not be relied on.
         EnsureWritable(server);
         return server.Protocol switch
         {
@@ -184,8 +184,8 @@ public sealed class FileGatewayService : IFileGatewayService
         string directoryName,
         CancellationToken cancellationToken = default)
     {
-        // Nur lesen heisst nur lesen - an einer Stelle durchgesetzt, nicht an fuenf je Protokoll.
-        // Die Oberflaeche versteckt den Knopf zusaetzlich; verlassen darf man sich darauf nicht.
+        // Read-only means read-only - enforced in one place, not in five, one per protocol. The UI hides
+        // the button on top of that; that alone must not be relied on.
         EnsureWritable(server);
         return server.Protocol switch
         {
@@ -200,8 +200,8 @@ public sealed class FileGatewayService : IFileGatewayService
 
     public Task DeleteAsync(ServerEndpoint server, string? path, CancellationToken cancellationToken = default)
     {
-        // Nur lesen heisst nur lesen - an einer Stelle durchgesetzt, nicht an fuenf je Protokoll.
-        // Die Oberflaeche versteckt den Knopf zusaetzlich; verlassen darf man sich darauf nicht.
+        // Read-only means read-only - enforced in one place, not in five, one per protocol. The UI hides
+        // the button on top of that; that alone must not be relied on.
         EnsureWritable(server);
         return server.Protocol switch
         {

@@ -351,10 +351,10 @@ public sealed class HtmlViews
         return Layout(context, null, "Login", body, "login-main");
     }
 
-    // Der zweite Schritt der Anmeldung. Hier ist noch niemand angemeldet - was den Browser
-    // hierherbringt, ist ein kurzlebiger, signierter Ausweis in einem eigenen Keks, nicht eine
-    // halbe Sitzung. Deshalb steht hier auch kein Name: wer das Passwort nicht hat, soll aus
-    // dieser Seite nicht erfahren, ob es ein Konto gibt.
+    // The second step of signing in. Nobody is signed in here yet - what brings the browser here
+    // is a short-lived, signed ticket in a cookie of its own, not half a session. That is also why
+    // no name is shown: whoever does not have the password should not learn from this page whether
+    // an account exists.
     public string TotpChallenge(HttpContext context, string? error = null)
     {
         var de = Language(context) == "de";
@@ -947,7 +947,7 @@ public sealed class HtmlViews
                     <td><strong>{{E(s.ServerName)}}</strong><br><span class="muted">{{E(s.Url)}}</span></td>
                     <td><span class="badge">{{E(s.Browser)}}</span></td>
                     <td title="{{A(s.StartedAt.ToString("u"))}}">{{E(Duration(s.StartedAt, DateTimeOffset.UtcNow))}}</td>
-                    <td class="table-actions"><form method="post" action="/admin/browser/{{s.Id}}/release" data-confirm="{{A(de ? "Sitzung freigeben?" : "Release this session?")}}">{{Csrf(context)}}<button type="submit" class="icon-button danger-action" title="{{A(de ? "Freigeben" : "Release")}}" aria-label="{{A(de ? "Freigeben" : "Release")}}">{{Icon("trash")}}</button></form></td>
+                    <td class="table-actions"><form method="post" action="/admin/browser/{{s.Id}}/release" data-confirm="{{A(de ? "Sitzung shareTrigger?" : "Release this session?")}}">{{Csrf(context)}}<button type="submit" class="icon-button danger-action" title="{{A(de ? "Freigeben" : "Release")}}" aria-label="{{A(de ? "Freigeben" : "Release")}}">{{Icon("trash")}}</button></form></td>
                 </tr>
                 """));
 
@@ -1138,9 +1138,9 @@ public sealed class HtmlViews
             tab = "profile";
         }
 
-        // Nach dem Einschalten des zweiten Faktors wird diese Seite direkt ausgeliefert, nicht
-        // ueber eine Adresse mit ?tab= - ohne das hier laegen die Wiederherstellungs-Codes im
-        // ausgeblendeten Reiter, und man saehe sie nie.
+        // After the second factor is switched on this page is served directly, not through an address
+        // with ?tab= - without this the recovery codes would sit in a hidden tab, and nobody would
+        // ever see them.
         if (recoveryCodes is not null && recoveryCodes.Count > 0)
         {
             tab = "security";
@@ -1266,108 +1266,108 @@ public sealed class HtmlViews
                                 {{ColourGroups(context, user)}}
                                 <script>
                                     (() => {
-                                        // Was man einstellt, soll man sehen - und zwar das, was nach dem Speichern
-                                        // herauskommt. Gerechnet wird deshalb auf dem Server (/api/theme/preview):
-                                        // dieselbe Funktion, die auch die Seite baut, samt der Nachbesserung, die eine
-                                        // zu blasse Farbe lesbar haelt.
+                                        // What you set is what you should see - namely what comes out after saving.
+                                        // It is therefore computed on the server (/api/theme/preview): the same
+                                        // function that builds the page, including the correction that keeps a
+                                        // too-pale colour readable.
                                         const form = document.currentScript.closest("form");
                                         if (!form) {
                                             return;
                                         }
                                 
-                                        form.querySelectorAll("[data-colour-field]").forEach(feld => {
-                                            const schalter = feld.querySelector("[data-colour-own]");
-                                            const wert = feld.querySelector("[data-colour-value]");
-                                            const tupfer = feld.querySelector("[data-colour-presets]");
-                                            if (!schalter || !wert || !tupfer) {
+                                        form.querySelectorAll("[data-colour-field]").forEach(field => {
+                                            const toggle = field.querySelector("[data-colour-own]");
+                                            const valueField = field.querySelector("[data-colour-value]");
+                                            const swatches = field.querySelector("[data-colour-presets]");
+                                            if (!toggle || !valueField || !swatches) {
                                                 return;
                                             }
                                 
-                                            // Ein Tupfer setzt die Farbe und schaltet sie zugleich ein - sonst waehlt
-                                            // man eine Farbe und nichts geschieht.
-                                            tupfer.addEventListener("click", event => {
-                                                const knopf = event.target.closest("[data-colour-preset]");
-                                                if (!knopf) {
+                                            // A swatch sets the colour and switches it on in one go - otherwise you
+                                            // pick a colour and nothing happens.
+                                            swatches.addEventListener("click", event => {
+                                                const button = event.target.closest("[data-colour-preset]");
+                                                if (!button) {
                                                     return;
                                                 }
                                 
                                                 event.preventDefault();
-                                                wert.value = knopf.dataset.colourPreset;
-                                                schalter.checked = true;
-                                                markiere(feld);
-                                                vorschau();
+                                                valueField.value = button.dataset.colourPreset;
+                                                toggle.checked = true;
+                                                markChosen(field);
+                                                schedulePreview();
                                             });
-                                            wert.addEventListener("input", () => { schalter.checked = true; markiere(feld); vorschau(); });
-                                            schalter.addEventListener("change", () => { markiere(feld); vorschau(); });
-                                            markiere(feld);
+                                            valueField.addEventListener("input", () => { toggle.checked = true; markChosen(field); schedulePreview(); });
+                                            toggle.addEventListener("change", () => { markChosen(field); schedulePreview(); });
+                                            markChosen(field);
                                         });
                                 
-                                        function markiere(feld) {
-                                            const schalter = feld.querySelector("[data-colour-own]");
-                                            const wert = feld.querySelector("[data-colour-value]");
-                                            feld.classList.toggle("is-own", schalter.checked);
-                                            feld.querySelectorAll("[data-colour-preset]").forEach(knopf => {
-                                                knopf.classList.toggle("is-selected",
-                                                    schalter.checked && knopf.dataset.colourPreset.toLowerCase() === wert.value.toLowerCase());
+                                        function markChosen(field) {
+                                            const toggle = field.querySelector("[data-colour-own]");
+                                            const valueField = field.querySelector("[data-colour-value]");
+                                            field.classList.toggle("is-own", toggle.checked);
+                                            field.querySelectorAll("[data-colour-preset]").forEach(button => {
+                                                button.classList.toggle("is-selected",
+                                                    toggle.checked && button.dataset.colourPreset.toLowerCase() === valueField.value.toLowerCase());
                                             });
                                         }
                                 
-                                        // Die Karten des Farbschemas und die Wahl hell/dunkel gehoeren zur selben Vorschau.
+                                        // The theme cards and the light/dark choice belong to the same preview.
                                         form.querySelectorAll("[name='preferredThemeName'], [name='preferredTheme']")
                                             .forEach(el => el.addEventListener("change", () => {
-                                                form.querySelectorAll(".theme-card").forEach(karte =>
-                                                    karte.classList.toggle("is-selected", !!karte.querySelector("input:checked")));
-                                                vorschau();
+                                                form.querySelectorAll(".theme-card").forEach(card =>
+                                                    card.classList.toggle("is-selected", !!card.querySelector("input:checked")));
+                                                schedulePreview();
                                             }));
                                 
-                                        let warten = 0;
-                                        let laeuft = null;
-                                        function vorschau() {
-                                            window.clearTimeout(warten);
-                                            warten = window.setTimeout(hole, 120);
+                                        let waitTimer = 0;
+                                        let inFlight = null;
+                                        function schedulePreview() {
+                                            window.clearTimeout(waitTimer);
+                                            waitTimer = window.setTimeout(fetchPreview, 120);
                                         }
                                 
-                                        function eigene(name, schalterName) {
-                                            const feld = form.querySelector("[name='" + name + "']");
-                                            const an = form.querySelector("[name='" + schalterName + "']");
-                                            return feld && an && an.checked ? feld.value : "";
+                                        function ownColour(name, toggleName) {
+                                            const field = form.querySelector("[name='" + name + "']");
+                                            const toggleEl = form.querySelector("[name='" + toggleName + "']");
+                                            return field && toggleEl && toggleEl.checked ? field.value : "";
                                         }
                                 
-                                        async function hole() {
-                                            const modus = (form.querySelector("[name='preferredTheme']:checked") || {}).value || "system";
+                                        async function fetchPreview() {
+                                            const mode = (form.querySelector("[name='preferredTheme']:checked") || {}).value || "system";
                                             const schema = (form.querySelector("[name='preferredThemeName']:checked") || {}).value || "matgate";
-                                            const frage = new URLSearchParams({
+                                            const query = new URLSearchParams({
                                                 theme: schema,
-                                                accent: eigene("accentColor", "accentOwn"),
-                                                accent2: eigene("accentColor2", "accent2Own"),
-                                                background: eigene("backgroundColor", "backgroundOwn"),
+                                                accent: ownColour("accentColor", "accentOwn"),
+                                                accent2: ownColour("accentColor2", "accent2Own"),
+                                                background: ownColour("backgroundColor", "backgroundOwn"),
                                             });
                                 
-                                            if (laeuft) {
-                                                laeuft.abort();
+                                            if (inFlight) {
+                                                inFlight.abort();
                                             }
                                 
-                                            laeuft = new AbortController();
-                                            let satz;
+                                            inFlight = new AbortController();
+                                            let colours;
                                             try {
-                                                const antwort = await fetch("/api/theme/preview?" + frage, { signal: laeuft.signal });
-                                                if (!antwort.ok) {
+                                                const response = await fetch("/api/theme/preview?" + query, { signal: inFlight.signal });
+                                                if (!response.ok) {
                                                     return;
                                                 }
                                 
-                                                satz = await antwort.json();
+                                                colours = await response.json();
                                             }
                                             catch (e) {
-                                                // Abgebrochen oder keine Verbindung: dann bleibt stehen, was zu sehen war.
+                                                // Aborted or no connection: then what was on screen stays.
                                                 return;
                                             }
                                 
-                                            const dunkel = modus === "dark"
-                                                || (modus === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
-                                            document.documentElement.dataset.theme = modus;
-                                            // Inline gesetzt schlaegt es beide :root-Bloecke - bis zum naechsten Laden,
-                                            // und dann liefert der Server dasselbe noch einmal.
-                                            Object.entries(satz[dunkel ? "dark" : "light"] || {}).forEach(([name, farbe]) => {
+                                            const isDark = mode === "dark"
+                                                || (mode === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+                                            document.documentElement.dataset.theme = mode;
+                                            // Set inline it beats both :root blocks - until the next load,
+                                            // and then the server delivers the same thing again.
+                                            Object.entries(colours[isDark ? "dark" : "light"] || {}).forEach(([name, farbe]) => {
                                                 document.documentElement.style.setProperty(name, farbe);
                                             });
                                         }
@@ -1440,29 +1440,29 @@ public sealed class HtmlViews
                                 <div class="actions"><button type="submit" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button></div>
                             </form>
                             <script>
-                                // Eine Sortierliste, zweimal gebraucht: die Aktionen der Sitzungsleiste und die
-                                // Abschnitte der Startseite. Jede Gruppe traegt ihre eigenen versteckten Felder,
-                                // damit dasselbe Stueck Code beide bedienen kann.
-                                // Erst wenn die Seite steht: die zweite Liste - die Abschnitte der
-                                // Startseite - steht im Dokument NACH diesem Skript. Wer gleich hier
-                                // sucht, findet sie nicht und schickt beim Speichern zwei leere Felder.
-                                const starteSortierlisten = () => {
-                                    document.querySelectorAll('[data-order-group]').forEach(gruppe => {
-                                        const list = gruppe.querySelector('[data-order-list]');
-                                        const field = gruppe.querySelector('[data-order-value]');
-                                        const hiddenField = gruppe.querySelector('[data-order-hidden]');
+                                // One sortable list, used twice: the actions of the session toolbar and the
+                                // sections of the home page. Every group carries its own hidden fields, so
+                                // that the same piece of code can serve both.
+                                // Only once the page is up: the second list - the sections of the home
+                                // page - sits in the document AFTER this script. Looking for it right
+                                // here finds nothing and posts two empty fields on save.
+                                const initSortLists = () => {
+                                    document.querySelectorAll('[data-order-group]').forEach(group => {
+                                        const list = group.querySelector('[data-order-list]');
+                                        const field = group.querySelector('[data-order-value]');
+                                        const hiddenField = group.querySelector('[data-order-hidden]');
                                         if (!list || !field || !hiddenField) {
                                             return;
                                         }
                             
-                                        const schluessel = item => item.dataset.orderKey || item.dataset.action || '';
+                                        const key = item => item.dataset.orderKey || item.dataset.action || '';
                                         const sync = () => {
                                             const items = Array.from(list.children);
-                                            field.value = items.map(schluessel).filter(Boolean).join(',');
+                                            field.value = items.map(key).filter(Boolean).join(',');
                                             // Unticked means hidden, so the form carries what to leave out.
                                             hiddenField.value = items
                                                 .filter(item => !item.querySelector('[data-order-visible], [data-action-visible]')?.checked)
-                                                .map(schluessel)
+                                                .map(key)
                                                 .filter(Boolean)
                                                 .join(',');
                                         };
@@ -1478,9 +1478,9 @@ public sealed class HtmlViews
                                                 return;
                                             }
                             
-                                            // Das Kaestchen gehoert dem Kaestchen. Ohne das hier fing der
-                                            // Zeiger-Fang des Eintrags den Klick ab, und "zeigen" liess sich
-                                            // nicht umstellen - gezogen wurde stattdessen.
+                                            // The checkbox belongs to the checkbox. Without this the entry's pointer
+                                            // capture swallowed the click, and "pointer" could not be switched over -
+                                            // it got dragged instead.
                                             if (event.target.closest('label, input')) {
                                                 return;
                                             }
@@ -1522,10 +1522,10 @@ public sealed class HtmlViews
                                     });
                                 };
                                 if (document.readyState === 'loading') {
-                                    document.addEventListener('DOMContentLoaded', starteSortierlisten);
+                                    document.addEventListener('DOMContentLoaded', initSortLists);
                                 }
                                 else {
-                                    starteSortierlisten();
+                                    initSortLists();
                                 }
                             </script>
                         </section>
@@ -1822,10 +1822,10 @@ public sealed class HtmlViews
                 sessions,
                 activityEntries,
                 selectedTab,
-                // Ein Besucher ohne Konto darf nicht loeschen. Bisher entschied darueber
-                // ausgerechnet "Textaustausch erlauben" - eine Kopplung, die niemand vermutet
-                // haette: wer den Notizzettel freigab, gab damit auch das Loeschen frei.
-                // Hochladen bleibt an "Hochladen erlauben" haengen, wo es hingehoert.
+                // A visitor without an account must not delete. Until now that was decided
+                // of all things by "allow text exchange" - a coupling nobody would suspect:
+                // whoever shared the note shared deleting along with it. Uploading stays
+                // tied to "allow uploads", where it belongs.
                 canEditSelected: false,
                 includeInfo: false,
                 includeSettings: false,
@@ -2218,13 +2218,13 @@ public sealed class HtmlViews
             """;
     }
 
-    // Die Einstellungen einer Ablage als Dialog im Dateimanager - damit man sie aendern kann, ohne
-    // den Reiter zu verlassen. Hier steht nur, was zum Teilen gehoert: der Link, das Passwort, der
-    // Ablauf, ob hochgeladen werden darf. Der Wurzelpfad und die geteilte Notiz stehen bewusst
-    // NICHT darin; was nicht mitgeschickt wird, bleibt unveraendert (siehe UpdateWorkspaceAsync).
-    // Eine vorhandene Ablage freigeben. Fuer die eigene genuegt ein Druck; fuer eine fremde - den
-    // gemeinsamen Ordner, den einer Verbindung - ist ein Passwort Pflicht, denn dort liegt auch,
-    // was andere abgelegt haben.
+    // A place's settings as a dialog in the file manager - so they can be changed without leaving
+    // the tab. Only what belongs to sharing is in here: the link, the password, the expiry, whether
+    // uploads are allowed. The root path and the shared note are deliberately NOT in it; what is not
+    // sent stays unchanged (see UpdateWorkspaceAsync).
+    // Sharing an existing place. For your own, one press is enough; for someone else's - the shared
+    // folder, a connection's - a password is mandatory, because what other people have put there
+    // is in it too.
     public string ShareCreateDialog(HttpContext context, ServerEndpoint area, bool passwordRequired)
     {
         var de = Language(context) == "de";
@@ -2267,13 +2267,13 @@ public sealed class HtmlViews
     {
         var de = Language(context) == "de";
         var service = context.RequestServices.GetService<WorkspaceService>();
-        var hatPasswort = service?.HasAccessPassword(workspace) ?? false;
-        var restlich = service?.GetPublicAccessRemaining(workspace);
-        var ablaufText = restlich is null
+        var hasPassword = service?.HasAccessPassword(workspace) ?? false;
+        var remaining = service?.GetPublicAccessRemaining(workspace);
+        var expiryText = remaining is null
             ? (de ? "läuft nicht ab" : "does not expire")
-            : restlich.Value <= TimeSpan.Zero
+            : remaining.Value <= TimeSpan.Zero
                 ? (de ? "abgelaufen" : "expired")
-                : (de ? $"noch {WorkspaceRemainingLabel(restlich.Value)}" : $"{WorkspaceRemainingLabel(restlich.Value)} left");
+                : (de ? $"noch {WorkspaceRemainingLabel(remaining.Value)}" : $"{WorkspaceRemainingLabel(remaining.Value)} left");
 
         return $$"""
             <form method="post" action="/workspaces/{{workspace.Id}}/update" class="settings-form" data-workspace-settings-form>
@@ -2300,13 +2300,13 @@ public sealed class HtmlViews
                         <code data-workspace-link>{{E(publicUrl)}}</code>
                         <button type="button" class="button" data-workspace-copy="{{A(publicUrl)}}">{{Icon("copy")}}{{T(context, "Copy to clipboard")}}</button>
                     </div>
-                    <p class="muted settings-hint">{{(de ? "Gültigkeit: " : "Validity: ")}}{{E(ablaufText)}}</p>
+                    <p class="muted settings-hint">{{(de ? "Gültigkeit: " : "Validity: ")}}{{E(expiryText)}}</p>
                     <div class="form-grid">
                         <label>{{(de ? "Passwort für den Link" : "Password for the link")}}
-                            <input name="password" type="password" autocomplete="new-password" placeholder="{{A(hatPasswort ? (de ? "gesetzt - leer lassen, um es zu behalten" : "set - leave empty to keep it") : (de ? "keines" : "none"))}}">
+                            <input name="password" type="password" autocomplete="new-password" placeholder="{{A(hasPassword ? (de ? "gesetzt - leer lassen, um es zu behalten" : "set - leave empty to keep it") : (de ? "keines" : "none"))}}">
                         </label>
                     </div>
-                    {{(hatPasswort ? $"""<label class="check"><input type="checkbox" name="clearPassword"> <span>{E(de ? "Passwort entfernen" : "Remove password")}</span></label>""" : "")}}
+                    {{(hasPassword ? $"""<label class="check"><input type="checkbox" name="clearPassword"> <span>{E(de ? "Passwort entfernen" : "Remove password")}</span></label>""" : "")}}
                 </fieldset>
                 <fieldset class="settings-group">
                     <legend>{{T(context, "Log")}}</legend>
@@ -2323,8 +2323,8 @@ public sealed class HtmlViews
             """;
     }
 
-    // Das Protokoll im Dialog: knapp, mit den letzten Eintraegen zuerst. Die lange Tabelle der
-    // alten Seite passt hier nicht - gefragt ist, was zuletzt geschah, nicht eine Aktenlage.
+    // The log in the dialog: brief, with the most recent entries first. The long table of the old
+    // page does not fit here - what matters is what happened last, not a complete file.
     private static string WorkspaceActivityList(HttpContext context, IReadOnlyList<WorkspaceActivityEntry> entries)
     {
         var de = Language(context) == "de";
@@ -2333,7 +2333,7 @@ public sealed class HtmlViews
             return $"""<p class="muted">{E(T(context, "No activity yet."))}</p>""";
         }
 
-        var zeilen = string.Join("", entries.Take(50).Select(entry => $$"""
+        var rows = string.Join("", entries.Take(50).Select(entry => $$"""
             <li class="share-log-entry">
                 <span class="share-log-time">{{E(entry.Timestamp.ToLocalTime().ToString("dd.MM. HH:mm"))}}</span>
                 <span class="badge">{{E(entry.Mode)}}</span>
@@ -2343,11 +2343,11 @@ public sealed class HtmlViews
             </li>
             """));
 
-        var mehr = entries.Count > 50
+        var more = entries.Count > 50
             ? $"""<p class="muted settings-hint">{E(de ? $"… und {entries.Count - 50} weitere" : $"… and {entries.Count - 50} more")}</p>"""
             : "";
 
-        return $"""<ul class="share-log">{zeilen}</ul>{mehr}""";
+        return $"""<ul class="share-log">{rows}</ul>{more}""";
     }
 
     private static string WorkspaceRemainingLabel(TimeSpan remaining)
@@ -2535,10 +2535,10 @@ public sealed class HtmlViews
             """;
     }
 
-    // Die Dateien eines Workspaces liegen im Dateimanager - als Ablage "Workspaces/<Name>", mit
-    // demselben Werkzeug wie ueberall sonst. Hier stand bisher eine zweite, kleinere Dateiansicht
-    // daneben; zwei Oberflaechen fuer dieselbe Sache sind eine zu viel. Was die Seite behaelt, ist
-    // das, was nur sie kann: der Link, das Passwort, der Ablauf und die geteilte Notiz.
+    // A workspace's files live in the file manager - as the place "Workspaces/<name>", with the
+    // same tool as everywhere else. A second, smaller file view used to sit next to it; two UIs for
+    // the same thing are one too many. What the page keeps is what only it can do: the link, the
+    // password, the expiry and the shared note.
     private static string WorkspaceFilesPointer(HttpContext context, WorkspaceDefinition workspace, string areaId)
     {
         var de = Language(context) == "de";
@@ -2569,9 +2569,9 @@ public sealed class HtmlViews
         string publicUrl,
         string defaultRootPath,
         string currentPath,
-        // Die Ablage im Dateimanager - gesetzt nur fuer den angemeldeten Blick. Die oeffentliche
-        // Seite hat sie nicht: dort ist niemand angemeldet, und der Dateimanager liegt hinter der
-        // Anmeldung. Deshalb zeigt sie die Dateien weiter selbst.
+        // The place in the file manager - set only for the signed-in view. The public page does not
+        // have it: nobody is signed in there, and the file manager sits behind the sign-in. So the
+        // public page still shows the files itself.
         string fileManagerAreaId)
     {
         var filesTabActive = selectedTab == "files";
@@ -2899,13 +2899,13 @@ public sealed class HtmlViews
 
     // The client-side "availableServers" entry for one server (used by openServer / quick-connect
     // and to rebuild the New-connection panel live after a server is added/changed).
-    // Welche Art Ablage das ist, damit der Dateimanager sie gruppieren kann, ohne am Namen zu
-    // raten. Leer fuer alles, was keine Ablage ist.
+    // What kind of place this is, so the file manager can group them without guessing from the
+    // name. Empty for everything that is not a place.
     private static object ServerChoicePayload(ServerEndpoint server) => new
     {
         areaKind = server.AreaKind,
-        // Nur lesen: der Dateimanager blendet die Knoepfe aus, die hier nichts ausrichten wuerden.
-        // Abgewiesen wird ein Schreibversuch ohnehin im FileGatewayService.
+        // Read-only: the file manager hides the buttons that would achieve nothing here. A write
+        // attempt is rejected in FileGatewayService anyway.
         readOnly = server.IsReadOnly,
         areaSourceId = server.AreaSourceId?.ToString() ?? "",
         id = server.Id.ToString(),
@@ -2913,8 +2913,8 @@ public sealed class HtmlViews
         protocol = server.Protocol.ToString().ToUpperInvariant(),
         iconKey = ServerEndpoint.EffectiveIconKey(server.Protocol, server.IconKey),
         iconHtml = Icon(ServerEndpoint.EffectiveIconKey(server.Protocol, server.IconKey)),
-        // Der Farbtupfer des Protokolls - damit ein Knopf in der Leiste denselben Ton traegt wie
-        // die Karte, aus der er stammt.
+        // The protocol's colour dot - so a button in the bar carries the same shade as the card it
+        // came from.
         protoColor = ProtocolAccent(server.Protocol),
         target = ServerTargetValue(server),
         // "native" | "chromiumvnc" | "firefoxvnc" - farm modes open a VNC session instead of a proxy tab.
@@ -2970,10 +2970,10 @@ public sealed class HtmlViews
         var headerActions = (canQuick || canCreate)
             ? $$"""<div class="home2-head-actions">{{quickButton}}{{createButtons}}</div>"""
             : "";
-        // Kein Fragezeichen hinter user: an dieser Stelle gibt es ihn. Das frühere "user?." war ein
-        // Rest, der dem Übersetzer sagte, er könne fehlen - woraufhin er jede Weitergabe an die
-        // Abschnitte darunter als möglichen Nullwert anmahnte. Zwei Zeilen tiefer wird er ohnehin
-        // ohne Fragezeichen benutzt; eine der beiden Lesarten musste weg.
+        // No question mark after user: at this point it exists. The earlier "user?." was a leftover
+        // that told the compiler it could be missing - whereupon it flagged every hand-off to the
+        // sections below as a possible null. Two lines further down it is used without one anyway;
+        // one of the two readings had to go.
         var hiddenQuick = (user.Session?.HiddenQuickProtocols ?? []).ToHashSet(StringComparer.Ordinal);
         var protocolDialog = canQuick ? ProtocolDialog(de, hiddenQuick) : "";
 
@@ -3014,10 +3014,10 @@ public sealed class HtmlViews
             </section>
             """;
 
-        // Der Hinweis zur Browser-Farm: steht nur da, wenn eine eingerichtet ist. Eine Webseite
-        // "via Chromium VNC" scheitert, wenn alle Plaetze belegt sind - das sah man bisher erst
-        // beim Oeffnen. Die Zahlen holt das Skript, damit eine langsame Farm die Seite nicht aufhaelt.
-        var farmHinweis = $$"""
+        // The browser-farm hint: only there when one is configured. A website "via Chromium VNC"
+        // fails when all slots are taken - which used to show only on opening. The numbers are
+        // fetched by the script, so a slow farm does not hold the page up.
+        var farmHint = $$"""
             <section class="home2-section home2-farm-section">
                 <p class="home2-farm" data-home2-farm hidden
                    data-label-free="{{A(de ? "Browser-Farm: {free} von {pool} frei" : "Browser farm: {free} of {pool} free")}}"
@@ -3032,13 +3032,13 @@ public sealed class HtmlViews
         var quickConnect = canQuick ? QuickConnectSection(de, hiddenQuick) : "";
         var filterRow = FilterTilesSection(context, user, servers, de);
         var recentSection = RecentConnectionsSection(context, user, servers, includeEditButtons, returnUrl, de);
-        // Eine Ablage ist ein Ordner auf dem Gateway, keine Verbindung zu einem Rechner. Als Karte
-        // zwischen den Verbindungen las sie sich wie eine - mit demselben gefuellten Knopf und
-        // alphabetisch dazwischensortiert.
-        // Der Ordner einer laufenden Sitzung gehoert nicht auf die Startseite: er ist so lange da
-        // wie die Sitzung und wird ueber sie erreicht, nicht ueber eine Kachel.
-        // Der Ordner eines Workspaces steht nicht zweimal da: er hat seinen eigenen Abschnitt, und
-        // dort oeffnet er dieselbe Ablage.
+        // A place is a folder on the gateway, not a connection to a machine. As a card among the
+        // connections it read like one - with the same filled button, and sorted alphabetically
+        // in between them.
+        // The folder of a running session does not belong on the home page: it is there as long as
+        // the session is and is reached through it, not through a tile.
+        // A workspace's folder is not listed twice: it has a section of its own, and opens the same
+        // place from there.
         var areas = servers
             .Where(server => server.Protocol == ServerProtocol.Local
                 && server.AreaKind != "session"
@@ -3051,9 +3051,9 @@ public sealed class HtmlViews
         var placesSection = PlacesSection(context, user, areas, returnUrl, de);
         var connectionsSection = ConnectionsSection(context, user, connections, includeEditButtons, returnUrl, de);
 
-        // Welche Abschnitte, in welcher Reihenfolge: eingestellt unter Konto -> Startseite. Was
-        // nicht angekreuzt ist, wird gar nicht erst gebaut.
-        var teile = new Dictionary<string, string>(StringComparer.Ordinal)
+        // Which sections, in what order: configured under Account -> Home page. What is not ticked
+        // is not even built.
+        var parts = new Dictionary<string, string>(StringComparer.Ordinal)
         {
             ["search"] = searchBox,
             ["quick"] = quickConnect,
@@ -3062,17 +3062,17 @@ public sealed class HtmlViews
             ["connections"] = connectionsSection,
             ["places"] = placesSection,
             ["workspaces"] = WorkspacesSection(context, workspaces, workspaceAreas, de),
-            ["farm"] = farmHinweis,
+            ["farm"] = farmHint,
         };
-        var versteckt = (user.HiddenHomeSections ?? []).ToHashSet(StringComparer.Ordinal);
-        var spalte = string.Join("", HomeLayout.Order(user.HomeSections)
-            .Where(key => !versteckt.Contains(key))
-            .Select(key => teile.GetValueOrDefault(key, "")));
+        var hidden = (user.HiddenHomeSections ?? []).ToHashSet(StringComparer.Ordinal);
+        var column = string.Join("", HomeLayout.Order(user.HomeSections)
+            .Where(key => !hidden.Contains(key))
+            .Select(key => parts.GetValueOrDefault(key, "")));
 
         return $$"""
             <section class="home2" data-home2="1">
                 {{head}}
-                {{spalte}}
+                {{column}}
                 <section class="home2-noresults hidden" data-home2-noresults>
                     <p class="muted">{{(de ? "Keine Treffer." : "No matches.")}}</p>
                 </section>
@@ -3112,10 +3112,10 @@ public sealed class HtmlViews
             return "";
         }
 
-        // Alle, die der Benutzer behalten hat - vorher waren es die ersten sechs, womit WebDAV als
-        // achtes Protokoll nie auf der Startseite stand, obwohl es angekreuzt war. Welche hier
-        // erscheinen, entscheidet die Einstellung, nicht die Reihenfolge; die Reihe laesst sich
-        // schieben, wenn sie nicht passt.
+        // All the ones the user kept - before it was the first six, which meant WebDAV as the
+        // eighth protocol never showed up on the home page even though it was ticked. Which ones
+        // appear is decided by the setting, not by the order; the row can be dragged around when
+        // it does not fit.
         var chips = string.Join("", protocols.Select(protocol => $$"""
             <button type="button" class="home2-proto-chip" data-home2-qc="{{A(protocol.Protocol)}}" style="--proto: {{protocol.Color}}" title="{{A(protocol.Desc)}}">
                 <span class="home2-proto-chip-icon">{{Icon(protocol.IconKey)}}</span>
@@ -3324,8 +3324,8 @@ public sealed class HtmlViews
 
     // Single connections list: favorites first, then folder/name order. The filter row above
     // (Favorites / folder toggles) and the search box narrow this list client-side.
-    // Die Ablagen des Gateways: eigener Abschnitt, eigener Ton. Kein gefuellter Knopf - sie zu
-    // oeffnen ist ein Blaettern, kein Verbinden.
+    // The gateway's places: their own section, their own shade. No filled button - opening one
+    // is browsing, not connecting.
     private static string PlacesSection(
         HttpContext context,
         MatgateUser user,
@@ -3352,54 +3352,54 @@ public sealed class HtmlViews
             """;
     }
 
-    // Die Workspaces auf der Startseite: bisher kam man nur ueber das Menue hin. Als Karten neben
-    // den Verbindungen sind sie dort, wo man ohnehin hinschaut - abschaltbar wie jeder Abschnitt.
+    // The workspaces on the home page: you used to get there only through the menu. As cards next
+    // to the connections they are where you look anyway - switchable off like every section.
     private static string WorkspacesSection(
         HttpContext context,
         IReadOnlyList<WorkspaceDefinition> workspaces,
         IReadOnlyList<ServerEndpoint> areas,
         bool de)
     {
-        var sichtbar = workspaces.Where(workspace => workspace.IsEnabled).OrderBy(workspace => workspace.Name).ToList();
-        if (sichtbar.Count == 0)
+        var visible = workspaces.Where(workspace => workspace.IsEnabled).OrderBy(workspace => workspace.Name).ToList();
+        if (visible.Count == 0)
         {
             return "";
         }
 
-        var karten = string.Join("", sichtbar.Select(workspace =>
+        var cards = string.Join("", visible.Select(workspace =>
         {
-            // "Oeffnen" fuehrt in den Dateimanager, nicht auf die alte Workspace-Seite: dort sieht
-            // man die Dateien mit demselben Werkzeug wie ueberall sonst. Die Seite daneben bleibt
-            // fuer das, was nur sie kann - Passwort, Ablauf, Rechte und der Link.
-            // Eine Freigabe mit eigenem Ordner hat ihre eigene Ablage; eine Freigabe auf eine
-            // vorhandene Ablage zeigt direkt auf deren Kennung. In beiden Faellen fuehrt "Öffnen"
-            // in den Dateimanager - und nur wenn sich nichts davon finden laesst, bleibt der
-            // alte Weg ueber die Seite.
-            var ablage = areas.FirstOrDefault(area => area.AreaSourceId == workspace.Id);
-            var zielId = ablage?.Id ?? workspace.AreaId;
-            var oeffnen = zielId is null
+            // "Open" leads into the file manager, not to the old workspace page: there the files are
+            // shown with the same tool as everywhere else. The page next to it stays for what only it
+            // can do - password, expiry, permissions and the link.
+            // A share with a folder of its own has a place of its own; a share on an existing
+            // place points straight at that place's id. In both cases "Open" leads into the
+            // file manager - and only when none of that can be found does the old way through
+            // the page remain.
+            var place = areas.FirstOrDefault(area => area.AreaSourceId == workspace.Id);
+            var targetId = place?.Id ?? workspace.AreaId;
+            var openButton = targetId is null
                 ? $$"""<a class="button primary" href="/workspaces/{{workspace.Id}}" data-shell-open-tab="1" data-shell-title="{{A(workspace.Name)}}">{{Icon("folder")}}{{(de ? "Öffnen" : "Open")}}</a>"""
-                : $$"""<button type="button" class="button primary workspace-open-button connection-choice-open" data-server-id="{{zielId}}">{{Icon("folder")}}{{(de ? "Öffnen" : "Open")}}</button>""";
-            var einstellungen = $$"""<button type="button" class="button favorite-toggle connection-choice-settings-corner" data-workspace-settings="{{workspace.Id}}" title="{{A(de ? "Einstellungen und Link" : "Settings and link")}}" aria-label="{{A(de ? "Einstellungen und Link" : "Settings and link")}}">{{Icon("settings")}}</button>""";
-            return WorkspaceCard(workspace, oeffnen, einstellungen, de);
+                : $$"""<button type="button" class="button primary workspace-open-button connection-choice-open" data-server-id="{{targetId}}">{{Icon("folder")}}{{(de ? "Öffnen" : "Open")}}</button>""";
+            var settingsButton = $$"""<button type="button" class="button favorite-toggle connection-choice-settings-corner" data-workspace-settings="{{workspace.Id}}" title="{{A(de ? "Einstellungen und Link" : "Settings and link")}}" aria-label="{{A(de ? "Einstellungen und Link" : "Settings and link")}}">{{Icon("settings")}}</button>""";
+            return WorkspaceCard(workspace, openButton, settingsButton, de);
         }));
 
         return $$"""
             <section class="home2-section home2-workspaces-section" data-home2-workspaces>
                 <div class="home2-section-head">
                     <h2>{{Icon("globe")}}{{(de ? "Freigaben" : "Shares")}}</h2>
-                    <span class="badge">{{sichtbar.Count}}</span>
+                    <span class="badge">{{visible.Count}}</span>
                 </div>
                 <div class="home2-card-grid">
-                    {{karten}}
+                    {{cards}}
                 </div>
             </section>
             """;
     }
 
-    // Eine Workspace-Karte neben den Verbindungen: dieselbe Form, damit die Startseite nicht in
-    // zwei Gestaltungen zerfaellt. Was der Knopf tut, entscheidet der Aufrufer.
-    private static string WorkspaceCard(WorkspaceDefinition workspace, string oeffnen, string einstellungen, bool de)
+    // A workspace card next to the connections: the same shape, so the home page does not fall
+    // apart into two designs. What the button does is decided by the caller.
+    private static string WorkspaceCard(WorkspaceDefinition workspace, string openButton, string settingsButton, bool de)
     {
         return $$"""
             <article class="connection-choice" data-home2-card="1" data-search="{{A((workspace.Name + " " + workspace.Description).ToLowerInvariant())}}" style="--proto: var(--accent-2)">
@@ -3415,10 +3415,10 @@ public sealed class HtmlViews
                             <h3>{{E(workspace.Name)}}</h3>
                             {{(string.IsNullOrWhiteSpace(workspace.Description) ? "" : $"""<p class="target">{E(workspace.Description)}</p>""")}}
                         </div>
-                        <div class="connection-choice-corner">{{einstellungen}}</div>
+                        <div class="connection-choice-corner">{{settingsButton}}</div>
                     </div>
                 </div>
-                <div class="connection-choice-actions">{{oeffnen}}</div>
+                <div class="connection-choice-actions">{{openButton}}</div>
             </article>
             """;
     }
@@ -3458,9 +3458,9 @@ public sealed class HtmlViews
     }
 
     // A per-protocol accent colour (mockup-style coloured icon chips). Colours are not final.
-    // Nicht mehr der Hexwert selbst, sondern der Verweis auf ein Token: so kann ein Thema die
-    // Protokollfarben setzen, und zwar getrennt fuer hell und dunkel. Die alten Werte waren im
-    // hellen Modus auf ihrer eigenen 16%-Toenung nicht lesbar (1,7 bis 2,8 statt 4,5).
+    // No longer the hex value itself but a reference to a token: that way a theme can set the
+    // protocol colours, separately for light and dark. The old values were unreadable in light
+    // mode on their own 16% tint (1.7 to 2.8 instead of 4.5).
     private static string ProtocolAccent(ServerProtocol protocol)
     {
         var token = protocol switch
@@ -3880,9 +3880,9 @@ public sealed class HtmlViews
     {
         var searchIndex = $"{server.Name} {ServerTargetValue(server)} {server.FolderName} {ServerProtocolLabel(server.Protocol)}".ToLowerInvariant();
 
-        // Eine Ablage ist keine gespeicherte Verbindung: sie entsteht aus einer Berechtigung und hat
-        // keinen Datensatz. Das Zahnrad zeigte trotzdem auf /admin/servers/<id> - und damit auf eine
-        // Seite, die es nicht gibt (404).
+        // A place is not a saved connection: it is built from a permission and has no
+        // record. The gear still pointed at /admin/servers/<id> - and therefore at a
+        // page that does not exist (404).
         var isArea = server.Protocol == ServerProtocol.Local;
         var canEdit = includeEditButtons
             && !isArea
@@ -3974,9 +3974,9 @@ public sealed class HtmlViews
 
     public string Message(HttpContext context, MatgateUser? user, string title, string message)
     {
-        // Diese Seite erscheint fast immer, weil ein Formular nicht angenommen wurde - und bisher
-        // fuehrte von ihr nur ein Weg: zur Startseite, womit das Getippte verloren war. "Zurueck"
-        // bringt das Formular mitsamt Eingaben wieder.
+        // This page almost always appears because a form was not accepted - and until now only one way
+        // led away from it: to the home page, with everything typed lost. "Back" brings the form back,
+        // inputs and all.
         var de = Language(context) == "de";
         var body = $$"""
             <section class="panel message-panel">
@@ -4234,8 +4234,8 @@ public sealed class HtmlViews
             ready = T(context, "Ready"),
             chooseConnection = Language(context) == "de" ? "Verbindung auswählen" : "Choose a connection",
             starting = Language(context) == "de" ? "Startet" : "Starting",
-            // Vor dem Namen einer Ablage im Reiter: "Dateien: User" sagt, womit man es zu tun hat.
-            // Ohne das stand dort nur "User", und daneben Reiter, die Fernsitzungen sind.
+            // In front of a place's name in the tab: "Files: User" says what you are dealing with.
+            // Without it there was just "User", next to tabs that are remote sessions.
             filesPrefix = Language(context) == "de" ? "Dateien" : "Files",
             website = T(context, "Website"),
             websiteBeta = T(context, "Website (Beta)"),
@@ -4397,9 +4397,9 @@ public sealed class HtmlViews
                     </div>
                 </form>
                 <!-- Dieser Dialog hat genau eine Aufgabe: Dateien von diesem Geraet in die offene
-                     Sitzung geben. Er hatte einmal zwei Schalter - Quelle und Ziel, je zwei Knoepfe -
+                     Sitzung geben. Er hatte einmal pad2 Schalter - Quelle und Ziel, je pad2 Knoepfe -
                      und damit vier Kombinationen, von denen "aus einer Ablage in eine Ablage" mit
-                     einer Sitzung überhaupt nichts zu tun hatte. Kopiert wird jetzt dort, wo man
+                     einer Sitzung überhaupt nichts zu tun hatte. Kopiert wird now dort, wo man
                      ohnehin blaettert: im Dateimanager. -->
                 <form id="sftp-target-dialog" class="credential-dialog send-files-dialog hidden">
                     <h2>{{(Language(context) == "de" ? "Dateien in die Sitzung" : "Send files into the session")}}</h2>
@@ -4422,7 +4422,7 @@ public sealed class HtmlViews
                     </div>
                 </form>
                 <!-- Kopieren von einem Ort in einen anderen. Das ging bisher nur als Umweg durch den
-                     Senden-Dialog einer laufenden Sitzung - jetzt dort, wo man ohnehin blaettert. -->
+                     Senden-Dialog einer laufenden Sitzung - now dort, wo man ohnehin blaettert. -->
                 <form id="copy-to-dialog" class="credential-dialog copy-to-dialog hidden">
                     <h2>{{(Language(context) == "de" ? "Kopieren nach" : "Copy to")}}</h2>
                     <p id="copy-to-files" class="muted"></p>
@@ -4494,7 +4494,7 @@ public sealed class HtmlViews
             <script>
             (() => {
                 const availableServers = {{availableServers}};
-                // Verbindungen, die auf der Startseite als Knopf in der Leiste stehen sollen.
+                // Connections that should sit on the home page as a button in the bar.
                 const actionBarServers = {{actionBarServers}};
                 const sessionPrefs = Object.assign({ edgePanning: true, dragPanning: true, stretchToWindow: false, systemCombos: true, functionKeys: false, ctrlAltDelHotkey: true, pasteAsKeystrokes: false, actionOrder: [], hiddenActions: [] }, {{sessionPrefs}});
                 const initialOpenServerId = {{initialOpenServerId}};
@@ -4812,9 +4812,9 @@ public sealed class HtmlViews
                 async function openFileViewerDialog(tab, path) {
                     const pageUrl = `/files/${tab.serverId}/view?path=${encodeURIComponent(path)}&embedded=1`;
                     if (!fileViewerDialog || typeof fileViewerDialog.showModal !== 'function') {
-                        // Kein <dialog> im Browser? Dann als Reiter, nicht als Seitenwechsel. Ein
-                        // Seitenwechsel auf der Huelle nimmt jede laufende Sitzung mit - eine Datei
-                        // anzusehen darf das nicht kosten.
+                        // No <dialog> in the browser? Then as a tab, not as a page change. A page
+                        // change on the shell takes every running session with it - looking at a
+                        // file must not cost that.
                         const name = path.split('/').filter(Boolean).pop() || path;
                         openShellTab(`/files/${tab.serverId}/view?path=${encodeURIComponent(path)}`, name);
                         return;
@@ -5165,8 +5165,8 @@ public sealed class HtmlViews
                         return;
                     }
 
-                    // Der Zustand der Browser-Farm, falls eine da ist. Ein Fehlschlag bleibt still:
-                    // die Zeile ist eine Beigabe, kein Teil der Seite.
+                    // The state of the browser farm, if there is one. A failure stays silent:
+                    // the line is an extra, not part of the page.
                     const farmLine = root.querySelector('[data-home2-farm]');
                     if (farmLine) {
                         fetch('/api/browser-farm/status')
@@ -5686,9 +5686,9 @@ public sealed class HtmlViews
                 }
 
                 window.MatgateOpenShellTab = openShellTab;
-                // Eine eingebettete Seite kann bisher nur eine SEITE als Reiter oeffnen. Damit die
-                // Workspace-Seite auf ihre eigene Ablage im Dateimanager zeigen kann, braucht sie
-                // auch den Weg zu einer Verbindung.
+                // An embedded page could so far only open a PAGE as a tab. For the workspace
+                // page to be able to point at its own place in the file manager, it needs the
+                // way to a connection too.
                 window.MatgateOpenServerTab = (serverId) => openServer(serverId);
 
                 function restoreShellTabs() {
@@ -5739,9 +5739,9 @@ public sealed class HtmlViews
                         });
                     });
 
-                    // Ein Verweis, der auf eine Ablage zeigt: in der Huelle wird er zur Ablage,
-                    // nicht zu einem Seitenwechsel. Sein href traegt nur dort, wo es keine Huelle
-                    // gibt - etwa wenn jemand die Seite allein aufruft.
+                    // A link that points at a place: in the shell it becomes the place, not a
+                    // page change. Its href only carries where there is no shell - for instance
+                    // when somebody opens the page on its own.
                     scope.querySelectorAll('a[data-server-id]').forEach(anchor => {
                         if (anchor.dataset.openWired) { return; }
                         anchor.dataset.openWired = '1';
@@ -5777,88 +5777,88 @@ public sealed class HtmlViews
                     });
                 }
 
-                // Die Einstellungen einer Ablage als Dialog - der Weg ueber eine eigene Seite warf
-                // einen aus dem Reiter, in dem man gerade arbeitete. Gespeichert wird im
-                // Hintergrund, danach bleibt alles stehen, wo es war.
+                // A place's settings as a dialog - the way through a page of its own threw you
+                // out of the tab you were working in. Saving happens in the background, and
+                // afterwards everything stays where it was.
                 const workspaceSettingsDialog = document.getElementById('workspace-settings-dialog');
 
-                // Freigeben laeuft in zwei Schritten durch denselben Dialog: erst das Formular,
-                // dann - wenn es geklappt hat - die Einstellungen der frischen Freigabe, denn dort
-                // steht der Link, den man weitergeben will.
+                // Sharing runs through the same dialog in two steps: first the form, then - if
+                // it worked - the settings of the fresh share, because that is where the link
+                // you want to pass on is.
                 async function openSharePlace(areaId) {
                     if (!workspaceSettingsDialog || !areaId) {
                         return;
                     }
 
                     workspaceSettingsDialog.replaceChildren();
-                    const laedt = document.createElement('div');
-                    laedt.className = 'file-viewer-dialog-loading';
-                    laedt.textContent = `${ui('loading')}...`;
-                    workspaceSettingsDialog.appendChild(laedt);
+                    const loadingEl = document.createElement('div');
+                    loadingEl.className = 'file-viewer-dialog-loading';
+                    loadingEl.textContent = `${ui('loading')}...`;
+                    workspaceSettingsDialog.appendChild(loadingEl);
                     if (typeof workspaceSettingsDialog.showModal === 'function' && !workspaceSettingsDialog.open) {
                         workspaceSettingsDialog.showModal();
                     }
 
-                    let antwort;
+                    let response;
                     try {
-                        antwort = await fetch(`/api/files/${encodeURIComponent(areaId)}/share-form`, {
+                        response = await fetch(`/api/files/${encodeURIComponent(areaId)}/share-form`, {
                             headers: { 'X-Matgate-Csrf': csrfToken },
                             cache: 'no-store',
                         });
                     }
                     catch {
-                        laedt.textContent = uiText.actionFailed || 'Failed';
+                        loadingEl.textContent = uiText.actionFailed || 'Failed';
                         return;
                     }
 
-                    if (!antwort.ok) {
-                        // Der Server sagt, warum - etwa dass nur ein Administrator das darf.
-                        let grund = uiText.actionFailed || 'Failed';
-                        try { grund = (await antwort.json()).error || grund; } catch { }
-                        laedt.textContent = grund;
+                    if (!response.ok) {
+                        // The server says why - for instance that only an administrator may do this.
+                        let reason = uiText.actionFailed || 'Failed';
+                        try { reason = (await response.json()).error || reason; } catch { }
+                        loadingEl.textContent = reason;
                         return;
                     }
 
-                    workspaceSettingsDialog.innerHTML = await antwort.text();
-                    workspaceSettingsDialog.querySelectorAll('[data-workspace-dialog-close]').forEach(knopf => {
-                        knopf.addEventListener('click', () => workspaceSettingsDialog.close());
+                    workspaceSettingsDialog.innerHTML = await response.text();
+                    workspaceSettingsDialog.querySelectorAll('[data-workspace-dialog-close]').forEach(button => {
+                        button.addEventListener('click', () => workspaceSettingsDialog.close());
                     });
 
-                    const formular = workspaceSettingsDialog.querySelector('[data-share-create-form]');
-                    if (!formular) {
+                    const shareForm = workspaceSettingsDialog.querySelector('[data-share-create-form]');
+                    if (!shareForm) {
                         return;
                     }
 
-                    formular.addEventListener('submit', async event => {
+                    shareForm.addEventListener('submit', async event => {
                         event.preventDefault();
-                        let ergebnis;
+                        let result;
                         try {
-                            const r = await fetch(formular.getAttribute('action') || '', {
+                            const r = await fetch(shareForm.getAttribute('action') || '', {
                                 method: 'POST',
-                                body: new FormData(formular),
+                                body: new FormData(shareForm),
                                 credentials: 'same-origin',
                                 headers: { 'X-Matgate-Csrf': csrfToken },
                             });
-                            ergebnis = await r.json();
+                            result = await r.json();
                             if (!r.ok) {
-                                throw new Error(ergebnis && ergebnis.error ? ergebnis.error : String(r.status));
+                                throw new Error(result && result.error ? result.error : String(r.status));
                             }
                         }
-                        catch (fehler) {
-                            // Der Dialog bleibt offen, damit nichts von dem Eingetippten verloren geht.
-                            let hinweis = formular.querySelector('.notice.error');
-                            if (!hinweis) {
-                                hinweis = document.createElement('div');
-                                hinweis.className = 'notice error';
-                                formular.prepend(hinweis);
+                        catch (failure) {
+                            // The dialog stays open so that nothing typed is lost.
+                            let notice = shareForm.querySelector('.notice.error');
+                            if (!notice) {
+                                notice = document.createElement('div');
+                                notice.className = 'notice error';
+                                shareForm.prepend(notice);
                             }
 
-                            hinweis.textContent = fehler && fehler.message ? fehler.message : String(fehler);
+                            notice.textContent = failure && failure.message ? failure.message : String(failure);
                             return;
                         }
 
                         await refreshConnectionsPanel();
-                        await openWorkspaceSettings(ergebnis && ergebnis.id);
+                        await openWorkspaceSettings(result && result.id);
                     });
                 }
 
@@ -5868,70 +5868,70 @@ public sealed class HtmlViews
                     }
 
                     workspaceSettingsDialog.replaceChildren();
-                    const laedt = document.createElement('div');
-                    laedt.className = 'file-viewer-dialog-loading';
-                    laedt.textContent = `${ui('loading')}...`;
-                    workspaceSettingsDialog.appendChild(laedt);
+                    const loadingEl = document.createElement('div');
+                    loadingEl.className = 'file-viewer-dialog-loading';
+                    loadingEl.textContent = `${ui('loading')}...`;
+                    workspaceSettingsDialog.appendChild(loadingEl);
                     if (typeof workspaceSettingsDialog.showModal === 'function' && !workspaceSettingsDialog.open) {
                         workspaceSettingsDialog.showModal();
                     }
 
                     let html = '';
                     try {
-                        const antwort = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/settings`, {
+                        const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/settings`, {
                             headers: { 'X-Matgate-Csrf': csrfToken },
                             cache: 'no-store',
                         });
-                        if (!antwort.ok) {
-                            throw new Error(String(antwort.status));
+                        if (!response.ok) {
+                            throw new Error(String(response.status));
                         }
 
-                        html = await antwort.text();
+                        html = await response.text();
                     }
                     catch {
-                        laedt.textContent = uiText.actionFailed || 'Failed';
+                        loadingEl.textContent = uiText.actionFailed || 'Failed';
                         return;
                     }
 
                     workspaceSettingsDialog.innerHTML = html;
-                    workspaceSettingsDialog.querySelectorAll('[data-workspace-dialog-close]').forEach(knopf => {
-                        knopf.addEventListener('click', () => workspaceSettingsDialog.close());
+                    workspaceSettingsDialog.querySelectorAll('[data-workspace-dialog-close]').forEach(button => {
+                        button.addEventListener('click', () => workspaceSettingsDialog.close());
                     });
-                    workspaceSettingsDialog.querySelectorAll('[data-workspace-copy]').forEach(knopf => {
-                        knopf.addEventListener('click', async () => {
-                            await window.MatgateCopyText?.(knopf.getAttribute('data-workspace-copy') || '');
+                    workspaceSettingsDialog.querySelectorAll('[data-workspace-copy]').forEach(button => {
+                        button.addEventListener('click', async () => {
+                            await window.MatgateCopyText?.(button.getAttribute('data-workspace-copy') || '');
                         });
                     });
 
-                    const formular = workspaceSettingsDialog.querySelector('[data-workspace-settings-form]');
-                    if (formular) {
-                        formular.addEventListener('submit', async event => {
+                    const shareForm = workspaceSettingsDialog.querySelector('[data-workspace-settings-form]');
+                    if (shareForm) {
+                        shareForm.addEventListener('submit', async event => {
                             event.preventDefault();
                             try {
-                                await fetch(formular.getAttribute('action') || '', {
+                                await fetch(shareForm.getAttribute('action') || '', {
                                     method: 'POST',
-                                    body: new FormData(formular),
+                                    body: new FormData(shareForm),
                                     credentials: 'same-origin',
                                     headers: { 'X-Matgate-Csrf': csrfToken },
                                 });
                             }
                             catch {
-                                // Keine Verbindung - dann bleibt der Dialog offen und nichts ist verloren.
+                                // No connection - then the dialog stays open and nothing is lost.
                                 return;
                             }
 
                             workspaceSettingsDialog.close();
-                            // Der Name kann sich geaendert haben: Ablagenliste neu holen, Reiter neu
-                            // beschriften, Inhalt neu laden.
+                            // The name may have changed: fetch the list of places again, relabel the tab,
+                            // reload the content.
                             await refreshConnectionsPanel();
                             const tab = tabs.get(activeTabId);
                             if (tab) {
-                                const frisch = findServer(tab.serverId);
-                                if (frisch) {
-                                    tab.name = frisch.name;
-                                    const titel = tab.tabMain ? tab.tabMain.querySelector('.session-tab-title') : null;
-                                    if (titel) {
-                                        titel.innerHTML = tabTitleHtml(frisch);
+                                const fresh = findServer(tab.serverId);
+                                if (fresh) {
+                                    tab.name = fresh.name;
+                                    const titleEl = tab.tabMain ? tab.tabMain.querySelector('.session-tab-title') : null;
+                                    if (titleEl) {
+                                        titleEl.innerHTML = tabTitleHtml(fresh);
                                     }
                                 }
 
@@ -5942,21 +5942,21 @@ public sealed class HtmlViews
                 }
 
                 document.addEventListener('click', event => {
-                    const freigeben = event.target instanceof Element
+                    const shareTrigger = event.target instanceof Element
                         ? event.target.closest('[data-share-place]')
                         : null;
-                    if (freigeben) {
+                    if (shareTrigger) {
                         event.preventDefault();
-                        openSharePlace(freigeben.getAttribute('data-share-place'));
+                        openSharePlace(shareTrigger.getAttribute('data-share-place'));
                         return;
                     }
 
-                    const knopf = event.target instanceof Element
+                    const button = event.target instanceof Element
                         ? event.target.closest('[data-workspace-settings]')
                         : null;
-                    if (knopf) {
+                    if (button) {
                         event.preventDefault();
-                        openWorkspaceSettings(knopf.getAttribute('data-workspace-settings'));
+                        openWorkspaceSettings(button.getAttribute('data-workspace-settings'));
                     }
                 });
                 function wireShellNavigation() {
@@ -6007,11 +6007,11 @@ public sealed class HtmlViews
                         openShellTab(href, title);
                     });
 
-                    // Dasselbe Netz fuer Formulare. Ein abgeschicktes Formular ist eine Navigation,
-                    // und eine Navigation auf der Huelle nimmt jede laufende Sitzung mit - ohne
-                    // Meldung, die Reiter sind einfach weg. Genau das tat der Favoriten-Stern auf
-                    // der Startseite. Formulare mit [data-shell-inline] werden deshalb im
-                    // Hintergrund abgeschickt, danach wird die Verbindungsliste neu geholt.
+                    // The same safety net for forms. A submitted form is a navigation, and a
+                    // navigation on the shell takes every running session with it - without a
+                    // word, the tabs are simply gone. That is exactly what the favourite star on
+                    // the home page did. Forms with [data-shell-inline] are therefore submitted
+                    // in the background, after which the connection list is fetched again.
                     document.addEventListener('submit', async (event) => {
                         const form = event.target;
                         if (!(form instanceof HTMLFormElement) || !form.hasAttribute('data-shell-inline')) {
@@ -6028,7 +6028,7 @@ public sealed class HtmlViews
                             });
                         }
                         catch {
-                            // Keine Verbindung zum Gateway - dann bleibt die Liste, wie sie war.
+                            // No connection to the gateway - then the list stays as it was.
                         }
 
                         await refreshConnectionsPanel();
@@ -6999,14 +6999,14 @@ public sealed class HtmlViews
                     const shellTab = connectionTab ? null : shellTabs.get(activeShellTabId) || null;
                     const tab = connectionTab || shellTab;
                     if (!tab) {
-                        // Kein Reiter offen heisst: die Startseite steht vorn. Dort traegt die Leiste
-                        // die Verbindungen, die man sich hineingelegt hat - ein Druck verbindet,
-                        // ohne den Weg ueber die Karten.
+                        // No tab open means: the home page is at the front. There the bar carries the
+                        // connections you put into it - one press connects, without the detour over
+                        // the cards.
                         (Array.isArray(actionBarServers) ? actionBarServers : []).forEach(id => {
                             const server = availableServers.find(entry => entry.id === id);
                             if (!server) {
-                                // Weggenommen oder nicht mehr freigegeben - dann fehlt der Knopf,
-                                // statt ins Leere zu zeigen.
+                                // Taken away or no longer shared - then the button is missing instead of
+                                // pointing at nothing.
                                 return;
                             }
 
@@ -7016,12 +7016,12 @@ public sealed class HtmlViews
                                 () => openServer(server.id),
                                 'tab-action-shortcut');
                             button.style.setProperty('--proto', server.protoColor || 'var(--accent)');
-                            // Welche Verbindung dahintersteckt - zwei duerfen denselben Namen tragen.
+                            // Which connection is behind it - two of them may carry the same name.
                             button.dataset.serverId = server.id;
                             connectionTabActions.appendChild(button);
                         });
-                        // Auf einem schmalen Schirm passen nicht alle in die Zeile - der Rest wandert
-                        // ins Drei-Punkte-Menue, wie bei den Aktionen einer Sitzung auch.
+                        // On a narrow screen not all of them fit into the row - the rest moves into
+                        // the three-dot menu, just like the actions of a session.
                         collapseConnectionActions(connectionTabActions);
                         updateStatusBar();
                         return;
@@ -7878,15 +7878,15 @@ public sealed class HtmlViews
 
                     reconnectButton.addEventListener('click', () => restartTab(tab));
                     closeOverlayButton.addEventListener('click', () => closeTab(tab.id));
-                    // Ein Klick in den Reiter holt den Fokus auf die Flaeche, damit Tastendruecke in
-                    // der Fernsitzung landen. Ein Klick auf ein BEDIENELEMENT gehoert aber diesem:
-                    // der Griff nach dem Fokus schloss sonst jedes Auswahlfeld im Dateimanager
-                    // sofort wieder, kaum dass es aufgegangen war - Ordner wechseln war unmoeglich.
+                    // A click into the tab pulls focus onto the surface so that key presses land in
+                    // the remote session. A click on a CONTROL belongs to that control, though:
+                    // grabbing the focus otherwise closed every select in the file manager the
+                    // moment it had opened - changing folders was impossible.
                     panel.addEventListener('click', event => {
-                        const bedienelement = event.target instanceof Element
+                        const control = event.target instanceof Element
                             ? event.target.closest('input, select, textarea, button, a, label, [contenteditable]')
                             : null;
-                        if (bedienelement) {
+                        if (control) {
                             return;
                         }
 
@@ -8145,40 +8145,40 @@ public sealed class HtmlViews
                         overlayMessage,
                         overlayActions,
                         // Written to by setStatus; the dialog has no status bar of its own.
-                        // Eine Zeile, die wirklich zu sehen ist: bisher schrieb setStatus in ein
-                        // Span, das nie im Baum hing.
+                        // A line that is really visible: setStatus used to write into a span that was
+                        // never in the tree.
                         statusLabel: document.getElementById('file-area-dialog-status') || document.createElement('span'),
                         selectedFilePaths: new Set(),
                     };
                 }
 
-                // Zwei Gruppen statt einer langen Liste: oben, was zum Hier gehoert - der Ordner
-                // dieser Sitzung, der Ort, in dem man steht, die eigenen und die gemeinsamen
-                // Dateien. Darunter die Ablagen der uebrigen Verbindungen.
+                // Two groups instead of one long list: at the top what belongs to the here and
+                // now - this session's folder, the place you are in, your own and the shared
+                // files. Below that the places of the other connections.
                 function placeOptionGroups(places, currentId) {
-                    // Ein Workspace ist keine Verbindung - er bekommt deshalb seine eigene Gruppe
-                    // und nicht die Ueberschrift "Andere Verbindungen".
-                    const istWorkspace = place => (place.areaKind || '') === 'workspace';
-                    const hierher = place => !istWorkspace(place)
+                    // A workspace is not a connection - so it gets a group of its own and not the
+                    // heading "Other connections".
+                    const isWorkspace = place => (place.areaKind || '') === 'workspace';
+                    const belongsHere = place => !isWorkspace(place)
                         && (place.id === currentId
                             || ['session', 'user', 'global'].includes(place.areaKind || ''));
-                    const rang = place => place.areaKind === 'session'
+                    const rank = place => place.areaKind === 'session'
                         ? 0
                         : (place.id === currentId ? 1 : (place.areaKind === 'user' ? 2 : 3));
-                    const aktuell = places.filter(hierher).sort((a, b) => rang(a) - rang(b));
-                    const werkstaetten = places.filter(istWorkspace);
-                    const andere = places.filter(place => !hierher(place) && !istWorkspace(place));
+                    const current = places.filter(belongsHere).sort((a, b) => rank(a) - rank(b));
+                    const workspacePlaces = places.filter(isWorkspace);
+                    const others = places.filter(place => !belongsHere(place) && !isWorkspace(place));
                     const option = place => `<option value="${escapeHtml(place.id)}"${place.id === currentId ? ' selected' : ''}>${escapeHtml(place.name)}</option>`;
-                    const gruppe = (label, liste) => (liste.length
-                        ? `<optgroup label="${escapeHtml(label)}">${liste.map(option).join('')}</optgroup>`
+                    const group = (label, items) => (items.length
+                        ? `<optgroup label="${escapeHtml(label)}">${items.map(option).join('')}</optgroup>`
                         : '');
 
-                    // Ohne zweite Gruppe keine Ueberschrift - eine einzelne Gruppe ist nur Rahmen.
-                    return (andere.length || werkstaetten.length)
-                        ? gruppe(ui('placesCurrent'), aktuell)
-                            + gruppe(ui('placesWorkspaces'), werkstaetten)
-                            + gruppe(ui('placesOther'), andere)
-                        : aktuell.map(option).join('');
+                    // Without a second group no heading - a single group is just a frame.
+                    return (others.length || workspacePlaces.length)
+                        ? group(ui('placesCurrent'), current)
+                            + group(ui('placesWorkspaces'), workspacePlaces)
+                            + group(ui('placesOther'), others)
+                        : current.map(option).join('');
                 }
 
                 // The areas this user can reach, so one dialog manages all of them instead of showing
@@ -8191,24 +8191,24 @@ public sealed class HtmlViews
                 }
 
                 async function openFileAreaDialog(areaId) {
-                    // Die Orte koennen sich geaendert haben, seit die Seite geladen wurde: eine
-                    // zweite Sitzung ist dazugekommen, eine andere beendet.
+                    // The places may have changed since the page was loaded: a second session has
+                    // been added, another one ended.
                     await refreshConnectionsPanel();
                     const choices = fileAreaChoices(areaId);
                     if (!choices.length) {
                         return;
                     }
 
-                    // Dieselben zwei Gruppen wie im Dateimanager: oben das Hier, darunter die
-                    // Ablagen der uebrigen Verbindungen.
+                    // The same two groups as in the file manager: the here and now at the top, the
+                    // places of the other connections below.
                     fileAreaDialogSelect.innerHTML = placeOptionGroups(choices, choices[0].id);
 
                     showFileArea(choices[0].id);
 
-                    // "In die Sitzung" setzt eine Sitzung mit Dateikanal voraus - eine VNC-Sitzung,
-                    // eine Webseite oder ein Dateimanager-Tab hat keinen. Der Knopf war trotzdem da
-                    // und tat dann nichts, ausser den Dialog zu schließen. Inline gesetzt, weil
-                    // .hidden hier gegen die Knopfregeln verliert.
+                    // "Into the session" needs a session with a file channel - a VNC session, a
+                    // website or a file-manager tab has none. The button was there anyway and then
+                    // did nothing but close the dialog. Set inline, because .hidden loses against
+                    // the button rules here.
                     const sessionTab = tabs.get(activeTabId || '');
                     fileAreaDialogSend.style.display = (sessionTab && sessionTab.filesystem && !sessionTab.terminal)
                         ? ''
@@ -8216,9 +8216,9 @@ public sealed class HtmlViews
                     fileAreaDialog.classList.remove('hidden');
                 }
 
-                // Wechselt der Ort, gehoert die Warteschlange nicht mehr dorthin. Bisher verschwand
-                // sie lautlos: wer während eines Schubs die Ablage wechselte, verlor den Rest ohne
-                // jede Meldung. Jetzt wird abgebrochen und es steht da.
+                // When the place changes the queue does not belong there any more. It used to
+                // vanish silently: whoever switched places during a batch lost the rest without
+                // a word. Now it is cancelled and says so.
                 function abandonUploads(tab) {
                     let dropped = 0;
                     ((tab && tab.uploadQueue) || []).forEach(item => {
@@ -8237,15 +8237,15 @@ public sealed class HtmlViews
                     return dropped;
                 }
 
-                // Denselben Dateimanager auf einen anderen Ort richten, statt einen zweiten zu öffnen.
-                // Was im Reiter steht. Eine Ablage sagt, dass sie eine ist: "Dateien: User". Vorher
-                // stand dort nur "User" - zwischen lauter Reitern, die Fernsitzungen sind, las sich
-                // das wie ein Rechnername. An EINER Stelle, weil der Titel an zwei Orten gebaut wird
-                // (neuer Reiter und Ortswechsel im selben Reiter) und zwei Fassungen frueher oder
-                // spaeter auseinanderlaufen.
+                // Point the same file manager at another place instead of opening a second one.
+                // What is in the tab. A place says that it is one: "Files: User". Before, it
+                // just said "User" - among tabs that are remote sessions, that read like a
+                // machine name. In ONE place, because the title is built in two spots (new tab
+                // and switching place in the same tab) and two versions would sooner or later
+                // drift apart.
                 function tabTitleHtml(server) {
-                    const istAblage = (server.protocol || '').toUpperCase() === 'LOCAL';
-                    const text = istAblage ? `${ui('filesPrefix')}: ${server.name}` : server.name;
+                    const isPlace = (server.protocol || '').toUpperCase() === 'LOCAL';
+                    const text = isPlace ? `${ui('filesPrefix')}: ${server.name}` : server.name;
                     return `${server.iconHtml || ''}<span>${escapeHtml(text)}</span>`;
                 }
 
@@ -8285,11 +8285,11 @@ public sealed class HtmlViews
                         return;
                     }
 
-                    // Der bisherige Host verschwindet gleich - was er noch hochladen wollte, muss
-                    // abgebrochen und gemeldet werden, statt still zu verschwinden.
+                    // The previous host is about to disappear - whatever it still wanted to upload
+                    // has to be cancelled and reported instead of silently vanishing.
                     abandonUploads(fileAreaHost);
-                    // Hält das Feld oben mit dem gezeigten Ort zusammen - auch wenn der Wechsel
-                    // von woanders kam.
+                    // Keeps the field at the top in step with the place being shown - even when the
+                    // change came from somewhere else.
                     if (fileAreaDialogSelect.value !== server.id) {
                         fileAreaDialogSelect.value = server.id;
                     }
@@ -8661,10 +8661,10 @@ public sealed class HtmlViews
                         mode = (tab.pinchZoom || 1) > 1.02 ? 'transform' : null;
                     };
 
-                    // Im Modus mit fester Aufloesung gehoert die Geste der Vergroesserung der Sitzung.
-                    // Ohne das hier zoomte der Browser stattdessen die ganze Oberflaeche - mal ja, mal
-                    // nein, je nachdem wo die Finger aufsetzen, was genau der Eindruck "geht teilweise"
-                    // ist. Gescrollt wird weiterhin mit einem Finger.
+                    // In fixed-resolution mode the pinch gesture belongs to the session. Without
+                    // this the browser zoomed the whole UI instead - sometimes yes, sometimes no,
+                    // depending on where the fingers land, which is exactly the impression of
+                    // "works partly". Scrolling still works with one finger.
                     let deskDist = 0;
                     let deskZoom = 1;
                     root.addEventListener('touchstart', event => {
@@ -8697,10 +8697,10 @@ public sealed class HtmlViews
                         if (isDesktopDisplayMode(tab)) {
                             if (event.touches.length === 2 && deskDist > 0) {
                                 swallow(event);
-                                const faktor = distance(event.touches) / deskDist;
-                                const ziel = Math.min(3, Math.max(0.25, deskZoom * faktor));
-                                if (Math.abs(ziel - (tab.zoom || 1)) > 0.01) {
-                                    tab.zoom = Math.round(ziel * 100) / 100;
+                                const factor = distance(event.touches) / deskDist;
+                                const target = Math.min(3, Math.max(0.25, deskZoom * factor));
+                                if (Math.abs(target - (tab.zoom || 1)) > 0.01) {
+                                    tab.zoom = Math.round(target * 100) / 100;
                                     fitDisplay(tab);
                                 }
                             }
@@ -8787,8 +8787,8 @@ public sealed class HtmlViews
                     }, { passive: false, capture: true });
 
                     const end = event => {
-                        // Die Geste im Modus mit fester Aufloesung endet hier, sonst wirkt die naechste
-                        // Beruehrung wie die Fortsetzung der vorigen.
+                        // The gesture in fixed-resolution mode ends here, otherwise the next touch acts
+                        // like a continuation of the previous one.
                         if (event.touches.length < 2) {
                             deskDist = 0;
                         }
@@ -9055,7 +9055,7 @@ public sealed class HtmlViews
                     }
 
                     const seconds = Math.max(0, Math.round((Date.now() - timestamp) / 1000));
-                    return seconds < 2 ? 'jetzt' : `vor ${seconds}s`;
+                    return seconds < 2 ? 'now' : `vor ${seconds}s`;
                 }
 
                 function normalizeStatus(status, fallback) {
@@ -9202,9 +9202,9 @@ public sealed class HtmlViews
                         releaseSessionFiles(tab);
                         if (launch.sessionId) {
                             tab.fileSessionId = launch.sessionId;
-                            // Mit der Sitzung entsteht ihr Ordner - die Liste der Orte kennt ihn
-                            // erst, wenn sie neu geholt wird, sonst fehlt "Session" bis zum
-                            // naechsten Seitenaufbau.
+                            // The session's folder comes into being with the session - the list of places
+                            // only knows it once it is fetched again, otherwise "Session" is missing until
+                            // the next page load.
                             refreshConnectionsPanel();
                             startSessionKeepalive(tab);
                         }
@@ -9627,41 +9627,41 @@ public sealed class HtmlViews
                     tab.connectedAt ??= Date.now();
                     tab.filePath = tab.initialFilePath || tab.filePath || '/';
                     tab.initialFilePath = '';
-                    // Eine Ablage, in die nicht geschrieben werden darf - heute ein Workspace mit
-                    // abgeschalteten Uploads -, zeigt die Knoepfe gar nicht erst, die dort nichts
-                    // ausrichten. Abgewiesen wuerde ein Versuch ohnehin auf dem Server.
-                    const dieseAblage = availableServers.find(server => server.id === tab.serverId);
-                    const nurLesen = !!(dieseAblage && dieseAblage.readOnly);
-                    tab.displayRoot.className = 'file-display' + (nurLesen ? ' file-display--readonly' : '');
+                    // A place that must not be written to - today a workspace with uploads switched
+                    // off - does not even show the buttons that would achieve nothing there. An
+                    // attempt would be rejected on the server anyway.
+                    const thisPlace = availableServers.find(server => server.id === tab.serverId);
+                    const readOnlyPlace = !!(thisPlace && thisPlace.readOnly);
+                    tab.displayRoot.className = 'file-display' + (readOnlyPlace ? ' file-display--readonly' : '');
                     tab.displayRoot.replaceChildren();
                     setStatus(tab, ui('loading'));
                     setOverlay(tab, ui('fileManagerOpening'), `${tab.name} ${uiText.isLoading || 'is loading'}.`, false);
 
-                    // Die uebrigen Ablagen, sichtbar statt versteckt: in einem Tab gab es bisher gar
-                    // keinen Weg zu ihnen, im Dialog nur ein Auswahlfeld, das niemand als "die anderen
-                    // Ordner" liest. Nur für die Ablagen des Gateways - eine entfernte Verbindung ist
-                    // kein Ort, von dem aus man dorthin springt.
-                    // Die Ablagen des Gateways, in JEDEM Dateimanager - auch in dem einer SMB- oder
-                    // FTP-Verbindung. Vorher gab es die Leiste nur, wenn man ohnehin schon in einer
-                    // Ablage stand; von einer Verbindung aus fuehrte kein Weg dorthin.
+                    // The other places, visible instead of hidden: in a tab there used to be no way
+                    // to them at all, in the dialog only a select that nobody reads as "the other
+                    // folders". Only for the gateway's places - a remote connection is not a place
+                    // you jump from.
+                    // The gateway's places, in EVERY file manager - including the one of an SMB or
+                    // FTP connection. Before, the bar only existed when you were in a place anyway;
+                    // from a connection there was no way there.
                     const placeList = isFileProtocol(tab.protocol) ? fileAreaChoices('') : [];
                     const placeSelect = placeList.length > 1 ? `
                         <select class="toolbar-input file-place-select" data-file-place-select aria-label="${escapeHtml(ui('places'))}" title="${escapeHtml(ui('places'))}">
                             ${placeOptionGroups(placeList, tab.serverId)}
                         </select>` : '';
 
-                    // Ein Workspace wird hier gezeigt, eingestellt wird er auf seiner eigenen Seite -
-                    // Passwort, Ablauf, Rechte und der Link, den man weitergibt. Der Weg dorthin
-                    // gehoert in die Leiste, sonst muesste man ihn ueber das Menue suchen.
-                    // Eine Ablage, die noch keine Freigabe ist, bekommt den Knopf zum Freigeben.
-                    // Eine, die schon eine ist, bekommt den zu ihren Einstellungen - zwei Knoepfe
-                    // fuer dasselbe waeren eine Einladung, den falschen zu druecken.
-                    const freigabeKnopf = (dieseAblage && dieseAblage.areaKind && dieseAblage.areaKind !== 'workspace' && dieseAblage.areaKind !== 'session')
-                        ? `<button type="button" class="toolbar-button file-tool-button" data-share-place="${escapeHtml(dieseAblage.id)}" title="${escapeHtml(ui('sharePlace'))}">${fileIcon('globe')}<span>${escapeHtml(ui('sharePlace'))}</span></button>`
+                    // A workspace is shown here and configured on its own page - password, expiry,
+                    // permissions and the link you pass on. The way there belongs in the bar,
+                    // otherwise you would have to look for it in the menu.
+                    // A place that is not a share yet gets the button to share it. One that already
+                    // is gets the one to its settings - two buttons for the same thing would be an
+                    // invitation to press the wrong one.
+                    const shareButton = (thisPlace && thisPlace.areaKind && thisPlace.areaKind !== 'workspace' && thisPlace.areaKind !== 'session')
+                        ? `<button type="button" class="toolbar-button file-tool-button" data-share-place="${escapeHtml(thisPlace.id)}" title="${escapeHtml(ui('sharePlace'))}">${fileIcon('globe')}<span>${escapeHtml(ui('sharePlace'))}</span></button>`
                         : '';
 
-                    const werkstattKnopf = (dieseAblage && dieseAblage.areaKind === 'workspace' && dieseAblage.areaSourceId)
-                        ? `<button type="button" class="toolbar-button file-tool-button" data-workspace-settings="${escapeHtml(dieseAblage.areaSourceId)}" title="${escapeHtml(ui('workspaceSettings'))}">${fileIcon('settings')}<span>${escapeHtml(ui('workspaceSettings'))}</span></button>`
+                    const workspaceButton = (thisPlace && thisPlace.areaKind === 'workspace' && thisPlace.areaSourceId)
+                        ? `<button type="button" class="toolbar-button file-tool-button" data-workspace-settings="${escapeHtml(thisPlace.areaSourceId)}" title="${escapeHtml(ui('workspaceSettings'))}">${fileIcon('settings')}<span>${escapeHtml(ui('workspaceSettings'))}</span></button>`
                         : '';
 
                     const manager = document.createElement('div');
@@ -9670,8 +9670,8 @@ public sealed class HtmlViews
                         ${Toolbar('file-toolbar',
                             ToolbarGroup('file-toolbar-main toolbar-group--grow',
                                 placeSelect,
-                                werkstattKnopf,
-                                freigabeKnopf,
+                                workspaceButton,
+                                shareButton,
                                 ToolbarIconButton(ui('refresh'), fileIcon('refresh'), 'file-tool-button', Attr('data-file-action', 'refresh') + Attr('title', ui('refresh'))),
                                 ToolbarInput('file-path-input', '/', ui('path')),
                                 ToolbarMenu(
@@ -9758,9 +9758,9 @@ public sealed class HtmlViews
                                 return;
                             }
 
-                            // Beide Male derselbe Gedanke: der Dateimanager bleibt stehen und zeigt
-                            // einen anderen Ort. Frueher öffnete jeder Klick in einem Tab einen
-                            // weiteren Tab - nach dreimal Umsehen waren es vier.
+                            // Both times the same thought: the file manager stays put and shows another
+                            // place. Before, every click in a tab opened yet another tab - after looking
+                            // around three times there were four.
                             if (tab.id === 'file-area-dialog') {
                                 showFileArea(placeId);
                             }
@@ -10063,8 +10063,8 @@ public sealed class HtmlViews
                                 fileActionButton('view', ui('view'), '', () => viewFileEntry(tab, entryPath)),
                                 fileActionButton('download', ui('download'), '', () => downloadFileEntry(tab, entryPath)));
                             if (isArchiveFileName(name)) {
-                                // Entpacken legt Dateien an - in einer Ablage, in die nicht
-                                // geschrieben werden darf, hat der Knopf nichts zu suchen.
+                                // Extracting creates files - in a place that must not be written to the
+                                // button has no business being there.
                                 actions.appendChild(fileActionButton('archive', ui('unzip'), 'file-action-unzip', () => unzipFileEntry(tab, entryPath)));
                             }
                         }
@@ -10128,7 +10128,7 @@ public sealed class HtmlViews
                     const selectableCheckboxes = Array.from(tab.fileUi.tbody.querySelectorAll('.file-select-entry'));
                     const selectableCount = selectableCheckboxes.length;
                     const allSelected = selectableCount > 0 && count === selectableCount;
-                    // Das Kaestchen im Kopf sagt dreierlei: nichts, teilweise, alles.
+                    // The checkbox in the header says three things: nothing, some, all.
                     const selectAllBox = tab.fileUi.selectAllBox;
                     if (selectAllBox) {
                         selectAllBox.disabled = selectableCount === 0;
@@ -10222,8 +10222,8 @@ public sealed class HtmlViews
                     });
                 }
 
-                // Kopieren an einen ANDEREN Ort. Die Bytes nimmt das Gateway selbst in die Hand; der
-                // Browser schickt nur, was wohin soll.
+                // Copying to ANOTHER place. The gateway handles the bytes itself; the browser
+                // only says what should go where.
                 let copyToSource = null;
 
                 function openCopyToDialog(tab) {
@@ -10344,11 +10344,11 @@ public sealed class HtmlViews
                 }
 
                 function downloadFileEntry(tab, path) {
-                    // Kein window.location. Das zaehlt als Navigation, und noch bevor der Browser am
-                    // Content-Disposition merkt, dass gar nicht navigiert wird, ist beforeunload
-                    // gelaufen - und dort fielen alle offenen Sitzungen. Wer im Dateimanager etwas
-                    // herunterlud, verlor im Hintergrund seine RDP-Verbindung. Ein Anker mit
-                    // download-Attribut holt dieselbe Datei, ohne die Seite anzufassen.
+                    // No window.location. That counts as a navigation, and before the browser
+                    // notices from the Content-Disposition that nothing is being navigated to,
+                    // beforeunload has run - and there every open session fell. Whoever downloaded
+                    // something in the file manager lost their RDP connection in the background. An
+                    // anchor with a download attribute fetches the same file without touching the page.
                     const link = document.createElement('a');
                     link.href = `/api/files/${tab.serverId}/download?path=${encodeURIComponent(path)}`;
                     link.download = '';
@@ -10681,12 +10681,12 @@ public sealed class HtmlViews
                     return `${formatFileSize(bytesPerSecond)}/s`;
                 }
 
-                // Lebt die Flaeche, in die hochgeladen wird, noch? Für einen Tab heisst das: er steht
-                // in `tabs`. Der Ablagen-Dialog ist absichtlich KEIN Tab (er leiht sich keinen mehr),
-                // steht also nie darin - und die Warteschlange drehte sich deshalb nie los: jede Datei
-                // blieb auf "wartet" stehen. Lebendig ist er, solange er der Host des offenen Dialogs
-                // ist; closeFileAreaDialog setzt den auf null, womit ein laufender Schub von selbst
-                // aufhoert, genau wie beim Schließen eines Tabs.
+                // Is the surface being uploaded into still alive? For a tab that means: it is
+                // in `tabs`. The places dialog is deliberately NOT a tab (it no longer borrows
+                // one), so it is never in there - and the queue therefore never started: every
+                // file stayed on "waiting". It is alive as long as it is the host of the open
+                // dialog; closeFileAreaDialog sets that to null, so a running batch stops by
+                // itself, exactly as when a tab is closed.
                 function fileHostAlive(tab) {
                     return !!tab && (tabs.has(tab.id) || tab === fileAreaHost);
                 }
@@ -10716,8 +10716,8 @@ public sealed class HtmlViews
                                 next.completedAt = Date.now();
                                 tab.lastError = message;
                                 tab.lastMessage = `${next.file?.name || ''}: ${message}`;
-                                // Im Dialog gibt es keine Statuszeile der Sitzung, an der man es
-                                // sonst saehe - also dorthin, wo die Dateien stehen.
+                                // In the dialog there is no session status line where you would otherwise see
+                                // it - so it goes where the files are.
                                 setFileMessage(tab, tab.lastMessage, 'error');
                                 if (tab.fileUi && tab.fileUi.queueShell) {
                                     tab.fileUi.queueVisible = true;
@@ -11565,9 +11565,9 @@ public sealed class HtmlViews
                     if (usesAreaPicker(tab)) {
                         // Pick from what the drive actually offers, rather than typing a path.
                         sendTargetLabel.textContent = uiText.sendTargetDrive || "Ordner auf dem Matgate-Laufwerk";
-                        // Dieser Hinweis fehlte, und ohne ihn ist die Erfolgsmeldung irrefuehrend: die
-                        // Datei liegt danach auf dem umgeleiteten Laufwerk, nicht auf der Festplatte
-                        // des entfernten Rechners. Den letzten Schritt macht man im Gast selbst.
+                        // This hint was missing, and without it the success message is misleading: the
+                        // file is then on the redirected drive, not on the hard disk of the remote
+                        // machine. The last step is taken inside the guest.
                         sendTargetHint.textContent = uiText.sendTargetDriveHint
                             || "Erscheint in der Sitzung als Laufwerk \"Files\".";
                         sftpTargetPath.classList.add('hidden');
@@ -11911,10 +11911,10 @@ public sealed class HtmlViews
                         closeTargetFolderDialog();
                     }
                 });
-                // Eine Datei, die im Dialog NEBEN der gestrichelten Flaeche landet, hat der Browser
-                // bisher selbst geöffnet - er navigiert dann zur Datei, und die Sitzung dahinter ist
-                // weg. Der Dialog nimmt sie jetzt überall an; ausserhalb wird der Fall nur noch
-                // abgefangen.
+                // A file that lands in the dialog NEXT TO the dashed area used to be opened by
+                // the browser itself - it then navigates to the file, and the session behind it
+                // is gone. The dialog now accepts it everywhere; outside it, the case is only
+                // intercepted.
                 sftpTargetDialog.addEventListener('dragover', event => {
                     if (hasFileDragPayload(event)) {
                         event.preventDefault();
@@ -11928,11 +11928,11 @@ public sealed class HtmlViews
                     event.preventDefault();
                     addPendingFiles(event.dataTransfer && event.dataTransfer.files);
                 });
-                // Wohin eine Datei ginge, die man JETZT loslaesst - und damit auch, was auf dem
-                // Blatt steht, das beim Ziehen aufgeht.
+                // Where a file would go if you let go NOW - and therefore also what is written
+                // on the sheet that appears while dragging.
                 function dropDestination() {
-                    const imDialog = fileAreaHost && !fileAreaDialog.classList.contains('hidden');
-                    const tab = imDialog ? fileAreaHost : tabs.get(activeTabId || '');
+                    const inDialog = fileAreaHost && !fileAreaDialog.classList.contains('hidden');
+                    const tab = inDialog ? fileAreaHost : tabs.get(activeTabId || '');
                     if (!tab) {
                         return null;
                     }
@@ -11951,13 +11951,13 @@ public sealed class HtmlViews
                 let dropDepth = 0;
 
                 function showDropCatcher() {
-                    const ziel = dropDestination();
+                    const target = dropDestination();
                     const text = dropCatcher.querySelector('[data-drop-catcher-text]');
                     if (text) {
-                        text.textContent = ziel ? ziel.text : (uiText.dropNowhere || '');
+                        text.textContent = target ? target.text : (uiText.dropNowhere || '');
                     }
 
-                    dropCatcher.classList.toggle('drop-catcher--idle', !ziel || ziel.kind === 'none');
+                    dropCatcher.classList.toggle('drop-catcher--idle', !target || target.kind === 'none');
                     dropCatcher.classList.remove('hidden');
                 }
 
@@ -11966,29 +11966,29 @@ public sealed class HtmlViews
                     dropCatcher.classList.add('hidden');
                 }
 
-                // Eine Datei, die neben jeder Ablageflaeche landet, oeffnete der Browser bisher selbst
-                // - er navigiert zur Datei, und die Sitzung dahinter ist weg. Jetzt wird sie
-                // angenommen und geht dorthin, wo man gerade steht.
+                // A file landing next to any drop area used to be opened by the browser itself
+                // - it navigates to the file, and the session behind it is gone. Now it is
+                // accepted and goes where you currently are.
                 function acceptDroppedFiles(files) {
-                    const ziel = dropDestination();
-                    if (!ziel || !files.length) {
+                    const target = dropDestination();
+                    if (!target || !files.length) {
                         return;
                     }
 
-                    if (ziel.kind === 'files') {
-                        enqueueFileUploads(ziel.tab, files);
+                    if (target.kind === 'files') {
+                        enqueueFileUploads(target.tab, files);
                         return;
                     }
 
-                    if (ziel.kind === 'session') {
-                        // Bewusst der Dialog und nicht gleich das Senden: eine Datei, die man
-                        // irgendwo im Fenster fallen laesst, soll nicht ungefragt auf einem
-                        // entfernten Rechner landen.
-                        askForTargetFolder(ziel.tab, files);
+                    if (target.kind === 'session') {
+                        // Deliberately the dialog and not sending straight away: a file dropped
+                        // somewhere in the window should not end up on a remote machine without
+                        // being asked.
+                        askForTargetFolder(target.tab, files);
                         return;
                     }
 
-                    flashStatus(ziel.tab, uiText.dropNowhere || '');
+                    flashStatus(target.tab, uiText.dropNowhere || '');
                 }
 
                 document.addEventListener('dragenter', event => {
@@ -12009,8 +12009,8 @@ public sealed class HtmlViews
                         hideDropCatcher();
                     }
                 });
-                // Im Einfangen zuerst, damit das Blatt auch dann verschwindet, wenn eine eigene
-                // Ablageflaeche den Rest uebernimmt.
+                // In the capture phase first, so the sheet disappears even when a drop area of
+                // its own takes over the rest.
                 document.addEventListener('drop', () => hideDropCatcher(), true);
                 document.addEventListener('dragover', event => {
                     if (hasFileDragPayload(event) && !event.defaultPrevented) {
@@ -12036,62 +12036,62 @@ public sealed class HtmlViews
                         closeFileAreaDialog();
                     }
                 }, true);
-                // Ein Bild aus der Zwischenablage ist eine Datei, nur ohne Namen - und ohne Namen
-                // nimmt sie niemand an. Matgate gibt ihr einen und schickt sie denselben Weg wie eine
-                // hineingezogene: im Dateimanager in den offenen Ordner, in einer Sitzung ueber den
-                // Senden-Dialog. Text bleibt unberuehrt, den tragen Felder und die Sitzung selbst.
+                // An image from the clipboard is a file, just without a name - and without a name
+                // nobody accepts it. Matgate gives it one and sends it the same way as a dragged-in
+                // file: in the file manager into the open folder, in a session through the send
+                // dialog. Text is left alone; fields and the session itself carry that.
                 function filesFromClipboard(data) {
                     if (!data) {
                         return [];
                     }
 
-                    const gefunden = Array.from(data.files || []).filter(Boolean);
-                    if (!gefunden.length) {
+                    const found = Array.from(data.files || []).filter(Boolean);
+                    if (!found.length) {
                         Array.from(data.items || []).forEach(item => {
                             if (item.kind === 'file') {
-                                const datei = item.getAsFile();
-                                if (datei) {
-                                    gefunden.push(datei);
+                                const file = item.getAsFile();
+                                if (file) {
+                                    found.push(file);
                                 }
                             }
                         });
                     }
 
-                    if (!gefunden.length) {
+                    if (!found.length) {
                         return [];
                     }
 
-                    const jetzt = new Date();
-                    const zwei = n => String(n).padStart(2, '0');
-                    const stempel = `${jetzt.getFullYear()}-${zwei(jetzt.getMonth() + 1)}-${zwei(jetzt.getDate())}-${zwei(jetzt.getHours())}${zwei(jetzt.getMinutes())}${zwei(jetzt.getSeconds())}`;
-                    return gefunden.map((datei, index) => {
-                        // Ein Bildschirmfoto heisst ueberall "image.png" - das waere im Zielordner
-                        // beim zweiten Mal dieselbe Datei.
-                        const eigenerName = datei.name && !/^image.[a-z0-9]+$/i.test(datei.name);
-                        if (eigenerName) {
-                            return datei;
+                    const now = new Date();
+                    const pad2 = n => String(n).padStart(2, '0');
+                    const stamp = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}-${pad2(now.getHours())}${pad2(now.getMinutes())}${pad2(now.getSeconds())}`;
+                    return found.map((file, index) => {
+                        // A screenshot is called "image.png" everywhere - in the target folder that would
+                        // be the same file the second time.
+                        const hasOwnName = file.name && !/^image.[a-z0-9]+$/i.test(file.name);
+                        if (hasOwnName) {
+                            return file;
                         }
 
-                        const endung = ((datei.type || '').split('/')[1] || 'png').replace('jpeg', 'jpg');
-                        const nummer = gefunden.length > 1 ? `-${index + 1}` : '';
-                        return new File([datei], `${uiText.pastedImageName || 'Bild'}-${stempel}${nummer}.${endung}`, { type: datei.type });
+                        const extension = ((file.type || '').split('/')[1] || 'png').replace('jpeg', 'jpg');
+                        const suffix = found.length > 1 ? `-${index + 1}` : '';
+                        return new File([file], `${uiText.pastedImageName || 'Bild'}-${stamp}${suffix}.${extension}`, { type: file.type });
                     });
                 }
 
                 document.addEventListener('paste', event => {
-                    const dateien = filesFromClipboard(event.clipboardData);
-                    if (!dateien.length) {
+                    const files = filesFromClipboard(event.clipboardData);
+                    if (!files.length) {
                         return;
                     }
 
                     event.preventDefault();
-                    // Steht der Senden-Dialog schon offen, kommt das Bild einfach dazu.
+                    // If the send dialog is already open, the image is simply added to it.
                     if (!sftpTargetDialog.classList.contains('hidden')) {
-                        addPendingFiles(dateien);
+                        addPendingFiles(files);
                         return;
                     }
 
-                    acceptDroppedFiles(dateien);
+                    acceptDroppedFiles(files);
                 });
 
                 document.addEventListener('pointerdown', event => {
@@ -12150,10 +12150,10 @@ public sealed class HtmlViews
                         syncLocalClipboardToRemote(activeTab);
                     }
                 });
-                // pagehide statt beforeunload: beforeunload feuert auch fuer Navigationen, die gar
-                // nicht stattfinden - ein Download, ein Link auf eine Datei, ein abgebrochener
-                // Seitenwechsel. Jedes davon haette hier alle Sitzungen getrennt, obwohl die Seite
-                // stehen blieb. pagehide feuert erst, wenn sie wirklich geht.
+                // pagehide instead of beforeunload: beforeunload also fires for navigations that
+                // never happen - a download, a link to a file, a cancelled page change. Every one
+                // of those would have disconnected all sessions here even though the page stayed.
+                // pagehide only fires when it really goes.
                 window.addEventListener('pagehide', () => {
                     for (const tab of tabs.values()) {
                         if (tab.client) {
@@ -12598,8 +12598,8 @@ public sealed class HtmlViews
     {
         var language = Language(context);
         var theme = Theme(context, user);
-        // Die Palette: pro Benutzer gewaehlt, aus dem Dienst aufgeloest. Layout ist statisch, also
-        // kommt der Dienst aus dem Anfragekontext - so machen es die Endpunkte auch.
+        // The palette: chosen per user, resolved from the service. Layout is static, so the service
+        // comes out of the request context - the endpoints do it the same way.
         var themes = context.RequestServices.GetService<ThemeService>();
         var palette = themes?.Resolve(user?.PreferredThemeName);
         var accent = user?.AccentColor;
@@ -12622,10 +12622,10 @@ public sealed class HtmlViews
             || string.Equals(mainClass, "viewer-main", StringComparison.OrdinalIgnoreCase);
         var workspacesClass = workspacesActive ? " active" : "";
 
-        // Der Dateimanager gehoert ins Menue: bisher kam man nur ueber eine Kachel auf der
-        // Startseite oder aus einer Sitzung heraus hin. Geoeffnet wird die eigene Ablage - von dort
-        // fuehrt das Auswahlfeld in der Leiste zu jeder anderen, auch zu den Workspaces. Wer gar
-        // keine Ablage haben darf, sieht den Eintrag nicht.
+        // The file manager belongs in the menu: until now you got there only through a tile on the
+        // home page or out of a session. What opens is your own place - from there the select in the
+        // bar leads to every other one, including the workspaces. Anyone not allowed a place at all
+        // does not see the entry.
         var filesAreaId = user is null
             ? (Guid?)null
             : user.FileShare?.Personal == true
@@ -12634,9 +12634,9 @@ public sealed class HtmlViews
                     ? FileShareService.GlobalAreaId
                     : null;
         var filesLabel = Language(context) == "de" ? "Dateien" : "Files";
-        // Drei Wege zum selben Ziel, je nachdem, wo die Seite steckt: in der Huelle faengt
-        // wireOpenControls den Klick ab, in einer eingebetteten Seite die Bruecke zur Huelle, und
-        // steht die Seite fuer sich allein, traegt der Verweis selbst.
+        // Three ways to the same destination, depending on where the page sits: in the shell
+        // wireOpenControls intercepts the click, in an embedded page the bridge to the shell does, and
+        // when the page stands on its own the link itself carries.
         string FilesEntry(string cssClass) => filesAreaId is null
             ? ""
             : $$"""
@@ -12857,10 +12857,10 @@ public sealed class HtmlViews
                         text-decoration: none;
                         white-space: nowrap;
                     }
-                    /* Das Zeichen oben links trug die beiden Farben der eingebauten Palette fest
-                       eingetragen - wer ein anderes Thema oder eigene Akzente waehlte, sah weiter
-                       Gruen auf Blau. Es ist die sichtbarste Stelle, an der die zweite Akzentfarbe
-                       ueberhaupt vorkommt. */
+                    /* The logo at the top left had the two colours of the built-in palette hard-wired
+                       into it - whoever chose another theme or their own accents still saw green on
+                       blue. It is the most visible spot where the second accent colour appears at
+                       all. */
                     .brand-mark {
                         align-items: center;
                         background: linear-gradient(135deg, var(--accent), var(--accent-2));
@@ -12966,8 +12966,8 @@ public sealed class HtmlViews
                         text-decoration: none;
                         white-space: nowrap;
                     }
-                    /* Flach: ein Kasten beim Zeigen liess die ganze Leiste um 6x4 Pixel wachsen,
-                       weil die Regel an .button, button klebte. */
+                    /* Flat: a box on hover made the whole bar grow by 6x4 pixels, because the rule
+                       was stuck to .button, button. */
                     .shell-tab:hover,
                     .shell-tab:focus-visible {
                         background: var(--hover-bg);
@@ -12986,8 +12986,8 @@ public sealed class HtmlViews
                         text-decoration: none !important;
                         text-decoration-line: none !important;
                     }
-                    /* Die offene Seite wird markiert - vorher wurde .active berechnet und dann auf
-                       genau nichts gestaltet, also sah die Leiste immer gleich aus. */
+                    /* The open page is marked - before, .active was computed and then styled to
+                       precisely nothing, so the bar always looked the same. */
                     .shell-tab.active,
                     .shell-tab.active:hover,
                     .shell-tab.active:focus,
@@ -13211,7 +13211,7 @@ public sealed class HtmlViews
                         cursor: pointer;
                         display: inline-flex;
                         align-items: center;
-                        /* Hoehe der Bedienelemente aus dem Thema: enger oder luftiger. */
+                        /* Control height from the theme: tighter or airier. */
                         min-height: var(--control-height, 30px);
                         padding: 4px 9px;
                         text-decoration: none;
@@ -13227,8 +13227,8 @@ public sealed class HtmlViews
                         background: var(--hover-strong-bg);
                         border-color: var(--surface-3);
                     }
-                    /* Ein sichtbarer Fokus fuer alles, was man mit der Tastatur erreicht. Vorher gab
-                       es drei handkopierte Ringe an drei Stellen und fuenfmal outline: none. */
+                    /* A visible focus for everything reachable with the keyboard. Before there were
+                       three hand-copied rings in three places and five times outline: none. */
                     :where(a, button, .button, summary, input, select, textarea, [tabindex]):focus-visible {
                         outline: 2px solid var(--accent);
                         outline-offset: 2px;
@@ -13308,10 +13308,10 @@ public sealed class HtmlViews
                         padding: 0;
                         width: 100%;
                     }
-                    /* Die Ueberschrift war bis 52px gross und stand unter einer fetten blauen
-                       Grossbuchstabenzeile - die Zeile schrie also lauter als das, was sie
-                       einleitet, und beides erschlug die 20px-Ueberschriften der Panels darunter.
-                       Fuenf Stellen hatten die 52px ohnehin schon lokal ueberschrieben. */
+                    /* The heading was up to 52px and sat under a bold blue line of capitals - so the
+                       line shouted louder than what it introduces, and together they drowned out the
+                       20px headings of the panels below. Five places had overridden the 52px locally
+                       anyway. */
                     h1, h2 { line-height: 1.2; margin: 0; }
                     h1 { font-size: clamp(24px, 2.4vw, 30px); font-weight: 700; letter-spacing: -.01em; }
                     h2 { font-size: 18px; letter-spacing: -.005em; margin-bottom: 14px; }
@@ -13333,7 +13333,7 @@ public sealed class HtmlViews
                     .req { color: var(--danger); font-weight: 700; margin-left: 3px; }
                     .form-legend { color: var(--muted); font-size: 12px; margin: 0 0 14px; }
                     .page-head { align-items: center; display: flex; gap: 18px; justify-content: space-between; margin-bottom: 18px; }
-                    /* Flaechen runden staerker als Bedienelemente - ein Thema bestimmt beides. */
+                    /* Surfaces round more strongly than controls - a theme decides both. */
                     .panel, .card, .auth-panel {
                         background: var(--panel);
                         border: 1px solid var(--line);
@@ -13348,7 +13348,7 @@ public sealed class HtmlViews
                     .stack { display: grid; gap: 14px; }
                     .form-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); align-items: end; }
                     /* Session-preferences toggle list (Account -> Session). */
-                    /* Die Gruppen kommen jetzt aus .settings-group, wie bei der Darstellung. */
+                    /* The groups now come from .settings-group, as in the appearance tab. */
                     .quick-protocol-grid {
                         display: grid;
                         gap: 4px 14px;
@@ -13357,8 +13357,8 @@ public sealed class HtmlViews
                     }
                     .quick-protocol-grid .check { align-items: center; display: flex; gap: 8px; }
                     .quick-protocol-grid .check svg { color: var(--muted); flex: 0 0 auto; }
-                    /* Einstellungen: Abschnitte mit Luft, Beschriftung ueber dem Feld, eine Spalte
-                       von hoechstens 640px - laengere Zeilen liest niemand gern. */
+                    /* Settings: sections with air, label above the field, one column of at most
+                       640px - nobody enjoys reading longer lines. */
                     .settings-form { display: grid; gap: 22px; max-width: 640px; }
                     .settings-lead { margin: -6px 0 16px; }
                     .settings-group { border: 0; margin: 0; padding: 0; }
@@ -13372,9 +13372,9 @@ public sealed class HtmlViews
                     }
                     .settings-hint { font-size: 13px; margin: 6px 0 0; }
 
-                    /* Hell / Dunkel / System: drei Felder nebeneinander, das gewaehlte traegt die
-                       Akzentfarbe. Das Funkfeld selbst bleibt im Baum, nur unsichtbar - sonst waere
-                       die Wahl mit der Tastatur nicht erreichbar. */
+                    /* Light / dark / system: three fields side by side, the chosen one carries the
+                       accent colour. The radio itself stays in the tree, only invisible - otherwise
+                       the choice would not be reachable with the keyboard. */
                     .mode-choice { display: flex; gap: 10px; margin-top: 10px; }
                     .mode-option {
                         align-items: center;
@@ -13408,8 +13408,8 @@ public sealed class HtmlViews
                     }
                     .mode-option:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-                    /* Ein Thema zeigt man, statt es zu beschreiben: zwei kleine Fenster, hell und
-                       dunkel, in den Farben des Themas. */
+                    /* A theme is shown rather than described: two small windows, light and dark, in
+                       the theme's colours. */
                     .theme-cards {
                         display: grid;
                         gap: 12px;
@@ -13455,7 +13455,7 @@ public sealed class HtmlViews
                     .tp-line { background: var(--p-muted); border-radius: 999px; display: block; height: 4px; opacity: .55; }
                     .tp-short { width: 60%; }
                     .tp-pill { background: var(--p-accent); border-radius: 999px; display: block; height: 9px; width: 52%; }
-                    /* Der zweite Akzent: ein Punkt neben dem Knopf, damit im Bildchen beide Farben vorkommen. */
+                    /* The second accent: a dot next to the button, so both colours appear in the preview. */
                     .tp-dot { background: var(--p-accent-2); border-radius: 999px; display: block; height: 9px; margin-top: -9px; margin-left: 58%; width: 9px; }
                     .theme-card-foot { align-items: center; display: flex; gap: 8px; justify-content: space-between; }
                     .theme-card-name { font-weight: 600; }
@@ -13467,23 +13467,23 @@ public sealed class HtmlViews
                         height: 12px;
                         width: 12px;
                     }
-                    /* Akzentfarbe: ein Schalter, der Farbkreis des Systems und zehn Tupfer fuer den
-                       schnellen Griff. Der Farbwaehler selbst ist der des Betriebssystems - ein
-                       nachgebauter waere kleiner, ungenauer und koennte keine Pipette. */
+                    /* Accent colour: a switch, the system's colour wheel and ten swatches for a quick
+                       grab. The colour picker itself is the operating system's - a rebuilt one would
+                       be smaller, less precise and could not do an eyedropper. */
                     .accent-choice { align-items: center; display: flex; flex-wrap: wrap; gap: 14px; margin-top: 12px; }
                     .accent-switch { align-items: center; display: flex; gap: 8px; font-weight: 500; }
                     .accent-wheel { align-items: center; display: inline-flex; gap: 8px; white-space: nowrap; }
-                    /* Eine Klasse mehr im Namen, als man braucht: die allgemeine Feldregel weiter
-                       unten (input:not(...)) ist genauso spezifisch und steht spaeter, also gaebe
-                       sie dem Farbfeld ihre volle Breite - und aus dem Tupfer wuerde ein Balken,
-                       der die Beschriftung daneben verdeckt. */
+                    /* One class more in the selector than you would need: the general field rule
+                       further down (input:not(...)) is just as specific and comes later, so it would
+                       give the colour field its full width - and the swatch would become a bar that
+                       covers the label next to it. */
                     .accent-choice .accent-wheel input[type="color"] {
                         background: none;
                         border: 1px solid var(--line);
                         border-radius: 999px;
                         cursor: pointer;
-                        /* Ohne das schrumpft das Feld in der Reihe zu einem Strich zusammen und man
-                           sieht die gewaehlte Farbe nicht mehr, auf die es hier gerade ankommt. */
+                        /* Without this the field shrinks to a line in the row and the chosen colour -
+                           the very thing that matters here - is no longer visible. */
                         flex: 0 0 auto;
                         height: 38px;
                         padding: 3px;
@@ -13494,8 +13494,8 @@ public sealed class HtmlViews
                         background: var(--dot);
                         border: 2px solid transparent;
                         border-radius: 999px;
-                        /* Kraeftiger als frueher: unter den Vorschlaegen sind jetzt auch dunkle
-                           Hintergruende, und ein dunkler Tupfer auf dunklem Grund verschwindet
+                        /* Stronger than before: the suggestions now include dark backgrounds too, and a
+                           dark swatch on dark ground disappears without a visible border. */
                            ohne sichtbaren Rand. */
                         box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 26%, transparent);
                         cursor: pointer;
@@ -13505,11 +13505,11 @@ public sealed class HtmlViews
                     }
                     .accent-preset:hover { transform: scale(1.08); }
                     .accent-preset.is-selected { border-color: var(--text); }
-                    /* Der zweite Faktor: QR neben der Handeingabe, damit beide Wege gleich weit weg sind. */
+                    /* The second factor: QR next to the manual entry, so both ways are equally far off. */
                     .totp-setup { align-items: start; display: flex; flex-wrap: wrap; gap: 20px; margin: 16px 0; }
-                    /* Der Link zum Weitergeben: lang, also umbrechend, und der Knopf daneben. */
+                    /* The link to pass on: long, so it wraps, with the button next to it. */
                     .workspace-share-line { align-items: center; display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0; }
-                    /* Das Protokoll im Dialog: eine Zeile je Eintrag, das Juengste zuerst. */
+                    /* The log in the dialog: one line per entry, the most recent first. */
                     .share-log { list-style: none; margin: 8px 0 0; max-height: 220px; overflow-y: auto; padding: 0; }
                     .share-log-entry { align-items: baseline; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 8px; font-size: 13px; padding: 6px 0; }
                     .share-log-time { color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -13551,9 +13551,9 @@ public sealed class HtmlViews
                         gap: 6px;
                     }
                     .toggle-row { display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: start; font-weight: 500; cursor: pointer; padding: 6px 0; position: relative; }
-                    /* display: none nimmt das Kaestchen aus der Tabulatorreihenfolge UND aus dem
-                       Baum fuer Hilfsmittel - die ganze Seite war nur mit der Maus bedienbar. Es
-                       bleibt da, nur unsichtbar, und der sichtbare Schalter zeigt den Fokus. */
+                    /* display: none takes the checkbox out of the tab order AND out of the
+                       accessibility tree - the whole page could only be used with a mouse. It stays,
+                       only invisible, and the visible switch shows the focus. */
                     .toggle-row > input[type="checkbox"] {
                         border: 0;
                         clip-path: inset(50%);
@@ -13845,8 +13845,8 @@ public sealed class HtmlViews
                     .login-proto .icon { width: 13px; height: 13px; }
                     .login-card .notice { margin-bottom: 15px; text-align: left; }
                     .notice { border-radius: var(--radius); padding: 10px 12px; }
-                    /* Die einzige Flaeche, auf der diese Regel noch allein steht, ist die
-                       Anmeldeseite - und dort war es ein hellrosa Block im dunklen Fenster. */
+                    /* The only surface where this rule still stands alone is the sign-in page - and
+                       there it was a pale pink block in a dark window. */
                     .error {
                         background: color-mix(in srgb, var(--danger) 12%, var(--surface));
                         border: 1px solid color-mix(in srgb, var(--danger) 36%, var(--line));
@@ -13964,10 +13964,10 @@ public sealed class HtmlViews
                         min-height: 40px;
                         min-width: 0;
                         overflow-x: auto;
-                        /* Der Balken ist da, aber unsichtbar, bis die Maus ueber der Leiste steht.
-                           Nicht ausgeblendet, sondern durchsichtig: sein Platz bleibt reserviert,
-                           sonst ruckten die Reiter beim Darueberfahren um ein paar Punkte nach oben.
-                           Wo nichts zu rollen ist, zeigt der Browser ohnehin keinen. */
+                        /* The bar is there but invisible until the mouse is over the strip. Not hidden
+                           but transparent: its space stays reserved, otherwise the tabs jumped up a few
+                           points when hovered. Where there is nothing to scroll the browser shows none
+                           anyway. */
                         scrollbar-color: transparent transparent;
                         scrollbar-width: thin;
                     }
@@ -14006,10 +14006,10 @@ public sealed class HtmlViews
                     .tab-action-button.active {
                         color: var(--accent);
                     }
-                    /* Eine Verbindung als Knopf in der Leiste: das Symbol traegt den Ton ihres
-                       Protokolls, damit man sie wiedererkennt, ohne den Namen zu lesen. Der Name
-                       selbst ist gedeckelt - sonst schiebt eine lang benannte Verbindung die
-                       uebrigen aus der Zeile. */
+                    /* A connection as a button in the bar: the icon carries the shade of its
+                       protocol, so it is recognised without reading the name. The name itself is
+                       capped - otherwise one long-named connection pushes the others out of the
+                       row. */
                     .tab-action-shortcut .icon { color: var(--proto, var(--accent)); }
                     .tab-action-shortcut > span {
                         max-width: 14ch;
@@ -14068,8 +14068,8 @@ public sealed class HtmlViews
                         font-size: 16px;
                     }
                     /* In-app on-screen keyboard (touch sessions), slides up over the session bottom. */
-                    /* Die eingeblendete Tastatur ist Teil der Anwendung, nicht der fernen Sitzung -
-                       sie nimmt deshalb die Farbe des Themas statt eines festen Dunkelgrau. */
+                    /* The on-screen keyboard is part of the application, not of the remote session -
+                       so it takes the theme's colour instead of a fixed dark grey. */
                     .matgate-osk {
                         background: color-mix(in srgb, var(--panel) 97%, transparent);
                         border-top: 1px solid var(--line);
@@ -14164,8 +14164,8 @@ public sealed class HtmlViews
                         min-height: 42px;
                         width: 100%;
                     }
-                    /* :active statt :hover - dieses Menü gibt es nur auf Beruehrung, und dort
-                       bliebe ein Zeigen-Zustand auf der zuletzt getippten Zeile kleben. */
+                    /* :active instead of :hover - this menu only exists on touch, and there a hover
+                       state would stay stuck on the row tapped last. */
                     .tab-action-menu-item:active,
                     .tab-action-menu-item:focus-visible {
                         background: var(--hover-bg);
@@ -14179,19 +14179,19 @@ public sealed class HtmlViews
                     }
                     /* Header tab-menu (compact view on phones): hidden everywhere else. */
                     .mobile-tab-menu { display: none; }
-                    /* Auf dem Knopf steht nur noch, WIE VIELE Verbindungen offen sind - welche davon
-                       gerade vorn ist, sagt die Statuszeile der Sitzung ohnehin. Der Name daneben
-                       nahm fast die halbe Kopfzeile ein. Ansonsten ist es derselbe Knopf wie die
-                       Aktionen am anderen Ende der Leiste: gleiches Quadrat, gleicher Rahmen,
-                       gleiche Rundung. */
+                    /* The button only says HOW MANY connections are open - which of them is at the
+                       the front is in the session's status line anyway. The name next to it took up
+                       almost half the header. Otherwise it is the same button as the actions at the
+                       other end of the bar: same square, same border,
+                       same rounding. */
                     .mobile-tab-menu-trigger {
                         align-items: center;
                         display: flex;
                         justify-content: center;
                         padding: 0;
                     }
-                    /* Eine Zahl, kein Plaettchen: ein Rahmen im Rahmen waren zwei Linien dicht
-                       beieinander - genau die Umrandung, die stoerte. */
+                    /* A number, not a badge: a border inside a border was two lines right next to
+                       each other - exactly the outline that was in the way. */
                     .mobile-tab-count {
                         font-size: 14px;
                         font-variant-numeric: tabular-nums;
@@ -14199,9 +14199,9 @@ public sealed class HtmlViews
                         line-height: 1;
                     }
                     .mobile-tab-plus { align-items: center; display: flex; }
-                    /* Ohne offene Verbindung gibt es nichts zu zaehlen - dann ist es schlicht ein Plus,
-                       und ein Druck darauf legt gleich einen neuen Reiter an, statt eine Liste mit
-                       einem einzigen Eintrag aufzuschlagen. */
+                    /* With no connection open there is nothing to count - then it is simply a plus,
+                       and pressing it opens a new tab straight away instead of unfolding a list with
+                       a single entry. */
                     .mobile-tab-menu[data-empty="true"] .mobile-tab-count,
                     .mobile-tab-menu:not([data-empty="true"]) .mobile-tab-plus { display: none; }
                     .mobile-tab-item { align-items: center; display: flex; gap: 4px; }
@@ -14211,11 +14211,11 @@ public sealed class HtmlViews
                         font-weight: 700;
                     }
                     .mobile-tab-item-close { flex: 0 0 auto; font-size: 17px; }
-                    /* Ein Rahmen pro Flaeche. Ein Panel, ein Menü, ein Blatt bringt seinen eigenen
-                       Rahmen mit - die Knoepfe darin brauchen keinen zweiten. Genau das war auf dem
-                       Telefon zu sehen: zwei Linien im Abstand von einem Pixel, die aussehen wie ein
-                       Fehler und auf schmalem Schirm Platz kosten. Welcher Eintrag gemeint ist, sagt
-                       jetzt die Flaeche, nicht eine weitere Linie. */
+                    /* One border per surface. A panel, a menu, a sheet brings its own border - the
+                       buttons inside need no second one. That is exactly what showed on the phone:
+                       two lines a pixel apart that look like a mistake and cost room on a narrow
+                       screen. Which entry is meant is now said by the surface, not by another
+                       line. */
                     .menu-panel .shell-menu-item,
                     .menu-panel .button,
                     .tab-action-overflow-panel .tab-action-button,
@@ -14244,11 +14244,11 @@ public sealed class HtmlViews
                         cursor: grab;
                         transition: background-color .15s ease, opacity .15s ease;
                     }
-                    /* Genau ein Tab faellt auf: der offene. Die Leiste ist --surface-2, und
-                       --surface-3 liegt im hellen Modus darunter und im dunklen darueber - derselbe
-                       Token hebt also in beide Richtungen richtig ab. Vorher war es umgekehrt
-                       vergeben (inaktiv --surface-3, aktiv --surface), weshalb im dunklen Modus
-                       ausgerechnet der offene Tab der dunkelste war. */
+                    /* Exactly one tab stands out: the open one. The strip is --surface-2, and
+                       --surface-3 sits below it in light mode and above it in dark - so the same
+                       token lifts correctly in both directions. Before it was assigned the other way
+                       round (inactive --surface-3, active --surface), which made the open tab the
+                       darkest one in dark mode of all things. */
                     .session-tab:not(.active):hover { background: var(--hover-bg); }
                     .session-tab.active {
                         background: var(--surface-3);
@@ -14296,9 +14296,9 @@ public sealed class HtmlViews
                     .session-tab--compact .session-tab-description {
                         display: none;
                     }
-                    /* Wie ein richtiger Reiter aufgebaut - Zeile fuer den Titel, Zeile fuer die
-                       Beschreibung -, damit die Leiste nicht niedriger ist, solange nur das Plus
-                       darin steht, und beim ersten Reiter nach unten springt. */
+                    /* Built like a real tab - a row for the title, a row for the description - so
+                       the strip is not lower while only the plus is in it and then jumps down with
+                       the first tab. */
                     .session-tab--add .session-tab-main {
                         align-content: center;
                         display: grid;
@@ -14308,9 +14308,9 @@ public sealed class HtmlViews
                     }
                     .session-tab--add .session-tab-title {
                         justify-content: center;
-                        /* Ein Reitertitel ist eine Textzeile hoch; hier steht nur ein 15px-Symbol
-                           darin. Ohne dieses Mass waere die Leiste niedriger, solange nur das Plus
-                           darin steht, und spraenge beim ersten Reiter nach unten. */
+                        /* A tab title is one line of text high; here there is only a 15px icon in it.
+                           Without this measure the strip would be lower while only the plus is in it
+                           and would jump down with the first tab. */
                         min-height: 1.5em;
                         width: auto;
                     }
@@ -14347,12 +14347,12 @@ public sealed class HtmlViews
                         white-space: nowrap;
                         width: 100%;
                     }
-                    /* Unsichtbar, aber da: die leeren Zeilen halten die Hoehe. Davon gibt es zwei,
-                       eine ueber und eine unter dem Plus, jede halb so hoch wie die eine
-                       Beschreibungszeile eines echten Reiters - zusammen also dasselbe Mass, und
-                       das Plus steht dazwischen in der Mitte. Kein eigenes display, damit sie in
-                       der kompakten Ansicht und auf dem Telefon genauso verschwinden wie bei den
-                       anderen Reitern - sonst waere die Leiste dort wieder ungleich. */
+                    /* Invisible but present: the empty lines hold the height. There are two of them,
+                       one above and one below the plus, each half as high as the single description
+                       line of a real tab - together the same measure, with the plus centred between
+                       them. No display of their own, so that in the compact view and on the phone
+                       they disappear just like the other tabs' - otherwise the strip would be uneven
+                       there again. */
                     .session-tab--add .session-tab-description {
                         color: transparent;
                         line-height: 0;
@@ -14503,11 +14503,11 @@ public sealed class HtmlViews
                         flex: 0 0 auto;
                         width: auto;
                     }
-                    /* Der Eintrag "Kompakte Ansicht" im Menue ist der ERSATZ fuer das Symbol in der
-                       Leiste, nicht seine Zweitausfertigung. Das Symbol verschwindet nur auf dem
-                       Telefon in der kompakten Ansicht - ueberall sonst stand bisher beides
-                       nebeneinander und tat dasselbe. Der Eintrag erscheint deshalb genau dort, wo
-                       das Symbol fehlt; die Gegenregel steht im Telefon-Block. */
+                    /* The entry "Compact view" in the menu REPLACES the icon in the bar, it is not a
+                       second copy of it. The icon only disappears on the phone in the compact view -
+                       everywhere else both used to stand side by side and do the same thing. So the
+                       entry appears exactly where the icon is missing; the counter-rule is in the
+                       phone block. */
                     [data-view-mode-toggle] { display: none; }
                     html[data-view-mode="minimal"] .shell-burger-panel {
                         right: 0;
@@ -15093,8 +15093,8 @@ public sealed class HtmlViews
                     }
                     .home2-folder-copy small { color: var(--muted); }
                     .home2-folder-clear { gap: 6px; }
-                    /* Eine Ablage traegt Symbol und Namen - die Mindesthoehe einer Verbindung
-                       liess darunter ein leeres Feld stehen. */
+                    /* A place carries an icon and a name - the minimum height of a connection left
+                       an empty field below it. */
                     .home2-places-section .connection-choice { min-height: 0; }
                     .home2-card-grid {
                         display: grid;
@@ -16063,9 +16063,9 @@ public sealed class HtmlViews
                     .toolbar-menu-item,
                     .file-menu-item {
                         align-items: center;
-                        /* Das Menü ist die umrandete Flaeche; seine Eintraege brauchen keinen
-                           eigenen Rahmen. Die Rueckmeldung beim Zeigen bleibt, die kommt über
-                           die Flaeche. */
+                        /* The menu is the bordered surface; its entries need no border of their own.
+                           own. The feedback on hover stays, that comes from the
+                           surface. */
                         border: 0;
                         justify-content: flex-start;
                         width: 100%;
@@ -16116,9 +16116,9 @@ public sealed class HtmlViews
                         min-height: 0;
                         width: 100%;
                     }
-                    /* Nur lesen: weg mit allem, was schreiben will. Anlegen, Hochladen, die
-                       Warteschlange dafuer, und im Aktionsmenue Verschieben und Loeschen - Kopieren
-                       und Herunterladen bleiben, die nehmen nur etwas heraus. */
+                    /* Read-only: away with everything that wants to write. Create, upload, the queue
+                       for it, and in the action menu move and delete - copy and download stay, those
+                       only take something out. */
                     .file-display--readonly .file-create-menu,
                     .file-display--readonly .file-upload-button,
                     .file-display--readonly .file-upload-queue-toggle,
@@ -16143,8 +16143,8 @@ public sealed class HtmlViews
                         height: 100%;
                         padding: 0;
                     }
-                    /* Der Ort, in dem man steht - dasselbe Mittel wie im Kopf des Dialogs, damit es
-                       nicht zwei Bedienungen fuer dieselbe Sache gibt. */
+                    /* The place you are in - the same control as in the dialog's header, so there
+                       are not two ways to do the same thing. */
                     .file-place-select {
                         flex: 0 1 auto;
                         font-family: inherit;
@@ -16480,8 +16480,8 @@ public sealed class HtmlViews
                     .parent-directory .file-name-button:disabled .icon {
                         color: var(--muted);
                     }
-                    /* Die Zeile "eine Ebene hoeher" ist Navigation, kein Inhalt - sie war die
-                       einzige eingefaerbte Zeile der Tabelle und zog damit den Blick auf sich. */
+                    /* The row "one level up" is navigation, not content - it was the only tinted row
+                       of the table and therefore drew the eye. */
                     .file-manager .parent-directory { background: transparent; }
                     .file-manager .parent-directory .file-name-button,
                     .file-manager .parent-directory .file-name-button .icon { color: var(--muted); font-weight: 400; }
@@ -16802,8 +16802,8 @@ public sealed class HtmlViews
                     .file-viewer-dialog-loading.error {
                         color: var(--danger);
                     }
-                    /* Liegt ueber der eigenen Flaeche, solange eine Verbindung aufgebaut wird - dort
-                       ist noch nichts Fremdes zu sehen, also gilt das Thema. */
+                    /* Sits over the surface itself while a connection is being established - nothing
+                       foreign is visible yet, so the theme applies. */
                     .connection-overlay {
                         align-items: center;
                         background: color-mix(in srgb, var(--panel) 92%, transparent);
@@ -16838,9 +16838,9 @@ public sealed class HtmlViews
                        deliberately not full screen - seeing the session behind it is the point. */
                     /* Qualified with .credential-dialog so it does not depend on which rule comes last. */
                     .credential-dialog.send-files-dialog { max-width: 560px; width: min(560px, calc(100vw - 32px)); }
-                    /* Das Blatt, das beim Ziehen aufgeht. Keine Mausereignisse: es zeigt nur an,
-                       abgelegt wird darunter - sonst verschluckte es genau das Loslassen, das es
-                       ankuendigt. */
+                    /* The sheet that appears while dragging. No mouse events: it only indicates, the
+                       drop happens underneath - otherwise it would swallow exactly the release it
+                       announces. */
                     .drop-catcher {
                         align-items: center;
                         background: color-mix(in srgb, var(--bg) 72%, transparent);
@@ -16900,29 +16900,29 @@ public sealed class HtmlViews
                         gap: 0;
                         height: min(78vh, 760px);
                         max-width: none;
-                        /* padding: 0 und ein deckend gefülltes Kind - ohne dies malt das Panel
-                           über die abgerundeten Ecken des Rahmens. */
+                        /* padding: 0 and an opaquely filled child - without this the panel paints over
+                           the rounded corners of the border. */
                         overflow: hidden;
                         padding: 0;
                         width: min(1040px, calc(100vw - 32px));
                     }
-                    /* display steht hier, also kann .hidden es nicht zurücknehmen - sonst bleibt
-                       der geschlossene Dialog mit allen Knoepfen im Tabulator stehen. */
+                    /* display is set here, so .hidden cannot take it back - otherwise the closed
+                       dialog stays in the tab order with all its buttons. */
                     .credential-dialog.file-area-dialog.hidden { display: none; }
                     .file-area-dialog-actions { align-items: center; display: flex; gap: 8px; }
                     .file-area-dialog-status { flex: 1 1 auto; font-size: 12px; text-align: right; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
                     .credential-dialog.copy-to-dialog { max-width: 460px; width: min(460px, calc(100vw - 32px)); }
                     .file-area-dialog-select { flex: 0 1 auto; max-width: 320px; min-width: 0; }
-                    /* Im Dialog waehlt das Feld oben den Ort - die Leiste im Manager waere dasselbe
-                       noch einmal. In einem Tab gibt es keinen Kopf, dort bleibt sie der Weg. */
-                    /* Im Dialog waehlt das Feld im Kopf - das in der Leiste waere dasselbe zweimal. */
+                    /* In the dialog the field at the top picks the place - the bar in the manager
+                       would be the same thing twice. In a tab there is no header, so there it stays. */
+                    /* In the dialog the field in the header picks - the one in the bar would be the same twice. */
                     #file-area-dialog .file-place-select { display: none; }
                     .file-area-host { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; min-width: 0; position: relative; }
                     .file-area-dialog-head {
                         align-items: center;
                         border-bottom: 1px solid var(--line);
                         display: flex;
-                        /* Ohne das klebte die Zustandszeile am Knopf daneben. */
+                        /* Without this the status line stuck to the button next to it. */
                         gap: 14px;
                         justify-content: space-between;
                         padding: 10px 12px 10px 14px;
@@ -16953,10 +16953,10 @@ public sealed class HtmlViews
                         opacity: 1;
                         transition: opacity .18s ease, transform .18s ease, display .18s ease allow-discrete;
                     }
-                    /* Der Einfuege-Dialog hatte keine eigenen Regeln: 420px breit, ein Textfeld in
-                       Voreinstellungshoehe und drei beschriftete Knoepfe, die sich darunter drueckten.
-                       Er ist das einzige Fenster, in dem man wirklich etwas schreibt - also breiter,
-                       ein Feld, in das ein Absatz passt, und Luft zwischen den Teilen. */
+                    /* The paste dialog had no rules of its own: 420px wide, a text field at default
+                       height and three labelled buttons squeezed in below it. It is the only window in
+                       which you really write something - so wider, a field that fits a paragraph, and
+                       air between the parts. */
                     .credential-dialog.clipboard-dialog {
                         display: grid;
                         gap: 14px;
@@ -16972,7 +16972,7 @@ public sealed class HtmlViews
                         flex-wrap: wrap;
                         justify-content: flex-end;
                     }
-                    /* Die Hauptsache zuerst und abgesetzt: senden links, der Rest rechts. */
+                    /* The main thing first and set apart: send on the left, the rest on the right. */
                     .clipboard-dialog .actions .primary { margin-right: auto; }
                     .credential-dialog.hidden {
                         opacity: 0;
@@ -17090,18 +17090,18 @@ public sealed class HtmlViews
                         .server-form-actions > * { flex: 1; justify-content: center; }
                         .server-delete-form { width: 100%; }
                         .server-delete-form button { width: 100%; }
-                        /* Die Werkzeugleiste des Dateimanagers stand auf dem Telefon in sechs Zeilen:
-                           jede Gruppe auf volle Breite, jeder Knopf mit eigenem Rahmen - zusammen die
-                           halbe Bildschirmhoehe, bevor die erste Datei zu sehen war. Jetzt eine Zeile:
-                           Aktualisieren, der Pfad nimmt den Rest, die uebrigen als Symbole. Ihre
-                           Beschriftung steht in dem Menü, das sie öffnen. */
+                        /* The file manager's toolbar stood in six rows on the phone: every group on
+                           full width, every button with a border of its own - together half the screen
+                           height before the first file was visible. Now one row: refresh, the path takes
+                           the rest, the others as icons. Their labels are in the menu
+                           they open. */
                         .file-toolbar { flex-wrap: nowrap; gap: 4px; padding: 4px 6px; }
-                        /* .toolbar-group, nicht .file-toolbar-group: die Gruppen tragen nur die
-                           allgemeine Klasse, weshalb die frueheren Mobilregeln hier wirkungslos
-                           waren und die Leiste trotzdem umbrach. */
+                        /* .toolbar-group, not .file-toolbar-group: the groups only carry the general
+                           class, which is why the earlier mobile rules had no effect here and the bar
+                           wrapped anyway. */
                         .file-toolbar .toolbar-group { flex: 0 0 auto; flex-wrap: nowrap; gap: 4px; min-width: 0; }
-                        /* .file-toolbar button ist (0,1,1) und schlug die allgemeine 40px-Regel,
-                           <summary> und das Hochladen-<label> sind gar keine Knoepfe. */
+                        /* .file-toolbar button is (0,1,1) and beat the general 40px rule, and <summary>
+                           and the upload <label> are not buttons at all. */
                         .file-toolbar button,
                         .file-toolbar .file-menu > summary,
                         .file-toolbar .file-upload-button { min-height: 40px; }
@@ -17115,7 +17115,7 @@ public sealed class HtmlViews
                         .file-upload-button > span { display: none; }
                         .file-tool-button,
                         .file-upload-button { min-width: 40px; padding: 0 9px; }
-                        /* Wie im Burger-Blatt: das X traegt keinen Kasten. */
+                        /* As in the burger sheet: the X carries no box. */
                         .mobile-tab-sheet .mobile-tab-sheet-close {
                             background: none;
                             border: 0;
@@ -17125,8 +17125,8 @@ public sealed class HtmlViews
                             min-width: 44px;
                             width: auto;
                         }
-                        /* Ein Rahmen pro Gruppe: im Dialog ist der Dialog der Rahmen, im
-                           Sitzungs-Panel der Schirm - die Liste braucht keinen zweiten. */
+                        /* One border per group: in the dialog the dialog is the border, in the session
+                           panel the screen is - the list needs no second one. */
                         .file-display .file-table-wrap {
                             border: 0;
                             border-radius: 0;
@@ -17139,7 +17139,7 @@ public sealed class HtmlViews
                             border-top: 0;
                             margin: 0;
                         }
-                        /* Die Warteschlange ist eine Zeile des Managers, kein Kaertchen darin. */
+                        /* The queue is a row of the manager, not a card inside it. */
                         .file-upload-queue-shell {
                             border: 0;
                             border-bottom: 1px solid var(--line);
@@ -17147,15 +17147,15 @@ public sealed class HtmlViews
                             margin: 0;
                             padding: 8px;
                         }
-                        /* Auf einem Telefon passen zwei beschriftete Knoepfe nebeneinander, drei
-                           nicht - also umbrechen, statt die Woerter zu brechen. */
+                        /* On a phone two labelled buttons fit side by side, three do not - so wrap
+                           instead of breaking the words. */
                         .credential-dialog .actions { flex-wrap: wrap; }
                         .credential-dialog .actions > * { flex: 1 1 auto; justify-content: center; }
-                        /* Jede Zeile trug vier umrandete Knoepfe mit Beschriftung: 210 von 372
-                           Pixeln gingen für die Spalte drauf und schoben den Namen aus dem Bild.
-                           Hier nur Symbole, ohne eigenen Rahmen in der ohnehin umrandeten Tabelle,
-                           und sie duerfen umbrechen - den Namen der Aktion setzt
-                           fileActionButton ohnehin als title. */
+                        /* Every row carried four bordered buttons with labels: 210 of 372 pixels went
+                           to that column and pushed the name out of view. Here only icons, without a
+                           border of their own inside the already bordered table, and they may wrap - the
+                           name of the action is set as a title by
+                           fileActionButton anyway. */
                         .file-row-actions { flex-wrap: wrap; gap: 2px; }
                         .file-display .file-row-actions .file-action-button > span { display: none; }
                         .file-row-actions button {
@@ -17164,24 +17164,24 @@ public sealed class HtmlViews
                             justify-content: center;
                             padding: 0 6px;
                         }
-                        /* Beruehrbare Ziele: eine Zeile zu öffnen war ein 30px hoher Streifen. */
+                        /* Touchable targets: opening a row was a 30px strip. */
                         .file-name-button,
                         .file-row-actions button,
                         .file-action-button {
                             min-height: 40px;
                             min-width: 40px;
                         }
-                        /* Die Namensspalte hatte min-width: 260px UND width: 100% - zusammen mit
-                           der Aktionsspalte brauchte die Tabelle rund 690px und lag damit zur
-                           Haelfte hinter einem seitlichen Schieber. */
+                        /* The name column had min-width: 260px AND width: 100% - together with the
+                           action column the table needed around 690px and therefore lay half behind a
+                           horizontal scrollbar. */
                         .file-table th:nth-child(2),
                         .file-table td:nth-child(2) { min-width: 0; white-space: normal; word-break: break-word; }
                         .file-actions-heading,
                         .file-actions-cell { min-width: 0; }
                         .file-table th,
                         .file-table td { padding: 6px; }
-                        /* Geändert-Spalte weg: sie kostet mehr Breite, als sie auf einem Telefon
-                           wert ist, und schob Name und Aktionen aus dem Bild. */
+                        /* Modified column gone: it costs more width than it is worth on a phone, and
+                           pushed name and actions out of view. */
                         .file-table th:nth-child(4),
                         .file-table td:nth-child(4) { display: none; }
                         .viewer-tab-row { align-items: stretch; flex-direction: column; }
@@ -17281,8 +17281,8 @@ public sealed class HtmlViews
                             padding: 10px;
                             width: calc(100vw - 16px);
                         }
-                        /* Der Kasten um die Buehne ist schon da - und die Polsterung dazwischen
-                           ebenfalls. Eine Linie, ein Abstand. */
+                        /* The box around the stage is already there - and so is the padding in between.
+                           One line, one gap. */
                         .embedded-viewer .viewer-body { padding: 0; }
                         .embedded-viewer .image-stage,
                         .embedded-viewer .video-stage,
@@ -17293,9 +17293,9 @@ public sealed class HtmlViews
                         }
                         .matgate-dialog,
                         .file-viewer-dialog { width: calc(100vw - 16px); }
-                        /* Aus demselben Grund wie die Werkzeugsymbole: die allgemeine 40px-Regel
-                           greift beim <button>, nicht beim <a> daneben - und ungleich hohe
-                           Nachbarn sehen aus wie ein Fehler. */
+                        /* For the same reason as the tool icons: the general 40px rule applies to the
+                           <button>, not to the <a> next to it - and neighbours of unequal height look
+                           like a mistake. */
                         .row-actions .icon-button {
                             height: 40px;
                             min-height: 40px;
@@ -17356,11 +17356,11 @@ public sealed class HtmlViews
                         /* Compact (minimal) view on phones: the tab strip row stays hidden - the header
                            tab-menu button (#mobile-tab-menu) lists/switches the open tabs instead, so the
                            compact view is a true single bar. */
-                        /* Mittig, nicht oben: der Kasten ist so hoch wie die ganze Zeile, der Knopf
-                           darin aber 40px - ohne das haengt er oben und steht 4,5px hoeher als die
-                           Aktionsknoepfe, deren Leiste von sich aus zentriert. */
+                        /* Centred, not at the top: the box is as high as the whole row, but the button
+                           in it is 40px - without this it hangs at the top and sits 4.5px higher than the
+                           action buttons, whose bar centres them by itself. */
                         html[data-view-mode="minimal"] .mobile-tab-menu { align-items: center; display: flex; }
-                        /* Genauso gross wie die Aktionsknoepfe am anderen Ende der Leiste. */
+                        /* Exactly as big as the action buttons at the other end of the bar. */
                         .mobile-tab-menu-trigger {
                             height: 40px;
                             min-height: 40px;
@@ -17468,8 +17468,8 @@ public sealed class HtmlViews
                            Before this the burger and the view toggle sat at the END of the header,
                            inside the space the action bar was already using - three things fighting
                            over the same right-hand half, which is why the last action was cut off. */
-                        /* Fingerbreit und in jeder Ansicht gleich. Der Boden rechnet den Rand des
-                           Geraets dazu, sonst frisst die Kerbe eines iPhones genau diese 50px auf. */
+                        /* A finger wide and the same in every view. The bottom adds the device's inset,
+                           otherwise an iPhone's notch eats exactly these 50px. */
                         html[data-view-mode="minimal"] header {
                             flex-wrap: nowrap;
                             gap: 4px;
@@ -17484,9 +17484,9 @@ public sealed class HtmlViews
                             min-width: 0;
                             order: 2;
                         }
-                        /* Die Verbindungen ganz rechts: dort ist der Daumen, wenn man das Telefon in
-                           einer Hand haelt. Der Trenner wandert mit und steht jetzt VOR dem Knopf -
-                           sonst trennte er nichts mehr. */
+                        /* The connections on the far right: that is where the thumb is when the phone is
+                           held in one hand. The separator moves along and now sits IN FRONT OF the button
+                           - otherwise it would separate nothing any more. */
                         html[data-view-mode="minimal"] .shell-header-sep {
                             align-self: center;
                             background: var(--line);
@@ -17506,7 +17506,7 @@ public sealed class HtmlViews
                         }
                         /* Reachable from the burger menu, so it does not need a second seat here. */
                         html[data-view-mode="minimal"] #view-mode-toggle { display: none; }
-                        /* Genau hier fehlt das Symbol - also genau hier gibt es den Eintrag. */
+                        /* Exactly here the icon is missing - so exactly here the entry exists. */
                         html[data-view-mode="minimal"] [data-view-mode-toggle] { display: inline-flex; }
                         .session-tab-close {
                             min-width: 40px;
@@ -17538,8 +17538,8 @@ public sealed class HtmlViews
                     /* Intentional press feedback for ALL touch devices (phones AND tablets >720px),
                        replacing the grey tap flash removed via -webkit-tap-highlight-color on body. */
                     @media (max-width: 480px) {
-                        /* Auf einem Telefon bleibt Name und was man damit tun kann - die Größe
-                           waere die dritte Spalte, die den Namen abschneidet. */
+                        /* On a phone the name and what can be done with it stay - the size would be the
+                           third column, the one that cuts the name off. */
                         .file-table th:nth-child(3),
                         .file-table td:nth-child(3) { display: none; }
                     }
@@ -17859,26 +17859,26 @@ public sealed class HtmlViews
                         rewriteEmbeddedNavigation(document);
 
                         if (embeddedPage) {
-                            // Ein Knopf, der nicht auf eine Seite zeigt, sondern auf eine Ablage:
-                            // die Workspace-Seite schickt damit in den Dateimanager, statt die
-                            // Dateien ein zweites Mal selbst zu zeigen.
+                            // A button that does not point at a page but at a place: the workspace
+                            // page uses it to send you into the file manager instead of showing the
+                            // files a second time itself.
                             document.addEventListener('click', (event) => {
-                                const ziel = event.target instanceof Element
+                                const target = event.target instanceof Element
                                     ? event.target.closest('[data-shell-open-server]')
                                     : null;
-                                if (!ziel || event.defaultPrevented || event.button !== 0) {
+                                if (!target || event.defaultPrevented || event.button !== 0) {
                                     return;
                                 }
 
-                                const oeffner = window.top && window.top !== window && typeof window.top.MatgateOpenServerTab === 'function'
+                                const opener = window.top && window.top !== window && typeof window.top.MatgateOpenServerTab === 'function'
                                     ? window.top.MatgateOpenServerTab
                                     : null;
-                                if (!oeffner) {
+                                if (!opener) {
                                     return;
                                 }
 
                                 event.preventDefault();
-                                oeffner(ziel.getAttribute('data-shell-open-server'));
+                                opener(target.getAttribute('data-shell-open-server'));
                             }, true);
 
                             document.addEventListener('click', (event) => {
@@ -17926,25 +17926,25 @@ public sealed class HtmlViews
                             const tabPanel = mobileTabMenu.querySelector('[data-mobile-tab-panel]');
                             const tabTrigger = mobileTabMenu.querySelector('.mobile-tab-menu-trigger');
                             const tabCount = mobileTabMenu.querySelector('[data-mobile-tab-count]');
-                            // Die Sichtbarkeit laeuft ueber EINE Stelle, und die loescht jeden noch
-                            // offenen Zeitgeber gleich mit. Vorher stellte das Schliessen eines Reiters
-                            // das Blatt 60ms spaeter wieder auf sichtbar - wer in dieser Zeit eine
-                            // andere Verbindung antippte, wechselte zwar, bekam das Blatt aber nicht
-                            // mehr weg.
-                            let wiederOeffnen = 0;
-                            const setTabPanel = (offen) => {
-                                if (wiederOeffnen) {
-                                    window.clearTimeout(wiederOeffnen);
-                                    wiederOeffnen = 0;
+                            // Visibility runs through ONE place, and that one clears any timer still
+                            // pending along with it. Before, closing a tab set the sheet visible again
+                            // 60ms later - whoever tapped another connection in that window did switch
+                            // but could not get rid of the sheet any more, because the timer put it
+                            // back up.
+                            let reopenTimer = 0;
+                            const setTabPanel = (openTabs) => {
+                                if (reopenTimer) {
+                                    window.clearTimeout(reopenTimer);
+                                    reopenTimer = 0;
                                 }
 
                                 if (!tabPanel) {
                                     return;
                                 }
 
-                                tabPanel.style.display = offen ? 'flex' : 'none';
+                                tabPanel.style.display = openTabs ? 'flex' : 'none';
                                 if (tabTrigger) {
-                                    tabTrigger.setAttribute('aria-expanded', offen ? 'true' : 'false');
+                                    tabTrigger.setAttribute('aria-expanded', openTabs ? 'true' : 'false');
                                 }
                             };
                             const hideTabPanel = () => setTabPanel(false);
@@ -17953,16 +17953,16 @@ public sealed class HtmlViews
                                 return root ? Array.from(root.querySelectorAll('.session-tab')) : [];
                             };
                             const updateTabCount = () => {
-                                const offen = listSessionTabs().filter(el => el.getAttribute('data-tab-kind') !== 'add');
+                                const openTabs = listSessionTabs().filter(el => el.getAttribute('data-tab-kind') !== 'add');
                                 if (tabCount) {
-                                    tabCount.textContent = String(offen.length);
+                                    tabCount.textContent = String(openTabs.length);
                                 }
 
-                                // Ohne offene Verbindung zeigt der Knopf ein Plus und heisst auch so.
-                                mobileTabMenu.setAttribute('data-empty', offen.length ? 'false' : 'true');
+                                // With no connection open the button shows a plus and says so too.
+                                mobileTabMenu.setAttribute('data-empty', openTabs.length ? 'false' : 'true');
                                 if (tabTrigger) {
-                                    const name = offen.length
-                                        ? (mobileTabMenu.getAttribute('data-label-tabs') || 'Connections') + ' (' + offen.length + ')'
+                                    const name = openTabs.length
+                                        ? (mobileTabMenu.getAttribute('data-label-tabs') || 'Connections') + ' (' + openTabs.length + ')'
                                         : (mobileTabMenu.getAttribute('data-label-new') || 'New connection');
                                     tabTrigger.setAttribute('aria-label', name);
                                     tabTrigger.setAttribute('title', name);
@@ -18010,8 +18010,8 @@ public sealed class HtmlViews
                                     label.textContent = titleText;
                                     main.appendChild(label);
                                     main.addEventListener('click', () => {
-                                        // Erst zu, dann wechseln. Andersherum kann alles, was der
-                                        // Wechsel nach sich zieht, das Schliessen noch ueberholen.
+                                        // Close first, then switch. The other way round, everything the switch
+                                        // brings with it can still overtake the closing.
                                         setTabPanel(false);
                                         (tabEl.querySelector('.session-tab-main') || tabEl).click();
                                     });
@@ -18031,8 +18031,8 @@ public sealed class HtmlViews
                                             // (the tab strip is not "inside" it) - the list must stay
                                             // open so several tabs can be closed in a row.
                                             setTabPanel(true);
-                                            wiederOeffnen = window.setTimeout(() => {
-                                                wiederOeffnen = 0;
+                                            reopenTimer = window.setTimeout(() => {
+                                                reopenTimer = 0;
                                                 rebuildTabList();
                                                 updateTabCount();
                                                 tabPanel.style.display = 'flex';
@@ -18049,8 +18049,8 @@ public sealed class HtmlViews
                                         setTabPanel(false);
                                         return;
                                     }
-                                    // Ohne offene Verbindung waere die Liste ein Blatt mit einem
-                                    // einzigen Eintrag. Dann ist der Knopf ein Plus und tut auch das.
+                                    // With no connection open the list would be a sheet with a single
+                                    // entry. Then the button is a plus and does just that.
                                     if (mobileTabMenu.getAttribute('data-empty') === 'true') {
                                         const add = addTabButton();
                                         if (add) {
@@ -18101,9 +18101,9 @@ public sealed class HtmlViews
                             });
                             const tabsRoot = document.getElementById('session-tabs');
                             if (tabsRoot && window.MutationObserver) {
-                                // Nicht nur, wenn Tabs dazukommen oder gehen: auch beim Wechsel, denn
-                                // auf dem Knopf steht der Name des offenen - und der blieb sonst auf
-                                // dem vorigen stehen. "active" wandert als Klasse, also subtree.
+                                // Not only when tabs come and go: on a switch as well, because the button
+                                // carries the name of the open one - and that otherwise stayed on the
+                                // previous one. "active" moves as a class, hence subtree.
                                 new MutationObserver(updateTabCount).observe(tabsRoot, {
                                     attributeFilter: ['class'],
                                     attributes: true,
@@ -18120,15 +18120,15 @@ public sealed class HtmlViews
                                 return;
                             }
 
-                            // Ein Klick INNERHALB eines Menues liess es bisher ausnahmslos offen -
-                            // auch der Klick auf einen Eintrag. Deshalb blieb das Burger-Menue nach
-                            // der Auswahl stehen. Offen bleiben soll es nur, solange man nichts
-                            // ausgewaehlt hat: auf dem Griff selbst, auf einer Ueberschrift, auf
-                            // einem Schalter oder Feld, das man im Menue bedient. Wer einen Eintrag
-                            // trifft - einen Link oder einen Knopf -, hat gewaehlt, und dann geht es zu.
+                            // A click INSIDE a menu used to leave it open without exception - including
+                            // the click on an entry. That is why the burger menu stayed up after a
+                            // choice. It should only stay open while nothing has been chosen: on the
+                            // handle itself, on a heading, on a switch or field operated inside the
+                            // menu. Whoever hits an entry - a link or a button - has chosen, and then
+                            // it closes.
                             const inMenu = target.closest('details.toolbar-menu, details.file-menu, details.shell-menu, details.tab-action-more');
-                            const gewaehlt = target.closest('a[href], button, [role="menuitem"]');
-                            closeOpenMenus(inMenu && !gewaehlt ? inMenu : null);
+                            const chosen = target.closest('a[href], button, [role="menuitem"]');
+                            closeOpenMenus(inMenu && !chosen ? inMenu : null);
                         });
 
                         document.addEventListener('keydown', (event) => {
@@ -18683,9 +18683,9 @@ public sealed class HtmlViews
         return normalized is "light" or "dark" or "system" ? normalized : "system";
     }
 
-    // Die Token einer Palette als CSS-Zeilen. Faellt der Dienst aus, bleiben die eingebauten Werte -
-    // ohne Token gibt es keine Oberflaeche, das darf nicht an einer Datei haengen.
-    // Die Farbe, die das Betriebssystem fuer seine Leiste nimmt - dieselbe wie die Kopfzeile.
+    // The tokens of a palette as CSS lines. If the service fails the built-in values stay - without
+    // tokens there is no UI, and that must not hang on a file.
+    // The colour the operating system takes for its bar - the same as the header.
     private static string ThemeBarColour(ThemeService? themes, ThemeDefinition? palette, bool dark)
     {
         var values = themes is not null && palette is not null
@@ -18707,7 +18707,7 @@ public sealed class HtmlViews
             ? themes.Values(palette, dark, accent, accent2, background)
             : ThemeService.FallbackValues(dark);
         var pad = new string(' ', indent);
-        // Gefiltert: ein Wert aus einer Datei wird hier woertlich in ein <style> geschrieben.
+        // Filtered: a value from a file is written verbatim into a <style> here.
         return string.Join("\n" + pad, values
             .Where(entry => ThemeService.Accept(entry.Key, entry.Value))
             .Select(entry => $"--{entry.Key}: {entry.Value};"));
@@ -18760,8 +18760,8 @@ public sealed class HtmlViews
             """;
     }
 
-    // Hell / Dunkel / System als drei Felder nebeneinander statt als Auswahlliste: drei Dinge, die
-    // man vergleicht, zeigt man nebeneinander - und man sieht auf einen Blick, was gilt.
+    // Light / dark / system as three fields side by side instead of a select: three things you
+    // compare are shown next to each other - and you see at a glance which one applies.
     private static string ThemeModeChooser(HttpContext context, string selected)
     {
         var normalized = NormalizeThemeCode(selected);
@@ -18781,8 +18781,8 @@ public sealed class HtmlViews
             """));
     }
 
-    // Ein Thema beschreibt man nicht, man zeigt es. Jede Karte traegt eine kleine Vorschau in hell
-    // und dunkel - mit genau den Farben, die die Oberflaeche danach benutzt, direkt aus dem Dienst.
+    // A theme is not described, it is shown. Every card carries a small preview in light and dark
+    // - with exactly the colours the UI uses afterwards, straight from the service.
     private static string ThemeCards(HttpContext context, string selectedKey)
     {
         var themes = context.RequestServices.GetService<ThemeService>();
@@ -18794,27 +18794,27 @@ public sealed class HtmlViews
         var chosen = string.IsNullOrWhiteSpace(selectedKey) ? ThemeService.DefaultKey : selectedKey.Trim();
         return string.Join("", themes.All.Select(theme =>
         {
-            var hell = themes.Values(theme, dark: false);
-            var dunkel = themes.Values(theme, dark: true);
-            var istGewaehlt = string.Equals(theme.Key, chosen, StringComparison.OrdinalIgnoreCase);
+            var light = themes.Values(theme, dark: false);
+            var dark = themes.Values(theme, dark: true);
+            var isChosen = string.Equals(theme.Key, chosen, StringComparison.OrdinalIgnoreCase);
 
             return $$"""
-                <label class="theme-card{{(istGewaehlt ? " is-selected" : "")}}">
-                    <input type="radio" name="preferredThemeName" value="{{A(theme.Key)}}"{{(istGewaehlt ? " checked" : "")}}>
+                <label class="theme-card{{(isChosen ? " is-selected" : "")}}">
+                    <input type="radio" name="preferredThemeName" value="{{A(theme.Key)}}"{{(isChosen ? " checked" : "")}}>
                     <span class="theme-card-previews">
-                        {{ThemePreview(hell)}}
-                        {{ThemePreview(dunkel)}}
+                        {{ThemePreview(light)}}
+                        {{ThemePreview(dark)}}
                     </span>
                     <span class="theme-card-foot">
                         <span class="theme-card-name">{{E(theme.Name)}}</span>
-                        <span class="theme-card-dots"><i style="background: {{A(hell.GetValueOrDefault("accent", "#333"))}}"></i><i style="background: {{A(dunkel.GetValueOrDefault("accent", "#333"))}}"></i></span>
+                        <span class="theme-card-dots"><i style="background: {{A(light.GetValueOrDefault("accent", "#333"))}}"></i><i style="background: {{A(dark.GetValueOrDefault("accent", "#333"))}}"></i></span>
                     </span>
                 </label>
                 """;
         }));
     }
 
-    // Ein Fenster in klein: Leiste, zwei Zeilen Text, ein gefuellter Knopf.
+    // A window in miniature: a bar, two lines of text, a filled button.
     private static string ThemePreview(IReadOnlyDictionary<string, string> v)
     {
         var style = $"--p-bg: {v.GetValueOrDefault("bg", "#fff")}; --p-surface: {v.GetValueOrDefault("surface", "#fff")};"
@@ -18822,8 +18822,8 @@ public sealed class HtmlViews
             + $" --p-accent-2: {v.GetValueOrDefault("accent-2", v.GetValueOrDefault("accent", "#333"))};"
             + $" --p-muted: {v.GetValueOrDefault("muted", "#888")}; --p-radius: {v.GetValueOrDefault("radius", "8px")}";
 
-        // Der zweite Akzent als Tupfer neben dem Knopf - sonst saehe man im Bildchen nicht, dass
-        // es ihn gibt; in der Anwendung traegt er das Zeichen und die Verlaeufe.
+        // The second accent as a dot next to the button - otherwise the preview would not show that
+        // it exists; in the application it carries the logo and the gradients.
         return $$"""
             <span class="theme-preview" style="{{A(style)}}">
                 <span class="tp-bar"></span>
@@ -18832,59 +18832,59 @@ public sealed class HtmlViews
             """;
     }
 
-    // Drei Farben nach demselben Muster: der Akzent, der zweite Akzent und der Hintergrund.
-    // Jede hat einen Schalter - eigene Farbe oder die des Themas -, einen Farbwaehler und einen
-    // Satz Tupfer fuer den schnellen Griff. Was leer bleibt, kommt weiter aus dem Thema.
+    // Three colours following the same pattern: the accent, the second accent and the background.
+    // Each has a switch - own colour or the theme's - a colour picker and a set of swatches for a
+    // quick grab. What stays empty keeps coming from the theme.
     private static string ColourGroups(HttpContext context, MatgateUser user)
     {
         var de = Language(context) == "de";
         var themes = context.RequestServices.GetService<ThemeService>();
         var palette = themes?.Resolve(user.PreferredThemeName);
-        var werte = themes is not null && palette is not null
+        var values = themes is not null && palette is not null
             ? themes.Values(palette, dark: false)
             : ThemeService.FallbackValues(dark: false);
 
-        string Gruppe(string legende, string hinweis, string schalter, string feld, string wert, string ersatz, string tupfer)
+        string ColourGroup(string legend, string notice, string toggle, string field, string value, string ersatz, string swatches)
             => $$"""
                 <fieldset class="settings-group">
-                    <legend>{{E(legende)}}</legend>
-                    <p class="muted settings-hint">{{E(hinweis)}}</p>
+                    <legend>{{E(legend)}}</legend>
+                    <p class="muted settings-hint">{{E(notice)}}</p>
                     <div class="accent-choice" data-colour-field>
                         <label class="accent-switch">
-                            <input type="checkbox" name="{{A(schalter)}}" data-colour-own{{(ThemeService.IsColour(wert) ? " checked" : "")}}>
+                            <input type="checkbox" name="{{A(toggle)}}" data-colour-own{{(ThemeService.IsColour(value) ? " checked" : "")}}>
                             <span>{{(de ? "Eigene Farbe" : "Own colour")}}</span>
                         </label>
                         <label class="accent-wheel">
-                            <input type="color" name="{{A(feld)}}" data-colour-value value="{{A(ThemeService.IsColour(wert) ? wert : ersatz)}}">
+                            <input type="color" name="{{A(field)}}" data-colour-value value="{{A(ThemeService.IsColour(value) ? value : ersatz)}}">
                             <span class="muted">{{(de ? "Farbkreis" : "Colour wheel")}}</span>
                         </label>
-                        <div class="accent-presets" data-colour-presets>{{tupfer}}</div>
+                        <div class="accent-presets" data-colour-presets>{{swatches}}</div>
                     </div>
                 </fieldset>
                 """;
 
-        return Gruppe(
+        return ColourGroup(
             de ? "Akzentfarbe" : "Accent colour",
             de
                 ? "Die Farbe der Knöpfe und Hervorhebungen. Matgate hält sie lesbar: der Farbton bleibt, die Helligkeit wird angepasst, wenn die Schrift darauf sonst verschwindet."
                 : "The colour of buttons and highlights. Matgate keeps it readable: the hue stays, the lightness is adjusted when the label on it would otherwise vanish.",
-            "accentOwn", "accentColor", user.AccentColor, werte.GetValueOrDefault("accent", "#176b5b"), AccentPresets())
-            + Gruppe(
+            "accentOwn", "accentColor", user.AccentColor, values.GetValueOrDefault("accent", "#176b5b"), AccentPresets())
+            + ColourGroup(
                 de ? "Zweite Akzentfarbe" : "Second accent colour",
                 de
                     ? "Für das Zeichen, die Verläufe und alles, was nebenbei hervorgehoben wird. Sie trägt keine Schrift, darf also kräftiger sein als die erste."
                     : "For the mark, the gradients and anything highlighted in passing. It carries no text, so it may be bolder than the first.",
-                "accent2Own", "accentColor2", user.AccentColor2, werte.GetValueOrDefault("accent-2", "#2b5876"), AccentPresets())
-            + Gruppe(
+                "accent2Own", "accentColor2", user.AccentColor2, values.GetValueOrDefault("accent-2", "#2b5876"), AccentPresets())
+            + ColourGroup(
                 de ? "Hintergrund" : "Background",
                 de
                     ? "Der Grund, auf dem alles liegt. Aus ihm leitet Matgate die Flächen darüber ab - Felder, Linien, Schrift -, damit eine frei gewählte Farbe nicht die Lesbarkeit mitnimmt."
                     : "The ground everything sits on. Matgate derives the surfaces above it - panels, lines, text - so a freely chosen colour does not take readability with it.",
-                "backgroundOwn", "backgroundColor", user.BackgroundColor, werte.GetValueOrDefault("bg", "#f4f6f4"), BackgroundPresets());
+                "backgroundOwn", "backgroundColor", user.BackgroundColor, values.GetValueOrDefault("bg", "#f4f6f4"), BackgroundPresets());
     }
 
-    // Hintergruende, hell wie dunkel - ein eigener Satz, weil ein Grund andere Toene braucht
-    // als ein Akzent: gedeckt, nicht leuchtend.
+    // Backgrounds, light and dark alike - a set of their own, because a ground needs different
+    // shades than an accent: muted, not glowing.
     private static string BackgroundPresets()
     {
         string[] farben =
@@ -18897,21 +18897,21 @@ public sealed class HtmlViews
             <button type="button" class="accent-preset" data-colour-preset="{{A(farbe)}}" style="--dot: {{A(farbe)}}" title="{{A(farbe)}}" aria-label="{{A(farbe)}}"></button>
             """));
     }
-    // Der zweite Faktor in den Sicherheits-Einstellungen. Drei Zustaende, die einander ausschliessen:
-    // noch nichts eingerichtet, eingerichtet aber noch nicht bestaetigt, und in Betrieb.
+    // The second factor in the security settings. Three states that exclude each other: nothing set
+    // up yet, set up but not confirmed, and in service.
     private static string TotpPanel(HttpContext context, MatgateUser user, IReadOnlyList<string>? recoveryCodes)
     {
         var de = Language(context) == "de";
-        var fehler = context.Request.Query["totp"].ToString();
-        var hinweis = fehler switch
+        var failure = context.Request.Query["totp"].ToString();
+        var notice = failure switch
         {
             "falsch" => $"""<div class="notice error">{E(de ? "Der Code stimmt nicht. Prüf die Uhrzeit auf dem Telefon und versuch es noch einmal." : "That code is not right. Check the clock on your phone and try again.")}</div>""",
             "passwort" => $"""<div class="notice error">{E(de ? "Das Passwort stimmt nicht." : "That password is not right.")}</div>""",
             _ => "",
         };
 
-        // Die Wiederherstellungs-Codes gibt es genau einmal zu sehen - gespeichert sind nur ihre
-        // Abdruecke. Deshalb stehen sie hier gross und mit der Bitte, sie wegzulegen.
+        // The recovery codes can be seen exactly once - only their hashes are stored. That is why they
+        // are here in large type, with the request to put them away.
         var codesHtml = recoveryCodes is null || recoveryCodes.Count == 0
             ? ""
             : $$"""
@@ -18926,19 +18926,19 @@ public sealed class HtmlViews
 
         if (user.TotpEnabled)
         {
-            var seit = user.TotpConfirmedAt is null
+            var since = user.TotpConfirmedAt is null
                 ? ""
-                : $"""<p class="muted settings-hint">{E((de ? "Eingeschaltet seit " : "On since ") + user.TotpConfirmedAt.Value.ToLocalTime().ToString("dd.MM.yyyy HH:mm"))}</p>""";
+                : $"""<p class="muted settings-hint">{E((de ? "Eingeschaltet since " : "On since ") + user.TotpConfirmedAt.Value.ToLocalTime().ToString("dd.MM.yyyy HH:mm"))}</p>""";
             return $$"""
                 <section class="panel">
                     <h2>{{(de ? "Zwei-Faktor-Anmeldung" : "Two-factor sign-in")}}</h2>
                     <p class="muted settings-lead">{{(de
                         ? "Beim Anmelden fragt Matgate nach dem Passwort und danach nach einem Code aus deiner Authenticator-App."
                         : "When signing in, Matgate asks for the password and then for a code from your authenticator app.")}}</p>
-                    {{hinweis}}
+                    {{notice}}
                     {{codesHtml}}
                     <p class="totp-state"><span class="badge">{{(de ? "eingeschaltet" : "on")}}</span> {{E(de ? $"{user.TotpRecoveryHashes.Count} Wiederherstellungs-Codes übrig" : $"{user.TotpRecoveryHashes.Count} recovery codes left")}}</p>
-                    {{seit}}
+                    {{since}}
                     <form method="post" action="/account/totp/disable" class="settings-form form-grid">
                         {{Csrf(context)}}
                         <label>{{(de ? "Zum Abschalten: dein Passwort" : "To switch it off: your password")}}
@@ -18960,7 +18960,7 @@ public sealed class HtmlViews
                     <p class="muted settings-lead">{{(de
                         ? "Scann den Code mit deiner Authenticator-App und tipp dann die sechs Ziffern ein, die sie anzeigt. Erst danach ist der zweite Faktor eingeschaltet - wer hier abbricht, sperrt sich nicht aus."
                         : "Scan the code with your authenticator app, then type the six digits it shows. Only then is the second factor on - stopping here does not lock you out.")}}</p>
-                    {{hinweis}}
+                    {{notice}}
                     <div class="totp-setup">
                         <img class="totp-qr" alt="{{A(de ? "QR-Code für die Authenticator-App" : "QR code for the authenticator app")}}" src="{{A(QrDataUri(uri))}}">
                         <div>
@@ -18993,7 +18993,7 @@ public sealed class HtmlViews
                 <p class="muted settings-lead">{{(de
                     ? "Ein Passwort allein kann abhandenkommen. Mit dem zweiten Faktor fragt Matgate beim Anmelden zusätzlich nach einem Code, den deine Authenticator-App alle 30 Sekunden neu ausrechnet - übertragen wird dabei nichts."
                     : "A password alone can go astray. With the second factor Matgate also asks for a code that your authenticator app works out anew every 30 seconds - nothing is transmitted in the process.")}}</p>
-                {{hinweis}}
+                {{notice}}
                 <form method="post" action="/account/totp/start">
                     {{Csrf(context)}}
                     <div class="actions"><button type="submit" class="primary">{{Icon("key")}}{{(de ? "Einrichten" : "Set up")}}</button></div>
@@ -19002,55 +19002,55 @@ public sealed class HtmlViews
             """;
     }
 
-    // Der QR-Code als Bild in der Seite selbst - kein eigener Aufruf, bei dem das Geheimnis noch
-    // einmal ueber eine Adresse ginge.
+    // The QR code as an image in the page itself - no separate request in which the secret would
+    // travel over an address again.
     private static string QrDataUri(string text)
     {
         using var generator = new QRCoder.QRCodeGenerator();
-        var daten = generator.CreateQrCode(text, QRCoder.QRCodeGenerator.ECCLevel.M);
-        var png = new QRCoder.PngByteQRCode(daten).GetGraphic(6);
+        var data = generator.CreateQrCode(text, QRCoder.QRCodeGenerator.ECCLevel.M);
+        var png = new QRCoder.PngByteQRCode(data).GetGraphic(6);
         return "data:image/png;base64," + Convert.ToBase64String(png);
     }
 
-    // Welche Verbindungen als Knopf in der Aktionsleiste stehen. Dieselbe Zieh-Liste wie bei den
-    // Abschnitten - die gewaehlten zuerst und in ihrer Reihenfolge, danach der Rest zum Ankreuzen.
-    // Ablagen und Ordner sind hier nicht dabei: ein Knopf, der nur einen Ordner aufmacht, gehoert
-    // nicht in eine Leiste, die sonst Verbindungen startet.
+    // Which connections sit in the action bar as a button. The same drag list as for the sections -
+    // the chosen ones first and in their order, then the rest to tick. Places and folders are not
+    // among them: a button that only opens a folder does not belong in a bar that otherwise starts
+    // connections.
     private static string ActionBarItems(HttpContext context, MatgateUser user, IReadOnlyList<ServerEndpoint> servers)
     {
         var de = Language(context) == "de";
-        var waehlbar = servers
+        var selectable = servers
             .Where(server => server.Protocol != ServerProtocol.Local)
             .ToList();
-        var gewaehlt = (user.ActionBarServerIds ?? [])
-            .Select(id => waehlbar.FirstOrDefault(server => server.Id == id))
+        var chosen = (user.ActionBarServerIds ?? [])
+            .Select(id => selectable.FirstOrDefault(server => server.Id == id))
             .Where(server => server is not null)
             .Select(server => server!)
             .ToList();
-        var rest = waehlbar
-            .Where(server => !gewaehlt.Any(treffer => treffer.Id == server.Id))
+        var rest = selectable
+            .Where(server => !chosen.Any(treffer => treffer.Id == server.Id))
             .OrderBy(server => server.Name, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
 
-        if (waehlbar.Count == 0)
+        if (selectable.Count == 0)
         {
             return $$"""<li class="action-order-item"><span class="action-order-name muted">{{E(de ? "Noch keine Verbindungen." : "No connections yet.")}}</span></li>""";
         }
 
-        string Eintrag(ServerEndpoint server, bool an) => $$"""
-            <li class="action-order-item" data-order-key="{{A(server.Id.ToString())}}"><span class="action-order-grip" aria-hidden="true">{{Icon("menu")}}</span><span class="action-order-icon" aria-hidden="true">{{Icon(ServerEndpoint.EffectiveIconKey(server.Protocol, server.IconKey))}}</span><span class="action-order-name">{{E(server.Name)}}</span><label class="action-order-show"><input type="checkbox" data-order-visible{{(an ? " checked" : "")}}> {{E(de ? "zeigen" : "show")}}</label></li>
+        string ActionEntry(ServerEndpoint server, bool isOn) => $$"""
+            <li class="action-order-item" data-order-key="{{A(server.Id.ToString())}}"><span class="action-order-grip" aria-hidden="true">{{Icon("menu")}}</span><span class="action-order-icon" aria-hidden="true">{{Icon(ServerEndpoint.EffectiveIconKey(server.Protocol, server.IconKey))}}</span><span class="action-order-name">{{E(server.Name)}}</span><label class="action-order-show"><input type="checkbox" data-order-visible{{(isOn ? " checked" : "")}}> {{E(de ? "zeigen" : "show")}}</label></li>
             """;
 
-        return string.Join("", gewaehlt.Select(server => Eintrag(server, true)))
-            + string.Join("", rest.Select(server => Eintrag(server, false)));
+        return string.Join("", chosen.Select(server => ActionEntry(server, true)))
+            + string.Join("", rest.Select(server => ActionEntry(server, false)));
     }
 
-    // Die Abschnitte der Startseite als Zieh-Liste - dieselbe Form wie die Aktionen der
-    // Sitzungsleiste, damit man sie nicht zweimal lernen muss.
+    // The sections of the home page as a drag list - the same shape as the actions of the session
+    // toolbar, so there is no need to learn it twice.
     private static string HomeSectionItems(HttpContext context, MatgateUser user)
     {
         var de = Language(context) == "de";
-        var namen = new Dictionary<string, (string Label, string Icon)>(StringComparer.Ordinal)
+        var names = new Dictionary<string, (string Label, string Icon)>(StringComparer.Ordinal)
         {
             ["search"] = (de ? "Suche" : "Search", "search"),
             ["quick"] = (de ? "Schnell verbinden" : "Quick connect", "play"),
@@ -19061,19 +19061,19 @@ public sealed class HtmlViews
             ["workspaces"] = ("Workspaces", "briefcase"),
             ["farm"] = (de ? "Browser-Farm" : "Browser farm", "globe"),
         };
-        var versteckt = (user.HiddenHomeSections ?? []).ToHashSet(StringComparer.Ordinal);
+        var hidden = (user.HiddenHomeSections ?? []).ToHashSet(StringComparer.Ordinal);
 
         return string.Join("", HomeLayout.Order(user.HomeSections).Select(key =>
         {
-            var (label, icon) = namen.TryGetValue(key, out var eintrag) ? eintrag : (key, "square");
+            var (label, icon) = names.TryGetValue(key, out var entry) ? entry : (key, "square");
             return $$"""
-                <li class="action-order-item" data-order-key="{{A(key)}}"><span class="action-order-grip" aria-hidden="true">{{Icon("menu")}}</span><span class="action-order-icon" aria-hidden="true">{{Icon(icon)}}</span><span class="action-order-name">{{E(label)}}</span><label class="action-order-show"><input type="checkbox" data-order-visible{{(versteckt.Contains(key) ? "" : " checked")}}> {{E(de ? "zeigen" : "show")}}</label></li>
+                <li class="action-order-item" data-order-key="{{A(key)}}"><span class="action-order-grip" aria-hidden="true">{{Icon("menu")}}</span><span class="action-order-icon" aria-hidden="true">{{Icon(icon)}}</span><span class="action-order-name">{{E(label)}}</span><label class="action-order-show"><input type="checkbox" data-order-visible{{(hidden.Contains(key) ? "" : " checked")}}> {{E(de ? "zeigen" : "show")}}</label></li>
                 """;
         }));
     }
-    // Ein Satz Vorschlaege quer durch den Farbkreis - wer nur schnell etwas anderes will, muss
-    // dafuer keinen Farbwaehler oeffnen. Die Werte sind mitteldunkel gewaehlt, damit sie in beiden
-    // Modi ohne grosse Nachbesserung durchkommen.
+    // A set of suggestions right across the colour wheel - anyone who just wants something else
+    // quickly does not have to open a colour picker for it. The values are chosen mid-dark so they
+    // get through both modes without much correction.
     private static string AccentPresets()
     {
         string[] farben =
@@ -19087,7 +19087,7 @@ public sealed class HtmlViews
             """));
     }
 
-    // Womit der Farbwaehler aufgeht, wenn noch keine eigene Farbe gesetzt ist: mit der des Themas.
+    // What the colour picker opens with when no colour of one's own is set yet: the theme's.
     private static string AccentFallback(HttpContext context, MatgateUser user)
     {
         var themes = context.RequestServices.GetService<ThemeService>();

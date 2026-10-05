@@ -109,9 +109,9 @@ public sealed class FileShareService
     // only one of the two names was on the drive - so they are the same word everywhere, in both
     // languages. A connection's area is written as a path below Connection, which also sorts the way
     // it reads.
-    // Ein Workspace, so wie der Dateimanager ihn braucht: ein Name, ein Ordner und die Frage, ob
-    // hineingeschrieben werden darf. Wer darf, wird nicht hier entschieden - die Liste kommt schon
-    // gefiltert herein, wie bei den Verbindungen auch.
+    // A workspace the way the file manager needs it: a name, a folder and whether it may be written
+    // to. Who is allowed is not decided here - the list arrives already filtered, same as for the
+    // connections.
     public sealed record WorkspaceArea(Guid Id, string Name, string Directory, bool AllowUploads);
 
     public static Guid WorkspaceAreaId(Guid workspaceId) => AreaId("workspace:" + workspaceId.ToString("N"));
@@ -134,11 +134,10 @@ public sealed class FileShareService
             areas.Add(AreaEndpoint(user, PersonalAreaId(user.Id), "User", PersonalDirectory(user.Id), "user"));
         }
 
-        // Der Ablageordner der laufenden Sitzungen. Er gehoert zu KEINER Berechtigung: es ist der
-        // Ordner dieser einen Sitzung, den man ohnehin ueber das umgeleitete Laufwerk sieht - er im
-        // Dateimanager zu fehlen war der Bruch. Gelistet werden nur Sitzungen, die sich noch melden
-        // und deren Verzeichnis es gibt, und nur die eigenen: die Liste kommt aus dem
-        // Lebenszeichen-Register, das den Besitzer kennt.
+        // The place folder of the running sessions. It belongs to NO permission: it is the folder of this
+        // one session, which the redirected drive shows anyway - missing it in the file manager was the
+        // inconsistency. Only sessions that still report in and whose directory exists are listed, and
+        // only the caller's own: the list comes from the keep-alive register, which knows the owner.
         foreach (var (sessionId, _) in LiveSessionsOf(user.Id))
         {
             var directory = SessionDirectory(sessionId);
@@ -147,8 +146,8 @@ public sealed class FileShareService
                 continue;
             }
 
-            // Die Sitzungs-Id beginnt mit der Id ihrer Verbindung - daraus wird der Name, damit man
-            // bei mehreren offenen Sitzungen weiss, welche gemeint ist.
+            // A session id starts with the id of its connection - the name is built from that, so with
+            // several sessions open you can tell which one is meant.
             var name = "Session";
             if (sessionId.Length >= 32 && Guid.TryParseExact(sessionId[..32], "N", out var serverId))
             {
@@ -205,11 +204,10 @@ public sealed class FileShareService
             }
         }
 
-        // Die Workspaces: bisher eine eigene Oberflaeche neben dem Dateimanager, obwohl beide
-        // dasselbe tun - Ordner zeigen und Dateien hin- und herschieben. Als Ablage stehen sie in
-        // derselben Liste wie alles andere. Der Ordner ist der "files"-Teil des Workspaces, nicht
-        // sein Wurzelverzeichnis: daneben liegt die geteilte Notiz, und die gehoert nicht zwischen
-        // die Dateien.
+        // The workspaces: they used to be a UI of their own next to the file manager, even though both do
+        // the same thing - show folders and move files around. As a place they sit in the same list as
+        // everything else. The folder is the workspace's "files" part, not its root directory: the shared
+        // note used to sit next to it, and that does not belong among the files.
         foreach (var workspace in workspaces ?? [])
         {
             areas.Add(AreaEndpoint(
@@ -218,8 +216,8 @@ public sealed class FileShareService
                 "Workspaces/" + workspace.Name,
                 workspace.Directory,
                 "workspace",
-                // Ein Workspace, in den niemand hochladen darf, ist auch hier keiner, in den man
-                // hochladen darf. Dieselbe Einstellung, derselbe Satz Regeln.
+                // A workspace nobody may upload to is not one you may upload to here either. The same setting,
+                // the same set of rules.
                 readOnly: !workspace.AllowUploads,
                 sourceId: workspace.Id));
         }
@@ -266,8 +264,8 @@ public sealed class FileShareService
         };
     }
 
-    // Die noch gemeldeten Sitzungen eines Benutzers. Nur lesen - wer hier nicht steht, bekommt auch
-    // keine Ablage, und damit kann niemand die Ablage einer fremden Sitzung oeffnen.
+    // The sessions of a user that are still being reported. Read-only - whoever is not in here gets no
+    // place either, so nobody can open another session's place.
     public IReadOnlyList<(string SessionId, DateTimeOffset LastSeen)> LiveSessionsOf(Guid userId)
     {
         var now = DateTimeOffset.UtcNow;

@@ -3,18 +3,18 @@ using System.Text;
 
 namespace Matgate.Services;
 
-// Der zweite Faktor nach RFC 6238: ein sechsstelliger Code, der sich alle 30 Sekunden ändert und
-// aus einem gemeinsamen Geheimnis und der Uhrzeit entsteht. Die Authenticator-App rechnet dasselbe
-// aus - übertragen wird dabei nichts.
+// The second factor per RFC 6238: a six-digit code that changes every 30 seconds and is built from
+// a shared secret and the time of day. The authenticator app computes the same thing - nothing is
+// transmitted in the process.
 //
-// Zwei Dinge, die man leicht falsch macht und die hier bewusst anders gelöst sind:
+// Two things that are easy to get wrong and are deliberately handled differently here:
 //
-//  * Die Uhren gehen auseinander. Geprüft wird deshalb nicht nur der laufende Zeitschritt, sondern
-//    auch der davor und der danach - eine knappe Minute Spielraum. Mehr nicht: jeder weitere Schritt
-//    vergrößert das Fenster, in dem ein abgefangener Code noch gilt.
-//  * Ein Code gilt 30 Sekunden lang - also lange genug, um ihn ein zweites Mal einzutippen. Wer
-//    einen Code mitliest, könnte ihn in dieser Zeit selbst verwenden. Deshalb merkt sich das Konto
-//    den zuletzt benutzten Zeitschritt, und alles, was nicht neuer ist, wird abgewiesen.
+//  * Clocks drift apart. So not only the current time step is checked but also the one before and
+//    the one after - just under a minute of leeway. No more: every further step widens the window
+//    in which an intercepted code is still valid.
+//  * A code is valid for 30 seconds - long enough to type it a second time. Someone reading it
+//    along could use it themselves within that time. So the account remembers the most recently
+//    used time step, and anything not newer than that is rejected.
 public static class TotpService
 {
     private const int Digits = 6;
@@ -23,14 +23,14 @@ public static class TotpService
 
     private const string Base32Alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
 
-    // 20 Bytes = 160 Bit, die Länge, die RFC 4226 für HMAC-SHA1 vorsieht.
+    // 20 bytes = 160 bits, the length RFC 4226 specifies for HMAC-SHA1.
     public static string NewSecret()
     {
         return ToBase32(RandomNumberGenerator.GetBytes(20));
     }
 
-    // Was die Authenticator-App einliest. Der Aussteller steht zweimal darin - einmal als Pfad,
-    // einmal als Parameter -, weil die Apps sich nicht einig sind, welchen sie lesen.
+    // What the authenticator app scans. The issuer appears twice - once as a path, once as a
+    // parameter - because the apps disagree about which one they read.
     public static string Uri(string issuer, string account, string secret)
     {
         var label = System.Uri.EscapeDataString(issuer) + ":" + System.Uri.EscapeDataString(account);
@@ -40,40 +40,40 @@ public static class TotpService
             + $"&algorithm=SHA1&digits={Digits}&period={StepSeconds}";
     }
 
-    // Prüft einen Code und gibt den Zeitschritt zurück, zu dem er gehörte. Der Aufrufer schreibt
-    // diesen Schritt ins Konto; beim nächsten Mal muss er echt größer sein.
+    // Checks a code and returns the time step it belonged to. The caller writes that step into the
+    // account; next time it has to be strictly greater.
     public static bool Verify(string? secret, string? code, long lastUsedStep, out long usedStep)
     {
         usedStep = 0;
-        var sauber = new string((code ?? "").Where(char.IsDigit).ToArray());
-        if (sauber.Length != Digits || string.IsNullOrWhiteSpace(secret))
+        var clean = new string((code ?? "").Where(char.IsDigit).ToArray());
+        if (clean.Length != Digits || string.IsNullOrWhiteSpace(secret))
         {
             return false;
         }
 
-        byte[] schluessel;
+        byte[] key;
         try
         {
-            schluessel = FromBase32(secret);
+            key = FromBase32(secret);
         }
         catch (FormatException)
         {
             return false;
         }
 
-        var jetzt = DateTimeOffset.UtcNow.ToUnixTimeSeconds() / StepSeconds;
-        for (var versatz = -Window; versatz <= Window; versatz++)
+        var now = DateTimeOffset.UtcNow.ToUnixTimeSeconds() / StepSeconds;
+        for (var offset = -Window; offset <= Window; offset++)
         {
-            var schritt = jetzt + versatz;
-            if (schritt <= lastUsedStep)
+            var step = now + offset;
+            if (step <= lastUsedStep)
             {
-                // Schon benutzt - oder älter als der zuletzt benutzte. Beides zählt nicht.
+                // Already used - or older than the last one used. Neither counts.
                 continue;
             }
 
-            if (FixedTimeEquals(Compute(schluessel, schritt), sauber))
+            if (FixedTimeEquals(Compute(key, step), clean))
             {
-                usedStep = schritt;
+                usedStep = step;
                 return true;
             }
         }
@@ -81,32 +81,32 @@ public static class TotpService
         return false;
     }
 
-    // Wiederherstellungs-Codes für den Fall, dass das Telefon weg ist. Zehn Stück, je 10 Zeichen
-    // aus dem Base32-Alphabet - das sind 50 Bit und damit nicht zu raten.
-    public static IReadOnlyList<string> NewRecoveryCodes(int anzahl = 10)
+    // Recovery codes for the case where the phone is gone. Ten of them, 10 characters each from the
+    // Base32 alphabet - that is 50 bits and therefore not guessable.
+    public static IReadOnlyList<string> NewRecoveryCodes(int count = 10)
     {
-        var codes = new List<string>(anzahl);
-        for (var i = 0; i < anzahl; i++)
+        var codes = new List<string>(count);
+        for (var i = 0; i < count; i++)
         {
-            var zeichen = new char[10];
-            for (var j = 0; j < zeichen.Length; j++)
+            var chars = new char[10];
+            for (var j = 0; j < chars.Length; j++)
             {
-                zeichen[j] = Base32Alphabet[RandomNumberGenerator.GetInt32(Base32Alphabet.Length)];
+                chars[j] = Base32Alphabet[RandomNumberGenerator.GetInt32(Base32Alphabet.Length)];
             }
 
-            codes.Add(new string(zeichen, 0, 5) + "-" + new string(zeichen, 5, 5));
+            codes.Add(new string(chars, 0, 5) + "-" + new string(chars, 5, 5));
         }
 
         return codes;
     }
 
-    // Gespeichert wird nur der Abdruck, nie der Code selbst. SHA-256 genügt hier, wo ein Passwort
-    // es nicht täte: ein Wiederherstellungs-Code ist nichts Ausgedachtes, sondern 50 zufällige Bit -
-    // da hilft kein Wörterbuch, und ein langsames Verfahren würde nur das Anmelden bremsen.
+    // Only the hash is stored, never the code itself. SHA-256 is enough here where it would not be for
+    // a password: a recovery code is not something a person made up but 50 random bits - no dictionary
+    // helps there, and a slow algorithm would only slow down signing in.
     public static string HashRecoveryCode(string code)
     {
-        var sauber = Normalise(code);
-        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(sauber))).ToLowerInvariant();
+        var clean = Normalise(code);
+        return Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(clean))).ToLowerInvariant();
     }
 
     public static string Normalise(string code)
@@ -116,25 +116,25 @@ public static class TotpService
 
     private static string Compute(byte[] key, long step)
     {
-        var zaehler = new byte[8];
+        var counter = new byte[8];
         for (var i = 7; i >= 0; i--)
         {
-            zaehler[i] = (byte)(step & 0xff);
+            counter[i] = (byte)(step & 0xff);
             step >>= 8;
         }
 
-        var hash = HMACSHA1.HashData(key, zaehler);
-        var versatz = hash[^1] & 0x0f;
-        var wert = ((hash[versatz] & 0x7f) << 24)
-            | ((hash[versatz + 1] & 0xff) << 16)
-            | ((hash[versatz + 2] & 0xff) << 8)
-            | (hash[versatz + 3] & 0xff);
+        var hash = HMACSHA1.HashData(key, counter);
+        var offset = hash[^1] & 0x0f;
+        var value = ((hash[offset] & 0x7f) << 24)
+            | ((hash[offset + 1] & 0xff) << 16)
+            | ((hash[offset + 2] & 0xff) << 8)
+            | (hash[offset + 3] & 0xff);
 
-        return (wert % 1_000_000).ToString("D" + Digits);
+        return (value % 1_000_000).ToString("D" + Digits);
     }
 
-    // Zeichenweiser Vergleich mit fester Laufzeit: wer messen kann, wie lange ein Vergleich dauert,
-    // kann einen Code sonst Stelle für Stelle erraten.
+    // Character-by-character comparison with constant running time: anyone able to measure how long a
+    // comparison takes could otherwise guess a code digit by digit.
     private static bool FixedTimeEquals(string a, string b)
     {
         return CryptographicOperations.FixedTimeEquals(
@@ -142,47 +142,47 @@ public static class TotpService
             Encoding.ASCII.GetBytes(b));
     }
 
-    private static string ToBase32(byte[] daten)
+    private static string ToBase32(byte[] data)
     {
-        var bauer = new StringBuilder((daten.Length * 8 + 4) / 5);
-        int puffer = 0, bits = 0;
-        foreach (var b in daten)
+        var builder = new StringBuilder((data.Length * 8 + 4) / 5);
+        int buffer = 0, bits = 0;
+        foreach (var b in data)
         {
-            puffer = (puffer << 8) | b;
+            buffer = (buffer << 8) | b;
             bits += 8;
             while (bits >= 5)
             {
-                bauer.Append(Base32Alphabet[(puffer >> (bits - 5)) & 31]);
+                builder.Append(Base32Alphabet[(buffer >> (bits - 5)) & 31]);
                 bits -= 5;
             }
         }
 
         if (bits > 0)
         {
-            bauer.Append(Base32Alphabet[(puffer << (5 - bits)) & 31]);
+            builder.Append(Base32Alphabet[(buffer << (5 - bits)) & 31]);
         }
 
-        return bauer.ToString();
+        return builder.ToString();
     }
 
     private static byte[] FromBase32(string text)
     {
-        var sauber = text.Trim().TrimEnd('=').ToUpperInvariant().Replace(" ", "");
-        var bytes = new List<byte>(sauber.Length * 5 / 8);
-        int puffer = 0, bits = 0;
-        foreach (var c in sauber)
+        var clean = text.Trim().TrimEnd('=').ToUpperInvariant().Replace(" ", "");
+        var bytes = new List<byte>(clean.Length * 5 / 8);
+        int buffer = 0, bits = 0;
+        foreach (var c in clean)
         {
-            var wert = Base32Alphabet.IndexOf(c);
-            if (wert < 0)
+            var value = Base32Alphabet.IndexOf(c);
+            if (value < 0)
             {
-                throw new FormatException("Kein Base32-Zeichen: " + c);
+                throw new FormatException("Not a Base32 character: " + c);
             }
 
-            puffer = (puffer << 5) | wert;
+            buffer = (buffer << 5) | value;
             bits += 5;
             if (bits >= 8)
             {
-                bytes.Add((byte)((puffer >> (bits - 8)) & 0xff));
+                bytes.Add((byte)((buffer >> (bits - 8)) & 0xff));
                 bits -= 8;
             }
         }

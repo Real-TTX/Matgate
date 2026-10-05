@@ -276,8 +276,8 @@ public static class EndpointMapping
         });
 
         app.MapPost("/login", SignInAsync).RequireRateLimiting("login");
-        // Derselbe Zaehler wie die Anmeldung: ein sechsstelliger Code ist in einer Million Versuchen
-        // zu erraten, und ohne Bremse sind das Minuten.
+        // The same limiter as the login: a six-digit code can be guessed in a million attempts, and
+        // without a brake that is a matter of minutes.
         app.MapPost("/login/totp", SignInTotpAsync).RequireRateLimiting("login");
         app.MapPost("/logout", SignOutAsync).RequireAuthorization();
 
@@ -296,10 +296,10 @@ public static class EndpointMapping
         app.MapGet("/", HomeAsync).RequireAuthorization();
         app.MapGet("/api/connections/panel", ConnectionsPanelAsync).RequireAuthorization();
         app.MapGet("/api/browser-farm/status", BrowserFarmStatusAsync).RequireAuthorization();
-        // Die Vorschau der Darstellung rechnet der Server, nicht die Seite: so sieht man beim
-        // Einstellen genau das, was nach dem Speichern auch herauskommt - samt der Nachbesserung,
-        // die eine zu blasse Farbe lesbar haelt. Dieselbe Rechnung zweimal zu schreiben hiesse,
-        // dass die beiden Fassungen frueher oder spaeter auseinanderlaufen.
+        // The theme preview is computed by the server, not by the page: that way the settings screen
+        // shows exactly what comes out after saving - including the correction that keeps a too-pale
+        // colour readable. Writing the same arithmetic twice would mean the two versions drift apart
+        // sooner or later.
         app.MapGet("/api/theme/preview", ThemePreview).RequireAuthorization();
         app.MapGet("/forbidden", ForbiddenAsync).RequireAuthorization();
         app.MapGet("/connect/{id:guid}", ConnectAsync).RequireAuthorization();
@@ -319,11 +319,11 @@ public static class EndpointMapping
         app.MapGet("/workspaces/{id:guid}", WorkspaceDetailAsync).RequireAuthorization();
         app.MapPost("/workspaces/{id:guid}/update", UpdateWorkspaceAsync).RequireAuthorization();
         app.MapPost("/workspaces/{id:guid}/extend", WorkspaceExtendAsync).RequireAuthorization();
-        // Die Einstellungen einer Ablage als Bruchstueck fuer den Dialog im Dateimanager. Wer sie
-        // sehen darf, entscheidet dieselbe Pruefung wie auf der Seite.
+        // A place's settings as a fragment for the dialog in the file manager. Who may see them is
+        // decided by the same check as on the page.
         app.MapGet("/api/workspaces/{id:guid}/settings", WorkspaceSettingsFragmentAsync).RequireAuthorization();
-        // Eine Ablage freigeben: das Formular dazu und das Anlegen. Beides nur fuer Ablagen - eine
-        // Verbindung zu einem fremden Rechner gibt man nicht mit einem Link weiter.
+        // Sharing a place: the form for it and the creation itself. Both only for places - a connection
+        // to someone else's machine is not something you hand on as a link.
         app.MapGet("/api/files/{id:guid}/share-form", ShareFormFragmentAsync).RequireAuthorization();
         app.MapPost("/api/files/{id:guid}/share", ShareAreaAsync).RequireAuthorization();
         app.MapPost("/workspaces/{id:guid}/delete", DeleteWorkspaceAsync).RequireAuthorization();
@@ -482,9 +482,9 @@ public static class EndpointMapping
 
         var returnUrl = NormalizeReturnUrl(form["returnUrl"].ToString());
 
-        // Das Passwort stimmt - angemeldet ist damit aber noch niemand. Statt einer halben Sitzung
-        // bekommt der Browser einen kurzlebigen, signierten Ausweis fuer genau diesen einen
-        // Zwischenschritt; er traegt nichts weiter als die Kennung, das Ziel und ein Ablaufdatum.
+        // The password is right - but nobody is signed in yet. Instead of half a session the browser
+        // gets a short-lived, signed ticket for exactly this one intermediate step; it carries nothing
+        // but the id, the destination and an expiry.
         if (user.TotpEnabled && !string.IsNullOrWhiteSpace(user.TotpSecret))
         {
             AppendTotpTicket(context, protection, user.Id, returnUrl);
@@ -494,8 +494,8 @@ public static class EndpointMapping
         return await CompleteSignInAsync(context, user, hasher, returnUrl);
     }
 
-    // Der gemeinsame Abschluss: ueber diese Stelle laeuft jede Anmeldung, mit oder ohne zweiten
-    // Faktor. Zwei Kopien davon waeren zwei Stellen, an denen eines Tages etwas fehlt.
+    // The shared ending: every sign-in runs through here, with or without a second factor. Two
+    // copies of it would be two places where one day something is missing.
     private static async Task<IResult> CompleteSignInAsync(
         HttpContext context,
         MatgateUser user,
@@ -535,12 +535,12 @@ public static class EndpointMapping
         Guid userId,
         string returnUrl)
     {
-        var ablauf = DateTimeOffset.UtcNow.AddMinutes(5).ToUnixTimeSeconds();
-        var inhalt = TotpProtector(protection).Protect($"{userId:N}|{ablauf}|{returnUrl}");
-        context.Response.Cookies.Append(TotpTicketCookie, inhalt, new CookieOptions
+        var expiresAt = DateTimeOffset.UtcNow.AddMinutes(5).ToUnixTimeSeconds();
+        var payload = TotpProtector(protection).Protect($"{userId:N}|{expiresAt}|{returnUrl}");
+        context.Response.Cookies.Append(TotpTicketCookie, payload, new CookieOptions
         {
-            // Nur fuer den einen Schritt und nur fuer diese Sitzung des Browsers: kein Ablaufdatum
-            // im Keks, das Ablaufdatum steht im Ausweis selbst und wird geprueft.
+            // Only for this one step and only for this browser session: no expiry in the cookie, the expiry
+            // is in the ticket itself and is verified.
             HttpOnly = true,
             SameSite = SameSiteMode.Lax,
             Secure = context.Request.IsHttps,
@@ -549,33 +549,33 @@ public static class EndpointMapping
 
     private static (Guid UserId, string ReturnUrl)? ReadTotpTicket(HttpContext context, IDataProtectionProvider protection)
     {
-        var roh = context.Request.Cookies[TotpTicketCookie];
-        if (string.IsNullOrWhiteSpace(roh))
+        var raw = context.Request.Cookies[TotpTicketCookie];
+        if (string.IsNullOrWhiteSpace(raw))
         {
             return null;
         }
 
-        string inhalt;
+        string payload;
         try
         {
-            inhalt = TotpProtector(protection).Unprotect(roh);
+            payload = TotpProtector(protection).Unprotect(raw);
         }
         catch (System.Security.Cryptography.CryptographicException)
         {
-            // Veraendert, abgelaufener Schluessel, fremder Keks - in jedem Fall kein Ausweis.
+            // Tampered with, expired key, someone else's cookie - in every case: no ticket.
             return null;
         }
 
-        var teile = inhalt.Split('|', 3);
-        if (teile.Length != 3
-            || !Guid.TryParseExact(teile[0], "N", out var userId)
-            || !long.TryParse(teile[1], out var ablauf)
-            || DateTimeOffset.UtcNow.ToUnixTimeSeconds() > ablauf)
+        var parts = payload.Split('|', 3);
+        if (parts.Length != 3
+            || !Guid.TryParseExact(parts[0], "N", out var userId)
+            || !long.TryParse(parts[1], out var expiresAt)
+            || DateTimeOffset.UtcNow.ToUnixTimeSeconds() > expiresAt)
         {
             return null;
         }
 
-        return (userId, NormalizeReturnUrl(teile[2]));
+        return (userId, NormalizeReturnUrl(parts[2]));
     }
 
     private static void ClearTotpTicket(HttpContext context)
@@ -588,9 +588,9 @@ public static class EndpointMapping
         });
     }
 
-    // Der zweite Schritt: derselbe Weg fuer den Code aus der App und fuer einen
-    // Wiederherstellungs-Code. Welcher es war, sagt die Laenge nicht sicher genug - deshalb wird
-    // erst der Zeit-Code geprueft und dann die Liste der Abdruecke.
+    // The second step: the same path for the code from the app and for a recovery code. The length
+    // does not say reliably enough which one it was - so the time-based code is checked first and
+    // then the list of hashes.
     private static async Task<IResult> SignInTotpAsync(
         HttpContext context,
         JsonDataStore store,
@@ -608,7 +608,7 @@ public static class EndpointMapping
         }
 
         var form = await context.Request.ReadFormAsync(context.RequestAborted);
-        var eingabe = form["code"].ToString();
+        var entered = form["code"].ToString();
 
         MatgateUser? angemeldet = null;
         await store.UpdateUsersAsync(users =>
@@ -619,17 +619,17 @@ public static class EndpointMapping
                 return;
             }
 
-            if (TotpService.Verify(current.TotpSecret, eingabe, current.TotpLastStep, out var schritt))
+            if (TotpService.Verify(current.TotpSecret, entered, current.TotpLastStep, out var step))
             {
-                current.TotpLastStep = schritt;
+                current.TotpLastStep = step;
                 angemeldet = current;
                 return;
             }
 
-            // Kein gueltiger Zeit-Code: vielleicht ein Wiederherstellungs-Code. Der gilt genau
-            // einmal und wird dabei verbraucht.
-            var abdruck = TotpService.HashRecoveryCode(eingabe);
-            if (eingabe.Length > 0 && current.TotpRecoveryHashes.Remove(abdruck))
+            // No valid time-based code: perhaps a recovery code. That one is valid exactly once and is
+            // used up in the process.
+            var fingerprint = TotpService.HashRecoveryCode(entered);
+            if (entered.Length > 0 && current.TotpRecoveryHashes.Remove(fingerprint))
             {
                 angemeldet = current;
             }
@@ -816,13 +816,13 @@ public static class EndpointMapping
             "text/html");
     }
 
-    // Wie viele Browser-Plaetze gerade frei sind. Steht auf der Startseite, weil eine Webseite "via
-    // Chromium VNC" genau daran scheitert, wenn alle belegt sind - und das sah man vorher erst beim
-    // Oeffnen. Nur Zahlen, keine Adressen: wer in welchem Platz sitzt, bleibt der Verwaltung
-    // vorbehalten. Der Sidecar wird hier gefragt, nicht beim Seitenaufbau, damit eine langsame oder
-    // abwesende Farm die Startseite nicht aufhaelt.
-    // Was die Oberflaeche mit den gewaehlten Farben saehe - hell und dunkel in einem Zug, damit
-    // ein Wechsel der Betriebsart keinen zweiten Aufruf braucht.
+    // How many browser slots are free right now. It is on the home page because a website "via
+    // Chromium VNC" fails on exactly this when they are all taken - and that used to show only on
+    // opening. Numbers only, no addresses: who sits in which slot stays with the administration. The
+    // sidecar is asked here, not while the page is built, so a slow or absent farm does not hold the
+    // home page up.
+    // What the UI would look like with the chosen colours - light and dark in one go, so switching
+    // mode does not need a second request.
     private static IResult ThemePreview(HttpContext context, ThemeService themes)
     {
         var palette = themes.Resolve(context.Request.Query["theme"].ToString());
@@ -857,7 +857,7 @@ public static class EndpointMapping
         var status = await farmSessions.GetFarmStatusAsync(context.RequestAborted);
         if (status is null)
         {
-            // Eingerichtet, aber nicht erreichbar - das ist etwas anderes als "nicht vorhanden".
+            // Configured but not reachable - which is something else than "not there".
             return Results.Ok(new { configured = true, reachable = false });
         }
 
@@ -912,8 +912,8 @@ public static class EndpointMapping
             "application/json");
     }
 
-    // Die Workspaces, so wie der Dateimanager sie als Ablage braucht. Gefiltert wird mit derselben
-    // Regel wie auf der Workspace-Seite - zwei Regeln fuer dieselbe Frage waeren eine zu viel.
+    // The workspaces the way the file manager needs them as places. Filtered by the same rule as on
+    // the workspace page - two rules for the same question would be one too many.
     private static async Task<IReadOnlyList<FileShareService.WorkspaceArea>> WorkspaceAreasAsync(
         HttpContext context,
         MatgateUser user,
@@ -925,14 +925,14 @@ public static class EndpointMapping
             return [];
         }
 
-        var sichtbar = VisibleWorkspacesForUser(user, await service.GetWorkspacesAsync(cancellationToken));
+        var visible = VisibleWorkspacesForUser(user, await service.GetWorkspacesAsync(cancellationToken));
         return
         [
-            .. sichtbar
+            .. visible
                 .Where(workspace => workspace.IsEnabled)
                 .Select(workspace => new FileShareService.WorkspaceArea(
                     workspace.Id,
-                    // Ein Schraegstrich im Namen laese sich als weitere Ebene, die es nicht gibt.
+                    // A slash in the name would read as another level that is not there.
                     (workspace.Name ?? "").Replace('/', '-'),
                     service.GetWorkspaceFilesRoot(workspace),
                     workspace.AllowUploads)),
@@ -1232,10 +1232,10 @@ public static class EndpointMapping
             "text/html");
     }
 
-    // Wem gehoert diese Ablage? Nur die eigene darf jeder freigeben. Alles andere - der gemeinsame
-    // Ordner, der einer Verbindung, der einer laufenden Sitzung - gehoert nicht einem allein: ein
-    // Link darauf gibt frei, was andere dort abgelegt haben, ohne dass sie davon wissen. Deshalb
-    // nur fuer Administratoren und nur mit Passwort.
+    // Who owns this place? Only your own may be shared by anyone. Everything else - the shared
+    // folder, a connection's, a running session's - does not belong to one person alone: a link to
+    // it shares what others put there, without them knowing. Hence administrators only, and only
+    // with a password.
     private static bool IsOwnPlace(MatgateUser user, ServerEndpoint area)
     {
         return string.Equals(area.AreaKind, "user", StringComparison.Ordinal)
@@ -1329,33 +1329,33 @@ public static class EndpointMapping
         var password = form["password"].ToString();
         if (!own && password.Length < 8)
         {
-            // Eine fremde Ablage ohne Passwort freizugeben hiesse: wer den Link hat, hat alles.
+            // Sharing someone else's place without a password would mean: whoever has the link has it all.
             return Results.BadRequest(new
             {
                 error = HtmlViews.Translate(context, "A password of at least 8 characters is required for this place."),
             });
         }
 
-        var stunden = int.TryParse(form["publicAccessHours"].ToString(), out var h) ? Math.Clamp(h, 1, 24 * 365) : 24;
-        var erstellt = new WorkspaceDefinition
+        var hours = int.TryParse(form["publicAccessHours"].ToString(), out var h) ? Math.Clamp(h, 1, 24 * 365) : 24;
+        var created = new WorkspaceDefinition
         {
             Name = Clean(form["name"].ToString(), area!.Name),
             Description = Clean(form["description"].ToString(), ""),
-            // Die Kennung sagt, dass es eine vorhandene Ablage ist; der Pfad sagt, welche.
+            // The id says that it is an existing place; the path says which one.
             AreaId = area.Id,
             RootPath = area.FileRootPath ?? "",
             OwnerUserId = user.Id,
             AllowUploads = IsChecked(form, "allowUploads") && !area.IsReadOnly,
             IsEnabled = true,
         };
-        workspaceService.SetPublicAccessDuration(erstellt, TimeSpan.FromHours(stunden));
+        workspaceService.SetPublicAccessDuration(created, TimeSpan.FromHours(hours));
         if (password.Length > 0)
         {
-            workspaceService.SetAccessPassword(erstellt, password);
+            workspaceService.SetAccessPassword(created, password);
         }
 
-        await store.UpdateWorkspacesAsync(liste => liste.Add(erstellt), context.RequestAborted);
-        return Results.Json(new { id = erstellt.Id.ToString() });
+        await store.UpdateWorkspacesAsync(list => list.Add(created), context.RequestAborted);
+        return Results.Json(new { id = created.Id.ToString() });
     }
 
     private static async Task<IResult> WorkspaceSettingsFragmentAsync(
@@ -1372,9 +1372,9 @@ public static class EndpointMapping
         }
 
         var workspace = access.Workspace!;
-        var protokoll = await workspaceService.GetActivityAsync(workspace, 200, context.RequestAborted);
+        var activity = await workspaceService.GetActivityAsync(workspace, 200, context.RequestAborted);
         return Results.Content(
-            views.WorkspaceSettingsDialog(context, workspace, BuildWorkspacePublicUrl(context, workspace.Id), protokoll),
+            views.WorkspaceSettingsDialog(context, workspace, BuildWorkspacePublicUrl(context, workspace.Id), activity),
             "text/html");
     }
 
@@ -1425,9 +1425,8 @@ public static class EndpointMapping
             stored.Description = Clean(form["description"].ToString(), "");
             // Only global admins may (re)point RootPath at an arbitrary host path; for everyone else
             // keep the existing/managed path so a non-admin can't escape the workspace directory.
-            // Und nur, wenn das Feld ueberhaupt gesendet wurde: auf diesen Endpunkt zeigt jetzt auch
-            // ein Dialog, der den Wurzelpfad gar nicht anbietet - ohne diese Pruefung haette ein
-            // Speichern von dort ihn geleert.
+            // And only if the field was sent at all: a dialog that does not even offer the root path now
+            // posts to this endpoint too - without this check, saving from there would have emptied it.
             if (user.IsAdmin && form.ContainsKey("rootPath"))
             {
                 stored.RootPath = Clean(form["rootPath"].ToString(), "");
@@ -2913,10 +2912,10 @@ public static class EndpointMapping
         }
     }
 
-    // Kopieren von einem Ort in einen anderen - zwei Verbindungen, ein Vorgang. Vorher gab es das nur
-    // als Umweg durch den Senden-Dialog einer laufenden Sitzung: der Browser lud jede Datei herunter
-    // und wieder hoch. Hier bleibt der Strom auf dem Gateway, und beide Seiten gehen durch dieselbe
-    // Zugriffspruefung - sonst koennte man aus einer Ablage herauskopieren, die einem nicht gehoert.
+    // Copying from one place to another - two connections, one operation. This used to be possible
+    // only as a detour through a live session's send dialog: the browser downloaded every file and
+    // uploaded it again. Here the stream stays on the gateway, and both sides go through the same
+    // access check - otherwise you could copy out of a place that is not yours.
     private static async Task<IResult> CopyFilesToServerAsync(
         Guid id,
         HttpContext context,
@@ -2947,7 +2946,7 @@ public static class EndpointMapping
             return target.Result;
         }
 
-        // Das Ziel muss beschreibbar sein; die Quelle wird nur gelesen.
+        // The destination has to be writable; the source is only read.
         var readOnly = ReadOnlyGuard(context, target);
         if (readOnly is not null)
         {
@@ -2976,7 +2975,7 @@ public static class EndpointMapping
             }
             catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException)
             {
-                // Eine Datei, die nicht geht, darf die anderen nicht aufhalten - gemeldet wird sie aber.
+                // One file that fails must not hold up the others - but it is reported.
                 failed.Add($"{FileNameFromVirtualPath(selectedPath)}: {ex.Message}");
             }
         }
@@ -3189,9 +3188,9 @@ public static class EndpointMapping
                 HtmlViews.Translate(context, "Please enter a valid email address.")), "text/html");
         }
 
-        // Vor dem Schreiben lesen: das Anlegen laeuft unter der Sperre der Benutzerliste, und die
-        // Vorgaben liegen in einer eigenen Datei hinter derselben Sperre.
-        var vorgaben = await store.GetDefaultsAsync(context.RequestAborted);
+        // Read before writing: creating runs under the lock of the user list, and the
+        // defaults live in a file of their own behind that same lock.
+        var defaults = await store.GetDefaultsAsync(context.RequestAborted);
         var exists = false;
         var emailTaken = false;
         await store.UpdateUsersAsync(users =>
@@ -3227,10 +3226,10 @@ public static class EndpointMapping
                 },
                 PreferredLanguage = NormalizeLanguage(form["preferredLanguage"].ToString()),
                 PreferredTheme = NormalizeTheme(form["preferredTheme"].ToString()),
-                // Die Startseite, wie ein Administrator sie als Vorgabe hinterlegt hat. Ist nichts
-                // hinterlegt, bleiben die Listen leer und es gilt die eingebaute Reihenfolge.
-                HomeSections = [.. vorgaben.HomeSections],
-                HiddenHomeSections = [.. vorgaben.HiddenHomeSections],
+                // The home page the way an administrator stored it as the default. With nothing stored, the
+                // lists stay empty and the built-in order applies.
+                HomeSections = [.. defaults.HomeSections],
+                HiddenHomeSections = [.. defaults.HiddenHomeSections],
                 RememberLoginByDefault = true,
                 IsEnabled = true,
                 CreatedAt = now,
@@ -3600,10 +3599,9 @@ public static class EndpointMapping
                 return;
             }
 
-            // Auf dieser Adresse sitzen mehrere Formulare - Profil und Darstellung. Jedes schickt
-            // nur seine eigenen Felder, und wer alle Felder schreibt, loescht beim Speichern des
-            // einen die Einstellungen des anderen: genau so sprang das Thema zurueck. Geschrieben
-            // wird deshalb nur, was auch gesendet wurde.
+            // Several forms post to this address - profile and appearance. Each sends only its own fields,
+            // and writing all fields means saving one wipes the other's settings: that is exactly how the
+            // theme jumped back. So only what was actually sent gets written.
             if (form.ContainsKey("email"))
             {
                 current.Email = accountEmail;
@@ -3626,27 +3624,27 @@ public static class EndpointMapping
 
             if (form.ContainsKey("preferredThemeName"))
             {
-                // Ein unbekannter Schluessel faellt beim Aufloesen auf die eingebaute Palette
-                // zurueck, also genuegt hier das Saeubern.
+                // An unknown key falls back to the built-in palette when it is resolved, so cleaning it is
+                // enough here.
                 var palette = (form["preferredThemeName"].ToString() ?? "").Trim().ToLowerInvariant();
                 current.PreferredThemeName = string.IsNullOrWhiteSpace(palette) ? ThemeService.DefaultKey : palette;
             }
 
-            // Das Kaestchen wird nur gesendet, wenn es angekreuzt ist - ob das Formular ueberhaupt
-            // von der Darstellung kam, verraet deshalb das Farbfeld.
+            // The checkbox is only sent when it is ticked - whether the form came from the appearance tab
+            // at all is therefore given away by the colour field.
             if (form.ContainsKey("accentColor"))
             {
-                // Drei Farben nach demselben Muster: das Kaestchen sagt, ob die eigene gilt, das
-                // Feld daneben welche. Nicht angekreuzt heisst leer, und leer heisst: die des Themas.
-                string Eigene(string feld, string kaestchen)
+                // Three colours following the same pattern: the checkbox says whether the user's own applies,
+                // the field next to it says which. Unticked means empty, and empty means: the theme's.
+                string Own(string field, string checkbox)
                 {
-                    var wert = (form[feld].ToString() ?? "").Trim();
-                    return IsChecked(form, kaestchen) && ThemeService.IsColour(wert) ? wert.ToLowerInvariant() : "";
+                    var value = (form[field].ToString() ?? "").Trim();
+                    return IsChecked(form, checkbox) && ThemeService.IsColour(value) ? value.ToLowerInvariant() : "";
                 }
 
-                current.AccentColor = Eigene("accentColor", "accentOwn");
-                current.AccentColor2 = Eigene("accentColor2", "accent2Own");
-                current.BackgroundColor = Eigene("backgroundColor", "backgroundOwn");
+                current.AccentColor = Own("accentColor", "accentOwn");
+                current.AccentColor2 = Own("accentColor2", "accent2Own");
+                current.BackgroundColor = Own("backgroundColor", "backgroundOwn");
             }
             current.RememberLoginByDefault = true;
             current.UpdatedAt = DateTimeOffset.UtcNow;
@@ -3689,9 +3687,9 @@ public static class EndpointMapping
         return Results.Redirect(EmbedAwareRedirect(context, "/account"));
     }
 
-    // Welche Abschnitte die Startseite zeigt und in welcher Reihenfolge. Beides kommt als eine
-    // Liste aus der Zieh-Liste; gefiltert wird gegen die bekannten Schluessel, damit ein alter
-    // oder von Hand gebauter Wert nichts Fremdes hineintragen kann.
+    // Which sections the home page shows and in what order. Both arrive as one list from the
+    // drag-and-drop list; it is filtered against the known keys so an old or hand-made value cannot
+    // smuggle anything foreign in.
     private static async Task<IResult> UpdateHomeLayoutAsync(
         HttpContext context,
         JsonDataStore store,
@@ -3709,7 +3707,7 @@ public static class EndpointMapping
             return BadRequest(context, user, views);
         }
 
-        static List<string> Liste(IFormCollection f, string name) => f[name].ToString()
+        static List<string> ListField(IFormCollection f, string name) => f[name].ToString()
             .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Where(HomeLayout.IsKnown)
             .Distinct(StringComparer.Ordinal)
@@ -3723,44 +3721,44 @@ public static class EndpointMapping
                 return;
             }
 
-            current.HomeSections = Liste(form, "homeSections");
-            current.HiddenHomeSections = Liste(form, "hiddenHomeSections");
+            current.HomeSections = ListField(form, "homeSections");
+            current.HiddenHomeSections = ListField(form, "hiddenHomeSections");
 
-            // Die Knoepfe in der Aktionsleiste: ausgewaehlt und in der gezogenen Reihenfolge. Was
-            // hier nicht als Kennung durchgeht, faellt heraus - welche Verbindungen jemand sehen
-            // darf, entscheidet beim Anzeigen ohnehin die uebliche Pruefung.
-            var ausgeblendet = form["hiddenActionBarServers"].ToString()
+            // The buttons in the action bar: selected and in the order they were dragged into. Whatever does
+            // not pass as an id here drops out - which connections someone may see is decided by the usual
+            // check when they are displayed anyway.
+            var hiddenIds = form["hiddenActionBarServers"].ToString()
                 .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
                 .ToHashSet(StringComparer.OrdinalIgnoreCase);
             current.ActionBarServerIds =
             [
                 .. form["actionBarServers"].ToString()
                     .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                    .Where(eintrag => !ausgeblendet.Contains(eintrag))
-                    .Select(eintrag => Guid.TryParse(eintrag, out var id) ? id : Guid.Empty)
+                    .Where(entry => !hiddenIds.Contains(entry))
+                    .Select(entry => Guid.TryParse(entry, out var id) ? id : Guid.Empty)
                     .Where(id => id != Guid.Empty)
                     .Distinct(),
             ];
             current.UpdatedAt = DateTimeOffset.UtcNow;
         }, context.RequestAborted);
 
-        // Ein Administrator kann seine Anordnung zugleich zur Vorgabe machen. Bestehende Benutzer
-        // bleiben davon unberuehrt - sonst wuerde die Vorgabe stillschweigend ueberschreiben, was
-        // jemand fuer sich eingerichtet hat.
+        // An administrator can make their arrangement the default at the same time. Existing users are
+        // left untouched by that - otherwise the default would silently overwrite what someone has set
+        // up for themselves.
         if (user.IsAdmin && IsChecked(form, "asDefault"))
         {
             await store.UpdateDefaultsAsync(defaults =>
             {
-                defaults.HomeSections = Liste(form, "homeSections");
-                defaults.HiddenHomeSections = Liste(form, "hiddenHomeSections");
+                defaults.HomeSections = ListField(form, "homeSections");
+                defaults.HiddenHomeSections = ListField(form, "hiddenHomeSections");
             }, context.RequestAborted);
         }
 
         return Results.Redirect("/account?tab=home");
     }
 
-    // Einrichten: ein neues Geheimnis legen, aber noch nichts einschalten. Erst der erste gueltige
-    // Code beweist, dass die App es auch bekommen hat - wer hier abbricht, sperrt sich sonst aus.
+    // Setting up: create a new secret, but switch nothing on yet. Only the first valid code proves
+    // that the app actually got it - whoever stops here would otherwise lock themselves out.
     private static async Task<IResult> TotpStartAsync(HttpContext context, JsonDataStore store, HtmlViews views)
     {
         var user = await RequireUserAsync(context, store);
@@ -3780,8 +3778,8 @@ public static class EndpointMapping
             var current = users.FirstOrDefault(candidate => candidate.Id == user.Id);
             if (current is null || current.TotpEnabled)
             {
-                // Ein eingeschalteter zweiter Faktor wird nicht im Vorbeigehen durch ein neues
-                // Geheimnis ersetzt - dafuer gibt es das Abschalten.
+                // A second factor that is switched on is not replaced by a new secret in passing - that is what
+                // switching it off is for.
                 return;
             }
 
@@ -3819,7 +3817,7 @@ public static class EndpointMapping
                 return;
             }
 
-            if (!TotpService.Verify(current.TotpSecret, code, current.TotpLastStep, out var schritt))
+            if (!TotpService.Verify(current.TotpSecret, code, current.TotpLastStep, out var step))
             {
                 return;
             }
@@ -3827,7 +3825,7 @@ public static class EndpointMapping
             codes = TotpService.NewRecoveryCodes();
             current.TotpEnabled = true;
             current.TotpConfirmedAt = DateTimeOffset.UtcNow;
-            current.TotpLastStep = schritt;
+            current.TotpLastStep = step;
             current.TotpRecoveryHashes = [.. codes.Select(TotpService.HashRecoveryCode)];
             current.UpdatedAt = DateTimeOffset.UtcNow;
             ok = true;
@@ -3838,13 +3836,13 @@ public static class EndpointMapping
             return Results.Redirect("/account?tab=security&totp=falsch");
         }
 
-        // Die Codes stehen genau einmal da - gespeichert sind nur ihre Abdruecke, ein zweites Mal
-        // kann sie niemand anzeigen. Deshalb kein Umleiten, sondern die Seite direkt.
-        var frisch = await store.FindUserByIdAsync(user.Id, context.RequestAborted) ?? user;
+        // The codes are shown exactly once - only their hashes are stored, nobody can display them a
+        // second time. Hence no redirect, but the page itself.
+        var fresh = await store.FindUserByIdAsync(user.Id, context.RequestAborted) ?? user;
         var servers = (await store.GetServersAsync(context.RequestAborted))
-            .Where(server => server.IsEnabled && CanAccessServer(frisch, server))
+            .Where(server => server.IsEnabled && CanAccessServer(fresh, server))
             .ToList();
-        return Results.Content(views.Account(context, frisch, servers, codes), "text/html");
+        return Results.Content(views.Account(context, fresh, servers, codes), "text/html");
     }
 
     private static async Task<IResult> TotpDisableAsync(
@@ -3865,10 +3863,10 @@ public static class EndpointMapping
             return BadRequest(context, user, views);
         }
 
-        // Abschalten ist der Weg zurueck zu einem Faktor - dafuer das Passwort, sonst genuegte ein
-        // offener Rechner. Eine ANGEFANGENE Einrichtung ist etwas anderes: dort ist noch nichts
-        // eingeschaltet und nichts geschuetzt, also waere ein Passwort nur eine Huerde vor dem
-        // Abbrechen. Ohne diesen Unterschied blieb man auf der Bestaetigungsseite haengen.
+        // Switching off is the way back to one factor - hence the password, otherwise an unattended
+        // machine would be enough. A setup that was only STARTED is a different thing: nothing is
+        // switched on there and nothing is protected, so a password would just be a hurdle in front of
+        // cancelling. Without that distinction one got stuck on the confirmation page.
         if (user.TotpEnabled && !hasher.Verify(form["currentPassword"].ToString(), user.PasswordHash))
         {
             return Results.Redirect("/account?tab=security&totp=passwort");
@@ -4124,10 +4122,10 @@ public static class EndpointMapping
         return Results.Redirect(EmbedAwareRedirect(context, $"/admin/users/{id}"));
     }
 
-    // Wer Telefon UND Wiederherstellungs-Codes verliert, kaeme sonst gar nicht mehr hinein - ausser
-    // jemand macht die Benutzerdatei auf. Dafuer dieser Weg: ein Administrator schaltet den zweiten
-    // Faktor ab, der Betroffene richtet ihn neu ein. Dass dabei ein Faktor wegfaellt, ist der Preis;
-    // deshalb steht es sichtbar auf der Seite und nicht in einem Menue.
+    // Anyone who loses the phone AND the recovery codes would otherwise not get back in at all -
+    // short of opening the user file. Hence this path: an administrator switches the second factor
+    // off, the person sets it up again. That a factor is dropped in the process is the price; so it
+    // says so visibly on the page and not in a menu.
     private static async Task<IResult> ResetUserTotpAsync(
         Guid id,
         HttpContext context,
@@ -4708,12 +4706,12 @@ public static class EndpointMapping
             }
         }
 
-        // Zwei Gruende, nur lesen zu duerfen, und beide zaehlen: die Regel fuer diesen Benutzer, und
-        // die Ablage selbst - ein Workspace mit abgeschalteten Uploads ist fuer alle nur lesbar,
-        // auch fuer seinen Besitzer. Hier zusammengefuehrt, damit alle elf Schreibwege dieselbe
-        // Antwort geben statt einer Ausnahme aus der Tiefe.
-        var nurLesen = (rule?.ReadOnly ?? false) || effectiveServer.IsReadOnly;
-        return new FileServerAccess(effectiveServer, null, nurLesen);
+        // Two reasons to be allowed to read only, and both count: the rule for this user, and the place
+        // itself - a workspace with uploads switched off is read-only for everyone, including its owner.
+        // Brought together here so that all eleven write paths give the same answer instead of an
+        // exception from somewhere deep down.
+        var readOnlyPlace = (rule?.ReadOnly ?? false) || effectiveServer.IsReadOnly;
+        return new FileServerAccess(effectiveServer, null, readOnlyPlace);
     }
 
     // 403 for a write attempt on a connection the caller only has read-only access to.

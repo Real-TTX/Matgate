@@ -32,49 +32,49 @@ public sealed class MatgateUser
 
     public string PreferredTheme { get; set; } = "system";
 
-    // Welche Palette. "light | dark | system" oben sagt die Helligkeit, das hier die Farben - die
-    // beiden sind unabhaengig: jedes Thema hat einen hellen und einen dunklen Satz.
+    // Which palette. "light | dark | system" above decides the brightness, this one the colours - the
+    // two are independent: every theme has a light and a dark set.
     public string PreferredThemeName { get; set; } = "matgate";
 
-    // Eine eigene Akzentfarbe, die über der des Themas liegt. Leer heißt: die des Themas. Gespeichert
-    // wird, was gewählt wurde; was angezeigt wird, kann davon abweichen - siehe ThemeService.SafeAccent.
+    // An accent colour of the user's own, layered over the theme's. Empty means: the theme's. What was
+    // picked is stored; what is shown may differ from it - see ThemeService.SafeAccent.
     public string AccentColor { get; set; } = "";
 
-    // Die zweite Akzentfarbe: das Zeichen, die Verläufe und die Nebenhervorhebungen. Leer heißt
-    // wieder die des Themas.
+    // The second accent colour: the logo, the gradients and the secondary highlights. Empty means the
+    // theme's again.
     public string AccentColor2 { get; set; } = "";
 
-    // Der Hintergrund der Anwendung. Leer heißt der des Themas. Aus ihm leitet der Dienst die
-    // Flächen darüber ab - Felder, Linien, Schrift -, damit eine frei gewählte Farbe nicht die
-    // Lesbarkeit mitnimmt.
+    // The background of the application. Empty means the theme's. From it the service derives the
+    // surfaces on top of it - fields, lines, text - so that a freely chosen colour does not take
+    // readability with it.
     public string BackgroundColor { get; set; } = "";
 
-    // Die Startseite: welche Abschnitte sie zeigt und in welcher Reihenfolge. Leer heisst die
-    // Vorgabe - und die steht in HomeSectionKeys, nicht in der Datenbank, damit ein neuer
-    // Abschnitt bei allen auftaucht, die nie etwas eingestellt haben.
+    // The home page: which sections it shows and in what order. Empty means the default - and that
+    // lives in HomeSectionKeys, not in the data file, so a new section shows up for everyone who
+    // never configured anything.
     public List<string> HomeSections { get; set; } = [];
 
     public List<string> HiddenHomeSections { get; set; } = [];
 
-    // Verbindungen, die auf der Startseite als Knopf in der Aktionsleiste stehen - ein Druck
-    // verbindet. Die Reihenfolge ist die der Liste; was nicht darin steht, erscheint nicht.
+    // Connections that sit on the home page as a button in the action bar - one press connects. The
+    // order is the order of the list; what is not in it does not appear.
     public List<Guid> ActionBarServerIds { get; set; } = [];
 
-    // Der zweite Faktor. Das Geheimnis liegt verschlüsselt in der Datei (siehe JsonDataStore);
-    // eingeschaltet ist er erst, wenn einmal ein gültiger Code eingegeben wurde - sonst sperrt
-    // sich aus, wer die Einrichtung abbricht.
+    // The second factor. The secret is stored encrypted in the file (see JsonDataStore); it is only
+    // switched on once a valid code has been entered - otherwise anyone who abandons the setup would
+    // lock themselves out.
     public string TotpSecret { get; set; } = "";
 
     public bool TotpEnabled { get; set; }
 
     public DateTimeOffset? TotpConfirmedAt { get; set; }
 
-    // Der zuletzt verbrauchte Zeitschritt. Ein Code gilt 30 Sekunden - lange genug, dass ein
-    // Mitleser ihn ein zweites Mal verwenden könnte. Alles, was nicht neuer ist, wird abgewiesen.
+    // The most recently used time step. A code is valid for 30 seconds - long enough for someone
+    // reading along to use it a second time. Anything not newer than this is rejected.
     public long TotpLastStep { get; set; }
 
-    // Nur die Abdrücke der Wiederherstellungs-Codes, nie die Codes selbst. Ein gebrauchter wird
-    // aus der Liste genommen.
+    // Only the hashes of the recovery codes, never the codes themselves. A used one is removed from
+    // the list.
     public List<string> TotpRecoveryHashes { get; set; } = [];
 
     public bool RememberLoginByDefault { get; set; } = true;
@@ -109,8 +109,8 @@ public sealed class MatgateUser
 // session UI reads these at load and enables the matching controls/behaviours.
 public static class HomeLayout
 {
-    // Die Abschnitte der Startseite in ihrer eingebauten Reihenfolge. Wer nichts einstellt,
-    // sieht genau das.
+    // The sections of the home page in their built-in order. Anyone who configures nothing sees
+    // exactly this.
     public static readonly string[] Keys =
     [
         "search", "quick", "folders", "recent", "connections", "places", "workspaces", "farm",
@@ -121,29 +121,29 @@ public static class HomeLayout
         return Keys.Contains(key, StringComparer.Ordinal);
     }
 
-    // Die gespeicherte Reihenfolge, ergaenzt um alles, was noch nicht darin steht. Ein Abschnitt,
-    // den es beim letzten Speichern noch nicht gab, verschwindet so nicht - er haengt sich hinten
-    // an und laesst sich von dort wegziehen.
+    // The stored order, extended by everything not yet in it. A section that did not exist at the
+    // time of the last save does not vanish this way - it is appended at the end, and can be dragged
+    // away from there.
     public static IReadOnlyList<string> Order(IEnumerable<string>? gespeichert)
     {
-        var reihe = new List<string>();
+        var ordered = new List<string>();
         foreach (var key in gespeichert ?? [])
         {
-            if (IsKnown(key) && !reihe.Contains(key, StringComparer.Ordinal))
+            if (IsKnown(key) && !ordered.Contains(key, StringComparer.Ordinal))
             {
-                reihe.Add(key);
+                ordered.Add(key);
             }
         }
 
         foreach (var key in Keys)
         {
-            if (!reihe.Contains(key, StringComparer.Ordinal))
+            if (!ordered.Contains(key, StringComparer.Ordinal))
             {
-                reihe.Add(key);
+                ordered.Add(key);
             }
         }
 
-        return reihe;
+        return ordered;
     }
 }
 
@@ -164,14 +164,14 @@ public sealed class SessionPreferences
     // via the Keyboard Lock API and send them to the session instead of the browser.
     public bool SystemCombos { get; set; } = true;
 
-    // Add an F1-F12 row to the on-screen keyboard.
+    // Add an F1-F12 ordered to the on-screen keyboard.
     public bool FunctionKeys { get; set; }
 
     // Offer Ctrl+Alt+Del as a toolbar button (in addition to the on-screen keyboard key).
     public bool CtrlAltDelHotkey { get; set; } = true;
 
     // --- Session toolbar ---
-    // The order of the action buttons in a session, by key. Only as many fit in the row on a phone as
+    // The order of the action buttons in a session, by key. Only as many fit in the ordered on a phone as
     // there is room for; the rest move into the overflow menu, so this decides which ones stay within
     // reach. Keys the user never sorted keep their built-in place at the end, and an empty list means
     // the built-in order - so a new action never disappears because of an order saved before it
@@ -183,7 +183,7 @@ public sealed class SessionPreferences
     // hideable: ending a session has to stay reachable.
     public List<string> HiddenActions { get; set; } = [];
 
-    // Quick-connect offers one chip per protocol. Not everyone uses all of them, and a row of chips
+    // Quick-connect offers one chip per protocol. Not everyone uses all of them, and a ordered of chips
     // for things you never connect to is noise - these are left out.
     public List<string> HiddenQuickProtocols { get; set; } = [];
 

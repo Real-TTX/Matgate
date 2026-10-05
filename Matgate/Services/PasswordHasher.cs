@@ -86,12 +86,10 @@ public sealed class PasswordHasher
         return userName.All(c => char.IsLetterOrDigit(c) || c is '.' or '_' or '-' or '@');
     }
 
-    // Der Name wird so behalten, wie er getippt wurde - "Matthias" blieb bisher "matthias".
-    // Kleingeschrieben wurde er nur, um ihn vergleichbar zu machen; verglichen wird aber
-    // ohnehin an jeder Stelle ohne Ruecksicht auf Gross- und Kleinschreibung (OrdinalIgnoreCase),
-    // und in die Ableitung des Passworts geht er nicht ein. Anmelden kann man sich also weiter
-    // in jeder Schreibweise, und zwei Namen, die sich nur darin unterscheiden, gelten nach wie
-    // vor als derselbe.
+    // The name is kept the way it was typed - "Matthias" used to end up as "matthias". It was only
+    // lower-cased to make it comparable, but every comparison is case-insensitive anyway
+    // (OrdinalIgnoreCase), and the name does not go into the password derivation. So signing in still
+    // works in any spelling, and two names differing only in case still count as the same one.
     public static string NormalizeUserName(string userName)
     {
         return userName.Trim();

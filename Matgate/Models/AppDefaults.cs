@@ -1,9 +1,8 @@
 namespace Matgate.Models;
 
-// Was ein neuer Benutzer mitbekommt, bevor er selbst etwas einstellt. Liegt als defaults.json
-// im Datenverzeichnis und ist damit auch von Hand zu lesen und zu ändern. Bestehende Benutzer
-// rührt eine Änderung nicht an - sonst würde eine Vorgabe stillschweigend überschreiben, was
-// jemand für sich eingerichtet hat.
+// What a new user starts out with, before setting anything themselves. Lives as defaults.json in
+// the data directory, so it can be read and edited by hand. A change leaves existing users alone -
+// otherwise a default would silently overwrite what someone has already set up for themselves.
 public sealed class AppDefaults
 {
     public List<string> HomeSections { get; set; } = [];

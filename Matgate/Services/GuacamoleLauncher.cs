@@ -89,9 +89,9 @@ public sealed class GuacamoleLauncher
             ["port"] = server.Port.ToString()
         };
 
-        // Der Ordner dieser einen Sitzung. Bei RDP wird daraus das umgeleitete Laufwerk, bei allen
-        // anderen bleibt er ein Ort im Dateimanager - vorhanden ist er immer, solange die Sitzung
-        // laeuft, sonst waere "Session" ein Ordner, den es mal gibt und mal nicht.
+        // The folder of this one session. For RDP it becomes the redirected drive, for everything else it
+        // stays a place in the file manager - it always exists while the session runs, otherwise "Session"
+        // would be a folder that is sometimes there and sometimes not.
         var view = _fileShares.CreateSessionView(user, server, sessionId, ephemeralServer);
 
         if (server.Protocol is ServerProtocol.Rdp or ServerProtocol.Ssh
@@ -120,9 +120,9 @@ public sealed class GuacamoleLauncher
             parameters["resize-method"] = "reconnect";
             parameters["enable-wallpaper"] = "false";
 
-            // Windows beschriftet ein umgeleitetes Laufwerk als "<Freigabe> auf <Client>". Der
-            // Client heisst Matgate (statt des voreingestellten "Guacamole"), die Freigabe "Files" -
-            // zusammen "Files auf Matgate" statt des doppelten "Matgate auf Matgate".
+            // Windows labels a redirected drive as "<share> on <client>". The client is called Matgate
+            // (instead of the default "Guacamole") and the share "Files" - together "Files on Matgate"
+            // instead of the doubled "Matgate on Matgate".
             parameters["client-name"] = "Matgate";
 
             // Redirect a drive into the session so files can be transferred like real RDP (drag &
