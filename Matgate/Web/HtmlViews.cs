@@ -2222,6 +2222,43 @@ public sealed class HtmlViews
     // den Reiter zu verlassen. Hier steht nur, was zum Teilen gehoert: der Link, das Passwort, der
     // Ablauf, ob hochgeladen werden darf. Der Wurzelpfad und die geteilte Notiz stehen bewusst
     // NICHT darin; was nicht mitgeschickt wird, bleibt unveraendert (siehe UpdateWorkspaceAsync).
+    // Eine vorhandene Ablage freigeben. Fuer die eigene genuegt ein Druck; fuer eine fremde - den
+    // gemeinsamen Ordner, den einer Verbindung - ist ein Passwort Pflicht, denn dort liegt auch,
+    // was andere abgelegt haben.
+    public string ShareCreateDialog(HttpContext context, ServerEndpoint area, bool passwordRequired)
+    {
+        var de = Language(context) == "de";
+        return $$"""
+            <form method="post" action="/api/files/{{area.Id}}/share" class="settings-form" data-share-create-form>
+                <fieldset class="settings-group">
+                    <legend>{{(de ? "Freigeben" : "Share")}}</legend>
+                    <p class="muted settings-hint">{{(de
+                        ? $"Aus „{E(area.Name)}“ wird ein Link, den auch jemand ohne Konto öffnen kann. Die Dateien bleiben, wo sie sind - es entsteht keine Kopie."
+                        : $"“{E(area.Name)}” becomes a link that someone without an account can open too. The files stay where they are - no copy is made.")}}</p>
+                    {{(passwordRequired ? $"""<p class="notice">{E(de
+                        ? "Diese Ablage gehört nicht dir allein - dort liegt auch, was andere abgelegt haben. Deshalb ist ein Passwort Pflicht."
+                        : "This place is not yours alone - what others put there lies in it too. A password is therefore required.")}</p>""" : "")}}
+                    <div class="form-grid">
+                        <label>{{T(context, "Name")}}
+                            <input name="name" value="{{A(area.Name)}}" required maxlength="120">
+                        </label>
+                        <label>{{(de ? "Gültigkeit (Stunden)" : "Validity (hours)")}}
+                            <input name="publicAccessHours" type="number" min="1" step="1" value="24">
+                        </label>
+                        <label>{{(de ? "Passwort für den Link" : "Password for the link")}}
+                            <input name="password" type="password" autocomplete="new-password" minlength="8"{{(passwordRequired ? " required" : "")}} placeholder="{{A(passwordRequired ? (de ? "mindestens 8 Zeichen" : "at least 8 characters") : (de ? "optional" : "optional"))}}">
+                        </label>
+                    </div>
+                    {{(area.IsReadOnly ? $"""<p class="muted settings-hint">{E(de ? "Diese Ablage ist nur lesbar - über den Link kann niemand hochladen." : "This place is read-only - nobody can upload through the link.")}</p>""" : $$"""<label class="check"><input type="checkbox" name="allowUploads" checked> <span>{{(de ? "Hochladen über den Link erlauben" : "Allow uploads through the link")}}</span></label>""")}}
+                </fieldset>
+                <div class="actions">
+                    <button type="submit" class="primary">{{Icon("globe")}}{{(de ? "Freigeben" : "Share")}}</button>
+                    <button type="button" class="button" data-workspace-dialog-close>{{T(context, "Close")}}</button>
+                </div>
+            </form>
+            """;
+    }
+
     public string WorkspaceSettingsDialog(HttpContext context, WorkspaceDefinition workspace, string publicUrl)
     {
         var de = Language(context) == "de";
@@ -4205,7 +4242,8 @@ public sealed class HtmlViews
             pastedImageName = Language(context) == "de" ? "Bild" : "Image",
             placesOther = Language(context) == "de" ? "Andere Verbindungen" : "Other connections",
             placesWorkspaces = "Workspaces",
-            workspaceSettings = Language(context) == "de" ? "Workspace-Einstellungen" : "Workspace settings",
+            workspaceSettings = Language(context) == "de" ? "Freigabe-Einstellungen" : "Share settings",
+            sharePlace = Language(context) == "de" ? "Freigeben" : "Share",
             uploadCancelled = Language(context) == "de" ? "Abgebrochen" : "Cancelled",
             copyTo = Language(context) == "de" ? "Kopieren nach ..." : "Copy to ...",
             copyToTarget = Language(context) == "de" ? "Zielort" : "Target place",
@@ -5700,6 +5738,86 @@ public sealed class HtmlViews
                 // Hintergrund, danach bleibt alles stehen, wo es war.
                 const workspaceSettingsDialog = document.getElementById('workspace-settings-dialog');
 
+                // Freigeben laeuft in zwei Schritten durch denselben Dialog: erst das Formular,
+                // dann - wenn es geklappt hat - die Einstellungen der frischen Freigabe, denn dort
+                // steht der Link, den man weitergeben will.
+                async function openSharePlace(areaId) {
+                    if (!workspaceSettingsDialog || !areaId) {
+                        return;
+                    }
+
+                    workspaceSettingsDialog.replaceChildren();
+                    const laedt = document.createElement('div');
+                    laedt.className = 'file-viewer-dialog-loading';
+                    laedt.textContent = `${ui('loading')}...`;
+                    workspaceSettingsDialog.appendChild(laedt);
+                    if (typeof workspaceSettingsDialog.showModal === 'function' && !workspaceSettingsDialog.open) {
+                        workspaceSettingsDialog.showModal();
+                    }
+
+                    let antwort;
+                    try {
+                        antwort = await fetch(`/api/files/${encodeURIComponent(areaId)}/share-form`, {
+                            headers: { 'X-Matgate-Csrf': csrfToken },
+                            cache: 'no-store',
+                        });
+                    }
+                    catch {
+                        laedt.textContent = uiText.actionFailed || 'Failed';
+                        return;
+                    }
+
+                    if (!antwort.ok) {
+                        // Der Server sagt, warum - etwa dass nur ein Administrator das darf.
+                        let grund = uiText.actionFailed || 'Failed';
+                        try { grund = (await antwort.json()).error || grund; } catch { }
+                        laedt.textContent = grund;
+                        return;
+                    }
+
+                    workspaceSettingsDialog.innerHTML = await antwort.text();
+                    workspaceSettingsDialog.querySelectorAll('[data-workspace-dialog-close]').forEach(knopf => {
+                        knopf.addEventListener('click', () => workspaceSettingsDialog.close());
+                    });
+
+                    const formular = workspaceSettingsDialog.querySelector('[data-share-create-form]');
+                    if (!formular) {
+                        return;
+                    }
+
+                    formular.addEventListener('submit', async event => {
+                        event.preventDefault();
+                        let ergebnis;
+                        try {
+                            const r = await fetch(formular.getAttribute('action') || '', {
+                                method: 'POST',
+                                body: new FormData(formular),
+                                credentials: 'same-origin',
+                                headers: { 'X-Matgate-Csrf': csrfToken },
+                            });
+                            ergebnis = await r.json();
+                            if (!r.ok) {
+                                throw new Error(ergebnis && ergebnis.error ? ergebnis.error : String(r.status));
+                            }
+                        }
+                        catch (fehler) {
+                            // Der Dialog bleibt offen, damit nichts von dem Eingetippten verloren geht.
+                            let hinweis = formular.querySelector('.notice.error');
+                            if (!hinweis) {
+                                hinweis = document.createElement('div');
+                                hinweis.className = 'notice error';
+                                formular.prepend(hinweis);
+                            }
+
+                            hinweis.textContent = fehler && fehler.message ? fehler.message : String(fehler);
+                            return;
+                        }
+
+                        await refreshConnectionsPanel();
+                        await openWorkspaceSettings(ergebnis && ergebnis.id);
+                    });
+                }
+
                 async function openWorkspaceSettings(workspaceId) {
                     if (!workspaceSettingsDialog || !workspaceId) {
                         return;
@@ -5780,6 +5898,15 @@ public sealed class HtmlViews
                 }
 
                 document.addEventListener('click', event => {
+                    const freigeben = event.target instanceof Element
+                        ? event.target.closest('[data-share-place]')
+                        : null;
+                    if (freigeben) {
+                        event.preventDefault();
+                        openSharePlace(freigeben.getAttribute('data-share-place'));
+                        return;
+                    }
+
                     const knopf = event.target instanceof Element
                         ? event.target.closest('[data-workspace-settings]')
                         : null;
@@ -9482,6 +9609,13 @@ public sealed class HtmlViews
                     // Ein Workspace wird hier gezeigt, eingestellt wird er auf seiner eigenen Seite -
                     // Passwort, Ablauf, Rechte und der Link, den man weitergibt. Der Weg dorthin
                     // gehoert in die Leiste, sonst muesste man ihn ueber das Menue suchen.
+                    // Eine Ablage, die noch keine Freigabe ist, bekommt den Knopf zum Freigeben.
+                    // Eine, die schon eine ist, bekommt den zu ihren Einstellungen - zwei Knoepfe
+                    // fuer dasselbe waeren eine Einladung, den falschen zu druecken.
+                    const freigabeKnopf = (dieseAblage && dieseAblage.areaKind && dieseAblage.areaKind !== 'workspace' && dieseAblage.areaKind !== 'session')
+                        ? `<button type="button" class="toolbar-button file-tool-button" data-share-place="${escapeHtml(dieseAblage.id)}" title="${escapeHtml(ui('sharePlace'))}">${fileIcon('globe')}<span>${escapeHtml(ui('sharePlace'))}</span></button>`
+                        : '';
+
                     const werkstattKnopf = (dieseAblage && dieseAblage.areaKind === 'workspace' && dieseAblage.areaSourceId)
                         ? `<button type="button" class="toolbar-button file-tool-button" data-workspace-settings="${escapeHtml(dieseAblage.areaSourceId)}" title="${escapeHtml(ui('workspaceSettings'))}">${fileIcon('settings')}<span>${escapeHtml(ui('workspaceSettings'))}</span></button>`
                         : '';
@@ -9493,6 +9627,7 @@ public sealed class HtmlViews
                             ToolbarGroup('file-toolbar-main toolbar-group--grow',
                                 placeSelect,
                                 werkstattKnopf,
+                                freigabeKnopf,
                                 ToolbarIconButton(ui('refresh'), fileIcon('refresh'), 'file-tool-button', Attr('data-file-action', 'refresh') + Attr('title', ui('refresh'))),
                                 ToolbarInput('file-path-input', '/', ui('path')),
                                 ToolbarMenu(

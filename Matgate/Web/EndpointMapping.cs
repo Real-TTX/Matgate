@@ -322,6 +322,10 @@ public static class EndpointMapping
         // Die Einstellungen einer Ablage als Bruchstueck fuer den Dialog im Dateimanager. Wer sie
         // sehen darf, entscheidet dieselbe Pruefung wie auf der Seite.
         app.MapGet("/api/workspaces/{id:guid}/settings", WorkspaceSettingsFragmentAsync).RequireAuthorization();
+        // Eine Ablage freigeben: das Formular dazu und das Anlegen. Beides nur fuer Ablagen - eine
+        // Verbindung zu einem fremden Rechner gibt man nicht mit einem Link weiter.
+        app.MapGet("/api/files/{id:guid}/share-form", ShareFormFragmentAsync).RequireAuthorization();
+        app.MapPost("/api/files/{id:guid}/share", ShareAreaAsync).RequireAuthorization();
         app.MapPost("/workspaces/{id:guid}/delete", DeleteWorkspaceAsync).RequireAuthorization();
         app.MapPost("/workspaces/{id:guid}/upload", WorkspaceUploadAsync).RequireAuthorization();
         app.MapGet("/workspaces/{id:guid}/download", WorkspaceDownloadAsync).RequireAuthorization();
@@ -1226,6 +1230,132 @@ public static class EndpointMapping
                 BuildWorkspacePublicUrl(context, workspace.Id),
                 store.WorkspaceRootDirectory),
             "text/html");
+    }
+
+    // Wem gehoert diese Ablage? Nur die eigene darf jeder freigeben. Alles andere - der gemeinsame
+    // Ordner, der einer Verbindung, der einer laufenden Sitzung - gehoert nicht einem allein: ein
+    // Link darauf gibt frei, was andere dort abgelegt haben, ohne dass sie davon wissen. Deshalb
+    // nur fuer Administratoren und nur mit Passwort.
+    private static bool IsOwnPlace(MatgateUser user, ServerEndpoint area)
+    {
+        return string.Equals(area.AreaKind, "user", StringComparison.Ordinal)
+            && area.Id == FileShareService.PersonalAreaId(user.Id);
+    }
+
+    private static async Task<(ServerEndpoint? Area, IResult? Result, bool Own)> RequireShareableAreaAsync(
+        Guid id,
+        HttpContext context,
+        JsonDataStore store)
+    {
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            return (null, Results.Unauthorized(), false);
+        }
+
+        var area = await ResolveServerForUserAsync(id, user, context, store);
+        if (area is null || area.Protocol != ServerProtocol.Local || !CanAccessServer(user, area))
+        {
+            return (null, Results.NotFound(new { error = HtmlViews.Translate(context, "This server is not shared with you.") }), false);
+        }
+
+        if (string.Equals(area.AreaKind, "workspace", StringComparison.Ordinal))
+        {
+            return (null, Results.BadRequest(new { error = HtmlViews.Translate(context, "This place is already shared.") }), false);
+        }
+
+        return (area, null, IsOwnPlace(user, area));
+    }
+
+    private static async Task<IResult> ShareFormFragmentAsync(
+        Guid id,
+        HttpContext context,
+        JsonDataStore store,
+        HtmlViews views)
+    {
+        var (area, result, own) = await RequireShareableAreaAsync(id, context, store);
+        if (result is not null)
+        {
+            return result;
+        }
+
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        if (!own && !user.IsAdmin)
+        {
+            return Results.Json(
+                new { error = HtmlViews.Translate(context, "Only an administrator may share this place.") },
+                statusCode: StatusCodes.Status403Forbidden);
+        }
+
+        return Results.Content(views.ShareCreateDialog(context, area!, passwordRequired: !own), "text/html");
+    }
+
+    private static async Task<IResult> ShareAreaAsync(
+        Guid id,
+        HttpContext context,
+        JsonDataStore store,
+        WorkspaceService workspaceService)
+    {
+        if (!ValidateCsrfHeader(context))
+        {
+            return Results.BadRequest(new { error = HtmlViews.Translate(context, "Invalid request") });
+        }
+
+        var (area, result, own) = await RequireShareableAreaAsync(id, context, store);
+        if (result is not null)
+        {
+            return result;
+        }
+
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        if (!own && !user.IsAdmin)
+        {
+            return Results.Json(
+                new { error = HtmlViews.Translate(context, "Only an administrator may share this place.") },
+                statusCode: StatusCodes.Status403Forbidden);
+        }
+
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        var password = form["password"].ToString();
+        if (!own && password.Length < 8)
+        {
+            // Eine fremde Ablage ohne Passwort freizugeben hiesse: wer den Link hat, hat alles.
+            return Results.BadRequest(new
+            {
+                error = HtmlViews.Translate(context, "A password of at least 8 characters is required for this place."),
+            });
+        }
+
+        var stunden = int.TryParse(form["publicAccessHours"].ToString(), out var h) ? Math.Clamp(h, 1, 24 * 365) : 24;
+        var erstellt = new WorkspaceDefinition
+        {
+            Name = Clean(form["name"].ToString(), area!.Name),
+            Description = Clean(form["description"].ToString(), ""),
+            // Die Kennung sagt, dass es eine vorhandene Ablage ist; der Pfad sagt, welche.
+            AreaId = area.Id,
+            RootPath = area.FileRootPath ?? "",
+            OwnerUserId = user.Id,
+            AllowUploads = IsChecked(form, "allowUploads") && !area.IsReadOnly,
+            IsEnabled = true,
+        };
+        workspaceService.SetPublicAccessDuration(erstellt, TimeSpan.FromHours(stunden));
+        if (password.Length > 0)
+        {
+            workspaceService.SetAccessPassword(erstellt, password);
+        }
+
+        await store.UpdateWorkspacesAsync(liste => liste.Add(erstellt), context.RequestAborted);
+        return Results.Json(new { id = erstellt.Id.ToString() });
     }
 
     private static async Task<IResult> WorkspaceSettingsFragmentAsync(

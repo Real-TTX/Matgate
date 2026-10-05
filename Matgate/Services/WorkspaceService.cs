@@ -47,13 +47,25 @@ public sealed class WorkspaceService
 
         root = Path.GetFullPath(root);
         Directory.CreateDirectory(root);
-        Directory.CreateDirectory(Path.Combine(root, "files"));
+        if (!workspace.SharesExistingPlace)
+        {
+            // Nur eine Freigabe mit eigenem Ordner bekommt ihr "files" darunter. Eine Freigabe auf
+            // eine vorhandene Ablage darf dort nichts anlegen - sie ist Gast in einem Ordner, der
+            // jemand anderem gehoert.
+            Directory.CreateDirectory(Path.Combine(root, "files"));
+        }
+
         return root;
     }
 
+    // Wo die Dateien der Freigabe liegen. Bei einer Freigabe mit eigenem Ordner ist das sein
+    // Unterverzeichnis "files" - daneben lag frueher die geteilte Notiz. Zeigt die Freigabe dagegen
+    // auf eine vorhandene Ablage, IST ihr Ordner schon der richtige.
     public string GetWorkspaceFilesRoot(WorkspaceDefinition workspace)
     {
-        return Path.Combine(GetWorkspaceRoot(workspace), "files");
+        return workspace.SharesExistingPlace
+            ? GetWorkspaceRoot(workspace)
+            : Path.Combine(GetWorkspaceRoot(workspace), "files");
     }
 
     public bool HasAccessPassword(WorkspaceDefinition workspace)
