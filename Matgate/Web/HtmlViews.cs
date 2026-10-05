@@ -10016,7 +10016,18 @@ public sealed class HtmlViews
                 }
 
                 function downloadFileEntry(tab, path) {
-                    window.location.href = `/api/files/${tab.serverId}/download?path=${encodeURIComponent(path)}`;
+                    // Kein window.location. Das zaehlt als Navigation, und noch bevor der Browser am
+                    // Content-Disposition merkt, dass gar nicht navigiert wird, ist beforeunload
+                    // gelaufen - und dort fielen alle offenen Sitzungen. Wer im Dateimanager etwas
+                    // herunterlud, verlor im Hintergrund seine RDP-Verbindung. Ein Anker mit
+                    // download-Attribut holt dieselbe Datei, ohne die Seite anzufassen.
+                    const link = document.createElement('a');
+                    link.href = `/api/files/${tab.serverId}/download?path=${encodeURIComponent(path)}`;
+                    link.download = '';
+                    link.rel = 'noopener';
+                    document.body.appendChild(link);
+                    link.click();
+                    link.remove();
                     flashStatus(tab, ui('downloadStarted'));
                 }
 
@@ -11811,7 +11822,11 @@ public sealed class HtmlViews
                         syncLocalClipboardToRemote(activeTab);
                     }
                 });
-                window.addEventListener('beforeunload', () => {
+                // pagehide statt beforeunload: beforeunload feuert auch fuer Navigationen, die gar
+                // nicht stattfinden - ein Download, ein Link auf eine Datei, ein abgebrochener
+                // Seitenwechsel. Jedes davon haette hier alle Sitzungen getrennt, obwohl die Seite
+                // stehen blieb. pagehide feuert erst, wenn sie wirklich geht.
+                window.addEventListener('pagehide', () => {
                     for (const tab of tabs.values()) {
                         if (tab.client) {
                             tab.client.disconnect();
