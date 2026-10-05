@@ -13866,7 +13866,18 @@ public sealed class HtmlViews
                         min-height: 40px;
                         min-width: 0;
                         overflow-x: auto;
+                        /* Der Balken ist da, aber unsichtbar, bis die Maus ueber der Leiste steht.
+                           Nicht ausgeblendet, sondern durchsichtig: sein Platz bleibt reserviert,
+                           sonst ruckten die Reiter beim Darueberfahren um ein paar Punkte nach oben.
+                           Wo nichts zu rollen ist, zeigt der Browser ohnehin keinen. */
+                        scrollbar-color: transparent transparent;
+                        scrollbar-width: thin;
                     }
+                    .session-tabs:hover { scrollbar-color: var(--line) transparent; }
+                    .session-tabs::-webkit-scrollbar { height: 6px; }
+                    .session-tabs::-webkit-scrollbar-track { background: transparent; }
+                    .session-tabs::-webkit-scrollbar-thumb { background: transparent; border-radius: 999px; }
+                    .session-tabs:hover::-webkit-scrollbar-thumb { background: var(--line); }
                     .tab-actions {
                         align-items: center;
                         background: var(--surface);
