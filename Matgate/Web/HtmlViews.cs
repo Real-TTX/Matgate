@@ -2259,7 +2259,11 @@ public sealed class HtmlViews
             """;
     }
 
-    public string WorkspaceSettingsDialog(HttpContext context, WorkspaceDefinition workspace, string publicUrl)
+    public string WorkspaceSettingsDialog(
+        HttpContext context,
+        WorkspaceDefinition workspace,
+        string publicUrl,
+        IReadOnlyList<WorkspaceActivityEntry> activityEntries)
     {
         var de = Language(context) == "de";
         var service = context.RequestServices.GetService<WorkspaceService>();
@@ -2304,12 +2308,46 @@ public sealed class HtmlViews
                     </div>
                     {{(hatPasswort ? $"""<label class="check"><input type="checkbox" name="clearPassword"> <span>{E(de ? "Passwort entfernen" : "Remove password")}</span></label>""" : "")}}
                 </fieldset>
+                <fieldset class="settings-group">
+                    <legend>{{T(context, "Log")}}</legend>
+                    <p class="muted settings-hint">{{(de
+                        ? "Wer über den Link was getan hat. Das steht nirgends sonst - der Dateimanager führt kein Protokoll, weil dort nur zu sehen ist, was man selbst tut."
+                        : "Who did what through the link. This is recorded nowhere else - the file manager keeps no log, because there you only see what you do yourself.")}}</p>
+                    {{WorkspaceActivityList(context, activityEntries)}}
+                </fieldset>
                 <div class="actions">
                     <button type="submit" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button>
                     <button type="button" class="button" data-workspace-dialog-close>{{T(context, "Close")}}</button>
                 </div>
             </form>
             """;
+    }
+
+    // Das Protokoll im Dialog: knapp, mit den letzten Eintraegen zuerst. Die lange Tabelle der
+    // alten Seite passt hier nicht - gefragt ist, was zuletzt geschah, nicht eine Aktenlage.
+    private static string WorkspaceActivityList(HttpContext context, IReadOnlyList<WorkspaceActivityEntry> entries)
+    {
+        var de = Language(context) == "de";
+        if (entries.Count == 0)
+        {
+            return $"""<p class="muted">{E(T(context, "No activity yet."))}</p>""";
+        }
+
+        var zeilen = string.Join("", entries.Take(50).Select(entry => $$"""
+            <li class="share-log-entry">
+                <span class="share-log-time">{{E(entry.Timestamp.ToLocalTime().ToString("dd.MM. HH:mm"))}}</span>
+                <span class="badge">{{E(entry.Mode)}}</span>
+                <span class="share-log-actor">{{E(entry.Actor)}}</span>
+                <span class="share-log-action">{{E(entry.Action)}}</span>
+                <code class="share-log-path">{{E(entry.Path)}}</code>
+            </li>
+            """));
+
+        var mehr = entries.Count > 50
+            ? $"""<p class="muted settings-hint">{E(de ? $"… und {entries.Count - 50} weitere" : $"… and {entries.Count - 50} more")}</p>"""
+            : "";
+
+        return $"""<ul class="share-log">{zeilen}</ul>{mehr}""";
     }
 
     private static string WorkspaceRemainingLabel(TimeSpan remaining)
@@ -3333,18 +3371,23 @@ public sealed class HtmlViews
             // "Oeffnen" fuehrt in den Dateimanager, nicht auf die alte Workspace-Seite: dort sieht
             // man die Dateien mit demselben Werkzeug wie ueberall sonst. Die Seite daneben bleibt
             // fuer das, was nur sie kann - Passwort, Ablauf, Rechte und der Link.
+            // Eine Freigabe mit eigenem Ordner hat ihre eigene Ablage; eine Freigabe auf eine
+            // vorhandene Ablage zeigt direkt auf deren Kennung. In beiden Faellen fuehrt "Öffnen"
+            // in den Dateimanager - und nur wenn sich nichts davon finden laesst, bleibt der
+            // alte Weg ueber die Seite.
             var ablage = areas.FirstOrDefault(area => area.AreaSourceId == workspace.Id);
-            var oeffnen = ablage is null
+            var zielId = ablage?.Id ?? workspace.AreaId;
+            var oeffnen = zielId is null
                 ? $$"""<a class="button primary" href="/workspaces/{{workspace.Id}}" data-shell-open-tab="1" data-shell-title="{{A(workspace.Name)}}">{{Icon("folder")}}{{(de ? "Öffnen" : "Open")}}</a>"""
-                : $$"""<button type="button" class="button primary workspace-open-button connection-choice-open" data-server-id="{{ablage.Id}}">{{Icon("folder")}}{{(de ? "Öffnen" : "Open")}}</button>""";
-            var einstellungen = $$"""<a class="button favorite-toggle connection-choice-settings-corner" href="/workspaces/{{workspace.Id}}" data-shell-open-tab="1" data-shell-title="{{A(workspace.Name)}}" data-shell-description="{{A(de ? "Einstellungen" : "Settings")}}" title="{{A(de ? "Einstellungen und Link" : "Settings and link")}}" aria-label="{{A(de ? "Einstellungen und Link" : "Settings and link")}}">{{Icon("settings")}}</a>""";
+                : $$"""<button type="button" class="button primary workspace-open-button connection-choice-open" data-server-id="{{zielId}}">{{Icon("folder")}}{{(de ? "Öffnen" : "Open")}}</button>""";
+            var einstellungen = $$"""<button type="button" class="button favorite-toggle connection-choice-settings-corner" data-workspace-settings="{{workspace.Id}}" title="{{A(de ? "Einstellungen und Link" : "Settings and link")}}" aria-label="{{A(de ? "Einstellungen und Link" : "Settings and link")}}">{{Icon("settings")}}</button>""";
             return WorkspaceCard(workspace, oeffnen, einstellungen, de);
         }));
 
         return $$"""
             <section class="home2-section home2-workspaces-section" data-home2-workspaces>
                 <div class="home2-section-head">
-                    <h2>{{Icon("briefcase")}}{{(de ? "Workspaces" : "Workspaces")}}</h2>
+                    <h2>{{Icon("globe")}}{{(de ? "Freigaben" : "Shares")}}</h2>
                     <span class="badge">{{sichtbar.Count}}</span>
                 </div>
                 <div class="home2-card-grid">
@@ -3362,10 +3405,10 @@ public sealed class HtmlViews
             <article class="connection-choice" data-home2-card="1" data-search="{{A((workspace.Name + " " + workspace.Description).ToLowerInvariant())}}" style="--proto: var(--accent-2)">
                 <div class="connection-choice-body">
                     <div class="server-title connection-choice-title">
-                        <span class="server-icon" title="WORKSPACE">{{Icon("briefcase")}}</span>
+                        <span class="server-icon" title="SHARE">{{Icon("globe")}}</span>
                         <div class="connection-choice-copy">
                             <div class="connection-choice-badges">
-                                <span class="badge">Workspace</span>
+                                <span class="badge">{{(de ? "Freigabe" : "Share")}}</span>
                                 {{(workspace.IsPrivate ? $"""<span class="badge">{E(de ? "privat" : "private")}</span>""" : "")}}
                                 {{(workspace.AllowUploads ? "" : $"""<span class="badge">{E(de ? "nur lesen" : "read-only")}</span>""")}}
                             </div>
@@ -12609,7 +12652,6 @@ public sealed class HtmlViews
                 <div class="shell-tabs-scroll">
                     <nav class="shell-tabs" aria-label="Primary">
                         {{FilesEntry("shell-tab")}}
-                        <a class="shell-tab{{workspacesClass}}" href="/workspaces" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Workspaces"))}}">{{Icon("briefcase")}}<span>{{T(context, "Workspaces")}}</span></a>
                         <a class="shell-tab{{toolsClass}}" href="/tools" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Tools"))}}">{{Icon("wrench")}}<span>{{T(context, "Tools")}}</span></a>
                     </nav>
                 </div>
@@ -12642,7 +12684,6 @@ public sealed class HtmlViews
                         <button type="button" class="shell-burger-sheet-close" aria-label="{{A(T(context, "Close"))}}" data-burger-close>&times;</button>
                     </div>
                     {{FilesEntry("shell-menu-item")}}
-                    <a class="shell-menu-item{{workspacesClass}}" href="/workspaces" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Workspaces"))}}">{{Icon("briefcase")}}<span>{{T(context, "Workspaces")}}</span></a>
                     <a class="shell-menu-item{{toolsClass}}" href="/tools" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Tools"))}}">{{Icon("wrench")}}<span>{{T(context, "Tools")}}</span></a>
                     {{(canManageAdminArea ? $"""<a class="shell-menu-item{(adminActive ? " active" : "")}" href="/admin" data-shell-open-tab="1" data-shell-title="{A(T(context, "Administration"))}">{Icon("shield")}<span>{T(context, "Administration")}</span></a>""" : "")}}
                     <a class="shell-menu-item account-trigger{{accountClass}}" href="/account" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Account"))}}">{{Icon("settings")}}<span class="account-name">{{E(displayName)}}</span></a>
@@ -13467,6 +13508,12 @@ public sealed class HtmlViews
                     .totp-setup { align-items: start; display: flex; flex-wrap: wrap; gap: 20px; margin: 16px 0; }
                     /* Der Link zum Weitergeben: lang, also umbrechend, und der Knopf daneben. */
                     .workspace-share-line { align-items: center; display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0; }
+                    /* Das Protokoll im Dialog: eine Zeile je Eintrag, das Juengste zuerst. */
+                    .share-log { list-style: none; margin: 8px 0 0; max-height: 220px; overflow-y: auto; padding: 0; }
+                    .share-log-entry { align-items: baseline; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 8px; font-size: 13px; padding: 6px 0; }
+                    .share-log-time { color: var(--muted); font-variant-numeric: tabular-nums; }
+                    .share-log-actor { font-weight: 600; }
+                    .share-log-path { color: var(--muted); word-break: break-all; }
                     .workspace-share-line code { background: var(--surface-2); border-radius: var(--radius); flex: 1 1 320px; padding: 8px 10px; word-break: break-all; }
                     .workspace-settings-dialog { max-width: min(680px, calc(100vw - 32px)); width: 100%; }
                     .totp-qr { background: #fff; border: 1px solid var(--line); border-radius: var(--radius); height: 174px; padding: 6px; width: 174px; }

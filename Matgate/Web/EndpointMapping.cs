@@ -1372,8 +1372,9 @@ public static class EndpointMapping
         }
 
         var workspace = access.Workspace!;
+        var protokoll = await workspaceService.GetActivityAsync(workspace, 200, context.RequestAborted);
         return Results.Content(
-            views.WorkspaceSettingsDialog(context, workspace, BuildWorkspacePublicUrl(context, workspace.Id)),
+            views.WorkspaceSettingsDialog(context, workspace, BuildWorkspacePublicUrl(context, workspace.Id), protokoll),
             "text/html");
     }
 
