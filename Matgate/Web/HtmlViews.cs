@@ -5672,6 +5672,21 @@ public sealed class HtmlViews
                         });
                     });
 
+                    // Ein Verweis, der auf eine Ablage zeigt: in der Huelle wird er zur Ablage,
+                    // nicht zu einem Seitenwechsel. Sein href traegt nur dort, wo es keine Huelle
+                    // gibt - etwa wenn jemand die Seite allein aufruft.
+                    scope.querySelectorAll('a[data-server-id]').forEach(anchor => {
+                        if (anchor.dataset.openWired) { return; }
+                        anchor.dataset.openWired = '1';
+                        anchor.addEventListener('click', event => {
+                            if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey || event.button !== 0) {
+                                return;
+                            }
+
+                            event.preventDefault();
+                            openServer(anchor.getAttribute('data-server-id') || '');
+                        });
+                    });
 
                     scope.querySelectorAll('[data-shell-open-tab="1"]').forEach(anchor => {
                         if (anchor.dataset.openWired) { return; }
@@ -12326,6 +12341,26 @@ public sealed class HtmlViews
             || string.Equals(mainClass, "viewer-main", StringComparison.OrdinalIgnoreCase);
         var workspacesClass = workspacesActive ? " active" : "";
 
+        // Der Dateimanager gehoert ins Menue: bisher kam man nur ueber eine Kachel auf der
+        // Startseite oder aus einer Sitzung heraus hin. Geoeffnet wird die eigene Ablage - von dort
+        // fuehrt das Auswahlfeld in der Leiste zu jeder anderen, auch zu den Workspaces. Wer gar
+        // keine Ablage haben darf, sieht den Eintrag nicht.
+        var filesAreaId = user is null
+            ? (Guid?)null
+            : user.FileShare?.Personal == true
+                ? FileShareService.PersonalAreaId(user.Id)
+                : user.FileShare?.Global == true
+                    ? FileShareService.GlobalAreaId
+                    : null;
+        var filesLabel = Language(context) == "de" ? "Dateien" : "Files";
+        // Drei Wege zum selben Ziel, je nachdem, wo die Seite steckt: in der Huelle faengt
+        // wireOpenControls den Klick ab, in einer eingebetteten Seite die Bruecke zur Huelle, und
+        // steht die Seite fuer sich allein, traegt der Verweis selbst.
+        string FilesEntry(string cssClass) => filesAreaId is null
+            ? ""
+            : $$"""
+                <a class="{{A(cssClass)}}" href="/connect/{{filesAreaId}}" data-server-id="{{filesAreaId}}" data-shell-open-server="{{filesAreaId}}" data-shell-title="{{A(filesLabel)}}">{{Icon("folder")}}<span>{{E(filesLabel)}}</span></a>
+                """;
         var adminClass = adminActive ? " active" : "";
         var toolsClass = toolsActive ? " active" : "";
         var accountClass = accountActive ? " active" : "";
@@ -12336,6 +12371,7 @@ public sealed class HtmlViews
             <div class="shell-nav-row">
                 <div class="shell-tabs-scroll">
                     <nav class="shell-tabs" aria-label="Primary">
+                        {{FilesEntry("shell-tab")}}
                         <a class="shell-tab{{workspacesClass}}" href="/workspaces" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Workspaces"))}}">{{Icon("briefcase")}}<span>{{T(context, "Workspaces")}}</span></a>
                         <a class="shell-tab{{toolsClass}}" href="/tools" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Tools"))}}">{{Icon("wrench")}}<span>{{T(context, "Tools")}}</span></a>
                     </nav>
@@ -12368,6 +12404,7 @@ public sealed class HtmlViews
                         <strong>{{T(context, "Menu")}}</strong>
                         <button type="button" class="shell-burger-sheet-close" aria-label="{{A(T(context, "Close"))}}" data-burger-close>&times;</button>
                     </div>
+                    {{FilesEntry("shell-menu-item")}}
                     <a class="shell-menu-item{{workspacesClass}}" href="/workspaces" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Workspaces"))}}">{{Icon("briefcase")}}<span>{{T(context, "Workspaces")}}</span></a>
                     <a class="shell-menu-item{{toolsClass}}" href="/tools" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Tools"))}}">{{Icon("wrench")}}<span>{{T(context, "Tools")}}</span></a>
                     {{(canManageAdminArea ? $"""<a class="shell-menu-item{(adminActive ? " active" : "")}" href="/admin" data-shell-open-tab="1" data-shell-title="{A(T(context, "Administration"))}">{Icon("shield")}<span>{T(context, "Administration")}</span></a>""" : "")}}
@@ -14161,6 +14198,12 @@ public sealed class HtmlViews
                         flex: 0 0 auto;
                         width: auto;
                     }
+                    /* Der Eintrag "Kompakte Ansicht" im Menue ist der ERSATZ fuer das Symbol in der
+                       Leiste, nicht seine Zweitausfertigung. Das Symbol verschwindet nur auf dem
+                       Telefon in der kompakten Ansicht - ueberall sonst stand bisher beides
+                       nebeneinander und tat dasselbe. Der Eintrag erscheint deshalb genau dort, wo
+                       das Symbol fehlt; die Gegenregel steht im Telefon-Block. */
+                    [data-view-mode-toggle] { display: none; }
                     html[data-view-mode="minimal"] .shell-burger-panel {
                         right: 0;
                         width: max-content;
@@ -17158,6 +17201,8 @@ public sealed class HtmlViews
                         }
                         /* Reachable from the burger menu, so it does not need a second seat here. */
                         html[data-view-mode="minimal"] #view-mode-toggle { display: none; }
+                        /* Genau hier fehlt das Symbol - also genau hier gibt es den Eintrag. */
+                        html[data-view-mode="minimal"] [data-view-mode-toggle] { display: inline-flex; }
                         .session-tab-close {
                             min-width: 40px;
                         }
