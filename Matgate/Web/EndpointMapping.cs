@@ -328,7 +328,6 @@ public static class EndpointMapping
         app.MapPost("/workspaces/{id:guid}/mkdir", WorkspaceCreateDirectoryAsync).RequireAuthorization();
         app.MapPost("/workspaces/{id:guid}/create-file", WorkspaceCreateFileAsync).RequireAuthorization();
         app.MapPost("/workspaces/{id:guid}/delete-entry", WorkspaceDeleteEntryAsync).RequireAuthorization();
-        app.MapPost("/workspaces/{id:guid}/note", WorkspaceSaveNoteAsync).RequireAuthorization();
         app.MapGet("/workspace/{id:guid}", WorkspacePublicAsync);
         app.MapPost("/workspace/{id:guid}/unlock", WorkspaceUnlockAsync);
         app.MapPost("/workspace/{id:guid}/upload", WorkspacePublicUploadAsync);
@@ -336,7 +335,6 @@ public static class EndpointMapping
         app.MapPost("/workspace/{id:guid}/mkdir", WorkspacePublicCreateDirectoryAsync);
         app.MapPost("/workspace/{id:guid}/create-file", WorkspacePublicCreateFileAsync);
         app.MapPost("/workspace/{id:guid}/delete-entry", WorkspacePublicDeleteEntryAsync);
-        app.MapPost("/workspace/{id:guid}/note", WorkspacePublicSaveNoteAsync);
 
         app.MapGet("/w/{id:guid}", WorkspacePublicAsync);
         app.MapPost("/w/{id:guid}/unlock", WorkspaceUnlockAsync);
@@ -345,7 +343,6 @@ public static class EndpointMapping
         app.MapPost("/w/{id:guid}/mkdir", WorkspacePublicCreateDirectoryAsync);
         app.MapPost("/w/{id:guid}/create-file", WorkspacePublicCreateFileAsync);
         app.MapPost("/w/{id:guid}/delete-entry", WorkspacePublicDeleteEntryAsync);
-        app.MapPost("/w/{id:guid}/note", WorkspacePublicSaveNoteAsync);
         app.MapGet("/tools", ToolsAsync).RequireAuthorization();
         app.MapGet("/account", AccountAsync).RequireAuthorization();
         app.MapGet("/about", AboutAsync).RequireAuthorization();
@@ -1099,7 +1096,6 @@ public static class EndpointMapping
                 visibleWorkspaces,
                 null,
                 null,
-                "",
                 [],
                 [],
                 false,
@@ -1161,11 +1157,9 @@ public static class EndpointMapping
             // host, so only global admins may set it; everyone else gets the managed per-workspace
             // directory under WorkspaceRootDirectory.
             RootPath = user.IsAdmin ? Clean(form["rootPath"].ToString(), "") : "",
-            SharedNoteFileName = Clean(form["sharedNoteFileName"].ToString(), "shared-note.md"),
             // The simplified create form omits these toggles - a new workspace is enabled and allows
             // uploads + text by default; they can be restricted later in the workspace settings.
             AllowUploads = true,
-            AllowTextExchange = true,
             IsEnabled = true,
             PublicAccessExpiresAt = DateTimeOffset.UtcNow.AddHours(ParseWorkspaceValidityHours(form, 24)),
             OwnerUserId = user.Id
@@ -1216,8 +1210,6 @@ public static class EndpointMapping
 
         var workspace = access.Workspace!;
         var listing = await workspaceService.ListFilesAsync(workspace, context.Request.Query["path"].ToString(), context.RequestAborted);
-        var sharedText = await workspaceService.ReadSharedTextAsync(workspace, context.RequestAborted);
-        var sharedTextLastSavedAt = workspaceService.GetSharedTextLastModified(workspace);
         var sessions = workspaceService.GetPresenceSnapshot(workspace.Id);
         workspaceService.TouchPresence(workspace, context, user, "Admin");
         var activityEntries = await workspaceService.GetActivityAsync(workspace, 200, context.RequestAborted);
@@ -1228,8 +1220,6 @@ public static class EndpointMapping
                 user,
                 workspace,
                 listing,
-                sharedText,
-                sharedTextLastSavedAt,
                 sessions,
                 activityEntries,
                 true,
@@ -1312,12 +1302,7 @@ public static class EndpointMapping
                 stored.RootPath = Clean(form["rootPath"].ToString(), "");
             }
 
-            if (form.ContainsKey("sharedNoteFileName"))
-            {
-                stored.SharedNoteFileName = Clean(form["sharedNoteFileName"].ToString(), "shared-note.md");
-            }
             stored.AllowUploads = IsChecked(form, "allowUploads");
-            stored.AllowTextExchange = IsChecked(form, "allowTextExchange");
             stored.IsEnabled = IsChecked(form, "isEnabled");
 
             if (IsChecked(form, "clearPassword"))
@@ -1676,57 +1661,6 @@ public static class EndpointMapping
         return Results.Redirect(WorkspaceTabRedirect(context, $"/workspaces/{id}", form, "files"));
     }
 
-    private static async Task<IResult> WorkspaceSaveNoteAsync(
-        Guid id,
-        HttpContext context,
-        JsonDataStore store,
-        HtmlViews views,
-        WorkspaceService workspaceService)
-    {
-        var user = await RequireUserAsync(context, store);
-        if (user is null)
-        {
-            return Results.Redirect("/login");
-        }
-
-        var access = await RequireWorkspaceAdminAsync(id, context, store, workspaceService);
-        if (access.Result is not null)
-        {
-            return access.Result;
-        }
-
-        var form = await context.Request.ReadFormAsync(context.RequestAborted);
-        if (!ValidateCsrf(context, form))
-        {
-            return BadRequest(context, user, views);
-        }
-
-        var text = form["text"].ToString();
-        await workspaceService.WriteSharedTextAsync(access.Workspace!, text, context.RequestAborted);
-        var savedAt = await workspaceService.MarkSharedTextUpdatedAsync(access.Workspace!.Id, null, context.RequestAborted);
-        await workspaceService.RecordActivityAsync(
-            access.Workspace!,
-            context,
-            user,
-            "Updated shared text",
-            "/shared-note",
-            $"{text.Length:N0} characters",
-            "Admin",
-            context.RequestAborted);
-
-        if (WantsJsonResponse(context.Request))
-        {
-            return Results.Json(new
-            {
-                ok = true,
-                savedAt = savedAt.ToString("O"),
-                tab = "text"
-            });
-        }
-
-        return Results.Redirect(WorkspaceTabRedirect(context, $"/workspaces/{id}", form, "text"));
-    }
-
     private static async Task<IResult> WorkspacePublicAsync(
         Guid id,
         string? path,
@@ -1753,8 +1687,6 @@ public static class EndpointMapping
 
         var workspace = access.Workspace!;
         var listing = await workspaceService.ListFilesAsync(workspace, path, context.RequestAborted);
-        var sharedText = await workspaceService.ReadSharedTextAsync(workspace, context.RequestAborted);
-        var sharedTextLastSavedAt = workspaceService.GetSharedTextLastModified(workspace);
         workspaceService.TouchPresence(workspace, context, access.User, "Public");
         var activityEntries = await workspaceService.GetActivityAsync(workspace, 200, context.RequestAborted);
         return Results.Content(
@@ -1762,8 +1694,6 @@ public static class EndpointMapping
                 context,
                 workspace,
                 listing,
-                sharedText,
-                sharedTextLastSavedAt,
                 workspaceService.GetPresenceSnapshot(workspace.Id),
                 access.PublicUrl,
                 false,
@@ -1991,62 +1921,6 @@ public static class EndpointMapping
         }
 
         return Results.Forbid();
-    }
-
-    private static async Task<IResult> WorkspacePublicSaveNoteAsync(
-        Guid id,
-        HttpContext context,
-        JsonDataStore store,
-        HtmlViews views,
-        WorkspaceService workspaceService)
-    {
-        var access = await RequireWorkspacePublicAsync(id, context, store, workspaceService);
-        if (access.Result is not null)
-        {
-            return access.Result;
-        }
-
-        if (access.Expired)
-        {
-            return Results.Content(views.WorkspaceExpired(context, access.Workspace!, access.PublicUrl), "text/html");
-        }
-
-        if (access.PasswordRequired)
-        {
-            return Results.Content(views.WorkspacePassword(context, access.Workspace!, access.PublicUrl), "text/html");
-        }
-
-        var workspace = access.Workspace!;
-        if (!workspace.AllowTextExchange)
-        {
-            return Results.BadRequest(new { error = HtmlViews.Translate(context, "Text exchange is disabled for this workspace.") });
-        }
-
-        var form = await context.Request.ReadFormAsync(context.RequestAborted);
-        var text = form["text"].ToString();
-        await workspaceService.WriteSharedTextAsync(workspace, text, context.RequestAborted);
-        var savedAt = await workspaceService.MarkSharedTextUpdatedAsync(workspace.Id, null, context.RequestAborted);
-        await workspaceService.RecordActivityAsync(
-            workspace,
-            context,
-            access.User,
-            "Updated shared text",
-            "/shared-note",
-            $"{text.Length:N0} characters",
-            "Public",
-            context.RequestAborted);
-
-        if (WantsJsonResponse(context.Request))
-        {
-            return Results.Json(new
-            {
-                ok = true,
-                savedAt = savedAt.ToString("O"),
-                tab = "text"
-            });
-        }
-
-        return Results.Redirect(WorkspaceTabRedirect(context, $"/workspace/{id}", form, "text"));
     }
 
     private static string WorkspaceTabRedirect(HttpContext context, string baseUrl, IFormCollection form, string defaultTab)

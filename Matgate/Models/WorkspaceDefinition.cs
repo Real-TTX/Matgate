@@ -12,17 +12,11 @@ public sealed class WorkspaceDefinition
 
     public string AccessPasswordHash { get; set; } = "";
 
-    public string SharedNoteFileName { get; set; } = "shared-note.md";
-
     public bool AllowUploads { get; set; } = true;
-
-    public bool AllowTextExchange { get; set; } = true;
 
     public bool IsEnabled { get; set; } = true;
 
     public DateTimeOffset? PublicAccessExpiresAt { get; set; }
-
-    public DateTimeOffset? SharedTextUpdatedAt { get; set; }
 
     public Guid? OwnerUserId { get; set; }
 

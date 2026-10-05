@@ -56,48 +56,6 @@ public sealed class WorkspaceService
         return Path.Combine(GetWorkspaceRoot(workspace), "files");
     }
 
-    public string GetSharedNotePath(WorkspaceDefinition workspace)
-    {
-        return Path.Combine(GetWorkspaceRoot(workspace), NormalizeFileName(workspace.SharedNoteFileName, "shared-note.md"));
-    }
-
-    public DateTimeOffset? GetSharedTextLastModified(WorkspaceDefinition workspace)
-    {
-        if (workspace.SharedTextUpdatedAt is { } updatedAt)
-        {
-            return updatedAt;
-        }
-
-        var path = GetSharedNotePath(workspace);
-        if (!File.Exists(path))
-        {
-            return null;
-        }
-
-        return new DateTimeOffset(File.GetLastWriteTimeUtc(path), TimeSpan.Zero);
-    }
-
-    public async Task<DateTimeOffset> MarkSharedTextUpdatedAsync(
-        Guid workspaceId,
-        DateTimeOffset? updatedAt = null,
-        CancellationToken cancellationToken = default)
-    {
-        var savedAt = updatedAt ?? DateTimeOffset.UtcNow;
-        await _store.UpdateWorkspacesAsync(workspaces =>
-        {
-            var stored = workspaces.FirstOrDefault(workspace => workspace.Id == workspaceId);
-            if (stored is null)
-            {
-                return;
-            }
-
-            stored.SharedTextUpdatedAt = savedAt;
-            stored.UpdatedAt = savedAt;
-        }, cancellationToken);
-
-        return savedAt;
-    }
-
     public bool HasAccessPassword(WorkspaceDefinition workspace)
     {
         return !string.IsNullOrWhiteSpace(workspace.AccessPasswordHash);
@@ -354,29 +312,6 @@ public sealed class WorkspaceService
         {
             await Task.Run(() => Directory.Delete(targetPath, recursive: true), cancellationToken);
         }
-    }
-
-    public async Task<string> ReadSharedTextAsync(
-        WorkspaceDefinition workspace,
-        CancellationToken cancellationToken = default)
-    {
-        var path = GetSharedNotePath(workspace);
-        if (!File.Exists(path))
-        {
-            return "";
-        }
-
-        return await File.ReadAllTextAsync(path, cancellationToken);
-    }
-
-    public async Task WriteSharedTextAsync(
-        WorkspaceDefinition workspace,
-        string text,
-        CancellationToken cancellationToken = default)
-    {
-        var path = GetSharedNotePath(workspace);
-        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
-        await File.WriteAllTextAsync(path, text ?? "", cancellationToken);
     }
 
     public WorkspacePresenceSnapshot[] GetPresenceSnapshot(Guid workspaceId)

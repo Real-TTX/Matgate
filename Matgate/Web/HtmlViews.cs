@@ -1663,7 +1663,6 @@ public sealed class HtmlViews
         IReadOnlyList<WorkspaceDefinition> workspaces,
         WorkspaceDefinition? selectedWorkspace,
         FileGatewayListResult? listing,
-        string sharedText,
         IReadOnlyList<WorkspacePresenceSnapshot> sessions,
         IReadOnlyList<WorkspaceActivityEntry> activityEntries,
         bool canEditSelected,
@@ -1744,22 +1743,18 @@ public sealed class HtmlViews
         MatgateUser currentUser,
         WorkspaceDefinition workspace,
         FileGatewayListResult? listing,
-        string sharedText,
-        DateTimeOffset? sharedTextLastSavedAt,
         IReadOnlyList<WorkspacePresenceSnapshot> sessions,
         IReadOnlyList<WorkspaceActivityEntry> activityEntries,
         bool canEditSelected,
         string publicUrl,
         string defaultRootPath)
     {
-        var selectedTab = WorkspaceSelectedTab(context, workspace.AllowTextExchange, includeInfo: true, includeSettings: canEditSelected);
+        var selectedTab = WorkspaceSelectedTab(context, includeInfo: true, includeSettings: canEditSelected);
         var currentPath = listing?.Path ?? "/";
         var body = WorkspaceContentShell(
             context,
             workspace,
             listing,
-            sharedText,
-            sharedTextLastSavedAt,
             sessions,
             activityEntries,
             selectedTab,
@@ -1799,8 +1794,6 @@ public sealed class HtmlViews
         HttpContext context,
         WorkspaceDefinition workspace,
         FileGatewayListResult? listing,
-        string sharedText,
-        DateTimeOffset? sharedTextLastSavedAt,
         IReadOnlyList<WorkspacePresenceSnapshot> sessions,
         string publicUrl,
         bool passwordRequired,
@@ -1812,7 +1805,7 @@ public sealed class HtmlViews
             return WorkspacePassword(context, workspace, publicUrl, passwordError);
         }
 
-        var selectedTab = WorkspaceSelectedTab(context, workspace.AllowTextExchange);
+        var selectedTab = WorkspaceSelectedTab(context);
         var body = $$"""
             <section class="page-head">
                 <div>
@@ -1826,12 +1819,14 @@ public sealed class HtmlViews
                 context,
                 workspace,
                 listing,
-                sharedText,
-                sharedTextLastSavedAt,
                 sessions,
                 activityEntries,
                 selectedTab,
-                workspace.AllowTextExchange,
+                // Ein Besucher ohne Konto darf nicht loeschen. Bisher entschied darueber
+                // ausgerechnet "Textaustausch erlauben" - eine Kopplung, die niemand vermutet
+                // haette: wer den Notizzettel freigab, gab damit auch das Loeschen frei.
+                // Hochladen bleibt an "Hochladen erlauben" haengen, wo es hingehoert.
+                canEditSelected: false,
                 includeInfo: false,
                 includeSettings: false,
                 baseUrl: $"/workspace/{workspace.Id}",
@@ -2195,9 +2190,7 @@ public sealed class HtmlViews
         var name = workspace?.Name ?? "";
         var description = workspace?.Description ?? "";
         var rootPath = workspace?.RootPath ?? "";
-        var noteFile = workspace?.SharedNoteFileName ?? "shared-note.md";
         var allowUploads = workspace?.AllowUploads ?? true;
-        var allowText = workspace?.AllowTextExchange ?? true;
         var isEnabled = workspace?.IsEnabled ?? true;
         var publicAccessHours = WorkspacePublicAccessHours(workspace);
         var publicAccessField = $$"""<label>{{T(context, "Public access validity (hours)")}}<input name="publicAccessHours" type="number" min="1" step="1" value="{{A(publicAccessHours.ToString())}}"><small class="muted">{{T(context, "External access is available for this duration.")}}</small></label>""";
@@ -2213,9 +2206,6 @@ public sealed class HtmlViews
                 <label>{{T(context, "Root path")}}
                     <input name="rootPath" value="{{A(rootPath)}}" placeholder="{{A(defaultRootPath)}}">
                 </label>
-                <label>{{T(context, "Shared note file")}}
-                    <input name="sharedNoteFileName" value="{{A(noteFile)}}" placeholder="shared-note.md">
-                </label>
                 <label>{{T(context, "Access password")}}
                     <input name="password" type="password" autocomplete="new-password">
                     <small class="muted">{{T(context, "Leave password empty to keep it unchanged.")}}</small>
@@ -2223,7 +2213,6 @@ public sealed class HtmlViews
                 {{(createMode ? publicAccessField : "")}}
                 {{(createMode ? "" : $"""<label class=\"check\"><input type=\"checkbox\" name=\"clearPassword\"> {T(context, "Clear password")}</label>""")}}
                 <label class="check"><input type="checkbox" name="allowUploads"{{Checked(allowUploads)}}> {{T(context, "Allow uploads")}}</label>
-                <label class="check"><input type="checkbox" name="allowTextExchange"{{Checked(allowText)}}> {{T(context, "Allow text exchange")}}</label>
                 <label class="check"><input type="checkbox" name="isEnabled"{{Checked(isEnabled)}}> {{T(context, "Enabled")}}</label>
             </div>
             """;
@@ -2260,8 +2249,6 @@ public sealed class HtmlViews
                     </div>
                     <label class="check"><input type="checkbox" name="allowUploads"{{Checked(workspace.AllowUploads)}}> <span>{{(de ? "Hochladen erlauben" : "Allow uploads")}}</span></label>
                     <label class="check"><input type="checkbox" name="isEnabled"{{Checked(workspace.IsEnabled)}}> <span>{{T(context, "Enabled")}}</span></label>
-                    <!-- Nicht angeboten, aber auch nicht verlieren: so bleibt der Wert, wie er war. -->
-                    <input type="hidden" name="allowTextExchange" value="{{(workspace.AllowTextExchange ? "on" : "")}}">
                 </fieldset>
                 <fieldset class="settings-group">
                     <legend>{{(de ? "Freigabe" : "Sharing")}}</legend>
@@ -2497,8 +2484,6 @@ public sealed class HtmlViews
         HttpContext context,
         WorkspaceDefinition workspace,
         FileGatewayListResult? listing,
-        string sharedText,
-        DateTimeOffset? sharedTextLastSavedAt,
         IReadOnlyList<WorkspacePresenceSnapshot> sessions,
         IReadOnlyList<WorkspaceActivityEntry> activityEntries,
         string selectedTab,
@@ -2514,28 +2499,20 @@ public sealed class HtmlViews
         // Anmeldung. Deshalb zeigt sie die Dateien weiter selbst.
         string fileManagerAreaId)
     {
-        var textTabActive = selectedTab == "text";
         var filesTabActive = selectedTab == "files";
         var infoTabActive = selectedTab == "info";
         var settingsTabActive = selectedTab == "settings";
         var logTabActive = selectedTab == "log";
-        var canEditText = workspace.AllowTextExchange || canEditSelected;
 
         return $$"""
-            <section class="workspace-tab-shell panel" data-workspace-tab-root="1" data-workspace-tab-key="{{A(workspace.Id.ToString("N"))}}" data-workspace-default-tab="{{A(workspace.AllowTextExchange ? "text" : "files")}}">
+            <section class="workspace-tab-shell panel" data-workspace-tab-root="1" data-workspace-tab-key="{{A(workspace.Id.ToString("N"))}}" data-workspace-default-tab="files">
                 <div class="workspace-tab-strip" role="tablist" aria-label="{{A(T(context, "Workspace content"))}}">
-                    {{(workspace.AllowTextExchange ? $"""<a class="workspace-tab-button{(textTabActive ? " active" : "")}" href="{A(WorkspaceTabUrl(baseUrl, "text", currentPath))}" data-workspace-tab="text" role="tab" aria-selected="{A(textTabActive ? "true" : "false")}">{Icon("edit")}{T(context, "Text")}</a>""" : "")}}
                     <a class="workspace-tab-button{{(filesTabActive ? " active" : "")}}" href="{{A(WorkspaceTabUrl(baseUrl, "files", currentPath))}}" data-workspace-tab="files" role="tab" aria-selected="{{A(filesTabActive ? "true" : "false")}}">{{Icon("folder")}}{{T(context, "Files")}}</a>
                     {{(includeInfo ? $"""<a class="workspace-tab-button{(infoTabActive ? " active" : "")}" href="{A(WorkspaceTabUrl(baseUrl, "info", currentPath))}" data-workspace-tab="info" role="tab" aria-selected="{A(infoTabActive ? "true" : "false")}">{Icon("info")}{T(context, "Info")}</a>""" : "")}}
                     {{(includeSettings ? $"""<a class="workspace-tab-button{(settingsTabActive ? " active" : "")}" href="{A(WorkspaceTabUrl(baseUrl, "settings", currentPath))}" data-workspace-tab="settings" role="tab" aria-selected="{A(settingsTabActive ? "true" : "false")}">{Icon("settings")}{T(context, "Settings")}</a>""" : "")}}
                     <a class="workspace-tab-button{{(logTabActive ? " active" : "")}}" href="{{A(WorkspaceTabUrl(baseUrl, "log", currentPath))}}" data-workspace-tab="log" role="tab" aria-selected="{{A(logTabActive ? "true" : "false")}}">{{Icon("list")}}{{T(context, "Log")}}</a>
                 </div>
                 <div class="workspace-tab-panels">
-                    {{(workspace.AllowTextExchange ? $$"""
-                    <div class="workspace-tab-panel{{(textTabActive ? "" : " hidden")}}" data-workspace-panel="text">
-                        {{WorkspaceTextPanel(context, workspace, sharedText, sharedTextLastSavedAt, canEditText, baseUrl, includeInfo ? false : true, currentPath)}}
-                    </div>
-                    """ : "")}}
                     <div class="workspace-tab-panel{{(filesTabActive ? "" : " hidden")}}" data-workspace-panel="files">
                         {{(string.IsNullOrEmpty(fileManagerAreaId)
                             ? WorkspaceFilesPanel(context, workspace, listing, canEditSelected, workspace.AllowUploads, baseUrl)
@@ -2557,7 +2534,6 @@ public sealed class HtmlViews
                                     <div class="stack workspace-summary-badges">
                                         <span class="badge">{{(WorkspaceIsPublicAccessActive(workspace) ? T(context, "Active") : T(context, "Expired"))}}</span>
                                         <span class="badge">{{(workspace.AllowUploads ? T(context, "Allow uploads") : T(context, "Uploads disabled"))}}</span>
-                                        <span class="badge">{{(workspace.AllowTextExchange ? T(context, "Allow text exchange") : T(context, "Text disabled"))}}</span>
                                     </div>
                                 </div>
                                 <div class="actions workspace-info-actions">
@@ -2584,66 +2560,6 @@ public sealed class HtmlViews
                         {{WorkspaceActivityPanel(context, activityEntries)}}
                     </div>
                 </div>
-            </section>
-            """;
-    }
-
-    private static string WorkspaceTextPanel(
-        HttpContext context,
-        WorkspaceDefinition workspace,
-        string sharedText,
-        DateTimeOffset? lastSavedAt,
-        bool canEditText,
-        string baseUrl,
-        bool isPublic,
-        string currentPath)
-    {
-        if (!workspace.AllowTextExchange)
-        {
-            return "";
-        }
-
-        var readonlyAttr = canEditText ? "" : " readonly";
-        var autoSaveLabel = T(context, "Auto save");
-        var savingLabel = Language(context) == "de" ? "Speichert..." : "Saving...";
-        var savedLabel = Language(context) == "de" ? "Gespeichert" : "Saved";
-        var readyLabel = T(context, "Ready");
-        var dirtyLabel = Language(context) == "de" ? "Ungespeicherte Änderungen" : "Unsaved changes";
-        var failedLabel = Language(context) == "de" ? "Speichern fehlgeschlagen." : "Save failed.";
-        var lastSavedLabel = T(context, "Last saved");
-        var neverSavedLabel = T(context, "Never saved");
-        var lastSavedText = lastSavedAt is null
-            ? neverSavedLabel
-            : lastSavedAt.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss");
-        var lastSavedIso = lastSavedAt is null
-            ? ""
-            : lastSavedAt.Value.ToUniversalTime().ToString("O", CultureInfo.InvariantCulture);
-        var saveButton = canEditText
-            ? $$"""
-                <div class="actions workspace-text-actions">
-                    <button type="button" class="primary workspace-text-save-button" data-workspace-text-save>{{Icon("save")}}{{T(context, "Save")}}</button>
-                    <label class="workspace-auto-save">
-                        <input type="checkbox" name="autoSave" checked data-workspace-text-auto-save>
-                        <span>{{E(autoSaveLabel)}}</span>
-                    </label>
-                </div>
-                """
-            : "";
-
-        return $$"""
-            <section class="panel">
-                <form method="post" action="{{A($"{baseUrl}/note")}}" class="stack workspace-text-form" data-workspace-text-form="1" data-workspace-saving-label="{{A(savingLabel)}}" data-workspace-saved-label="{{A(savedLabel)}}" data-workspace-ready-label="{{A(readyLabel)}}" data-workspace-dirty-label="{{A(dirtyLabel)}}" data-workspace-failed-label="{{A(failedLabel)}}" data-workspace-last-saved-label="{{A(lastSavedLabel)}}" data-workspace-never-saved-label="{{A(neverSavedLabel)}}" data-workspace-last-saved-at="{{A(lastSavedIso)}}" data-workspace-current-path="{{A(currentPath)}}">
-                    {{Csrf(context)}}
-                    <input type="hidden" name="tab" value="text">
-                    <input type="hidden" name="path" value="{{A(currentPath)}}">
-                    <textarea name="text" rows="10"{{readonlyAttr}}>{{E(sharedText)}}</textarea>
-                    {{saveButton}}
-                    <p class="muted workspace-text-last-saved">
-                        <span>{{E(lastSavedLabel)}}:</span>
-                        <strong data-workspace-text-last-saved>{{E(lastSavedText)}}</strong>
-                    </p>
-                    <p class="muted workspace-text-status" data-workspace-text-status aria-live="polite">{{E(readyLabel)}}</p>
-                </form>
             </section>
             """;
     }
@@ -2717,17 +2633,16 @@ public sealed class HtmlViews
         return url;
     }
 
-    private static string WorkspaceSelectedTab(HttpContext context, bool allowTextExchange, bool includeInfo = false, bool includeSettings = false)
+    private static string WorkspaceSelectedTab(HttpContext context, bool includeInfo = false, bool includeSettings = false)
     {
         var requested = Clean(context.Request.Query["tab"].ToString(), "").ToLowerInvariant();
         return requested switch
         {
-            "text" when allowTextExchange => "text",
             "files" => "files",
             "info" when includeInfo => "info",
             "settings" when includeSettings => "settings",
             "log" => "log",
-            _ => allowTextExchange ? "text" : "files"
+            _ => "files"
         };
     }
 
