@@ -4359,8 +4359,9 @@ public sealed class HtmlViews
                 <div id="session-tabs" class="session-tabs shell-page-tabs" role="tablist">
                     <div id="new-connection-tab" class="session-tab session-tab--add" role="tab" data-tab-kind="add" aria-label="{{A(T(context, "New connection"))}}">
                         <button type="button" class="session-tab-main">
+                            <small class="session-tab-description" aria-hidden="true"></small>
                             <span class="session-tab-title">{{Icon("plus")}}</span>
-                            <small class="session-tab-description">&nbsp;</small>
+                            <small class="session-tab-description" aria-hidden="true"></small>
                         </button>
                     </div>
                 </div>
@@ -14346,11 +14347,16 @@ public sealed class HtmlViews
                         white-space: nowrap;
                         width: 100%;
                     }
-                    /* Unsichtbar, aber da: die leere Zeile haelt die Hoehe. Kein eigenes display,
-                       damit sie in der kompakten Ansicht und auf dem Telefon genauso verschwindet
-                       wie bei den anderen Reitern - sonst waere die Leiste dort wieder ungleich. */
+                    /* Unsichtbar, aber da: die leeren Zeilen halten die Hoehe. Davon gibt es zwei,
+                       eine ueber und eine unter dem Plus, jede halb so hoch wie die eine
+                       Beschreibungszeile eines echten Reiters - zusammen also dasselbe Mass, und
+                       das Plus steht dazwischen in der Mitte. Kein eigenes display, damit sie in
+                       der kompakten Ansicht und auf dem Telefon genauso verschwinden wie bei den
+                       anderen Reitern - sonst waere die Leiste dort wieder ungleich. */
                     .session-tab--add .session-tab-description {
                         color: transparent;
+                        line-height: 0;
+                        min-height: .6em;
                         min-width: 0;
                         overflow: hidden;
                         padding: 0;
