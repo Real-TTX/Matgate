@@ -78,6 +78,18 @@ const NAME = "Dialogablage";
       root: !!(d && d.querySelector("[name='rootPath']")),
       activeTab: (document.querySelector("#session-tabs .session-tab.active .session-tab-title") || {}).textContent || "",
       tabs: document.querySelectorAll("#session-tabs .session-tab").length,
+      // The sheet brings its own surface and fills the dialog: as a small frameless box the
+      // fields stood naked over the file table behind them.
+      sheet: !!(d && d.querySelector(".share-settings-page")),
+      back: !!(d && d.querySelector(".share-settings-back")),
+      heading: ((d && d.querySelector(".share-settings-title strong")) || {}).textContent || "",
+      fillsHost: (() => {
+        const sheet = d && d.querySelector(".share-settings-page");
+        if (!sheet) { return null; }
+        const a = sheet.getBoundingClientRect();
+        const b = d.getBoundingClientRect();
+        return Math.abs(a.height - b.height) <= 2 && Math.abs(a.width - b.width) <= 2;
+      })(),
     };
   });
   console.log("     Dialog: " + JSON.stringify(inDialog));
@@ -89,6 +101,10 @@ const NAME = "Dialogablage";
   check("without the root path", inDialog.root, false);
   check("the same tab is still active", inDialog.activeTab, tabsBefore.active);
   check("no tab was added", inDialog.tabs, tabsBefore.count);
+  check("it is a sheet with its own surface", inDialog.sheet, true);
+  check("with a way back at the top", inDialog.back, true);
+  check("named after the place", /Dialogablage/.test(inDialog.heading), true);
+  check("and it fills its host", inDialog.fillsHost, true);
   await page.screenshot({ path: "place-settings-dialog.png" });
 
   // --- Rename and save

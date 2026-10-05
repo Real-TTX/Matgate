@@ -2275,8 +2275,20 @@ public sealed class HtmlViews
                 ? (de ? "abgelaufen" : "expired")
                 : (de ? $"noch {WorkspaceRemainingLabel(remaining.Value)}" : $"{WorkspaceRemainingLabel(remaining.Value)} left");
 
+        // Filling the host instead of floating in it: the dialog element is transparent by design,
+        // the content brings its own surface - and these settings did not, so they stood naked over
+        // the file table. As a full sheet with a bar on top the same markup fits both places it is
+        // opened from: a file-manager tab and the places dialog of a running session.
         return $$"""
-            <form method="post" action="/workspaces/{{workspace.Id}}/update" class="settings-form" data-workspace-settings-form>
+            <section class="share-settings-page">
+                <header class="share-settings-head">
+                    <button type="button" class="icon-button share-settings-back" data-workspace-dialog-close title="{{A(T(context, "Back"))}}" aria-label="{{A(T(context, "Back"))}}">{{Icon("arrow-left")}}</button>
+                    <span class="share-settings-title">
+                        <strong>{{E(workspace.Name)}}</strong>
+                        <small>{{(de ? "Freigabe-Einstellungen" : "Share settings")}}</small>
+                    </span>
+                </header>
+            <form method="post" action="/workspaces/{{workspace.Id}}/update" class="settings-form share-settings-body" data-workspace-settings-form>
                 {{Csrf(context)}}
                 <fieldset class="settings-group">
                     <legend>{{(de ? "Ablage" : "Place")}}</legend>
@@ -2320,6 +2332,7 @@ public sealed class HtmlViews
                     <button type="button" class="button" data-workspace-dialog-close>{{T(context, "Close")}}</button>
                 </div>
             </form>
+            </section>
             """;
     }
 
@@ -4061,7 +4074,7 @@ public sealed class HtmlViews
                     <div class="session-tabs viewer-tabs">
                         <div class="session-tab active viewer-tab">
                             <div class="session-tab-main viewer-tab-main" aria-current="page">
-                                <span class="session-tab-title">{{ServerIcon(server, "small")}}<span>{{E(file.FileName)}}</span></span>
+                                <span class="session-tab-title">{{Icon(ServerEndpoint.EffectiveIconKey(server.Protocol, server.IconKey))}}<span>{{E(file.FileName)}}</span></span>
                                 <small>{{E(path)}} &middot; {{E(file.ContentType)}} &middot; {{FormatFileSize(file.Length)}}</small>
                             </div>
                         </div>
@@ -4090,7 +4103,7 @@ public sealed class HtmlViews
                     <div class="session-tabs viewer-tabs">
                         <div class="session-tab active viewer-tab">
                             <div class="session-tab-main viewer-tab-main" aria-current="page">
-                                <span class="session-tab-title">{{ServerIcon(server, "small")}}<span>{{E(title)}}</span></span>
+                                <span class="session-tab-title">{{Icon(ServerEndpoint.EffectiveIconKey(server.Protocol, server.IconKey))}}<span>{{E(title)}}</span></span>
                                 <small>{{E(path)}}</small>
                             </div>
                         </div>
@@ -4285,6 +4298,9 @@ public sealed class HtmlViews
             pastedImageName = Language(context) == "de" ? "Bild" : "Image",
             placesOther = Language(context) == "de" ? "Andere Verbindungen" : "Other connections",
             placesWorkspaces = "Workspaces",
+            newPlace = Language(context) == "de" ? "Neue Ablage ..." : "New place ...",
+            newPlaceName = Language(context) == "de" ? "Name der neuen Ablage" : "Name of the new place",
+            newPlaceFailed = Language(context) == "de" ? "Die Ablage konnte nicht angelegt werden." : "Could not create the place.",
             workspaceSettings = Language(context) == "de" ? "Freigabe-Einstellungen" : "Share settings",
             sharePlace = Language(context) == "de" ? "Freigeben" : "Share",
             uploadCancelled = Language(context) == "de" ? "Abgebrochen" : "Cancelled",
@@ -8155,6 +8171,43 @@ public sealed class HtmlViews
                 // Two groups instead of one long list: at the top what belongs to the here and
                 // now - this session's folder, the place you are in, your own and the shared
                 // files. Below that the places of the other connections.
+                // Not an id but a marker: picking it does not switch places, it makes one.
+                const CREATE_PLACE = '__create-place__';
+
+                // Asks for a name and makes a place with a folder of its own. Returns the id of the
+                // new place, or null when the name was left empty or the gateway refused - the
+                // caller then simply stays where it is. The list of places is fetched again
+                // afterwards, otherwise the new one would be missing from the select that made it.
+                async function createPlace() {
+                    const name = (window.prompt(ui('newPlaceName')) || '').trim();
+                    if (!name) {
+                        return null;
+                    }
+
+                    try {
+                        const data = new FormData();
+                        data.append('name', name);
+                        const response = await fetch('/api/files/places', {
+                            method: 'POST',
+                            body: data,
+                            credentials: 'same-origin',
+                            headers: { 'X-Matgate-Csrf': csrfToken }
+                        });
+                        if (!response.ok) {
+                            window.alert(ui('newPlaceFailed'));
+                            return null;
+                        }
+
+                        const payload = await response.json();
+                        await refreshConnectionsPanel();
+                        return payload.placeId || null;
+                    }
+                    catch (error) {
+                        window.alert(ui('newPlaceFailed'));
+                        return null;
+                    }
+                }
+
                 function placeOptionGroups(places, currentId) {
                     // A workspace is not a connection - so it gets a group of its own and not the
                     // heading "Other connections".
@@ -8173,12 +8226,18 @@ public sealed class HtmlViews
                         ? `<optgroup label="${escapeHtml(label)}">${items.map(option).join('')}</optgroup>`
                         : '');
 
-                    // Without a second group no heading - a single group is just a frame.
-                    return (others.length || workspacePlaces.length)
-                        ? group(ui('placesCurrent'), current)
-                            + group(ui('placesWorkspaces'), workspacePlaces)
-                            + group(ui('placesOther'), others)
-                        : current.map(option).join('');
+                    // The last entry under the workspaces makes a new one. A place is created where
+                    // it is used - since the workspace page left the menu there was no way to make
+                    // one at all, because sharing only ever turns an EXISTING place into a share.
+                    const createEntry = `<option value="${CREATE_PLACE}">${escapeHtml(ui('newPlace'))}</option>`;
+                    const workspaceGroup = `<optgroup label="${escapeHtml(ui('placesWorkspaces'))}">`
+                        + workspacePlaces.map(option).join('') + createEntry + '</optgroup>';
+
+                    // The groups are always named now: with the create entry there is always a
+                    // second one, so a lone unnamed list cannot occur any more.
+                    return group(ui('placesCurrent'), current)
+                        + workspaceGroup
+                        + group(ui('placesOther'), others);
                 }
 
                 // The areas this user can reach, so one dialog manages all of them instead of showing
@@ -9752,8 +9811,25 @@ public sealed class HtmlViews
                     tab.uploadDragDepth = 0;
 
                     manager.querySelectorAll('[data-file-place-select]').forEach(select => {
-                        select.addEventListener('change', () => {
+                        select.addEventListener('change', async () => {
                             const placeId = select.value || '';
+                            if (placeId === CREATE_PLACE) {
+                                // The select goes back to where it was: whatever happens next, the
+                                // field must not keep showing an entry that is not a place.
+                                select.value = tab.serverId;
+                                const created = await createPlace();
+                                if (created) {
+                                    if (tab.id === 'file-area-dialog') {
+                                        showFileArea(created);
+                                    }
+                                    else {
+                                        switchFileTabTo(tab, created);
+                                    }
+                                }
+
+                                return;
+                            }
+
                             if (!placeId || placeId === tab.serverId) {
                                 return;
                             }
@@ -13516,7 +13592,61 @@ public sealed class HtmlViews
                     .share-log-actor { font-weight: 600; }
                     .share-log-path { color: var(--muted); word-break: break-all; }
                     .workspace-share-line code { background: var(--surface-2); border-radius: var(--radius); flex: 1 1 320px; padding: 8px 10px; word-break: break-all; }
-                    .workspace-settings-dialog { max-width: min(680px, calc(100vw - 32px)); width: 100%; }
+                    /* The settings fill their host instead of floating in it as a small box: in a
+                       file-manager tab that is the whole tab, in a session the whole places dialog.
+                       The <dialog> itself is transparent, so the sheet below brings the surface. */
+                    .workspace-settings-dialog {
+                        height: min(920px, calc(100vh - 32px));
+                        max-width: none;
+                        width: min(1160px, calc(100vw - 32px));
+                    }
+                    .share-settings-page {
+                        background: var(--panel);
+                        border: 1px solid var(--line);
+                        border-radius: var(--radius);
+                        box-shadow: var(--shadow-strong);
+                        display: grid;
+                        grid-template-rows: auto 1fr;
+                        height: 100%;
+                        overflow: hidden;
+                    }
+                    /* justify-content explicitly: the general header rule spreads its children
+                       apart, which put the title at the far right, half a sheet away from the
+                       button it belongs to. */
+                    .share-settings-head {
+                        align-items: center;
+                        background: var(--surface);
+                        border-bottom: 1px solid var(--line);
+                        display: flex;
+                        gap: 12px;
+                        justify-content: flex-start;
+                        padding: 10px 14px;
+                        text-align: left;
+                    }
+                    .share-settings-title {
+                        display: grid;
+                        line-height: 1.25;
+                        min-width: 0;
+                    }
+                    .share-settings-title strong {
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        white-space: nowrap;
+                    }
+                    .share-settings-title small {
+                        color: var(--muted);
+                    }
+                    /* Only the body scrolls - the bar with the way back stays where it is, however
+                       long the log gets. The column keeps a readable width and sits in the middle
+                       of the sheet instead of clinging to its left edge. */
+                    .share-settings-body {
+                        margin: 0 auto;
+                        max-width: 820px;
+                        min-height: 0;
+                        overflow-y: auto;
+                        padding: clamp(14px, 3vw, 24px);
+                        width: 100%;
+                    }
                     .totp-qr { background: #fff; border: 1px solid var(--line); border-radius: var(--radius); height: 174px; padding: 6px; width: 174px; }
                     .totp-secret code { background: var(--surface-2); border-radius: var(--radius); display: inline-block; font-size: 15px; letter-spacing: .12em; padding: 8px 10px; word-break: break-all; }
                     .totp-state { align-items: center; display: flex; gap: 8px; margin: 12px 0 0; }
@@ -14326,6 +14456,12 @@ public sealed class HtmlViews
                     .session-tab-title .icon {
                         height: 15px;
                         width: 15px;
+                    }
+                    /* A boxed icon in a tab title must not grow: the rule for the title's text span
+                       below is more specific than .server-icon's own flex, so the box stretched to
+                       the full width of the title - a 15px icon in a 340px frame. */
+                    .session-tab-title .server-icon {
+                        flex: 0 0 auto;
                     }
                     .session-tab-title span {
                         display: block;

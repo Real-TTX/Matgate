@@ -60,15 +60,194 @@ public static class EndpointMapping
         }
         """;
 
+    // What the installed app shows when the gateway cannot be reached. Everything is inline -
+    // a page that loads something would be the one page that must not. The colours are the
+    // built-in palette, light and dark, so it looks like the app it stands in for rather than
+    // like a browser error.
+    //
+    // The service worker answers the FAILED navigation with this page, so the address bar still
+    // holds the page that was wanted: reloading goes back exactly there, no guessing needed.
+    private const string OfflinePageHtml = """
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <meta name="robots" content="noindex">
+        <meta name="color-scheme" content="light dark">
+        <!-- An empty icon on purpose: without it the browser asks for /favicon.ico, and a request
+             that cannot succeed is the last thing this page needs. -->
+        <link rel="icon" href="data:,">
+        <title>Matgate</title>
+        <style>
+          :root {
+            --bg: #f4f6f4; --panel: #ffffff; --text: #1f2725; --muted: #5d6763;
+            --line: #dce2de; --accent: #176b5b; --accent-2: #2b5876;
+            --shadow: 0 10px 24px rgb(31 39 37 / 10%);
+          }
+          @media (prefers-color-scheme: dark) {
+            :root {
+              --bg: #0f1412; --panel: #161c19; --text: #edf2ef; --muted: #a0aca6;
+              --line: #2f3d37; --accent: #5bc2a8; --accent-2: #8cb8e0;
+              --shadow: 0 12px 28px rgb(0 0 0 / 42%);
+            }
+          }
+          * { box-sizing: border-box; }
+          body {
+            align-items: center; background: var(--bg); color: var(--text);
+            display: flex; justify-content: center; margin: 0; min-height: 100vh; padding: 24px;
+            font: 15px/1.55 "Segoe UI", system-ui, -apple-system, sans-serif;
+          }
+          .card {
+            background: var(--panel); border: 1px solid var(--line); border-radius: 12px;
+            box-shadow: var(--shadow); max-width: 420px; padding: 32px 28px; text-align: center; width: 100%;
+          }
+          .brand { align-items: center; display: inline-flex; gap: 9px; margin-bottom: 26px; }
+          .brand-mark {
+            align-items: center; background: var(--accent); border-radius: 8px; color: var(--panel);
+            display: inline-flex; height: 28px; justify-content: center; width: 28px;
+          }
+          .brand-word { font-size: 15px; font-weight: 700; letter-spacing: .14em; }
+          .brand-word span { color: var(--accent); }
+          /* The ring beats slowly while waiting and turns while a probe is in flight - the only
+             moving thing on the page, so it reads as "still trying" without saying it twice. */
+          .ring {
+            align-items: center; border: 2px solid var(--line); border-radius: 50%;
+            color: var(--muted); display: flex; height: 76px; justify-content: center;
+            margin: 0 auto 20px; position: relative; width: 76px;
+          }
+          .ring::after {
+            border: 2px solid var(--accent); border-radius: 50%; content: ""; inset: -2px;
+            opacity: 0; position: absolute;
+          }
+          .ring { animation: breathe 2.8s ease-in-out infinite; }
+          .ring.busy::after { animation: spin 1s linear infinite; border-color: var(--accent) transparent transparent transparent; opacity: 1; }
+          @keyframes breathe { 0%, 100% { border-color: var(--line); } 50% { border-color: var(--accent); } }
+          @keyframes spin { to { transform: rotate(360deg); } }
+          @media (prefers-reduced-motion: reduce) {
+            .ring, .ring.busy::after { animation: none; }
+            .ring.busy::after { opacity: 1; border-color: var(--accent); }
+          }
+          h1 { font-size: 21px; margin: 0 0 8px; }
+          p { color: var(--muted); margin: 0 0 22px; }
+          button {
+            background: var(--accent); border: 1px solid var(--accent); border-radius: 8px;
+            color: var(--panel); cursor: pointer; font: inherit; font-weight: 600;
+            padding: 9px 20px; width: 100%;
+          }
+          button:hover { filter: brightness(1.08); }
+          .status { color: var(--muted); font-size: 13px; margin: 14px 0 0; min-height: 1.5em; }
+        </style>
+        </head>
+        <body>
+        <main class="card">
+          <span class="brand">
+            <span class="brand-mark" aria-hidden="true">
+              <svg width="17" height="17" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><path d="M17 48 V16 H47 V48 H40 V23 H24 V48 Z" fill="currentColor"/></svg>
+            </span>
+            <span class="brand-word"><span>MAT</span>GATE</span>
+          </span>
+          <div class="ring" id="ring" aria-hidden="true">
+            <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round"><path d="M5 12.5a10 10 0 0 1 4-2.4"/><path d="M1.5 8.5a15 15 0 0 1 5-3.1"/><path d="M15 10.1a10 10 0 0 1 4 2.4"/><path d="M17.5 5.4a15 15 0 0 1 5 3.1"/><path d="M8.5 16.4a5 5 0 0 1 7 0"/><path d="M12 20h.01"/><path d="M3 3l18 18"/></svg>
+          </div>
+          <h1 id="title">No connection</h1>
+          <p id="text">Matgate cannot be reached right now. Either the network is gone, or the gateway is restarting.</p>
+          <button id="retry" type="button">Try again</button>
+          <p class="status" id="status"></p>
+        </main>
+        <script>
+          var de = (navigator.language || "").toLowerCase().indexOf("de") === 0;
+          var words = de
+            ? { title: "Keine Verbindung",
+                text: "Matgate ist gerade nicht erreichbar. Entweder ist das Netz weg, oder das Gateway startet neu.",
+                retry: "Erneut versuchen", checking: "Wird geprüft ...", back: "Verbindung da - lädt neu ...",
+                next: function (s) { return "Nächster Versuch in " + s + " s"; } }
+            : { title: "No connection",
+                text: "Matgate cannot be reached right now. Either the network is gone, or the gateway is restarting.",
+                retry: "Try again", checking: "Checking ...", back: "Back - reloading ...",
+                next: function (s) { return "Next try in " + s + " s"; } };
+
+          document.documentElement.lang = de ? "de" : "en";
+          document.getElementById("title").textContent = words.title;
+          document.getElementById("text").textContent = words.text;
+          document.getElementById("retry").textContent = words.retry;
+          var statusLine = document.getElementById("status");
+          var ring = document.getElementById("ring");
+
+          // Backing off instead of hammering: a gateway that is restarting does not come back
+          // faster because the page asks ten times a second.
+          var waits = [5, 5, 10, 20, 30];
+          var attempt = 0;
+          var seconds = waits[0];
+          var timer = 0;
+
+          async function probe() {
+            clearInterval(timer);
+            ring.classList.add("busy");
+            statusLine.textContent = words.checking;
+            try {
+              // The manifest needs no sign-in and is tiny - the cheapest proof that the gateway
+              // answers at all.
+              await fetch("/manifest.webmanifest", { cache: "no-store" });
+              statusLine.textContent = words.back;
+              location.reload();
+              return;
+            }
+            catch (error) {
+              ring.classList.remove("busy");
+              attempt = Math.min(attempt + 1, waits.length - 1);
+              countdown(waits[attempt]);
+            }
+          }
+
+          function countdown(from) {
+            seconds = from;
+            statusLine.textContent = words.next(seconds);
+            clearInterval(timer);
+            timer = setInterval(function () {
+              seconds -= 1;
+              if (seconds <= 0) { probe(); return; }
+              statusLine.textContent = words.next(seconds);
+            }, 1000);
+          }
+
+          document.getElementById("retry").addEventListener("click", probe);
+          window.addEventListener("online", probe);
+          countdown(waits[0]);
+        </script>
+        </body>
+        </html>
+        """;
+
+    // One cache with one entry in it: the offline page. The app shell is deliberately NOT cached -
+    // every HTML response carries the whole application, and serving a stale one would be worse
+    // than serving nothing. The only thing this worker adds is an answer for a page load that
+    // fails, so the installed app shows its own face instead of the browser's error.
     private const string ServiceWorkerJs = """
+        const OFFLINE_CACHE = 'matgate-offline-v1';
+        const OFFLINE_PAGE = '/offline';
+
         self.addEventListener('install', event => {
-          self.skipWaiting();
+          event.waitUntil((async () => {
+            try {
+              const cache = await caches.open(OFFLINE_CACHE);
+              await cache.add(new Request(OFFLINE_PAGE, { cache: 'reload' }));
+            }
+            catch (error) {
+              // Installed while already offline: the worker still takes over, it just has no page
+              // to fall back on until the next update.
+            }
+
+            await self.skipWaiting();
+          })());
         });
 
         self.addEventListener('activate', event => {
           event.waitUntil((async () => {
             const cacheNames = await caches.keys();
-            await Promise.all(cacheNames.map(cacheName => caches.delete(cacheName)));
+            await Promise.all(cacheNames
+              .filter(cacheName => cacheName !== OFFLINE_CACHE)
+              .map(cacheName => caches.delete(cacheName)));
             await self.clients.claim();
           })());
         });
@@ -81,6 +260,23 @@ public static class EndpointMapping
 
           const url = new URL(request.url);
           if (url.origin !== self.location.origin) {
+            return;
+          }
+
+          // Only a page load gets the fallback. Everything else - the API, the tunnel, an icon -
+          // passes through and is allowed to fail, because the page that asked for it is the one
+          // that knows what a failure means.
+          if (request.mode === 'navigate') {
+            event.respondWith((async () => {
+              try {
+                return await fetch(request);
+              }
+              catch (error) {
+                const cache = await caches.open(OFFLINE_CACHE);
+                const page = await cache.match(OFFLINE_PAGE);
+                return page || Response.error();
+              }
+            })());
             return;
           }
 
@@ -263,6 +459,13 @@ public static class EndpointMapping
             context.Response.Headers.Pragma = "no-cache";
             return Results.Text(ServiceWorkerJs, "application/javascript");
         });
+        // Cacheable on purpose, and without a sign-in: the service worker keeps a copy of this
+        // page, and there is nothing of anyone's in it.
+        app.MapMethods("/offline", new[] { "GET", "HEAD" }, (HttpContext context) =>
+        {
+            context.Response.Headers.CacheControl = "public, max-age=300";
+            return Results.Content(OfflinePageHtml, "text/html; charset=utf-8");
+        });
         app.MapGet("/api/ping", () => Results.Ok(new { serverTime = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() }))
             .RequireAuthorization();
         app.MapGet("/language/{language}", SetLanguage);
@@ -326,6 +529,10 @@ public static class EndpointMapping
         // to someone else's machine is not something you hand on as a link.
         app.MapGet("/api/files/{id:guid}/share-form", ShareFormFragmentAsync).RequireAuthorization();
         app.MapPost("/api/files/{id:guid}/share", ShareAreaAsync).RequireAuthorization();
+        // A new place with a folder of its own, created from the file manager. Since the workspace
+        // page left the menu, this is the way to get one - sharing only ever turned an existing
+        // place into a share, it never made a new one.
+        app.MapPost("/api/files/places", CreatePlaceAsync).RequireAuthorization();
         app.MapPost("/workspaces/{id:guid}/delete", DeleteWorkspaceAsync).RequireAuthorization();
         app.MapPost("/workspaces/{id:guid}/upload", WorkspaceUploadAsync).RequireAuthorization();
         app.MapGet("/workspaces/{id:guid}/download", WorkspaceDownloadAsync).RequireAuthorization();
@@ -1356,6 +1563,61 @@ public static class EndpointMapping
 
         await store.UpdateWorkspacesAsync(list => list.Add(created), context.RequestAborted);
         return Results.Json(new { id = created.Id.ToString() });
+    }
+
+    // A name is all it takes. Everything else - the link, a password, how long it lasts - is set
+    // afterwards in the settings, because at this moment nobody knows yet what the place is for.
+    // The answer carries the id of the place, not of the share: the caller is a file manager and
+    // wants to show the folder it just created.
+    private static async Task<IResult> CreatePlaceAsync(
+        HttpContext context,
+        JsonDataStore store,
+        WorkspaceService workspaceService)
+    {
+        if (!ValidateCsrfHeader(context))
+        {
+            return Results.BadRequest(new { error = HtmlViews.Translate(context, "Invalid request") });
+        }
+
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        var name = Clean(form["name"].ToString(), "");
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return Results.BadRequest(new { error = HtmlViews.Translate(context, "A workspace needs a name.") });
+        }
+
+        var created = new WorkspaceDefinition
+        {
+            Name = name,
+            AllowUploads = true,
+            IsEnabled = true,
+            PublicAccessExpiresAt = DateTimeOffset.UtcNow.AddHours(24),
+            OwnerUserId = user.Id,
+        };
+
+        await workspaceService.UpdateWorkspacesAsync(list => list.Add(created), context.RequestAborted);
+        workspaceService.GetWorkspaceRoot(created);
+        await workspaceService.RecordActivityAsync(
+            created,
+            context,
+            user,
+            "Created workspace",
+            "/",
+            "",
+            "Admin",
+            context.RequestAborted);
+
+        return Results.Json(new
+        {
+            id = created.Id.ToString(),
+            placeId = FileShareService.WorkspaceAreaId(created.Id).ToString(),
+        });
     }
 
     private static async Task<IResult> WorkspaceSettingsFragmentAsync(

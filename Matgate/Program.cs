@@ -206,10 +206,13 @@ app.Use(async (context, next) =>
 
 app.Use(async (context, next) =>
 {
+    // The offline page is the one HTML the service worker has to be able to keep: it holds nothing
+    // of anyone's, and a copy of it is the whole point.
+    var isOfflinePage = string.Equals(context.Request.Path.Value, "/offline", StringComparison.OrdinalIgnoreCase);
     context.Response.OnStarting(() =>
     {
         var contentType = context.Response.ContentType;
-        if (contentType is not null && contentType.Contains("text/html", StringComparison.OrdinalIgnoreCase))
+        if (!isOfflinePage && contentType is not null && contentType.Contains("text/html", StringComparison.OrdinalIgnoreCase))
         {
             context.Response.Headers.CacheControl = "no-store, no-cache, must-revalidate";
             context.Response.Headers.Pragma = "no-cache";

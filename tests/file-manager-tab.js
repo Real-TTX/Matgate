@@ -51,7 +51,8 @@ const activeTitle = page => page.evaluate(() => {
   const before = await page.evaluate(() => document.querySelectorAll("#session-tabs .session-tab").length);
   const target = await page.evaluate(() => {
     const f = document.querySelector("[data-file-place-select]");
-    const others = Array.from(f.options).find(o => o.value !== f.value);
+    // The last entry of the Workspaces group makes a NEW place - not a folder to switch to.
+    const others = Array.from(f.options).find(o => o.value !== f.value && o.value !== "__create-place__");
     return others ? { value: others.value, text: others.textContent.trim() } : null;
   });
   check("there is another folder", target !== null, true);

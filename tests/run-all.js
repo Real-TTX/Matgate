@@ -19,11 +19,13 @@ const GROUPS = [
   },
   {
     name: "Group 3 - menus, tabs, file manager",
-    scripts: ["menus.js", "file-manager-tab.js", "tab-scrollbar.js", "add-tab-plus.js"],
+    scripts: ["menus.js", "file-manager-tab.js", "tab-scrollbar.js", "add-tab-plus.js",
+      "create-place.js"],
   },
   {
     name: "Group 4 - appearance, home page, names",
-    scripts: ["colours.js", "colours-follow-theme.js", "home-page.js", "username-case.js"],
+    scripts: ["colours.js", "colours-follow-theme.js", "home-page.js", "username-case.js",
+      "offline-page.js"],
   },
   {
     name: "Group 5 - second factor and sharing",
