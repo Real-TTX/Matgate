@@ -35,8 +35,11 @@ const NAME = "DissolvedShare";
   await page.goto(BASE + "/workspaces/new", { waitUntil: "networkidle" });
   await page.fill("input[name=\"name\"]", NAME);
   await page.evaluate(() => document.querySelector("input[name='name']").form.requestSubmit());
+  // Waiting for the address instead of a fixed pause: the redirect carries the id of the new
+  // share, and reading it a moment too early left the cleanup with "undefined".
+  await page.waitForURL(/\/workspaces\/[0-9a-f-]{36}/i, { timeout: 15000 }).catch(() => {});
   await sleep(1800);
-  const shareId = (page.url().match(/\/workspaces\/([0-9a-f-]{36})/i) || [])[1];
+  let shareId = (page.url().match(/\/workspaces\/([0-9a-f-]{36})/i) || [])[1];
 
   // --- The section is called Shares now
   await page.goto(BASE + "/", { waitUntil: "networkidle" });
@@ -76,13 +79,24 @@ const NAME = "DissolvedShare";
   check("without a page change", dialog.url, "/");
   await page.screenshot({ path: "dissolved-dialog.png" });
 
-  // --- Clean up
-  await page.goto(BASE + "/workspaces/" + shareId, { waitUntil: "networkidle" });
-  await page.evaluate(() => {
-    const form = document.querySelector("form[action$='/delete']");
-    if (form) { form.removeAttribute("data-confirm"); form.submit(); }
-  });
-  await sleep(1300);
+  // --- Clean up. If the id was missed, look it up by name: a share left behind would make the
+  // next run find two cards of the same name.
+  if (!shareId) {
+    shareId = await page.evaluate(async name => {
+      const text = await (await fetch("/workspaces", { credentials: "same-origin" })).text();
+      const match = text.match(new RegExp('href="/workspaces/([0-9a-f-]{36})"[^>]*>[^<]*' + name));
+      return match ? match[1] : null;
+    }, NAME);
+  }
+
+  if (shareId) {
+    await page.goto(BASE + "/workspaces/" + shareId, { waitUntil: "networkidle" });
+    await page.evaluate(() => {
+      const form = document.querySelector("form[action$='/delete']");
+      if (form) { form.removeAttribute("data-confirm"); form.submit(); }
+    });
+    await sleep(1300);
+  }
 
   console.log("failed: " + JSON.stringify(failures));
   await b.close();

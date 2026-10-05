@@ -26,8 +26,11 @@ const NAME = "Dialogablage";
   await page.goto(BASE + "/workspaces/new", { waitUntil: "networkidle" });
   await page.fill("input[name=\"name\"]", NAME);
   await page.evaluate(() => document.querySelector("input[name='name']").form.requestSubmit());
+  // Waiting for the address instead of a fixed pause: the redirect carries the id of the new
+  // share, and reading it a moment too early left the cleanup with "undefined".
+  await page.waitForURL(/\/workspaces\/[0-9a-f-]{36}/i, { timeout: 15000 }).catch(() => {});
   await sleep(1800);
-  const shareId = (page.url().match(/\/workspaces\/([0-9a-f-]{36})/i) || [])[1];
+  let shareId = (page.url().match(/\/workspaces\/([0-9a-f-]{36})/i) || [])[1];
   check("place created", typeof shareId === "string", true);
   // Set a real root path first - otherwise "not emptied" proves nothing.
   await page.goto(BASE + "/workspaces/" + shareId + "?tab=settings", { waitUntil: "networkidle" });
