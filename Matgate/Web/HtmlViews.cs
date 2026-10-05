@@ -2229,6 +2229,72 @@ public sealed class HtmlViews
             """;
     }
 
+    // Die Einstellungen einer Ablage als Dialog im Dateimanager - damit man sie aendern kann, ohne
+    // den Reiter zu verlassen. Hier steht nur, was zum Teilen gehoert: der Link, das Passwort, der
+    // Ablauf, ob hochgeladen werden darf. Der Wurzelpfad und die geteilte Notiz stehen bewusst
+    // NICHT darin; was nicht mitgeschickt wird, bleibt unveraendert (siehe UpdateWorkspaceAsync).
+    public string WorkspaceSettingsDialog(HttpContext context, WorkspaceDefinition workspace, string publicUrl)
+    {
+        var de = Language(context) == "de";
+        var service = context.RequestServices.GetService<WorkspaceService>();
+        var hatPasswort = service?.HasAccessPassword(workspace) ?? false;
+        var restlich = service?.GetPublicAccessRemaining(workspace);
+        var ablaufText = restlich is null
+            ? (de ? "läuft nicht ab" : "does not expire")
+            : restlich.Value <= TimeSpan.Zero
+                ? (de ? "abgelaufen" : "expired")
+                : (de ? $"noch {WorkspaceRemainingLabel(restlich.Value)}" : $"{WorkspaceRemainingLabel(restlich.Value)} left");
+
+        return $$"""
+            <form method="post" action="/workspaces/{{workspace.Id}}/update" class="settings-form" data-workspace-settings-form>
+                {{Csrf(context)}}
+                <fieldset class="settings-group">
+                    <legend>{{(de ? "Ablage" : "Place")}}</legend>
+                    <div class="form-grid">
+                        <label>{{T(context, "Name")}}
+                            <input name="name" value="{{A(workspace.Name)}}" required maxlength="120">
+                        </label>
+                        <label>{{T(context, "Description")}}
+                            <input name="description" value="{{A(workspace.Description)}}">
+                        </label>
+                    </div>
+                    <label class="check"><input type="checkbox" name="allowUploads"{{Checked(workspace.AllowUploads)}}> <span>{{(de ? "Hochladen erlauben" : "Allow uploads")}}</span></label>
+                    <label class="check"><input type="checkbox" name="isEnabled"{{Checked(workspace.IsEnabled)}}> <span>{{T(context, "Enabled")}}</span></label>
+                    <!-- Nicht angeboten, aber auch nicht verlieren: so bleibt der Wert, wie er war. -->
+                    <input type="hidden" name="allowTextExchange" value="{{(workspace.AllowTextExchange ? "on" : "")}}">
+                </fieldset>
+                <fieldset class="settings-group">
+                    <legend>{{(de ? "Freigabe" : "Sharing")}}</legend>
+                    <p class="muted settings-hint">{{(de
+                        ? "Mit diesem Link kommt auch jemand hinein, der kein Konto hat. Ohne Passwort genügt der Link allein - wer ihn hat, ist drin."
+                        : "This link lets in someone without an account. With no password the link alone is enough - whoever has it, is in.")}}</p>
+                    <div class="workspace-share-line">
+                        <code data-workspace-link>{{E(publicUrl)}}</code>
+                        <button type="button" class="button" data-workspace-copy="{{A(publicUrl)}}">{{Icon("copy")}}{{T(context, "Copy to clipboard")}}</button>
+                    </div>
+                    <p class="muted settings-hint">{{(de ? "Gültigkeit: " : "Validity: ")}}{{E(ablaufText)}}</p>
+                    <div class="form-grid">
+                        <label>{{(de ? "Passwort für den Link" : "Password for the link")}}
+                            <input name="password" type="password" autocomplete="new-password" placeholder="{{A(hatPasswort ? (de ? "gesetzt - leer lassen, um es zu behalten" : "set - leave empty to keep it") : (de ? "keines" : "none"))}}">
+                        </label>
+                    </div>
+                    {{(hatPasswort ? $"""<label class="check"><input type="checkbox" name="clearPassword"> <span>{E(de ? "Passwort entfernen" : "Remove password")}</span></label>""" : "")}}
+                </fieldset>
+                <div class="actions">
+                    <button type="submit" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button>
+                    <button type="button" class="button" data-workspace-dialog-close>{{T(context, "Close")}}</button>
+                </div>
+            </form>
+            """;
+    }
+
+    private static string WorkspaceRemainingLabel(TimeSpan remaining)
+    {
+        return remaining.TotalHours >= 1
+            ? $"{(int)Math.Ceiling(remaining.TotalHours)} h"
+            : $"{Math.Max(1, (int)Math.Ceiling(remaining.TotalMinutes))} min";
+    }
+
     private static string WorkspaceSettingsPanel(HttpContext context, WorkspaceDefinition workspace, string defaultRootPath)
     {
         return $$"""
@@ -4404,6 +4470,7 @@ public sealed class HtmlViews
                     </div>
                 </div>
                 <dialog id="file-viewer-dialog" class="matgate-dialog file-viewer-dialog"></dialog>
+                <dialog id="workspace-settings-dialog" class="matgate-dialog workspace-settings-dialog"></dialog>
             </section>
             </div>
             <div id="session-statusbar" class="session-statusbar">
@@ -5713,6 +5780,99 @@ public sealed class HtmlViews
                     });
                 }
 
+                // Die Einstellungen einer Ablage als Dialog - der Weg ueber eine eigene Seite warf
+                // einen aus dem Reiter, in dem man gerade arbeitete. Gespeichert wird im
+                // Hintergrund, danach bleibt alles stehen, wo es war.
+                const workspaceSettingsDialog = document.getElementById('workspace-settings-dialog');
+
+                async function openWorkspaceSettings(workspaceId) {
+                    if (!workspaceSettingsDialog || !workspaceId) {
+                        return;
+                    }
+
+                    workspaceSettingsDialog.replaceChildren();
+                    const laedt = document.createElement('div');
+                    laedt.className = 'file-viewer-dialog-loading';
+                    laedt.textContent = `${ui('loading')}...`;
+                    workspaceSettingsDialog.appendChild(laedt);
+                    if (typeof workspaceSettingsDialog.showModal === 'function' && !workspaceSettingsDialog.open) {
+                        workspaceSettingsDialog.showModal();
+                    }
+
+                    let html = '';
+                    try {
+                        const antwort = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/settings`, {
+                            headers: { 'X-Matgate-Csrf': csrfToken },
+                            cache: 'no-store',
+                        });
+                        if (!antwort.ok) {
+                            throw new Error(String(antwort.status));
+                        }
+
+                        html = await antwort.text();
+                    }
+                    catch {
+                        laedt.textContent = uiText.actionFailed || 'Failed';
+                        return;
+                    }
+
+                    workspaceSettingsDialog.innerHTML = html;
+                    workspaceSettingsDialog.querySelectorAll('[data-workspace-dialog-close]').forEach(knopf => {
+                        knopf.addEventListener('click', () => workspaceSettingsDialog.close());
+                    });
+                    workspaceSettingsDialog.querySelectorAll('[data-workspace-copy]').forEach(knopf => {
+                        knopf.addEventListener('click', async () => {
+                            await window.MatgateCopyText?.(knopf.getAttribute('data-workspace-copy') || '');
+                        });
+                    });
+
+                    const formular = workspaceSettingsDialog.querySelector('[data-workspace-settings-form]');
+                    if (formular) {
+                        formular.addEventListener('submit', async event => {
+                            event.preventDefault();
+                            try {
+                                await fetch(formular.getAttribute('action') || '', {
+                                    method: 'POST',
+                                    body: new FormData(formular),
+                                    credentials: 'same-origin',
+                                    headers: { 'X-Matgate-Csrf': csrfToken },
+                                });
+                            }
+                            catch {
+                                // Keine Verbindung - dann bleibt der Dialog offen und nichts ist verloren.
+                                return;
+                            }
+
+                            workspaceSettingsDialog.close();
+                            // Der Name kann sich geaendert haben: Ablagenliste neu holen, Reiter neu
+                            // beschriften, Inhalt neu laden.
+                            await refreshConnectionsPanel();
+                            const tab = tabs.get(activeTabId);
+                            if (tab) {
+                                const frisch = findServer(tab.serverId);
+                                if (frisch) {
+                                    tab.name = frisch.name;
+                                    const titel = tab.tabMain ? tab.tabMain.querySelector('.session-tab-title') : null;
+                                    if (titel) {
+                                        titel.innerHTML = tabTitleHtml(frisch);
+                                    }
+                                }
+
+                                startFileTab(tab);
+                            }
+                        });
+                    }
+                }
+
+                document.addEventListener('click', event => {
+                    const knopf = event.target instanceof Element
+                        ? event.target.closest('[data-workspace-settings]')
+                        : null;
+                    if (knopf) {
+                        event.preventDefault();
+                        openWorkspaceSettings(knopf.getAttribute('data-workspace-settings'));
+                    }
+                });
                 function wireShellNavigation() {
                     wireOpenControls(document);
 
@@ -9408,7 +9568,7 @@ public sealed class HtmlViews
                     // Passwort, Ablauf, Rechte und der Link, den man weitergibt. Der Weg dorthin
                     // gehoert in die Leiste, sonst muesste man ihn ueber das Menue suchen.
                     const werkstattKnopf = (dieseAblage && dieseAblage.areaKind === 'workspace' && dieseAblage.areaSourceId)
-                        ? `<a class="toolbar-button file-tool-button" href="/workspaces/${escapeHtml(dieseAblage.areaSourceId)}" data-shell-open-tab="1" data-shell-title="${escapeHtml(dieseAblage.name)}" title="${escapeHtml(ui('workspaceSettings'))}">${fileIcon('settings')}<span>${escapeHtml(ui('workspaceSettings'))}</span></a>`
+                        ? `<button type="button" class="toolbar-button file-tool-button" data-workspace-settings="${escapeHtml(dieseAblage.areaSourceId)}" title="${escapeHtml(ui('workspaceSettings'))}">${fileIcon('settings')}<span>${escapeHtml(ui('workspaceSettings'))}</span></button>`
                         : '';
 
                     const manager = document.createElement('div');
@@ -13255,6 +13415,10 @@ public sealed class HtmlViews
                     .accent-preset.is-selected { border-color: var(--text); }
                     /* Der zweite Faktor: QR neben der Handeingabe, damit beide Wege gleich weit weg sind. */
                     .totp-setup { align-items: start; display: flex; flex-wrap: wrap; gap: 20px; margin: 16px 0; }
+                    /* Der Link zum Weitergeben: lang, also umbrechend, und der Knopf daneben. */
+                    .workspace-share-line { align-items: center; display: flex; flex-wrap: wrap; gap: 10px; margin: 10px 0; }
+                    .workspace-share-line code { background: var(--surface-2); border-radius: var(--radius); flex: 1 1 320px; padding: 8px 10px; word-break: break-all; }
+                    .workspace-settings-dialog { max-width: min(680px, calc(100vw - 32px)); width: 100%; }
                     .totp-qr { background: #fff; border: 1px solid var(--line); border-radius: var(--radius); height: 174px; padding: 6px; width: 174px; }
                     .totp-secret code { background: var(--surface-2); border-radius: var(--radius); display: inline-block; font-size: 15px; letter-spacing: .12em; padding: 8px 10px; word-break: break-all; }
                     .totp-state { align-items: center; display: flex; gap: 8px; margin: 12px 0 0; }

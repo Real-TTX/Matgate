@@ -319,6 +319,9 @@ public static class EndpointMapping
         app.MapGet("/workspaces/{id:guid}", WorkspaceDetailAsync).RequireAuthorization();
         app.MapPost("/workspaces/{id:guid}/update", UpdateWorkspaceAsync).RequireAuthorization();
         app.MapPost("/workspaces/{id:guid}/extend", WorkspaceExtendAsync).RequireAuthorization();
+        // Die Einstellungen einer Ablage als Bruchstueck fuer den Dialog im Dateimanager. Wer sie
+        // sehen darf, entscheidet dieselbe Pruefung wie auf der Seite.
+        app.MapGet("/api/workspaces/{id:guid}/settings", WorkspaceSettingsFragmentAsync).RequireAuthorization();
         app.MapPost("/workspaces/{id:guid}/delete", DeleteWorkspaceAsync).RequireAuthorization();
         app.MapPost("/workspaces/{id:guid}/upload", WorkspaceUploadAsync).RequireAuthorization();
         app.MapGet("/workspaces/{id:guid}/download", WorkspaceDownloadAsync).RequireAuthorization();
@@ -1235,6 +1238,25 @@ public static class EndpointMapping
             "text/html");
     }
 
+    private static async Task<IResult> WorkspaceSettingsFragmentAsync(
+        Guid id,
+        HttpContext context,
+        JsonDataStore store,
+        HtmlViews views,
+        WorkspaceService workspaceService)
+    {
+        var access = await RequireWorkspaceAdminAsync(id, context, store, workspaceService);
+        if (access.Result is not null)
+        {
+            return access.Result;
+        }
+
+        var workspace = access.Workspace!;
+        return Results.Content(
+            views.WorkspaceSettingsDialog(context, workspace, BuildWorkspacePublicUrl(context, workspace.Id)),
+            "text/html");
+    }
+
     private static async Task<IResult> UpdateWorkspaceAsync(
         Guid id,
         HttpContext context,
@@ -1282,11 +1304,18 @@ public static class EndpointMapping
             stored.Description = Clean(form["description"].ToString(), "");
             // Only global admins may (re)point RootPath at an arbitrary host path; for everyone else
             // keep the existing/managed path so a non-admin can't escape the workspace directory.
-            if (user.IsAdmin)
+            // Und nur, wenn das Feld ueberhaupt gesendet wurde: auf diesen Endpunkt zeigt jetzt auch
+            // ein Dialog, der den Wurzelpfad gar nicht anbietet - ohne diese Pruefung haette ein
+            // Speichern von dort ihn geleert.
+            if (user.IsAdmin && form.ContainsKey("rootPath"))
             {
                 stored.RootPath = Clean(form["rootPath"].ToString(), "");
             }
-            stored.SharedNoteFileName = Clean(form["sharedNoteFileName"].ToString(), "shared-note.md");
+
+            if (form.ContainsKey("sharedNoteFileName"))
+            {
+                stored.SharedNoteFileName = Clean(form["sharedNoteFileName"].ToString(), "shared-note.md");
+            }
             stored.AllowUploads = IsChecked(form, "allowUploads");
             stored.AllowTextExchange = IsChecked(form, "allowTextExchange");
             stored.IsEnabled = IsChecked(form, "isEnabled");
