@@ -3876,7 +3876,7 @@ public sealed class HtmlViews
         var isFavorite = IsFavoriteServer(user, server.Id);
         var label = isFavorite ? T(context, "Remove from favorites") : T(context, "Add to favorites");
         return $$"""
-            <form method="post" action="/account/favorites/{{server.Id}}/toggle" class="favorite-toggle-form">
+            <form method="post" action="/account/favorites/{{server.Id}}/toggle" class="favorite-toggle-form" data-shell-inline>
                 {{Csrf(context)}}
                 <input type="hidden" name="returnUrl" value="{{A(returnUrl)}}">
                 <button type="submit" class="favorite-toggle{{(isFavorite ? " active" : "")}}" title="{{A(label)}}" aria-label="{{A(label)}}">{{Icon("star")}}</button>
@@ -4745,7 +4745,11 @@ public sealed class HtmlViews
                 async function openFileViewerDialog(tab, path) {
                     const pageUrl = `/files/${tab.serverId}/view?path=${encodeURIComponent(path)}&embedded=1`;
                     if (!fileViewerDialog || typeof fileViewerDialog.showModal !== 'function') {
-                        window.location.href = `/files/${tab.serverId}/view?path=${encodeURIComponent(path)}`;
+                        // Kein <dialog> im Browser? Dann als Reiter, nicht als Seitenwechsel. Ein
+                        // Seitenwechsel auf der Huelle nimmt jede laufende Sitzung mit - eine Datei
+                        // anzusehen darf das nicht kosten.
+                        const name = path.split('/').filter(Boolean).pop() || path;
+                        openShellTab(`/files/${tab.serverId}/view?path=${encodeURIComponent(path)}`, name);
                         return;
                     }
 
@@ -5668,6 +5672,7 @@ public sealed class HtmlViews
                         });
                     });
 
+
                     scope.querySelectorAll('[data-shell-open-tab="1"]').forEach(anchor => {
                         if (anchor.dataset.openWired) { return; }
                         anchor.dataset.openWired = '1';
@@ -5736,6 +5741,33 @@ public sealed class HtmlViews
 
                         const title = anchor.getAttribute('data-shell-title') || (anchor.textContent || '').trim() || href;
                         openShellTab(href, title);
+                    });
+
+                    // Dasselbe Netz fuer Formulare. Ein abgeschicktes Formular ist eine Navigation,
+                    // und eine Navigation auf der Huelle nimmt jede laufende Sitzung mit - ohne
+                    // Meldung, die Reiter sind einfach weg. Genau das tat der Favoriten-Stern auf
+                    // der Startseite. Formulare mit [data-shell-inline] werden deshalb im
+                    // Hintergrund abgeschickt, danach wird die Verbindungsliste neu geholt.
+                    document.addEventListener('submit', async (event) => {
+                        const form = event.target;
+                        if (!(form instanceof HTMLFormElement) || !form.hasAttribute('data-shell-inline')) {
+                            return;
+                        }
+
+                        event.preventDefault();
+                        try {
+                            await fetch(form.getAttribute('action') || '', {
+                                method: 'POST',
+                                body: new FormData(form),
+                                credentials: 'same-origin',
+                                headers: { 'X-Matgate-Csrf': csrfToken },
+                            });
+                        }
+                        catch {
+                            // Keine Verbindung zum Gateway - dann bleibt die Liste, wie sie war.
+                        }
+
+                        await refreshConnectionsPanel();
                     });
 
                     window.addEventListener('popstate', () => {
@@ -12293,6 +12325,7 @@ public sealed class HtmlViews
             || string.Equals(mainClass, "session-main", StringComparison.OrdinalIgnoreCase)
             || string.Equals(mainClass, "viewer-main", StringComparison.OrdinalIgnoreCase);
         var workspacesClass = workspacesActive ? " active" : "";
+
         var adminClass = adminActive ? " active" : "";
         var toolsClass = toolsActive ? " active" : "";
         var accountClass = accountActive ? " active" : "";
