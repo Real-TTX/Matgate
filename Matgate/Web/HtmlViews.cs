@@ -4173,6 +4173,9 @@ public sealed class HtmlViews
             ready = T(context, "Ready"),
             chooseConnection = Language(context) == "de" ? "Verbindung auswählen" : "Choose a connection",
             starting = Language(context) == "de" ? "Startet" : "Starting",
+            // Vor dem Namen einer Ablage im Reiter: "Dateien: User" sagt, womit man es zu tun hat.
+            // Ohne das stand dort nur "User", und daneben Reiter, die Fernsitzungen sind.
+            filesPrefix = Language(context) == "de" ? "Dateien" : "Files",
             website = T(context, "Website"),
             websiteBeta = T(context, "Website (Beta)"),
             websiteProxy = T(context, "Website proxy"),
@@ -7419,7 +7422,7 @@ public sealed class HtmlViews
                     tabMain.draggable = true;
                     const tabTitle = document.createElement('span');
                     tabTitle.className = 'session-tab-title';
-                    tabTitle.innerHTML = `${server.iconHtml || ''}<span>${escapeHtml(server.name)}</span>`;
+                    tabTitle.innerHTML = tabTitleHtml(server);
 
                     const tabDescription = document.createElement('small');
                     tabDescription.className = 'session-tab-description';
@@ -7629,7 +7632,20 @@ public sealed class HtmlViews
 
                     reconnectButton.addEventListener('click', () => restartTab(tab));
                     closeOverlayButton.addEventListener('click', () => closeTab(tab.id));
-                    panel.addEventListener('click', () => panel.focus());
+                    // Ein Klick in den Reiter holt den Fokus auf die Flaeche, damit Tastendruecke in
+                    // der Fernsitzung landen. Ein Klick auf ein BEDIENELEMENT gehoert aber diesem:
+                    // der Griff nach dem Fokus schloss sonst jedes Auswahlfeld im Dateimanager
+                    // sofort wieder, kaum dass es aufgegangen war - Ordner wechseln war unmoeglich.
+                    panel.addEventListener('click', event => {
+                        const bedienelement = event.target instanceof Element
+                            ? event.target.closest('input, select, textarea, button, a, label, [contenteditable]')
+                            : null;
+                        if (bedienelement) {
+                            return;
+                        }
+
+                        panel.focus();
+                    });
 
                     tabs.set(tab.id, tab);
                     activateTab(tab.id);
@@ -7976,6 +7992,17 @@ public sealed class HtmlViews
                 }
 
                 // Denselben Dateimanager auf einen anderen Ort richten, statt einen zweiten zu öffnen.
+                // Was im Reiter steht. Eine Ablage sagt, dass sie eine ist: "Dateien: User". Vorher
+                // stand dort nur "User" - zwischen lauter Reitern, die Fernsitzungen sind, las sich
+                // das wie ein Rechnername. An EINER Stelle, weil der Titel an zwei Orten gebaut wird
+                // (neuer Reiter und Ortswechsel im selben Reiter) und zwei Fassungen frueher oder
+                // spaeter auseinanderlaufen.
+                function tabTitleHtml(server) {
+                    const istAblage = (server.protocol || '').toUpperCase() === 'LOCAL';
+                    const text = istAblage ? `${ui('filesPrefix')}: ${server.name}` : server.name;
+                    return `${server.iconHtml || ''}<span>${escapeHtml(text)}</span>`;
+                }
+
                 function switchFileTabTo(tab, serverId) {
                     const server = findServer(serverId);
                     if (!tab || !server) {
@@ -7995,7 +8022,7 @@ public sealed class HtmlViews
                     tab.uploadQueue = [];
                     const title = tab.tabMain ? tab.tabMain.querySelector('.session-tab-title') : null;
                     if (title) {
-                        title.innerHTML = `${server.iconHtml || ''}<span>${escapeHtml(server.name)}</span>`;
+                        title.innerHTML = tabTitleHtml(server);
                     }
 
                     startFileTab(tab);
