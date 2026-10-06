@@ -4299,7 +4299,6 @@ public sealed class HtmlViews
             placesOther = Language(context) == "de" ? "Andere Verbindungen" : "Other connections",
             placesWorkspaces = "Workspaces",
             newPlace = Language(context) == "de" ? "Neue Ablage ..." : "New place ...",
-            newPlaceName = Language(context) == "de" ? "Name der neuen Ablage" : "Name of the new place",
             newPlaceFailed = Language(context) == "de" ? "Die Ablage konnte nicht angelegt werden." : "Could not create the place.",
             workspaceSettings = Language(context) == "de" ? "Freigabe-Einstellungen" : "Share settings",
             sharePlace = Language(context) == "de" ? "Freigeben" : "Share",
@@ -4452,6 +4451,23 @@ public sealed class HtmlViews
                     <div class="actions">
                         <button type="submit" class="primary">{{Icon("copy")}}{{(Language(context) == "de" ? "Kopieren" : "Copy")}}</button>
                         <button id="copy-to-close" type="button">{{T(context, "Close")}}</button>
+                    </div>
+                </form>
+                <!-- Asks for the name of a new place. A dialog of the app's own rather than the
+                     browser's prompt: a prompt can be switched off by the browser, and it cannot
+                     say what went wrong when the gateway refuses. -->
+                <form id="new-place-dialog" class="credential-dialog new-place-dialog hidden">
+                    <h2>{{(Language(context) == "de" ? "Neue Ablage" : "New place")}}</h2>
+                    <p class="muted">{{(Language(context) == "de"
+                        ? "Ein Ordner auf dem Gateway. Link, Passwort und Ablauf stehen danach in den Einstellungen."
+                        : "A folder on the gateway. Link, password and expiry are set afterwards in its settings.")}}</p>
+                    <label>{{T(context, "Name")}}
+                        <input id="new-place-name" type="text" maxlength="120" autocomplete="off" spellcheck="false" required>
+                    </label>
+                    <p id="new-place-error" class="muted hidden"></p>
+                    <div class="actions">
+                        <button type="submit" class="primary">{{Icon("plus")}}{{(Language(context) == "de" ? "Anlegen" : "Create")}}</button>
+                        <button id="new-place-close" type="button">{{T(context, "Close")}}</button>
                     </div>
                 </form>
                 <!-- Faengt Dateien auf, die irgendwo im Fenster losgelassen werden. Ohne das oeffnet
@@ -8175,37 +8191,81 @@ public sealed class HtmlViews
                 const CREATE_PLACE = '__create-place__';
 
                 // Asks for a name and makes a place with a folder of its own. Returns the id of the
-                // new place, or null when the name was left empty or the gateway refused - the
-                // caller then simply stays where it is. The list of places is fetched again
-                // afterwards, otherwise the new one would be missing from the select that made it.
-                async function createPlace() {
-                    const name = (window.prompt(ui('newPlaceName')) || '').trim();
-                    if (!name) {
-                        return null;
+                // new place, or null when the dialog was closed or the gateway refused - the caller
+                // then simply stays where it is. A refusal is said inside the dialog, which stays
+                // open: that is where the person is looking, and the name they typed is still there.
+                //
+                // The list of places is fetched again before returning, otherwise the new place
+                // would be missing from the very select that made it.
+                function createPlace() {
+                    const dialog = document.getElementById('new-place-dialog');
+                    const nameField = document.getElementById('new-place-name');
+                    const errorLine = document.getElementById('new-place-error');
+                    const closeButton = document.getElementById('new-place-close');
+                    if (!dialog || !nameField) {
+                        return Promise.resolve(null);
                     }
 
-                    try {
-                        const data = new FormData();
-                        data.append('name', name);
-                        const response = await fetch('/api/files/places', {
-                            method: 'POST',
-                            body: data,
-                            credentials: 'same-origin',
-                            headers: { 'X-Matgate-Csrf': csrfToken }
-                        });
-                        if (!response.ok) {
-                            window.alert(ui('newPlaceFailed'));
-                            return null;
+                    return new Promise(resolve => {
+                        const finish = value => {
+                            dialog.classList.add('hidden');
+                            dialog.removeEventListener('submit', onSubmit);
+                            closeButton.removeEventListener('click', onCancel);
+                            document.removeEventListener('keydown', onKey);
+                            resolve(value);
+                        };
+
+                        const onCancel = () => finish(null);
+                        const onKey = event => {
+                            if (event.key === 'Escape') {
+                                event.preventDefault();
+                                finish(null);
+                            }
+                        };
+
+                        async function onSubmit(event) {
+                            event.preventDefault();
+                            const name = nameField.value.trim();
+                            if (!name) {
+                                nameField.focus();
+                                return;
+                            }
+
+                            try {
+                                const data = new FormData();
+                                data.append('name', name);
+                                const response = await fetch('/api/files/places', {
+                                    method: 'POST',
+                                    body: data,
+                                    credentials: 'same-origin',
+                                    headers: { 'X-Matgate-Csrf': csrfToken }
+                                });
+                                if (!response.ok) {
+                                    const payload = await response.json().catch(() => ({}));
+                                    errorLine.textContent = payload.error || ui('newPlaceFailed');
+                                    errorLine.classList.remove('hidden');
+                                    return;
+                                }
+
+                                const payload = await response.json();
+                                await refreshConnectionsPanel();
+                                finish(payload.placeId || null);
+                            }
+                            catch (error) {
+                                errorLine.textContent = ui('newPlaceFailed');
+                                errorLine.classList.remove('hidden');
+                            }
                         }
 
-                        const payload = await response.json();
-                        await refreshConnectionsPanel();
-                        return payload.placeId || null;
-                    }
-                    catch (error) {
-                        window.alert(ui('newPlaceFailed'));
-                        return null;
-                    }
+                        nameField.value = '';
+                        errorLine.textContent = '';
+                        errorLine.classList.add('hidden');
+                        dialog.classList.remove('hidden');
+                        dialog.addEventListener('submit', onSubmit);
+                        closeButton.addEventListener('click', onCancel);
+                        document.addEventListener('keydown', onKey);
+                        window.setTimeout(() => nameField.focus(), 0);
+                    });
                 }
 
                 function placeOptionGroups(places, currentId) {
@@ -11970,7 +12030,29 @@ public sealed class HtmlViews
                     sendFilesDrop.classList.remove('send-files-drop--over');
                     addPendingFiles(event.dataTransfer && event.dataTransfer.files);
                 });
-                fileAreaDialogSelect.addEventListener('change', () => showFileArea(fileAreaDialogSelect.value));
+                // The places dialog has a select of its own, so it needs the create entry handled
+                // here too: showFileArea would be handed a marker instead of an id and would
+                // quietly do nothing - the entry sat there and was dead.
+                fileAreaDialogSelect.addEventListener('change', async () => {
+                    const value = fileAreaDialogSelect.value;
+                    if (value !== CREATE_PLACE) {
+                        showFileArea(value);
+                        return;
+                    }
+
+                    // Back to the place on show first: whatever happens next, the field must not
+                    // keep showing an entry that is not a place.
+                    if (fileAreaHost && fileAreaHost.serverId) {
+                        fileAreaDialogSelect.value = fileAreaHost.serverId;
+                    }
+
+                    const created = await createPlace();
+                    if (created) {
+                        // This list was built before the place existed.
+                        fileAreaDialogSelect.innerHTML = placeOptionGroups(fileAreaChoices(created), created);
+                        showFileArea(created);
+                    }
+                });
                 fileAreaDialogClose.addEventListener('click', closeFileAreaDialog);
                 fileAreaDialogSend.addEventListener('click', sendSelectionIntoSession);
                 // The X alone is not enough of a way out: Escape and a tap beside the dialog are what
@@ -17048,6 +17130,14 @@ public sealed class HtmlViews
                     .file-area-dialog-actions { align-items: center; display: flex; gap: 8px; }
                     .file-area-dialog-status { flex: 1 1 auto; font-size: 12px; text-align: right; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
                     .credential-dialog.copy-to-dialog { max-width: 460px; width: min(460px, calc(100vw - 32px)); }
+                    /* Fixed, not absolute: this one is opened from the file manager in a tab AND
+                       from the places dialog of a session, so it must not depend on which box it
+                       happens to sit in. */
+                    .credential-dialog.new-place-dialog {
+                        position: fixed;
+                        width: min(420px, calc(100vw - 32px));
+                        z-index: 40;
+                    }
                     .file-area-dialog-select { flex: 0 1 auto; max-width: 320px; min-width: 0; }
                     /* In the dialog the field at the top picks the place - the bar in the manager
                        would be the same thing twice. In a tab there is no header, so there it stays. */
