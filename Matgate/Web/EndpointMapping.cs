@@ -1175,7 +1175,11 @@ public static class EndpointMapping
             return Results.Redirect("/login");
         }
 
-        var server = await store.FindServerByIdAsync(id, context.RequestAborted);
+        // Not only the saved connections: the gateway's own places have ids too, and the "Files"
+        // entry in the menu points right here. Looking only in the server list answered that entry
+        // with "No access" whenever the shell did not intercept the click - opening it in a new tab,
+        // for instance.
+        var server = await ResolveServerForUserAsync(id, user, context, store);
         if (server is null || !server.IsEnabled || !CanAccessServer(user, server))
         {
             return Results.Content(views.Message(

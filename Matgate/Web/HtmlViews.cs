@@ -4023,6 +4023,10 @@ public sealed class HtmlViews
         var isText = file.ContentType.StartsWith("text/", StringComparison.OrdinalIgnoreCase)
             || string.Equals(file.ContentType, "application/json", StringComparison.OrdinalIgnoreCase)
             || string.Equals(file.ContentType, "application/xml", StringComparison.OrdinalIgnoreCase);
+        // #view=FitH tells the browser's own PDF viewer to fit the page to the width. Without it a
+        // phone opens the document at a zoom where most of the page is off screen, and the first thing
+        // to do is pinch.
+        var documentUrl = isPdf ? streamUrl + "#view=FitH" : streamUrl;
 
         var preview = isAudio
             ? $$"""
@@ -4046,7 +4050,7 @@ public sealed class HtmlViews
                     : isPdf || isText
                         ? $$"""
                             <section class="viewer-stage document-stage">
-                                <iframe src="{{A(streamUrl)}}" title="{{A(file.FileName)}}"></iframe>
+                                <iframe src="{{A(documentUrl)}}" title="{{A(file.FileName)}}"></iframe>
                             </section>
                         """
                         : $$"""
@@ -4056,17 +4060,14 @@ public sealed class HtmlViews
                             </section>
                             """;
 
-        var actions = embedded
-            ? $$"""
-                <a class="button" href="/sessions" data-file-viewer-close onclick="return window.MatgateCloseFileViewer(event, this)">{{Icon("x")}}{{T(context, "Close")}}</a>
-                <a class="button" href="{{A(streamUrl)}}" target="_blank" rel="noopener">{{Icon("eye")}}{{T(context, "Open raw")}}</a>
-                <a class="button primary" href="{{A(downloadUrl)}}">{{Icon("download")}}{{T(context, "Download")}}</a>
-                """
-            : $$"""
-                <a class="button" href="/sessions" data-file-viewer-close onclick="return window.MatgateCloseFileViewer(event, this)">{{Icon("x")}}{{T(context, "Close")}}</a>
-                <a class="button" href="{{A(streamUrl)}}" target="_blank" rel="noopener">{{Icon("eye")}}{{T(context, "Open raw")}}</a>
-                <a class="button primary" href="{{A(downloadUrl)}}">{{Icon("download")}}{{T(context, "Download")}}</a>
-                """;
+        // The labels sit in spans so a phone can drop them and keep the icons: three labelled
+        // buttons wrapped onto two rows there and ate a quarter of the screen before the document
+        // even began. The title stays, so the icon is never a guess.
+        var actions = $$"""
+            <a class="button viewer-action" href="/sessions" data-file-viewer-close title="{{A(T(context, "Close"))}}" onclick="return window.MatgateCloseFileViewer(event, this)">{{Icon("x")}}<span>{{T(context, "Close")}}</span></a>
+            <a class="button viewer-action" href="{{A(streamUrl)}}" target="_blank" rel="noopener" title="{{A(T(context, "Open raw"))}}">{{Icon("eye")}}<span>{{T(context, "Open raw")}}</span></a>
+            <a class="button primary viewer-action" href="{{A(downloadUrl)}}" title="{{A(T(context, "Download"))}}">{{Icon("download")}}<span>{{T(context, "Download")}}</span></a>
+            """;
 
         var body = $$"""
             <section class="file-viewer-page{{(embedded ? " embedded-viewer" : "")}}">
@@ -17410,9 +17411,10 @@ public sealed class HtmlViews
                            pushed name and actions out of view. */
                         .file-table th:nth-child(4),
                         .file-table td:nth-child(4) { display: none; }
-                        .viewer-tab-row { align-items: stretch; flex-direction: column; }
-                        .viewer-actions { flex-wrap: wrap; }
-                        .viewer-actions > * { flex: 1; justify-content: center; }
+                        /* One row, not a column: with icon-only actions the name and the three
+                           buttons fit side by side, and the document keeps the second row. */
+                        .viewer-tab-row { align-items: center; flex-direction: row; }
+                        .viewer-actions { border: 0; flex-wrap: nowrap; justify-content: flex-end; margin: 0; }
                         .tool-head { align-items: stretch; flex-direction: column; }
                         .tool-actions { width: 100%; }
                         .tool-actions > * { flex: 1; justify-content: center; }
@@ -17501,11 +17503,14 @@ public sealed class HtmlViews
                         }
                         .viewer-body { padding: 10px; }
                         .viewer-stage { min-height: 240px; }
+                        /* The sheet IS the screen on a phone - no inset, no gap, no padding. It
+                           used to keep a 16px frame around itself, which on a 390px display is a
+                           visible border of nothing around the thing one wanted to read. */
                         .embedded-viewer {
-                            gap: 10px;
-                            height: calc(var(--matgate-viewport-height, 100vh) - 16px);
-                            padding: 10px;
-                            width: calc(100vw - 16px);
+                            gap: 0;
+                            height: 100%;
+                            padding: 0;
+                            width: 100%;
                         }
                         /* The box around the stage is already there - and so is the padding in between.
                            One line, one gap. */
@@ -17517,8 +17522,86 @@ public sealed class HtmlViews
                             border-radius: 0;
                             padding: 0;
                         }
+                        /* On a phone a dialog takes the whole screen. A frame of unused screen
+                           around a document is the one thing a small display cannot afford - the
+                           PDF preview lost a quarter of its height to the border, the rounded
+                           corners and two rows of labelled buttons. */
                         .matgate-dialog,
-                        .file-viewer-dialog { width: calc(100vw - 16px); }
+                        .file-viewer-dialog {
+                            border-radius: 0;
+                            height: var(--matgate-viewport-height, 100vh);
+                            margin: 0;
+                            max-height: none;
+                            max-width: none;
+                            width: 100vw;
+                        }
+                        .file-viewer-dialog .file-viewer-page,
+                        .matgate-dialog .share-settings-page {
+                            border: 0;
+                            border-radius: 0;
+                            box-shadow: none;
+                            height: 100%;
+                        }
+                        .file-viewer-dialog .embedded-viewer {
+                            gap: 0;
+                            padding: 0;
+                        }
+                        /* Whatever is left after the bar - not a fixed reserve that guesses how
+                           tall the bar turned out to be. */
+                        .file-viewer-dialog .viewer-body { padding: 0; }
+                        .file-viewer-dialog .document-stage,
+                        .file-viewer-dialog .document-stage iframe,
+                        .file-viewer-dialog .image-stage,
+                        .file-viewer-dialog .video-stage { height: 100%; min-height: 0; }
+                        /* Icons only: the three labels wrapped onto a second row. The title
+                           attribute carries the name for anyone who needs it. And they keep their
+                           size - stretched across the width they looked like three tabs. */
+                        .viewer-actions { flex: 0 0 auto; flex-wrap: nowrap; }
+                        .viewer-actions .viewer-action {
+                            flex: 0 0 auto;
+                            min-width: 44px;
+                            padding: 0 11px;
+                            width: 44px;
+                        }
+                        .viewer-actions .viewer-action > span { display: none; }
+                        /* One row for the head: the file name is enough on a phone. Path, type and
+                           size cost a second line that the document needs more. */
+                        .file-viewer-dialog .viewer-tab-row { align-items: center; }
+                        .file-viewer-dialog .viewer-tab-main small { display: none; }
+                        /* The small forms take the screen as well. A centred box with the page
+                           showing through around it is a desktop idea; on a phone the keyboard
+                           comes up and the box has nowhere to go. */
+                        /* The per-dialog widths further up are more specific, so they are
+                           named here as well - otherwise each of them keeps its desktop box. */
+                        .credential-dialog,
+                        .credential-dialog.copy-to-dialog,
+                        .credential-dialog.new-place-dialog {
+                            border-radius: 0;
+                            display: flex;
+                            flex-direction: column;
+                            height: var(--matgate-viewport-height, 100vh);
+                            inset: 0;
+                            left: 0;
+                            max-width: none;
+                            overflow-y: auto;
+                            padding: 16px;
+                            position: fixed;
+                            top: 0;
+                            transform: none;
+                            width: 100vw;
+                        }
+                        /* The centring transform goes with the centred box - including the one the
+                           closed state and the opening animation use. */
+                        .credential-dialog.hidden { transform: none; }
+                        @starting-style {
+                            .credential-dialog:not(.hidden) { transform: none; }
+                        }
+                        /* The way out sits at the bottom, where the thumb is. */
+                        .credential-dialog .actions { margin-top: auto; }
+                        /* The app bar steps aside while such a sheet is open. It sits in a stacking
+                           context of its own next to the shell, so no z-index on the sheet can get
+                           above it - and it was covering the sheet's own heading. */
+                        body:has(.credential-dialog:not(.hidden)) > header { display: none; }
                         /* For the same reason as the tool icons: the general 40px rule applies to the
                            <button>, not to the <a> next to it - and neighbours of unequal height look
                            like a mistake. */

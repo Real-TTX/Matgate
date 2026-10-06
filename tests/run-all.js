@@ -15,7 +15,7 @@ const GROUPS = [
   {
     name: "Group 2 - sessions under load, mobile shell",
     scripts: ["favorite-keeps-session.js", "download-large.js", "mobile-shell.js",
-      "burger-and-tabstrip.js", "mobile-neighbours.js"],
+      "burger-and-tabstrip.js", "mobile-neighbours.js", "mobile-dialogs.js"],
   },
   {
     name: "Group 3 - menus, tabs, file manager",
