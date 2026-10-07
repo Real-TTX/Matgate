@@ -79,6 +79,13 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
       console.log((r.code === 0 ? "  PASS  " : "  FAIL  ") + file.padEnd(32) +
         r.ok + " ok, " + r.failed + " failed, " + r.seconds + "s" + (r.aborted ? "  " + r.aborted : ""));
       r.failures.forEach(l => console.log("          " + l.trim()));
+      // A script that dies within seconds having checked almost nothing did not get in: the login
+      // rate limit answers with 429 and the page it expected never loads. That looks exactly like
+      // a real failure in the log, and it is not one - say so instead of leaving it to be guessed.
+      if (r.code !== 0 && r.seconds < 12 && r.ok <= 1) {
+        console.log("          ^ this smells of the login rate limit, not of the thing it tests");
+        console.log("            (10 attempts per 5 minutes per IP - see README)");
+      }
     }
     if (g < GROUPS.length - 1) {
       console.log("  ... pausing " + Math.round(PAUSE / 1000) + "s for the login rate limit");
