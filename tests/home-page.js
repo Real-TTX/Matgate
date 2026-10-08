@@ -152,6 +152,24 @@ const toHomePage = async (page) => {
   }, NEU);
   await sleep(1200);
 
+  // The share made at the start, so the section had something to show. It was never removed, so
+  // every run left one behind.
+  await page.evaluate(async name => {
+    const parse = html => new DOMParser().parseFromString(html, "text/html");
+    const fetchText = async url => (await fetch(url, { credentials: "same-origin" })).text();
+    const list = parse(await fetchText("/workspaces"));
+    const ids = new Set();
+    for (const link of list.querySelectorAll("tr td:first-child a[href^='/workspaces/']")) {
+      if ((link.textContent || "").trim() === name) { ids.add(link.getAttribute("href").split("/").pop()); }
+    }
+    for (const id of ids) {
+      const form = parse(await fetchText("/workspaces/" + id)).querySelector("form[action$='/delete']");
+      if (form) {
+        await fetch(form.getAttribute("action"), { method: "POST", body: new FormData(form), credentials: "same-origin", redirect: "manual" });
+      }
+    }
+  }, "Testablage");
+
   console.log("failed: " + JSON.stringify(failures));
   await b.close();
   process.exit(failures.length ? 1 : 0);
