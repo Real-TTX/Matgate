@@ -57,6 +57,24 @@ async function purgeLeftovers(page) {
   console.log("leftovers: " + (removed.length ? "removed " + removed.join(", ") : "none"));
 }
 
+// The tests that set colours put them back at the end - unless a run was aborted in between. Then
+// the next run starts with colours of its own on the account, "did it change?" has no answer, and
+// the failure looks like one in the application. Sent as the form itself, the way a person would.
+async function resetColours(page) {
+  await page.goto(BASE + "/account?tab=profile", { waitUntil: "networkidle" });
+  const result = await page.evaluate(async () => {
+    const boxes = ["accentOwn", "accent2Own", "backgroundOwn"].map(name => document.querySelector("[name='" + name + "']"));
+    if (boxes.some(box => !box)) { return "form not found"; }
+    const wasOn = boxes.filter(box => box.checked).length;
+    if (!wasOn) { return "already the theme's"; }
+    boxes.forEach(box => { box.checked = false; });
+    const form = boxes[0].form;
+    await fetch(form.getAttribute("action"), { method: "POST", body: new FormData(form), credentials: "same-origin", redirect: "manual" });
+    return "put back " + wasOn + " own colour(s)";
+  });
+  console.log("colours: " + result);
+}
+
 async function seedConnection(page, connectionName) {
   const existing = await page.evaluate(async name => {
     const text = await (await fetch("/", { credentials: "same-origin" })).text();
@@ -114,6 +132,7 @@ function seedBigFile() {
   await page.click(".login-submit");
   await sleep(1800);
   await purgeLeftovers(page);
+  await resetColours(page);
   for (const name of CONNECTIONS) { await seedConnection(page, name); }
   await browser.close();
   seedBigFile();

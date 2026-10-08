@@ -1306,12 +1306,305 @@ public sealed class HtmlViews
                                             const toggle = field.querySelector("[data-colour-own]");
                                             const valueField = field.querySelector("[data-colour-value]");
                                             field.classList.toggle("is-own", toggle.checked);
+                                            const dot = field.querySelector(".colour-chip-dot");
+                                            if (dot) {
+                                                dot.style.setProperty("--dot", valueField.value);
+                                            }
                                             field.querySelectorAll("[data-colour-preset]").forEach(button => {
                                                 button.classList.toggle("is-selected",
                                                     toggle.checked && button.dataset.colourPreset.toLowerCase() === valueField.value.toLowerCase());
                                             });
                                         }
                                 
+                                        // The colour sheet - the application's own picker. It replaces the operating system's, which looked
+                                        // different on every machine, was a small floating box on a phone and could not follow the page.
+                                        // This one fills the screen on a phone, offers the eyedropper where the browser has one, and works
+                                        // the page behind it live: every change goes out as the same "input" event a native picker fired,
+                                        // so the "own colour" switch, the swatches and the server preview follow without knowing that a
+                                        // new control is there.
+                                        const sheet = document.getElementById("colour-dialog");
+                                        if (sheet) {
+                                            // Out of the form. Enter in the hex field would otherwise send the whole settings form, and a
+                                            // fixed sheet should not depend on whatever it happens to sit in.
+                                            document.body.appendChild(sheet);
+
+                                            const area = sheet.querySelector("[data-colour-area]");
+                                            const hue = sheet.querySelector("[data-colour-hue]");
+                                            const hex = sheet.querySelector("[data-colour-hex]");
+                                            const preview = sheet.querySelector("[data-colour-preview]");
+                                            const dropper = sheet.querySelector("[data-colour-eyedropper]");
+                                            const problem = sheet.querySelector("[data-colour-problem]");
+                                            const heading = sheet.querySelector("[data-colour-title]");
+
+                                            // Hue in degrees, saturation and value from 0 to 1. A colour is kept in this form rather than
+                                            // as hex, because round-tripping through hex loses the hue of every grey and the slider would
+                                            // jump to red whenever the square is dragged to the left edge.
+                                            const state = { h: 0, s: 1, v: 1 };
+                                            let current = null;
+                                            let dragging = false;
+
+                                            const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
+
+                                            const toRgb = () => {
+                                                const chroma = state.v * state.s;
+                                                const x = chroma * (1 - Math.abs(((state.h / 60) % 2) - 1));
+                                                const m = state.v - chroma;
+                                                const sectors = [[chroma, x, 0], [x, chroma, 0], [0, chroma, x], [0, x, chroma], [x, 0, chroma], [chroma, 0, x]];
+                                                return sectors[Math.floor(state.h / 60) % 6].map(part => Math.round((part + m) * 255));
+                                            };
+
+                                            const toHex = () => "#" + toRgb().map(part => part.toString(16).padStart(2, "0")).join("");
+
+                                            // "#1a2b3c", "1a2b3c" and "#abc" are all colours; anything else is not.
+                                            const parseHex = text => {
+                                                let digits = String(text || "").trim().replace(/^#/, "");
+                                                if (/^[0-9a-f]{3}$/i.test(digits)) {
+                                                    digits = digits.split("").map(digit => digit + digit).join("");
+                                                }
+
+                                                return /^[0-9a-f]{6}$/i.test(digits) ? "#" + digits.toLowerCase() : null;
+                                            };
+
+                                            const fromHex = text => {
+                                                const value = parseHex(text);
+                                                if (!value) {
+                                                    return false;
+                                                }
+
+                                                const r = parseInt(value.slice(1, 3), 16) / 255;
+                                                const g = parseInt(value.slice(3, 5), 16) / 255;
+                                                const b = parseInt(value.slice(5, 7), 16) / 255;
+                                                const max = Math.max(r, g, b);
+                                                const spread = max - Math.min(r, g, b);
+                                                // A grey has no hue: keep the one the person had instead of falling back to red.
+                                                let h = state.h;
+                                                if (spread > 0.0001) {
+                                                    if (max === r) { h = 60 * (((g - b) / spread) % 6); }
+                                                    else if (max === g) { h = 60 * ((b - r) / spread + 2); }
+                                                    else { h = 60 * ((r - g) / spread + 4); }
+                                                    if (h < 0) { h += 360; }
+                                                }
+
+                                                state.h = h;
+                                                state.s = max === 0 ? 0 : spread / max;
+                                                state.v = max;
+                                                return true;
+                                            };
+
+                                            // Paints the sheet from the state. The hex box is only rewritten when asked to: while the
+                                            // person is typing into it, it must not be overwritten under their fingers.
+                                            const draw = writeHex => {
+                                                const value = toHex();
+                                                area.style.setProperty("--hue", String(Math.round(state.h)));
+                                                area.style.setProperty("--s", String(state.s));
+                                                area.style.setProperty("--v", String(state.v));
+                                                area.setAttribute("aria-valuetext", Math.round(state.s * 100) + " %, " + Math.round(state.v * 100) + " %");
+                                                hue.value = String(Math.round(state.h));
+                                                preview.style.setProperty("--dot", value);
+                                                if (writeHex) {
+                                                    hex.value = value;
+                                                    hex.removeAttribute("aria-invalid");
+                                                    problem.classList.add("hidden");
+                                                }
+
+                                                return value;
+                                            };
+
+                                            const commit = writeHex => {
+                                                const value = draw(writeHex);
+                                                if (!current) {
+                                                    return;
+                                                }
+
+                                                current.valueField.value = value;
+                                                current.valueField.dispatchEvent(new Event("input", { bubbles: true }));
+                                            };
+
+                                            const place = event => {
+                                                const box = area.getBoundingClientRect();
+                                                state.s = clamp((event.clientX - box.left) / box.width, 0, 1);
+                                                state.v = 1 - clamp((event.clientY - box.top) / box.height, 0, 1);
+                                                commit(true);
+                                            };
+
+                                            area.addEventListener("pointerdown", event => {
+                                                dragging = true;
+                                                area.setPointerCapture(event.pointerId);
+                                                area.focus();
+                                                place(event);
+                                                event.preventDefault();
+                                            });
+                                            area.addEventListener("pointermove", event => {
+                                                if (dragging) {
+                                                    place(event);
+                                                }
+                                            });
+                                            const stopDragging = () => { dragging = false; };
+                                            area.addEventListener("pointerup", stopDragging);
+                                            area.addEventListener("pointercancel", stopDragging);
+
+                                            // The square is a two-axis control, which HTML has no element for - so the arrow keys do it, a
+                                            // percent at a time and ten with Shift, and the hex box is the accessible way in for anything
+                                            // more exact.
+                                            area.addEventListener("keydown", event => {
+                                                const step = event.shiftKey ? 0.1 : 0.01;
+                                                const moves = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, step], ArrowDown: [0, -step] };
+                                                const move = moves[event.key];
+                                                if (!move) {
+                                                    return;
+                                                }
+
+                                                event.preventDefault();
+                                                state.s = clamp(state.s + move[0], 0, 1);
+                                                state.v = clamp(state.v + move[1], 0, 1);
+                                                commit(true);
+                                            });
+
+                                            hue.addEventListener("input", () => {
+                                                state.h = Number(hue.value);
+                                                commit(true);
+                                            });
+
+                                            hex.addEventListener("input", () => {
+                                                if (fromHex(hex.value)) {
+                                                    hex.removeAttribute("aria-invalid");
+                                                    problem.classList.add("hidden");
+                                                    commit(false);
+                                                }
+                                                else {
+                                                    hex.setAttribute("aria-invalid", "true");
+                                                }
+                                            });
+                                            // Leaving the box: what is shown has to be what is chosen. A half-typed or wrong entry says so
+                                            // once and is put back, instead of leaving a colour on the page that the box does not show.
+                                            hex.addEventListener("change", () => {
+                                                if (!parseHex(hex.value)) {
+                                                    problem.classList.remove("hidden");
+                                                }
+
+                                                hex.value = toHex();
+                                                hex.removeAttribute("aria-invalid");
+                                            });
+                                            hex.addEventListener("keydown", event => {
+                                                if (event.key !== "Enter") {
+                                                    return;
+                                                }
+
+                                                event.preventDefault();
+                                                if (fromHex(hex.value)) {
+                                                    commit(true);
+                                                    close(true);
+                                                }
+                                                else {
+                                                    hex.setAttribute("aria-invalid", "true");
+                                                    problem.classList.remove("hidden");
+                                                }
+                                            });
+
+                                            // Not every browser has one, and a button that does nothing is worse than none.
+                                            if (dropper && "EyeDropper" in window) {
+                                                dropper.hidden = false;
+                                                dropper.addEventListener("click", async () => {
+                                                    try {
+                                                        const picked = await new window.EyeDropper().open();
+                                                        if (fromHex(picked.sRGBHex)) {
+                                                            commit(true);
+                                                        }
+                                                    }
+                                                    catch (error) {
+                                                        // Closed without picking anything.
+                                                    }
+                                                });
+                                            }
+
+                                            const show = field => {
+                                                if (current) {
+                                                    close(true);
+                                                }
+
+                                                const valueField = field.querySelector("[data-colour-value]");
+                                                const toggle = field.querySelector("[data-colour-own]");
+                                                if (!fromHex(valueField.value)) {
+                                                    fromHex("#176b5b");
+                                                }
+
+                                                const legend = field.closest("fieldset") ? field.closest("fieldset").querySelector("legend") : null;
+                                                heading.textContent = legend ? legend.textContent.trim() : "";
+                                                draw(true);
+                                                // Remembered before anything is changed, so "Cancel" can put it all back - including the
+                                                // "own colour" switch, which the first change turns on.
+                                                current = {
+                                                    field,
+                                                    valueField,
+                                                    toggle,
+                                                    opener: field.querySelector("[data-colour-open]"),
+                                                    original: { value: valueField.value, own: toggle.checked }
+                                                };
+                                                sheet.classList.remove("hidden");
+                                                area.focus();
+                                                window.setTimeout(() => area.focus(), 0);
+                                            };
+
+                                            function close(keep) {
+                                                if (!current) {
+                                                    return;
+                                                }
+
+                                                const done = current;
+                                                current = null;
+                                                dragging = false;
+                                                if (!keep) {
+                                                    done.valueField.value = done.original.value;
+                                                    done.toggle.checked = done.original.own;
+                                                    markChosen(done.field);
+                                                    schedulePreview();
+                                                }
+
+                                                sheet.classList.add("hidden");
+                                                if (done.opener) {
+                                                    done.opener.focus();
+                                                }
+                                            }
+
+                                            form.querySelectorAll("[data-colour-open]").forEach(button => {
+                                                button.addEventListener("click", () => show(button.closest("[data-colour-field]")));
+                                            });
+                                            sheet.querySelector("[data-colour-done]").addEventListener("click", () => close(true));
+                                            sheet.querySelector("[data-colour-cancel]").addEventListener("click", () => close(false));
+
+                                            document.addEventListener("keydown", event => {
+                                                if (current && event.key === "Escape") {
+                                                    event.preventDefault();
+                                                    close(false);
+                                                }
+                                            });
+
+                                            // Tab stays inside the sheet while it is open - there is no backdrop on a desktop, so nothing
+                                            // else would stop the focus from wandering off into the page behind it.
+                                            sheet.addEventListener("keydown", event => {
+                                                if (event.key !== "Tab") {
+                                                    return;
+                                                }
+
+                                                const items = Array.from(sheet.querySelectorAll("button, input, [tabindex='0']"))
+                                                    .filter(item => !item.disabled && !item.hidden && item.getClientRects().length > 0);
+                                                if (!items.length) {
+                                                    return;
+                                                }
+
+                                                const first = items[0];
+                                                const last = items[items.length - 1];
+                                                if (event.shiftKey && document.activeElement === first) {
+                                                    event.preventDefault();
+                                                    last.focus();
+                                                }
+                                                else if (!event.shiftKey && document.activeElement === last) {
+                                                    event.preventDefault();
+                                                    first.focus();
+                                                }
+                                            });
+                                        }
+
                                         // The theme cards and the light/dark choice belong to the same preview.
                                         form.querySelectorAll("[name='preferredThemeName'], [name='preferredTheme']")
                                             .forEach(el => el.addEventListener("change", () => {
@@ -1367,8 +1660,8 @@ public sealed class HtmlViews
                                             document.documentElement.dataset.theme = mode;
                                             // Set inline it beats both :root blocks - until the next load,
                                             // and then the server delivers the same thing again.
-                                            Object.entries(colours[isDark ? "dark" : "light"] || {}).forEach(([name, farbe]) => {
-                                                document.documentElement.style.setProperty(name, farbe);
+                                            Object.entries(colours[isDark ? "dark" : "light"] || {}).forEach(([name, colour]) => {
+                                                document.documentElement.style.setProperty(name, colour);
                                             });
                                         }
                                     })();
@@ -4431,11 +4724,10 @@ public sealed class HtmlViews
                         <button id="clipboard-close" type="button">{{T(context, "Close")}}</button>
                     </div>
                 </form>
-                <!-- Dieser Dialog hat genau eine Aufgabe: Dateien von diesem Geraet in die offene
-                     Sitzung geben. Er hatte einmal pad2 Schalter - Quelle und Ziel, je pad2 Knoepfe -
-                     und damit vier Kombinationen, von denen "aus einer Ablage in eine Ablage" mit
-                     einer Sitzung überhaupt nichts zu tun hatte. Kopiert wird now dort, wo man
-                     ohnehin blaettert: im Dateimanager. -->
+                <!-- This sheet has exactly one job: handing files from this device to the open session. It once
+                     had two switches - source and target, two buttons each - and with them four combinations, of
+                     which "from a place into a place" had nothing to do with a session at all. Copying now
+                     happens where one browses anyway: in the file manager. -->
                 <form id="sftp-target-dialog" class="credential-dialog send-files-dialog hidden">
                     <h2>{{(Language(context) == "de" ? "Dateien in die Sitzung" : "Send files into the session")}}</h2>
                     <button id="send-files-drop" type="button" class="send-files-drop">
@@ -4456,8 +4748,8 @@ public sealed class HtmlViews
                         <button id="sftp-target-close" type="button">{{T(context, "Close")}}</button>
                     </div>
                 </form>
-                <!-- Kopieren von einem Ort in einen anderen. Das ging bisher nur als Umweg durch den
-                     Senden-Dialog einer laufenden Sitzung - now dort, wo man ohnehin blaettert. -->
+                <!-- Copying from one place to another. This used to be possible only as a detour through the
+                     send dialog of a running session - now it is where one browses anyway. -->
                 <form id="copy-to-dialog" class="credential-dialog copy-to-dialog hidden">
                     <h2>{{(Language(context) == "de" ? "Kopieren nach" : "Copy to")}}</h2>
                     <p id="copy-to-files" class="muted"></p>
@@ -4492,8 +4784,8 @@ public sealed class HtmlViews
                         <button type="button" data-name-close>{{T(context, "Close")}}</button>
                     </div>
                 </form>
-                <!-- Faengt Dateien auf, die irgendwo im Fenster losgelassen werden. Ohne das oeffnet
-                     der Browser die Datei selbst und die Sitzung dahinter ist weg. -->
+                <!-- Catches files dropped anywhere in the window. Without it the browser opens the file itself
+                     and the session behind it is gone. -->
                 <div id="drop-catcher" class="drop-catcher hidden" aria-hidden="true">
                     <div class="drop-catcher-box">
                         {{Icon("upload")}}
@@ -13083,8 +13375,8 @@ public sealed class HtmlViews
                 <meta charset="utf-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
                 {{cacheControlMarkup}}
-                <!-- Die Farbe der Systemleiste folgt dem Thema, nicht einem festen Dunkelton:
-                     im hellen Modus war der Balken darueber sonst schwarz. -->
+                <!-- The colour of the system bar follows the theme rather than a fixed dark tone: in light mode
+                     the bar above it would otherwise be black. -->
                 <meta name="theme-color" content="{{A(ThemeBarColour(themes, palette, dark: false))}}" media="(prefers-color-scheme: light)">
                 <meta name="theme-color" content="{{A(ThemeBarColour(themes, palette, dark: true))}}" media="(prefers-color-scheme: dark)">
                 <script>
@@ -13819,28 +14111,133 @@ public sealed class HtmlViews
                         height: 12px;
                         width: 12px;
                     }
-                    /* Accent colour: a switch, the system's colour wheel and ten swatches for a quick
-                       grab. The colour picker itself is the operating system's - a rebuilt one would
-                       be smaller, less precise and could not do an eyedropper. */
+                    /* Accent colour: a switch, a button that opens the application's own colour sheet, and ten
+                       swatches for a quick grab. The sheet replaces the operating system's picker - one that looks the
+                       same on every machine, fills the screen on a phone, and still offers the eyedropper where the
+                       browser has one. */
                     .accent-choice { align-items: center; display: flex; flex-wrap: wrap; gap: 14px; margin-top: 12px; }
                     .accent-switch { align-items: center; display: flex; gap: 8px; font-weight: 500; }
                     .accent-wheel { align-items: center; display: inline-flex; gap: 8px; white-space: nowrap; }
-                    /* One class more in the selector than you would need: the general field rule
-                       further down (input:not(...)) is just as specific and comes later, so it would
-                       give the colour field its full width - and the swatch would become a bar that
-                       covers the label next to it. */
-                    .accent-choice .accent-wheel input[type="color"] {
-                        background: none;
+                    .colour-chip {
+                        align-items: center;
+                        background: var(--surface);
                         border: 1px solid var(--line);
                         border-radius: 999px;
+                        color: var(--text);
                         cursor: pointer;
-                        /* Without this the field shrinks to a line in the row and the chosen colour -
-                           the very thing that matters here - is no longer visible. */
-                        flex: 0 0 auto;
-                        height: 38px;
-                        padding: 3px;
-                        width: 46px;
+                        display: inline-flex;
+                        font: inherit;
+                        gap: 9px;
+                        min-height: 40px;
+                        padding: 4px 16px 4px 5px;
+                        white-space: nowrap;
                     }
+                    .colour-chip:hover { border-color: var(--accent); }
+                    /* The colour as it is right now - the very thing that matters in this row, so it never shrinks. */
+                    .colour-chip-dot {
+                        background: var(--dot);
+                        border-radius: 999px;
+                        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 26%, transparent);
+                        display: block;
+                        flex: 0 0 auto;
+                        height: 30px;
+                        width: 30px;
+                    }
+                    /* The colour sheet itself. Fixed, like the other small sheets: it is opened from a page that may be
+                       scrolled, and must not depend on what it sits in. */
+                    .credential-dialog.colour-dialog { gap: 12px; }
+                    /* The square: hue across the top edge fades to white on the left and to black at the bottom, so
+                       every point in it is one saturation and one brightness of the hue chosen below. */
+                    .colour-area {
+                        background-color: hsl(var(--hue, 0) 100% 50%);
+                        background-image: linear-gradient(to top, #000, transparent), linear-gradient(to right, #fff, transparent);
+                        border-radius: var(--radius);
+                        cursor: crosshair;
+                        flex: 0 0 auto;
+                        height: 190px;
+                        outline-offset: 3px;
+                        position: relative;
+                        touch-action: none;
+                        user-select: none;
+                        width: 100%;
+                    }
+                    .colour-handle {
+                        border: 2px solid #fff;
+                        border-radius: 999px;
+                        box-shadow: 0 0 0 1px rgb(0 0 0 / 55%), inset 0 0 0 1px rgb(0 0 0 / 30%);
+                        height: 20px;
+                        left: calc(var(--s, 1) * 100%);
+                        pointer-events: none;
+                        position: absolute;
+                        top: calc((1 - var(--v, 1)) * 100%);
+                        transform: translate(-50%, -50%);
+                        width: 20px;
+                    }
+                    /* One class more than the general field rule (input:not(...)) has, which is just as specific and
+                       would otherwise give the slider a border, padding and a minimum height of an ordinary field. */
+                    .colour-dialog .colour-hue[type="range"] {
+                        -webkit-appearance: none;
+                        appearance: none;
+                        background: linear-gradient(to right, hsl(0 100% 50%), hsl(60 100% 50%), hsl(120 100% 50%), hsl(180 100% 50%), hsl(240 100% 50%), hsl(300 100% 50%), hsl(360 100% 50%));
+                        border: 0;
+                        border-radius: 999px;
+                        flex: 0 0 auto;
+                        height: 16px;
+                        min-height: 0;
+                        padding: 0;
+                        width: 100%;
+                    }
+                    .colour-hue::-webkit-slider-thumb {
+                        -webkit-appearance: none;
+                        appearance: none;
+                        background: transparent;
+                        border: 3px solid #fff;
+                        border-radius: 999px;
+                        box-shadow: 0 0 0 1px rgb(0 0 0 / 55%), inset 0 0 0 1px rgb(0 0 0 / 30%);
+                        cursor: grab;
+                        height: 24px;
+                        width: 24px;
+                    }
+                    .colour-hue::-moz-range-thumb {
+                        background: transparent;
+                        border: 3px solid #fff;
+                        border-radius: 999px;
+                        box-shadow: 0 0 0 1px rgb(0 0 0 / 55%), inset 0 0 0 1px rgb(0 0 0 / 30%);
+                        cursor: grab;
+                        height: 18px;
+                        width: 18px;
+                    }
+                    .colour-hue:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+                    .colour-row { align-items: end; display: flex; gap: 10px; }
+                    .colour-preview {
+                        background: var(--dot, #000);
+                        border-radius: var(--radius);
+                        box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 26%, transparent);
+                        flex: 0 0 auto;
+                        height: 40px;
+                        width: 40px;
+                    }
+                    .colour-hex-label { display: grid; flex: 1 1 auto; font-size: 12px; gap: 3px; min-width: 0; }
+                    .colour-hex-label span { color: var(--muted); font-weight: 600; letter-spacing: .04em; text-transform: uppercase; }
+                    .colour-dialog .colour-hex { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; min-height: 40px; }
+                    .colour-dialog .colour-hex[aria-invalid="true"] { border-color: var(--danger); }
+                    .colour-eyedropper {
+                        align-items: center;
+                        background: var(--surface);
+                        border: 1px solid var(--line);
+                        border-radius: var(--radius);
+                        color: var(--text);
+                        cursor: pointer;
+                        display: inline-flex;
+                        flex: 0 0 auto;
+                        height: 40px;
+                        justify-content: center;
+                        padding: 0;
+                        width: 40px;
+                    }
+                    /* display above beats the browser's own rule for [hidden], so it is said again here. */
+                    .colour-eyedropper[hidden] { display: none; }
+                    .colour-eyedropper:hover { border-color: var(--accent); }
                     .accent-presets { display: flex; flex-wrap: wrap; gap: 6px; }
                     .accent-preset {
                         background: var(--dot);
@@ -13848,10 +14245,13 @@ public sealed class HtmlViews
                         border-radius: 999px;
                         /* Stronger than before: the suggestions now include dark backgrounds too, and a
                            dark swatch on dark ground disappears without a visible border. */
-                           ohne sichtbaren Rand. */
                         box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 26%, transparent);
                         cursor: pointer;
                         height: 26px;
+                        /* The general button rule gives every button a minimum height, which beat the 26px
+                           above and turned the circles into ovals. */
+                        min-height: 0;
+                        min-width: 0;
                         padding: 0;
                         width: 26px;
                     }
@@ -17328,6 +17728,7 @@ public sealed class HtmlViews
                        from the places dialog of a session, so it must not depend on which box it
                        happens to sit in. */
                     .credential-dialog.confirm-dialog,
+                    .credential-dialog.colour-dialog,
                     .credential-dialog.name-dialog {
                         position: fixed;
                         width: min(420px, calc(100vw - 32px));
@@ -17770,6 +18171,7 @@ public sealed class HtmlViews
                         .credential-dialog,
                         .credential-dialog.copy-to-dialog,
                         .credential-dialog.confirm-dialog,
+                        .credential-dialog.colour-dialog,
                         .credential-dialog.name-dialog {
                             border-radius: 0;
                             display: flex;
@@ -17793,6 +18195,9 @@ public sealed class HtmlViews
                         }
                         /* The way out sits at the bottom, where the thumb is. */
                         .credential-dialog .actions { margin-top: auto; }
+                        /* The square takes what the width gives it, but never more than half the
+                           height: below it there are still a slider, a field and the buttons. */
+                        .colour-area { height: min(calc(100vw - 32px), 48vh); }
                         /* The app bar steps aside while such a sheet is open. It sits in a stacking
                            context of its own next to the shell, so no z-index on the sheet can get
                            above it - and it was covering the sheet's own heading. */
@@ -19422,7 +19827,7 @@ public sealed class HtmlViews
             ? themes.Values(palette, dark: false)
             : ThemeService.FallbackValues(dark: false);
 
-        string ColourGroup(string legend, string notice, string toggle, string field, string value, string ersatz, string swatches)
+        string ColourGroup(string legend, string notice, string toggle, string field, string value, string themeValue, string swatches)
             => $$"""
                 <fieldset class="settings-group">
                     <legend>{{E(legend)}}</legend>
@@ -19432,16 +19837,19 @@ public sealed class HtmlViews
                             <input type="checkbox" name="{{A(toggle)}}" data-colour-own{{(ThemeService.IsColour(value) ? " checked" : "")}}>
                             <span>{{(de ? "Eigene Farbe" : "Own colour")}}</span>
                         </label>
-                        <label class="accent-wheel">
-                            <input type="color" name="{{A(field)}}" data-colour-value value="{{A(ThemeService.IsColour(value) ? value : ersatz)}}">
-                            <span class="muted">{{(de ? "Farbkreis" : "Colour wheel")}}</span>
-                        </label>
+                        <div class="accent-wheel">
+                            <button type="button" class="colour-chip" data-colour-open aria-haspopup="dialog" title="{{A(de ? "Farbe wählen" : "Choose colour")}}">
+                                <span class="colour-chip-dot" style="--dot: {{A(ThemeService.IsColour(value) ? value : themeValue)}}"></span>
+                                <span>{{(de ? "Farbe wählen" : "Choose colour")}}</span>
+                            </button>
+                            <input type="hidden" name="{{A(field)}}" data-colour-value value="{{A(ThemeService.IsColour(value) ? value : themeValue)}}">
+                        </div>
                         <div class="accent-presets" data-colour-presets>{{swatches}}</div>
                     </div>
                 </fieldset>
                 """;
 
-        return ColourGroup(
+        var groups = ColourGroup(
             de ? "Akzentfarbe" : "Accent colour",
             de
                 ? "Die Farbe der Knöpfe und Hervorhebungen. Matgate hält sie lesbar: der Farbton bleibt, die Helligkeit wird angepasst, wenn die Schrift darauf sonst verschwindet."
@@ -19459,20 +19867,51 @@ public sealed class HtmlViews
                     ? "Der Grund, auf dem alles liegt. Aus ihm leitet Matgate die Flächen darüber ab - Felder, Linien, Schrift -, damit eine frei gewählte Farbe nicht die Lesbarkeit mitnimmt."
                     : "The ground everything sits on. Matgate derives the surfaces above it - panels, lines, text - so a freely chosen colour does not take readability with it.",
                 "backgroundOwn", "backgroundColor", user.BackgroundColor, values.GetValueOrDefault("bg", "#f4f6f4"), BackgroundPresets());
+
+        return groups + ColourSheet(de);
+    }
+
+    // The sheet all three colour fields open. One of it, not one per field: it is moved out of the
+    // form when the page starts (see the script), because Enter in its hex box must not send the
+    // settings form, and a form cannot sit inside a form anyway.
+    private static string ColourSheet(bool de)
+    {
+        return $$"""
+            <div id="colour-dialog" class="credential-dialog colour-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="colour-dialog-title">
+                <h2 id="colour-dialog-title" data-colour-title></h2>
+                <div class="colour-area" data-colour-area tabindex="0" role="application" aria-label="{{A(de ? "Sättigung und Helligkeit - mit den Pfeiltasten verstellen" : "Saturation and brightness - adjust with the arrow keys")}}">
+                    <span class="colour-handle"></span>
+                </div>
+                <input type="range" class="colour-hue" data-colour-hue min="0" max="360" step="1" value="0" aria-label="{{A(de ? "Farbton" : "Hue")}}">
+                <div class="colour-row">
+                    <span class="colour-preview" data-colour-preview aria-hidden="true"></span>
+                    <label class="colour-hex-label">
+                        <span>Hex</span>
+                        <input type="text" class="colour-hex" data-colour-hex maxlength="7" spellcheck="false" autocomplete="off" autocapitalize="off">
+                    </label>
+                    <button type="button" class="colour-eyedropper" data-colour-eyedropper hidden title="{{A(de ? "Farbe vom Bildschirm aufnehmen" : "Pick a colour from the screen")}}" aria-label="{{A(de ? "Farbe vom Bildschirm aufnehmen" : "Pick a colour from the screen")}}">{{Icon("pipette")}}</button>
+                </div>
+                <p class="muted hidden" data-colour-problem>{{E(de ? "Bitte eine Farbe wie #1a2b3c eingeben." : "Enter a colour like #1a2b3c.")}}</p>
+                <div class="actions">
+                    <button type="button" class="primary" data-colour-done>{{(de ? "Fertig" : "Done")}}</button>
+                    <button type="button" data-colour-cancel>{{(de ? "Abbrechen" : "Cancel")}}</button>
+                </div>
+            </div>
+            """;
     }
 
     // Backgrounds, light and dark alike - a set of their own, because a ground needs different
     // shades than an accent: muted, not glowing.
     private static string BackgroundPresets()
     {
-        string[] farben =
+        string[] colours =
         [
             "#ffffff", "#f4f6f4", "#f3f4f6", "#faf6f0", "#eef2f7",
             "#0f1412", "#111317", "#15110d", "#0d1420", "#1b1b1f",
         ];
 
-        return string.Join("", farben.Select(farbe => $$"""
-            <button type="button" class="accent-preset" data-colour-preset="{{A(farbe)}}" style="--dot: {{A(farbe)}}" title="{{A(farbe)}}" aria-label="{{A(farbe)}}"></button>
+        return string.Join("", colours.Select(colour => $$"""
+            <button type="button" class="accent-preset" data-colour-preset="{{A(colour)}}" style="--dot: {{A(colour)}}" title="{{A(colour)}}" aria-label="{{A(colour)}}"></button>
             """));
     }
     // The second factor in the security settings. Three states that exclude each other: nothing set
@@ -19553,10 +19992,9 @@ public sealed class HtmlViews
                         </label>
                         <div class="actions"><button type="submit" class="primary">{{Icon("check")}}{{(de ? "Einschalten" : "Turn on")}}</button></div>
                     </form>
-                    <!-- Wer hier aufhoeren will, muss das koennen. Ohne diesen Weg blieb man auf
-                         dieser Seite haengen: eingeschaltet war nichts, aber der Knopf "Einrichten"
-                         kam auch nicht wieder, weil das Geheimnis schon lag. Ein Passwort braucht es
-                         dafuer nicht - geschuetzt ist noch gar nichts. -->
+                    <!-- Whoever wants to stop here has to be able to. Without this way out one stayed stuck on this
+                         page: nothing was switched on, but the "Set up" button did not come back either, because the
+                         secret was already there. No password is needed for it - nothing is protected yet. -->
                     <form method="post" action="/account/totp/disable">
                         {{Csrf(context)}}
                         <div class="actions"><button type="submit">{{Icon("x")}}{{(de ? "Abbrechen" : "Cancel")}}</button></div>
@@ -19606,7 +20044,7 @@ public sealed class HtmlViews
             .Select(server => server!)
             .ToList();
         var rest = selectable
-            .Where(server => !chosen.Any(treffer => treffer.Id == server.Id))
+            .Where(server => !chosen.Any(match => match.Id == server.Id))
             .OrderBy(server => server.Name, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
 
@@ -19654,14 +20092,14 @@ public sealed class HtmlViews
     // get through both modes without much correction.
     private static string AccentPresets()
     {
-        string[] farben =
+        string[] colours =
         [
             "#176b5b", "#15609e", "#4a51c4", "#7a3fb5", "#a8307c",
             "#b22a28", "#9a4f16", "#8a6410", "#1a7a4e", "#15707c",
         ];
 
-        return string.Join("", farben.Select(farbe => $$"""
-            <button type="button" class="accent-preset" data-colour-preset="{{A(farbe)}}" style="--dot: {{A(farbe)}}" title="{{A(farbe)}}" aria-label="{{A(farbe)}}"></button>
+        return string.Join("", colours.Select(colour => $$"""
+            <button type="button" class="accent-preset" data-colour-preset="{{A(colour)}}" style="--dot: {{A(colour)}}" title="{{A(colour)}}" aria-label="{{A(colour)}}"></button>
             """));
     }
 
@@ -19811,6 +20249,7 @@ public sealed class HtmlViews
             "x" => """<path d="M6 6l12 12"/><path d="M18 6 6 18"/>""",
             "music" => """<path d="M9 18V5l10-2v13"/><circle cx="7" cy="18" r="3"/><circle cx="17" cy="16" r="3"/>""",
             "plus" => """<path d="M12 5v14"/><path d="M5 12h14"/>""",
+            "pipette" => """<path d="m2 22 1-1h3l9-9"/><path d="M3 21v-3l9-9"/><path d="m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z"/>""",
             "save" => """<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/>""",
             "trash" => """<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 15H6L5 6"/>""",
             "delete" => """<path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 15H6L5 6"/>""",

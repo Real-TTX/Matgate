@@ -24,8 +24,8 @@ const GROUPS = [
   },
   {
     name: "Group 4 - appearance, home page, names",
-    scripts: ["colours.js", "colours-follow-theme.js", "home-page.js", "username-case.js",
-      "offline-page.js"],
+    scripts: ["colours.js", "colours-follow-theme.js", "colour-picker.js", "home-page.js",
+      "username-case.js", "offline-page.js"],
   },
   {
     name: "Group 5 - second factor and sharing",

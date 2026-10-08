@@ -46,10 +46,13 @@ const contrast = (a, b) => {
 
   // Start clean: switch off whatever an earlier run saved - otherwise the value we compare
   // against is already a colour of our own and not the theme's.
-  await page.evaluate(() => {
+  await Promise.all([
+    page.waitForNavigation({ waitUntil: "load", timeout: 20000 }),
+    page.evaluate(() => {
     ["accentOwn", "accent2Own", "backgroundOwn"].forEach(n => { document.querySelector("[name='" + n + "']").checked = false; });
-    document.querySelector("[name='backgroundOwn']").form.requestSubmit();
-  });
+    window.setTimeout(() => document.querySelector("[name='backgroundOwn']").form.requestSubmit(), 0);
+    }),
+  ]);
   await sleep(2000);
   await page.goto(BASE + "/account?tab=profile", { waitUntil: "networkidle" });
   await sleep(700);
@@ -97,7 +100,10 @@ const contrast = (a, b) => {
   });
   await sleep(900);
   const beforeSave = await tokens(page);
-  await page.evaluate(() => document.querySelector("[name='backgroundOwn']").form.requestSubmit());
+  await Promise.all([
+    page.waitForNavigation({ waitUntil: "load", timeout: 20000 }),
+    page.evaluate(() => { window.setTimeout(() => document.querySelector("[name='backgroundOwn']").form.requestSubmit(), 0); }),
+  ]);
   await sleep(2000);
 
   const afterSave = await tokens(page);

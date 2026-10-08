@@ -21,8 +21,8 @@ function base32Decode(s) {
   }
   return Buffer.from(out);
 }
-function totp(secret, versatzSchritte = 0) {
-  const step = Math.floor(Date.now() / 1000 / 30) + versatzSchritte;
+function totp(secret, stepOffset = 0) {
+  const step = Math.floor(Date.now() / 1000 / 30) + stepOffset;
   const counter = Buffer.alloc(8);
   counter.writeBigUInt64BE(BigInt(step));
   const h = crypto.createHmac("sha1", base32Decode(secret)).update(counter).digest();

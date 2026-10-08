@@ -124,10 +124,10 @@ public static class HomeLayout
     // The stored order, extended by everything not yet in it. A section that did not exist at the
     // time of the last save does not vanish this way - it is appended at the end, and can be dragged
     // away from there.
-    public static IReadOnlyList<string> Order(IEnumerable<string>? gespeichert)
+    public static IReadOnlyList<string> Order(IEnumerable<string>? stored)
     {
         var ordered = new List<string>();
-        foreach (var key in gespeichert ?? [])
+        foreach (var key in stored ?? [])
         {
             if (IsKnown(key) && !ordered.Contains(key, StringComparer.Ordinal))
             {

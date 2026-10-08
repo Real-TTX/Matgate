@@ -50,10 +50,13 @@ const contrast = (a, b) => {
   // --- Starting point
   await page.goto(BASE + "/account?tab=profile", { waitUntil: "networkidle" });
   await sleep(800);
-  await page.evaluate(() => {
+  await Promise.all([
+    page.waitForNavigation({ waitUntil: "load", timeout: 20000 }),
+    page.evaluate(() => {
     ["accentOwn", "accent2Own", "backgroundOwn"].forEach(n => { document.querySelector("[name='" + n + "']").checked = false; });
-    document.querySelector("[name='backgroundOwn']").form.requestSubmit();
-  });
+    window.setTimeout(() => document.querySelector("[name='backgroundOwn']").form.requestSubmit(), 0);
+    }),
+  ]);
   await sleep(1800);
   const before = await token();
   console.log("     logo before: " + JSON.stringify(before));
@@ -62,7 +65,9 @@ const contrast = (a, b) => {
   // --- Set colours of our own
   await page.goto(BASE + "/account?tab=profile", { waitUntil: "networkidle" });
   await sleep(800);
-  await page.evaluate(() => {
+  await Promise.all([
+    page.waitForNavigation({ waitUntil: "load", timeout: 20000 }),
+    page.evaluate(() => {
     const set = (field, toggle, value) => {
       const f = document.querySelector("[name='" + field + "']");
       f.value = value;
@@ -71,8 +76,9 @@ const contrast = (a, b) => {
     set("accentColor", "accentOwn", "#b3261e");
     set("accentColor2", "accent2Own", "#1b5e20");
     set("backgroundColor", "backgroundOwn", "#101317");
-    document.querySelector("[name='backgroundOwn']").form.requestSubmit();
-  });
+    window.setTimeout(() => document.querySelector("[name='backgroundOwn']").form.requestSubmit(), 0);
+    }),
+  ]);
   await sleep(2000);
 
   const afterwards = await token();
@@ -115,10 +121,13 @@ const contrast = (a, b) => {
   // --- Reset
   await page.goto(BASE + "/account?tab=profile", { waitUntil: "networkidle" });
   await sleep(800);
-  await page.evaluate(() => {
+  await Promise.all([
+    page.waitForNavigation({ waitUntil: "load", timeout: 20000 }),
+    page.evaluate(() => {
     ["accentOwn", "accent2Own", "backgroundOwn"].forEach(n => { document.querySelector("[name='" + n + "']").checked = false; });
-    document.querySelector("[name='backgroundOwn']").form.requestSubmit();
-  });
+    window.setTimeout(() => document.querySelector("[name='backgroundOwn']").form.requestSubmit(), 0);
+    }),
+  ]);
   await sleep(1600);
   const back = await token();
   check("switched off, back to before", back.background, before.background);
