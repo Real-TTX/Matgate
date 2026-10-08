@@ -17,6 +17,46 @@ const BIG_FILE = "large.bin";
 const BIG_FILE_MB = 180;
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+// What the tests create, by exact name. A run that is aborted halfway leaves these behind, and the
+// next run then fails on "name already taken" - a failure that looks real and says nothing about
+// the thing it was meant to test. Removed before a run starts; nothing else is touched.
+const LEFTOVER_USERS = ["UmbauTester", "FreigabeTester", "VorgabeTester", "TestGrossKlein", "DialogTest"];
+const LEFTOVER_SHARES = ["Dialogablage", "Dialogablage neu", "DissolvedShare", "Frisch angelegt",
+  "Pruefablage", "Zeigerablage", "My place shared", "Shared place shared", "Testablage", "Ansichtssache"];
+
+async function purgeLeftovers(page) {
+  const removed = await page.evaluate(async ([users, shares]) => {
+    const parse = html => new DOMParser().parseFromString(html, "text/html");
+    const text = async url => (await fetch(url, { credentials: "same-origin" })).text();
+    // The delete forms carry their own anti-forgery field, so posting the form as it is works.
+    const send = form => fetch(form.getAttribute("action"), {
+      method: "POST", body: new FormData(form), credentials: "same-origin", redirect: "manual",
+    });
+    const done = [];
+
+    const userNames = users.map(name => name.toLowerCase());
+    const userPage = parse(await text("/admin/users"));
+    for (const row of userPage.querySelectorAll("tr")) {
+      const name = ((row.querySelector("td") || {}).textContent || "").trim().toLowerCase();
+      const form = row.querySelector("form[action*='/delete']");
+      if (form && userNames.includes(name)) { await send(form); done.push("user " + name); }
+    }
+
+    const shareList = parse(await text("/workspaces"));
+    const seen = new Set();
+    for (const link of shareList.querySelectorAll("tr td:first-child a[href^='/workspaces/']")) {
+      const id = (link.getAttribute("href") || "").split("/").pop();
+      const name = (link.textContent || "").trim();
+      if (!shares.includes(name) || seen.has(id)) { continue; }
+      seen.add(id);
+      const form = parse(await text("/workspaces/" + id)).querySelector("form[action$='/delete']");
+      if (form) { await send(form); done.push("share " + name); }
+    }
+    return done;
+  }, [LEFTOVER_USERS, LEFTOVER_SHARES]);
+  console.log("leftovers: " + (removed.length ? "removed " + removed.join(", ") : "none"));
+}
+
 async function seedConnection(page, connectionName) {
   const existing = await page.evaluate(async name => {
     const text = await (await fetch("/", { credentials: "same-origin" })).text();
@@ -73,6 +113,7 @@ function seedBigFile() {
   await page.fill("input[name=\"password\"]", "test-only-pw");
   await page.click(".login-submit");
   await sleep(1800);
+  await purgeLeftovers(page);
   for (const name of CONNECTIONS) { await seedConnection(page, name); }
   await browser.close();
   seedBigFile();

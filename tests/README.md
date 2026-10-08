@@ -58,8 +58,12 @@ docker exec matgate-tests-matgate-1 sed -i 's/"totpEnabled": true/"totpEnabled":
 docker restart matgate-tests-matgate-1
 ```
 
-A script that aborts before its cleanup can also leave a share behind. Tests that look a share up
-by name take the first match, so one leftover does not fail the next run - but to start clean:
+A script that aborts before its cleanup can also leave a user or a share behind. `seed.js` removes
+those before every run - by **exact name**, only the ones the tests themselves create (`UmbauTester`,
+`Frisch angelegt`, ...; the list is at the top of the file). Anything else in the stack is left alone.
+Without that, the next run fails on "name already taken" instead of on the thing it tests.
+
+To start completely clean:
 
 ```bash
 docker exec matgate-tests-matgate-1 sh -c 'echo "[]" > /data/workspaces.json'

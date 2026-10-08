@@ -119,8 +119,14 @@ const check = (name, got, want) => {
       .find(t => (t.textContent || "").includes("Linux-Testhost"));
     if (tabs) { (tabs.querySelector(".session-tab-main") || tabs).click(); }
   });
-  await sleep(2000);
-  const after = await session();
+  // Waiting for the status to say so instead of for two seconds. Switching back to a session
+  // repaints its status line, and under load that repaint was not done after a fixed pause. A
+  // tunnel that really dropped never says "Open" again, so waiting does not hide the thing tested.
+  let after = await session();
+  for (let attempt = 0; attempt < 30 && !(/Tunnel: Open/.test(after.status) && /Connected|Verbunden/.test(after.status)); attempt++) {
+    await sleep(500);
+    after = await session();
+  }
   console.log("     session afterwards: " + JSON.stringify(after));
   check("the tunnel is still open", /Tunnel: Open/.test(after.status), true);
   check("the session still reports connected", /Connected|Verbunden/.test(after.status), true);

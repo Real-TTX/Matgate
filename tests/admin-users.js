@@ -22,12 +22,28 @@ const PW = "test-only-pw-1234";
   await page.click(".login-submit");
   await sleep(1600);
 
-  // Create a user that can be fiddled with safely
+  // An earlier run that was aborted may have left this user behind - then creating it again is
+  // refused as a duplicate, and the test would fail on that instead of on what it tests.
+  await page.goto(BASE + "/admin/users", { waitUntil: "networkidle" });
+  await page.evaluate(async name => {
+    const row = Array.from(document.querySelectorAll("tr")).find(r => ((r.querySelector("td") || {}).innerText || "").trim() === name);
+    const form = row && row.querySelector("form[action*='/delete']");
+    if (form) {
+      await fetch(form.getAttribute("action"), { method: "POST", body: new FormData(form), credentials: "same-origin", redirect: "manual" });
+    }
+  }, NEU);
+
+  // Create a user that can be fiddled with safely. Waiting for the page that follows the form, not
+  // for the clock: under load the redirect arrived after a fixed pause, the next read ran into the
+  // navigation, and the page it was reading from was gone ("Execution context was destroyed").
   await page.goto(BASE + "/admin/users/new", { waitUntil: "networkidle" });
   await page.fill("input[name=\"username\"]", NEU);
   await page.fill("input[name=\"password\"]", PW);
-  await page.evaluate(() => document.querySelector("input[name='username']").form.requestSubmit());
-  await sleep(1800);
+  await Promise.all([
+    page.waitForNavigation({ waitUntil: "load", timeout: 20000 }),
+    page.evaluate(() => { window.setTimeout(() => document.querySelector("input[name='username']").form.requestSubmit(), 0); }),
+  ]);
+  await sleep(500);
 
   const id = await page.evaluate((n) => {
     const row = Array.from(document.querySelectorAll("tr")).find(r => r.innerText.includes(n));

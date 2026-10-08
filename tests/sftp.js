@@ -80,11 +80,25 @@ const NAME = "SFTP check";
   console.log("     upload: " + JSON.stringify(up));
   check("upload works", up.status, 200);
 
-  const again = await page.evaluate(async (id) => {
-    const r = await fetch("/api/files/" + id + "/list?path=/config", { credentials: "same-origin" });
-    return (await r.text()).includes("sftp-check.txt");
+  // Waiting for the file to show up instead of asking once. The upload has answered by now, but
+  // the listing goes through a session of its own on the other side, and under load one question
+  // asked straight away can be a moment too early. The wait is measured and printed: a lag that
+  // grows would be a defect of the application and must not hide behind a patient test.
+  const arrival = await page.evaluate(async (id) => {
+    const started = performance.now();
+    for (let attempt = 1; attempt <= 40; attempt++) {
+      const r = await fetch("/api/files/" + id + "/list?path=/config", { credentials: "same-origin" });
+      if ((await r.text()).includes("sftp-check.txt")) {
+        return { seen: true, attempts: attempt, ms: Math.round(performance.now() - started) };
+      }
+      await new Promise(resolve => setTimeout(resolve, 250));
+    }
+    return { seen: false, attempts: 40, ms: Math.round(performance.now() - started) };
   }, id);
-  check("the file arrived on the other side", again, true);
+  console.log("     arrival: " + JSON.stringify(arrival));
+  check("the file arrived on the other side", arrival.seen, true);
+  // Within a couple of seconds is normal; the first look should usually already find it.
+  check("and within five seconds", arrival.ms < 5000, true);
 
   // --- Downloading
   const down = await page.evaluate(async (id) => {

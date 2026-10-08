@@ -127,20 +127,26 @@ const MARKER = "__create-place__";
     check("and the dialog shows the new place", /Frisch angelegt/.test(inDialog.shown || ""), true);
   }
 
-  // --- Clean up: the new place is a share like any other.
-  const id = await page.evaluate(async name => {
-    const text = await (await fetch("/workspaces", { credentials: "same-origin" })).text();
-    const match = text.match(new RegExp('href="/workspaces/([0-9a-f-]{36})"[^>]*>[^<]*' + name));
-    return match ? match[1] : null;
+  // --- Clean up: the new place is a share like any other. This test makes the place TWICE - once
+  // from the tab, once from the places dialog - so every share of that name goes, not the first
+  // one found. Taking only the first left one behind on every run.
+  const removed = await page.evaluate(async name => {
+    const parse = html => new DOMParser().parseFromString(html, "text/html");
+    const fetchText = async url => (await fetch(url, { credentials: "same-origin" })).text();
+    const list = parse(await fetchText("/workspaces"));
+    const ids = new Set();
+    for (const link of list.querySelectorAll("tr td:first-child a[href^='/workspaces/']")) {
+      if ((link.textContent || "").trim() === name) { ids.add(link.getAttribute("href").split("/").pop()); }
+    }
+    for (const id of ids) {
+      const form = parse(await fetchText("/workspaces/" + id)).querySelector("form[action$='/delete']");
+      if (form) {
+        await fetch(form.getAttribute("action"), { method: "POST", body: new FormData(form), credentials: "same-origin", redirect: "manual" });
+      }
+    }
+    return ids.size;
   }, NAME);
-  if (id) {
-    await page.goto(BASE + "/workspaces/" + id, { waitUntil: "networkidle" });
-    await page.evaluate(() => {
-      const form = document.querySelector("form[action$='/delete']");
-      if (form) { form.removeAttribute("data-confirm"); form.submit(); }
-    });
-    await sleep(1300);
-  }
+  console.log("     cleaned up: " + removed + " share(s)");
 
   console.log("failed: " + JSON.stringify(failures));
   await b.close();
