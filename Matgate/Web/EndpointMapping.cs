@@ -590,6 +590,11 @@ public static class EndpointMapping
         app.MapPost("/api/files/{id:guid}/copy", CopyFilesAsync).RequireAuthorization();
         app.MapPost("/api/files/{id:guid}/copy-to", CopyFilesToServerAsync).RequireAuthorization();
         app.MapPost("/api/files/{id:guid}/move", MoveFilesAsync).RequireAuthorization();
+        // Renaming - a move inside the same folder - and downloading a whole selection as one
+        // archive. Both were missing: the file manager could pack files into a folder but not
+        // hand several of them out, and it could move an entry but not give it another name.
+        app.MapPost("/api/files/{id:guid}/rename", RenameFileAsync).RequireAuthorization();
+        app.MapGet("/api/files/{id:guid}/download-selection", DownloadSelectionAsync).RequireAuthorization();
         app.MapPost("/api/files/{id:guid}/delete", DeleteFilesAsync).RequireAuthorization();
         app.MapDelete("/api/files/{id:guid}", DeleteFileAsync).RequireAuthorization();
 
@@ -2694,6 +2699,10 @@ public static class EndpointMapping
         try
         {
             var fileInfo = await files.GetFileInfoAsync(access.Server!, path, context.RequestAborted);
+            fileInfo = fileInfo with
+            {
+                ContentType = await ResolveViewContentTypeAsync(access.Server!, files, path, fileInfo, context.RequestAborted),
+            };
             return Results.Content(
                 views.FileViewer(context, user, access.Server!, fileInfo, path ?? "/", embedded),
                 "text/html");
@@ -2744,6 +2753,69 @@ public static class EndpointMapping
         }
     }
 
+    // An unknown extension does not mean unknown content: .yml, .sh, .conf, .env and a dozen others
+    // are plain text, and a preview that says "no preview available" for a text file is simply
+    // wrong. So where the extension says nothing, the first kilobytes decide - no NUL byte and
+    // valid UTF-8 means text. Only asked when the extension gave up, so a known type costs nothing.
+    private const string UnknownContentType = "application/octet-stream";
+
+    private static async Task<string> ResolveViewContentTypeAsync(
+        ServerEndpoint server,
+        IFileGatewayService files,
+        string? path,
+        FileGatewayFileInfo fileInfo,
+        CancellationToken cancellationToken)
+    {
+        if (fileInfo.Length <= 0
+            || !fileInfo.ContentType.StartsWith(UnknownContentType, StringComparison.OrdinalIgnoreCase))
+        {
+            return fileInfo.ContentType;
+        }
+
+        try
+        {
+            using var head = new MemoryStream();
+            await files.CopyRangeAsync(server, path, head, 0, Math.Min(fileInfo.Length, 4096), cancellationToken);
+            return LooksLikeText(head.ToArray()) ? "text/plain; charset=utf-8" : fileInfo.ContentType;
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or IOException)
+        {
+            return fileInfo.ContentType;
+        }
+    }
+
+    private static bool LooksLikeText(byte[] head)
+    {
+        if (head.Length == 0 || Array.IndexOf(head, (byte)0) >= 0)
+        {
+            return false;
+        }
+
+        // The sample ends wherever the kilobyte ended, possibly inside a multi-byte character. That
+        // tail is cut off rather than counted as garbage - otherwise every second UTF-8 file would
+        // be declared binary by an accident of where the sample stopped.
+        var length = head.Length;
+        while (length > 0 && (head[length - 1] & 0b1100_0000) == 0b1000_0000)
+        {
+            length--;
+        }
+
+        if (length > 0 && (head[length - 1] & 0b1000_0000) != 0)
+        {
+            length--;
+        }
+
+        try
+        {
+            _ = new UTF8Encoding(false, throwOnInvalidBytes: true).GetString(head, 0, length);
+            return true;
+        }
+        catch (DecoderFallbackException)
+        {
+            return false;
+        }
+    }
+
     private static async Task<IResult> ViewFileAsync(
         Guid id,
         string? path,
@@ -2760,6 +2832,10 @@ public static class EndpointMapping
         try
         {
             var fileInfo = await files.GetFileInfoAsync(access.Server!, path, context.RequestAborted);
+            fileInfo = fileInfo with
+            {
+                ContentType = await ResolveViewContentTypeAsync(access.Server!, files, path, fileInfo, context.RequestAborted),
+            };
             var range = ResolveByteRange(context.Request.Headers.Range.ToString(), fileInfo.Length);
             if (!range.IsSatisfiable)
             {
@@ -3309,6 +3385,145 @@ public static class EndpointMapping
         catch (Exception ex) when (ex is InvalidOperationException or IOException)
         {
             return Results.BadRequest(new { error = ex.Message });
+        }
+    }
+
+    // Renaming is a move inside the same folder. It goes the same way every move goes - copy, then
+    // delete the original - so it works for every protocol behind the file manager without each of
+    // them having to learn a new verb.
+    private static async Task<IResult> RenameFileAsync(
+        Guid id,
+        HttpContext context,
+        JsonDataStore store,
+        IFileGatewayService files)
+    {
+        if (!ValidateCsrfHeader(context))
+        {
+            return Results.BadRequest(new { error = HtmlViews.Translate(context, "Invalid request") });
+        }
+
+        var access = await RequireFileServerAsync(id, context, store);
+        if (access.Result is not null)
+        {
+            return access.Result;
+        }
+
+        var request = await context.Request.ReadFromJsonAsync<FileRenameRequest>(cancellationToken: context.RequestAborted);
+        var path = NormalizeVirtualPathForEndpoint(request?.Path);
+        var name = (request?.Name ?? "").Trim();
+        if (path == "/" || string.IsNullOrWhiteSpace(name))
+        {
+            return Results.BadRequest(new { error = HtmlViews.Translate(context, "Invalid request") });
+        }
+
+        // A name is a name, not a path: a slash in it would move the entry somewhere else, and ".."
+        // would move it out of the folder entirely.
+        if (name.Contains('/') || name.Contains('\\') || name == "." || name == "..")
+        {
+            return Results.BadRequest(new
+            {
+                error = HtmlViews.Translate(context, "A name cannot contain a path."),
+            });
+        }
+
+        var destinationPath = CombineVirtualPathForEndpoint(ParentVirtualPathForEndpoint(path), name);
+        if (string.Equals(path, destinationPath, StringComparison.Ordinal))
+        {
+            return Results.Ok(new { ok = true });
+        }
+
+        try
+        {
+            await CopyPathAsync(access.Server!, files, path, destinationPath, context.RequestAborted);
+            await files.DeleteAsync(access.Server!, path, context.RequestAborted);
+            return Results.Ok(new { ok = true, name });
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or IOException)
+        {
+            return Results.BadRequest(new { error = ex.Message });
+        }
+    }
+
+    // Downloading several entries at once: the archive is built on the gateway and streamed
+    // straight to the browser. Nothing is left behind in the folder - that is the difference to
+    // packing, which is a separate wish.
+    private static async Task<IResult> DownloadSelectionAsync(
+        Guid id,
+        HttpContext context,
+        JsonDataStore store,
+        IFileGatewayService files)
+    {
+        var access = await RequireFileServerAsync(id, context, store);
+        if (access.Result is not null)
+        {
+            return access.Result;
+        }
+
+        var paths = CleanPathList(context.Request.Query["path"].ToArray());
+        if (paths.Count == 0)
+        {
+            return Results.BadRequest(new { error = HtmlViews.Translate(context, "No file selected.") });
+        }
+
+        var archiveName = NormalizeZipArchiveFileName(context.Request.Query["name"].ToString());
+        var tempPath = Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.zip");
+        try
+        {
+            await using (var tempWrite = new FileStream(
+                tempPath,
+                FileMode.CreateNew,
+                FileAccess.ReadWrite,
+                FileShare.None,
+                bufferSize: 64 * 1024,
+                options: FileOptions.Asynchronous | FileOptions.SequentialScan))
+            {
+                using (var archive = new ZipArchive(tempWrite, ZipArchiveMode.Create, leaveOpen: true))
+                {
+                    foreach (var selectedPath in paths)
+                    {
+                        await AddPathToZipAsync(
+                            access.Server!,
+                            files,
+                            archive,
+                            selectedPath,
+                            FileNameFromVirtualPath(selectedPath),
+                            context.RequestAborted);
+                    }
+                }
+
+                await tempWrite.FlushAsync(context.RequestAborted);
+            }
+
+            // DeleteOnClose: the archive lives exactly as long as the response that carries it.
+            var stream = new FileStream(
+                tempPath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.Read,
+                bufferSize: 64 * 1024,
+                options: FileOptions.Asynchronous | FileOptions.SequentialScan | FileOptions.DeleteOnClose);
+            return Results.File(stream, "application/zip", archiveName);
+        }
+        catch (Exception ex) when (ex is InvalidOperationException or IOException or InvalidDataException)
+        {
+            TryDeleteTempFile(tempPath);
+            return Results.BadRequest(new { error = ex.Message });
+        }
+    }
+
+    private static void TryDeleteTempFile(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch (IOException)
+        {
+            // A temp file that cannot be removed is the operating system's business, not the
+            // caller's - the request itself already failed and said so.
         }
     }
 
@@ -5986,4 +6201,6 @@ public static class EndpointMapping
     private sealed record FileCreateRequest(string? Path, string Name);
 
     private sealed record FileDirectoryRequest(string? Path, string Name);
+
+    private sealed record FileRenameRequest(string? Path, string? Name);
 }

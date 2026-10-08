@@ -20,9 +20,9 @@ const MARKER = "__create-place__";
   page.on("pageerror", e => { console.log("JS ERROR: " + e.message); failures.push("JS error"); });
   // The app asks in a dialog of its own now, so there is nothing to accept - it gets typed.
   const nameIt = async () => {
-    await page.waitForSelector("#new-place-dialog:not(.hidden)", { timeout: 10000 });
-    await page.fill("#new-place-name", NAME);
-    await page.click("#new-place-dialog button[type='submit']");
+    await page.waitForSelector("#name-dialog:not(.hidden)", { timeout: 10000 });
+    await page.fill("#name-dialog-input", NAME);
+    await page.click("#name-dialog button[type='submit']");
   };
 
   await page.goto(BASE + "/login", { waitUntil: "networkidle" });
@@ -57,9 +57,9 @@ const MARKER = "__create-place__";
   check("and exists exactly once", (before || {}).createCount, 1);
 
   await page.selectOption("[data-file-place-select]", MARKER);
-  const askedInTab = await page.waitForSelector("#new-place-dialog:not(.hidden)", { timeout: 10000 }).then(() => true).catch(() => false);
-  await page.fill("#new-place-name", NAME);
-  await page.click("#new-place-dialog button[type='submit']");
+  const askedInTab = await page.waitForSelector("#name-dialog:not(.hidden)", { timeout: 10000 }).then(() => true).catch(() => false);
+  await page.fill("#name-dialog-input", NAME);
+  await page.click("#name-dialog button[type='submit']");
   await sleep(3000);
 
   check("a dialog asks for the name", askedInTab, true);
@@ -113,9 +113,9 @@ const MARKER = "__create-place__";
       !!document.querySelector('#file-area-dialog-select option[value="' + marker + '"]'), MARKER);
     check("the places dialog offers it too", hasEntry, true);
     await page.selectOption("#file-area-dialog-select", MARKER);
-    const askedInDialog = await page.waitForSelector("#new-place-dialog:not(.hidden)", { timeout: 10000 }).then(() => true).catch(() => false);
-    await page.fill("#new-place-name", NAME);
-    await page.click("#new-place-dialog button[type='submit']");
+    const askedInDialog = await page.waitForSelector("#name-dialog:not(.hidden)", { timeout: 10000 }).then(() => true).catch(() => false);
+    await page.fill("#name-dialog-input", NAME);
+    await page.click("#name-dialog button[type='submit']");
     await sleep(3000);
     const inDialog = await page.evaluate(() => {
       const select = document.getElementById("file-area-dialog-select");

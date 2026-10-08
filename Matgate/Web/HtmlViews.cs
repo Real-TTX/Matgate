@@ -4300,6 +4300,9 @@ public sealed class HtmlViews
             placesOther = Language(context) == "de" ? "Andere Verbindungen" : "Other connections",
             placesWorkspaces = "Workspaces",
             newPlace = Language(context) == "de" ? "Neue Ablage ..." : "New place ...",
+            newPlaceHint = Language(context) == "de"
+                ? "Ein Ordner auf dem Gateway. Link, Passwort und Ablauf stehen danach in den Einstellungen."
+                : "A folder on the gateway. Link, password and expiry are set afterwards in its settings.",
             newPlaceFailed = Language(context) == "de" ? "Die Ablage konnte nicht angelegt werden." : "Could not create the place.",
             workspaceSettings = Language(context) == "de" ? "Freigabe-Einstellungen" : "Share settings",
             sharePlace = Language(context) == "de" ? "Freigeben" : "Share",
@@ -4344,6 +4347,21 @@ public sealed class HtmlViews
             back = T(context, "Back"),
             name = T(context, "Name"),
             path = Language(context) == "de" ? "Pfad" : "Path",
+            up = Language(context) == "de" ? "Eine Ebene höher" : "Up one level",
+            save = T(context, "Save"),
+            rename = Language(context) == "de" ? "Umbenennen" : "Rename",
+            renameHint = Language(context) == "de"
+                ? "Der neue Name. Der Ordner bleibt derselbe."
+                : "The new name. The folder stays the same.",
+            renameFailed = Language(context) == "de" ? "Umbenennen fehlgeschlagen." : "Renaming failed.",
+            newName = Language(context) == "de" ? "Neuer Name" : "New name",
+            downloadSelected = Language(context) == "de" ? "Herunterladen" : "Download",
+            downloadSelectedHint = Language(context) == "de"
+                ? "Mehrere Dateien kommen als ZIP-Archiv."
+                : "Several files come as a ZIP archive.",
+            archiveHint = Language(context) == "de"
+                ? "Das Archiv entsteht im aktuellen Ordner."
+                : "The archive is created in the current folder.",
             size = Language(context) == "de" ? "Größe" : "Size",
             modified = Language(context) == "de" ? "Geändert" : "Modified",
             actions = Language(context) == "de" ? "Aktionen" : "Actions",
@@ -4457,18 +4475,20 @@ public sealed class HtmlViews
                 <!-- Asks for the name of a new place. A dialog of the app's own rather than the
                      browser's prompt: a prompt can be switched off by the browser, and it cannot
                      say what went wrong when the gateway refuses. -->
-                <form id="new-place-dialog" class="credential-dialog new-place-dialog hidden">
-                    <h2>{{(Language(context) == "de" ? "Neue Ablage" : "New place")}}</h2>
-                    <p class="muted">{{(Language(context) == "de"
-                        ? "Ein Ordner auf dem Gateway. Link, Passwort und Ablauf stehen danach in den Einstellungen."
-                        : "A folder on the gateway. Link, password and expiry are set afterwards in its settings.")}}</p>
-                    <label>{{T(context, "Name")}}
-                        <input id="new-place-name" type="text" maxlength="120" autocomplete="off" spellcheck="false" required>
+                <!-- One sheet for every "what should it be called?": a new place, a folder, a file,
+                     an archive, a new name for something that exists. The browser's own prompt did
+                     this before - it can be switched off, it looks nothing like the application,
+                     and it cannot say why the gateway refused a name. -->
+                <form id="name-dialog" class="credential-dialog name-dialog hidden">
+                    <h2 data-name-title></h2>
+                    <p class="muted" data-name-hint></p>
+                    <label><span data-name-label>{{T(context, "Name")}}</span>
+                        <input id="name-dialog-input" type="text" maxlength="120" autocomplete="off" spellcheck="false" required>
                     </label>
-                    <p id="new-place-error" class="muted hidden"></p>
+                    <p class="muted hidden" data-name-error></p>
                     <div class="actions">
-                        <button type="submit" class="primary">{{Icon("plus")}}{{(Language(context) == "de" ? "Anlegen" : "Create")}}</button>
-                        <button id="new-place-close" type="button">{{T(context, "Close")}}</button>
+                        <button type="submit" class="primary" data-name-confirm>{{T(context, "Save")}}</button>
+                        <button type="button" data-name-close>{{T(context, "Close")}}</button>
                     </div>
                 </form>
                 <!-- Faengt Dateien auf, die irgendwo im Fenster losgelassen werden. Ohne das oeffnet
@@ -8191,21 +8211,28 @@ public sealed class HtmlViews
                 // Not an id but a marker: picking it does not switch places, it makes one.
                 const CREATE_PLACE = '__create-place__';
 
-                // Asks for a name and makes a place with a folder of its own. Returns the id of the
-                // new place, or null when the dialog was closed or the gateway refused - the caller
-                // then simply stays where it is. A refusal is said inside the dialog, which stays
-                // open: that is where the person is looking, and the name they typed is still there.
+                // Asks for a name and hands it to the caller's work. Resolves with whatever that
+                // work returns, or with null when the sheet was closed. A refusal is said inside the
+                // sheet, which stays open: that is where the person is looking, and what they typed
+                // is still there.
                 //
-                // The list of places is fetched again before returning, otherwise the new place
-                // would be missing from the very select that made it.
-                function createPlace() {
-                    const dialog = document.getElementById('new-place-dialog');
-                    const nameField = document.getElementById('new-place-name');
-                    const errorLine = document.getElementById('new-place-error');
-                    const closeButton = document.getElementById('new-place-close');
+                //   await askForName({ title, hint, label, value, confirm, work: async name => ... })
+                //
+                // `work` throws to keep the sheet open with its message, and returns the value the
+                // caller wants back.
+                function askForName(options) {
+                    const dialog = document.getElementById('name-dialog');
+                    const nameField = document.getElementById('name-dialog-input');
                     if (!dialog || !nameField) {
                         return Promise.resolve(null);
                     }
+
+                    const titleLine = dialog.querySelector('[data-name-title]');
+                    const hintLine = dialog.querySelector('[data-name-hint]');
+                    const labelLine = dialog.querySelector('[data-name-label]');
+                    const errorLine = dialog.querySelector('[data-name-error]');
+                    const confirmButton = dialog.querySelector('[data-name-confirm]');
+                    const closeButton = dialog.querySelector('[data-name-close]');
 
                     return new Promise(resolve => {
                         const finish = value => {
@@ -8232,40 +8259,68 @@ public sealed class HtmlViews
                                 return;
                             }
 
+                            confirmButton.disabled = true;
                             try {
-                                const data = new FormData();
-                                data.append('name', name);
-                                const response = await fetch('/api/files/places', {
-                                    method: 'POST',
-                                    body: data,
-                                    credentials: 'same-origin',
-                                    headers: { 'X-Matgate-Csrf': csrfToken }
-                                });
-                                if (!response.ok) {
-                                    const payload = await response.json().catch(() => ({}));
-                                    errorLine.textContent = payload.error || ui('newPlaceFailed');
-                                    errorLine.classList.remove('hidden');
-                                    return;
-                                }
-
-                                const payload = await response.json();
-                                await refreshConnectionsPanel();
-                                finish(payload.placeId || null);
+                                finish(await options.work(name));
                             }
                             catch (error) {
-                                errorLine.textContent = ui('newPlaceFailed');
+                                errorLine.textContent = (error && error.message) || ui('actionFailed');
                                 errorLine.classList.remove('hidden');
+                            }
+                            finally {
+                                confirmButton.disabled = false;
                             }
                         }
 
-                        nameField.value = '';
+                        titleLine.textContent = options.title || '';
+                        hintLine.textContent = options.hint || '';
+                        hintLine.classList.toggle('hidden', !options.hint);
+                        labelLine.textContent = options.label || ui('name');
+                        confirmButton.textContent = options.confirm || ui('save');
+                        nameField.value = options.value || '';
                         errorLine.textContent = '';
                         errorLine.classList.add('hidden');
                         dialog.classList.remove('hidden');
                         dialog.addEventListener('submit', onSubmit);
                         closeButton.addEventListener('click', onCancel);
                         document.addEventListener('keydown', onKey);
-                        window.setTimeout(() => nameField.focus(), 0);
+                        window.setTimeout(() => {
+                            nameField.focus();
+                            // The extension stays out of the selection: renaming usually means
+                            // changing the name, not the kind of file.
+                            const dot = nameField.value.lastIndexOf('.');
+                            nameField.setSelectionRange(0, dot > 0 ? dot : nameField.value.length);
+                        }, 0);
+                    });
+                }
+
+                // A place with a folder of its own. Everything else - link, password, expiry - is
+                // set afterwards in its settings, because at this moment nobody knows yet what the
+                // place is for. The list of places is fetched again before returning, otherwise the
+                // new one would be missing from the very select that made it.
+                function createPlace() {
+                    return askForName({
+                        title: ui('newPlace'),
+                        hint: ui('newPlaceHint'),
+                        confirm: ui('create'),
+                        work: async name => {
+                            const data = new FormData();
+                            data.append('name', name);
+                            const response = await fetch('/api/files/places', {
+                                method: 'POST',
+                                body: data,
+                                credentials: 'same-origin',
+                                headers: { 'X-Matgate-Csrf': csrfToken }
+                            });
+                            if (!response.ok) {
+                                const payload = await response.json().catch(() => ({}));
+                                throw new Error(payload.error || ui('newPlaceFailed'));
+                            }
+
+                            const payload = await response.json();
+                            await refreshConnectionsPanel();
+                            return payload.placeId || null;
+                        }
                     });
                 }
 
@@ -9793,6 +9848,7 @@ public sealed class HtmlViews
                                 workspaceButton,
                                 shareButton,
                                 ToolbarIconButton(ui('refresh'), fileIcon('refresh'), 'file-tool-button', Attr('data-file-action', 'refresh') + Attr('title', ui('refresh'))),
+                                ToolbarIconButton(ui('up'), fileIcon('parent'), 'file-tool-button', Attr('data-file-action', 'up') + Attr('title', ui('up'))),
                                 ToolbarInput('file-path-input', '/', ui('path')),
                                 ToolbarMenu(
                                     'file-menu file-create-menu',
@@ -9812,6 +9868,7 @@ public sealed class HtmlViews
                                     ToolbarMenuItem(ui('move'), fileIcon('move'), 'file-action-button file-menu-item', Attr('data-file-action', 'move') + Attr('title', ui('move')), true),
                                     ToolbarMenuItem(ui('copy'), fileIcon('copy'), 'file-action-button file-menu-item', Attr('data-file-action', 'copy') + Attr('title', ui('copy')), true),
                                     ToolbarMenuItem(ui('copyTo'), fileIcon('copyTo'), 'file-action-button file-menu-item', Attr('data-file-action', 'copy-to') + Attr('title', ui('copyTo')), true),
+                                    ToolbarMenuItem(ui('downloadSelected'), fileIcon('download'), 'file-action-button file-menu-item', Attr('data-file-action', 'download-selected') + Attr('title', ui('downloadSelectedHint')), true),
                                     ToolbarMenuItem(ui('downloadZip'), fileIcon('archive'), 'file-action-button file-menu-item', Attr('data-file-action', 'zip') + Attr('title', ui('downloadZip')), true),
                                     ToolbarMenuItem(ui('delete'), fileIcon('delete'), 'file-action-button danger file-menu-item', Attr('data-file-action', 'delete-selected') + Attr('title', ui('deleteSelected')), true)
                                 )
@@ -9862,7 +9919,7 @@ public sealed class HtmlViews
                         actionsMenu: manager.querySelector('.file-actions-menu'),
                         clearFinishedButton: manager.querySelector('[data-file-action="clear-upload-finished"]'),
                         selectAllBox: manager.querySelector('[data-file-select-all]'),
-                        batchButtons: Array.from(manager.querySelectorAll('[data-file-action="zip"], [data-file-action="copy"], [data-file-action="copy-to"], [data-file-action="move"], [data-file-action="delete-selected"]'))
+                        batchButtons: Array.from(manager.querySelectorAll('[data-file-action="zip"], [data-file-action="copy"], [data-file-action="copy-to"], [data-file-action="move"], [data-file-action="delete-selected"], [data-file-action="download-selected"]'))
                     };
                     tab.fileUi.queueVisible = false;
                     tab.uploadQueue = [];
@@ -9918,42 +9975,66 @@ public sealed class HtmlViews
                     manager.querySelector('[data-file-action="refresh"]').addEventListener('click', () => {
                         loadFilePath(tab, tab.filePath || '/');
                     });
-                    manager.querySelector('[data-file-action="create-directory"]').addEventListener('click', async () => {
+                    // The way up as a button, not only as the ".." row in the table: in a long
+                    // listing that row is scrolled away exactly when it is wanted.
+                    manager.querySelector('[data-file-action="up"]').addEventListener('click', () => {
                         closeFileMenus(tab);
-                        const name = window.prompt(ui('folderName'));
-                        if (!name) {
+                        if ((tab.filePath || '/') === '/') {
                             return;
                         }
 
-                        await runFileMutation(tab, async () => {
-                            const response = await fetch(`/api/files/${tab.serverId}/mkdir`, {
+                        loadFilePath(tab, tab.fileParentPath || '/');
+                    });
+                    manager.querySelector('[data-file-action="create-directory"]').addEventListener('click', async () => {
+                        closeFileMenus(tab);
+                        await askForName({
+                            title: ui('directory'),
+                            label: ui('folderName'),
+                            confirm: ui('create'),
+                            work: async name => {
+                                const done = await runFileMutation(tab, async () => {
+                                    const response = await fetch(`/api/files/${tab.serverId}/mkdir`, {
                                 method: 'POST',
                                 headers: {
                                     'Content-Type': 'application/json',
                                     'X-Matgate-Csrf': csrfToken
                                 },
-                                body: JSON.stringify({ path: tab.filePath || '/', name })
-                            });
-                            await ensureFileResponse(response, ui('mkdirFailed'));
+                                        body: JSON.stringify({ path: tab.filePath || '/', name })
+                                    });
+                                    await ensureFileResponse(response, ui('mkdirFailed'));
+                                });
+                                if (done === false) {
+                                    throw new Error(tab.lastError || ui('mkdirFailed'));
+                                }
+
+                                return name;
+                            }
                         });
                     });
                     manager.querySelector('[data-file-action="create-file"]').addEventListener('click', async () => {
                         closeFileMenus(tab);
-                        const name = window.prompt(ui('fileName'));
-                        if (!name) {
-                            return;
-                        }
-
-                        await runFileMutation(tab, async () => {
-                            const response = await fetch(`/api/files/${tab.serverId}/create-file`, {
+                        await askForName({
+                            title: ui('file'),
+                            label: ui('fileName'),
+                            confirm: ui('create'),
+                            work: async name => {
+                                const done = await runFileMutation(tab, async () => {
+                                    const response = await fetch(`/api/files/${tab.serverId}/create-file`, {
                                 method: 'POST',
                                 headers: {
                                     'Content-Type': 'application/json',
                                     'X-Matgate-Csrf': csrfToken
                                 },
-                                body: JSON.stringify({ path: tab.filePath || '/', name })
-                            });
-                            await ensureFileResponse(response, ui('actionFailed'));
+                                        body: JSON.stringify({ path: tab.filePath || '/', name })
+                                    });
+                                    await ensureFileResponse(response, ui('actionFailed'));
+                                });
+                                if (done === false) {
+                                    throw new Error(tab.lastError || ui('actionFailed'));
+                                }
+
+                                return name;
+                            }
                         });
                     });
                     tab.fileUi.pathInput.addEventListener('keydown', event => {
@@ -10028,6 +10109,10 @@ public sealed class HtmlViews
                     manager.querySelector('[data-file-action="zip"]').addEventListener('click', () => {
                         closeFileMenus(tab);
                         createZipArchive(tab);
+                    });
+                    manager.querySelector('[data-file-action="download-selected"]').addEventListener('click', () => {
+                        closeFileMenus(tab);
+                        downloadSelection(tab);
                     });
                     manager.querySelector('[data-file-action="delete-selected"]').addEventListener('click', () => {
                         closeFileMenus(tab);
@@ -10112,6 +10197,13 @@ public sealed class HtmlViews
                     const parentRow = document.createElement('tr');
                     parentRow.className = 'is-directory parent-directory';
                     const hasParent = (tab.filePath || '/') !== '/';
+                    // The button in the bar says the same thing as the row, so it greys out with it.
+                    const upButton = tab.fileUi && tab.fileUi.root
+                        ? tab.fileUi.root.querySelector('[data-file-action="up"]')
+                        : null;
+                    if (upButton) {
+                        upButton.disabled = !hasParent;
+                    }
                     if (!hasParent) {
                         parentRow.classList.add('is-root-directory');
                     }
@@ -10193,11 +10285,14 @@ public sealed class HtmlViews
 
                         const { actionCell, actions } = createFileActionCell();
                         if (isDirectory) {
-                            actions.appendChild(fileActionButton('folder', ui('open'), '', () => loadFilePath(tab, entryPath)));
+                            actions.append(
+                                fileActionButton('folder', ui('open'), '', () => loadFilePath(tab, entryPath)),
+                                fileActionButton('edit', ui('rename'), '', () => renameFileEntry(tab, entryPath)));
                         }
                         else {
                             actions.append(
                                 fileActionButton('view', ui('view'), '', () => viewFileEntry(tab, entryPath)),
+                                fileActionButton('edit', ui('rename'), '', () => renameFileEntry(tab, entryPath)),
                                 fileActionButton('download', ui('download'), '', () => downloadFileEntry(tab, entryPath)));
                             if (isArchiveFileName(name)) {
                                 // Extracting creates files - in a place that must not be written to the
@@ -10282,49 +10377,119 @@ public sealed class HtmlViews
                     updateStatusBar();
                 }
 
-                function suggestArchiveName(paths) {
-                    const firstPath = (paths[0] || '').toString().replace(/\/+$/, '');
-                    const leaf = firstPath.split('/').filter(Boolean).pop() || 'matgate-archive';
-                    const dotIndex = leaf.lastIndexOf('.');
-                    const baseName = dotIndex > 0 ? leaf.slice(0, dotIndex) : leaf;
-                    return `${baseName || 'matgate-archive'}.zip`;
+                // One file packed keeps its name; several take the name of the folder they are in.
+                // Naming an archive of ten files after whichever happened to be first only looks
+                // like a mistake.
+                function suggestArchiveName(paths, currentPath) {
+                    const leafOf = value => (value || '').toString().replace(/\/+$/, '').split('/').filter(Boolean).pop() || '';
+                    const base = paths.length === 1 ? leafOf(paths[0]) : leafOf(currentPath);
+                    const dotIndex = base.lastIndexOf('.');
+                    const withoutExtension = dotIndex > 0 ? base.slice(0, dotIndex) : base;
+                    return `${withoutExtension || 'matgate-archive'}.zip`;
                 }
 
                 async function createZipArchive(tab) {
                     const paths = selectedFilePaths(tab);
                     if (!paths.length) {
+                        setFileMessage(tab, ui('selectFilesFirst'), 'error');
                         return;
                     }
 
-                    const defaultName = suggestArchiveName(paths);
-                    const archiveName = window.prompt(ui('archiveName'), defaultName);
-                    if (archiveName === null) {
-                        return;
-                    }
+                    await askForName({
+                        title: ui('downloadZip'),
+                        hint: ui('archiveHint'),
+                        label: ui('archiveName'),
+                        value: suggestArchiveName(paths, tab.filePath || '/'),
+                        confirm: ui('create'),
+                        work: async archiveName => {
+                            const created = await runFileMutation(tab, async () => {
+                                const response = await fetch(`/api/files/${tab.serverId}/zip`, {
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/json',
+                                        'X-Matgate-Csrf': csrfToken
+                                    },
+                                    body: JSON.stringify({
+                                        destinationPath: tab.filePath || '/',
+                                        archiveName,
+                                        paths
+                                    })
+                                });
+                                await ensureFileResponse(response, ui('actionFailed'));
+                            });
+                            if (created === false) {
+                                throw new Error(tab.lastError || ui('actionFailed'));
+                            }
 
-                    const trimmedName = archiveName.trim();
-                    if (!trimmedName) {
-                        return;
-                    }
-
-                    const created = await runFileMutation(tab, async () => {
-                        const response = await fetch(`/api/files/${tab.serverId}/zip`, {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json',
-                                'X-Matgate-Csrf': csrfToken
-                            },
-                            body: JSON.stringify({
-                                destinationPath: tab.filePath || '/',
-                                archiveName: trimmedName,
-                                paths
-                            })
-                        });
-                        await ensureFileResponse(response, ui('actionFailed'));
+                            flashStatus(tab, ui('zipCreated'));
+                            return archiveName;
+                        }
                     });
-                    if (created) {
-                        flashStatus(tab, ui('zipCreated'));
+                }
+
+                // Downloading a selection. One file comes as itself; several come as one archive,
+                // built on the gateway and streamed straight to the browser - nothing is left behind
+                // in the folder, which is the difference to packing.
+                function downloadSelection(tab) {
+                    const paths = selectedFilePaths(tab);
+                    if (!paths.length) {
+                        setFileMessage(tab, ui('selectFilesFirst'), 'error');
+                        return;
                     }
+
+                    if (paths.length === 1) {
+                        downloadFileEntry(tab, paths[0]);
+                        return;
+                    }
+
+                    const query = new URLSearchParams();
+                    paths.forEach(path => query.append('path', path));
+                    query.set('name', suggestArchiveName(paths, tab.filePath || '/'));
+                    // An anchor, not window.location: a navigation would run beforeunload and take
+                    // every open session down with it (see pagehide further up).
+                    const anchor = document.createElement('a');
+                    anchor.href = `/api/files/${tab.serverId}/download-selection?${query.toString()}`;
+                    anchor.download = '';
+                    anchor.rel = 'noopener';
+                    document.body.appendChild(anchor);
+                    anchor.click();
+                    anchor.remove();
+                    flashStatus(tab, ui('downloadStarted'));
+                }
+
+                // Renaming is a move inside the same folder - the one thing the file manager could
+                // not do, although every protocol behind it can.
+                async function renameFileEntry(tab, path) {
+                    const currentName = (path || '').split('/').filter(Boolean).pop() || '';
+                    await askForName({
+                        title: ui('rename'),
+                        hint: ui('renameHint'),
+                        label: ui('newName'),
+                        value: currentName,
+                        confirm: ui('rename'),
+                        work: async name => {
+                            if (name === currentName) {
+                                return name;
+                            }
+
+                            const done = await runFileMutation(tab, async () => {
+                                const response = await fetch(`/api/files/${tab.serverId}/rename`, {
+                                    method: 'POST',
+                                    headers: {
+                                        'Content-Type': 'application/json',
+                                        'X-Matgate-Csrf': csrfToken
+                                    },
+                                    body: JSON.stringify({ path, name })
+                                });
+                                await ensureFileResponse(response, ui('renameFailed'));
+                            });
+                            if (done === false) {
+                                throw new Error(tab.lastError || ui('renameFailed'));
+                            }
+
+                            return name;
+                        }
+                    });
                 }
 
                 function hiddenInput(name, value) {
@@ -17134,7 +17299,7 @@ public sealed class HtmlViews
                     /* Fixed, not absolute: this one is opened from the file manager in a tab AND
                        from the places dialog of a session, so it must not depend on which box it
                        happens to sit in. */
-                    .credential-dialog.new-place-dialog {
+                    .credential-dialog.name-dialog {
                         position: fixed;
                         width: min(420px, calc(100vw - 32px));
                         z-index: 40;
@@ -17575,7 +17740,7 @@ public sealed class HtmlViews
                            named here as well - otherwise each of them keeps its desktop box. */
                         .credential-dialog,
                         .credential-dialog.copy-to-dialog,
-                        .credential-dialog.new-place-dialog {
+                        .credential-dialog.name-dialog {
                             border-radius: 0;
                             display: flex;
                             flex-direction: column;

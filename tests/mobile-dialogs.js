@@ -104,14 +104,14 @@ const PDF = "%PDF-1.4\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Typ
   // --- The small form sheet
   await page.selectOption("[data-file-place-select]", "__create-place__").catch(() => {});
   await sleep(1200);
-  const sheet = await fills("new place", "#new-place-dialog");
+  const sheet = await fills("new place", "#name-dialog");
   check("a form sheet fills the screen too", (sheet || {}).full, true);
   const heading = await page.evaluate(() => {
-    const title = document.querySelector("#new-place-dialog h2");
+    const title = document.querySelector("#name-dialog h2");
     if (!title) { return null; }
     const box = title.getBoundingClientRect();
     const top = document.elementFromPoint(Math.round(box.left + box.width / 2), Math.round(box.top + box.height / 2));
-    return { visible: box.top >= 0, ownTop: !!(top && top.closest("#new-place-dialog")) };
+    return { visible: box.top >= 0, ownTop: !!(top && top.closest("#name-dialog")) };
   });
   console.log("     heading: " + JSON.stringify(heading));
   // The app bar used to paint over the sheet's own heading - it sits in a stacking context of its
