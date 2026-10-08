@@ -99,7 +99,6 @@ public sealed class FileShareService
 
     public static Guid ConnectionAreaId(Guid serverId) => AreaId("connection:" + serverId.ToString("N"));
 
-    public static Guid SessionAreaId(string sessionId) => AreaId("session:" + sessionId);
 
     // Every area this user may open, as something the file manager understands. The caller passes the
     // connections the user already has access to - a connection's area is reachable exactly while its
@@ -134,33 +133,9 @@ public sealed class FileShareService
             areas.Add(AreaEndpoint(user, PersonalAreaId(user.Id), "User", PersonalDirectory(user.Id), "user"));
         }
 
-        // The place folder of the running sessions. It belongs to NO permission: it is the folder of this
-        // one session, which the redirected drive shows anyway - missing it in the file manager was the
-        // inconsistency. Only sessions that still report in and whose directory exists are listed, and
-        // only the caller's own: the list comes from the keep-alive register, which knows the owner.
-        foreach (var (sessionId, _) in LiveSessionsOf(user.Id))
-        {
-            var directory = SessionDirectory(sessionId);
-            if (!Directory.Exists(directory))
-            {
-                continue;
-            }
-
-            // A session id starts with the id of its connection - the name is built from that, so with
-            // several sessions open you can tell which one is meant.
-            var name = "Session";
-            if (sessionId.Length >= 32 && Guid.TryParseExact(sessionId[..32], "N", out var serverId))
-            {
-                var server = accessibleServers.FirstOrDefault(entry => entry.Id == serverId);
-                if (server is not null)
-                {
-                    name = "Session/" + (server.Name ?? "").Replace('/', '-');
-                }
-            }
-
-            areas.Add(AreaEndpoint(user, SessionAreaId(sessionId), name, directory, "session"));
-        }
-
+        // The folder of a running session is deliberately NOT a place here. It is the scratch
+        // folder of one sitting, reachable through that session's own drive and its send dialog,
+        // and it disappears with the session - a list of places is for the places that stay.
         if (permissions.Connection)
         {
             var ordered = accessibleServers
@@ -264,17 +239,6 @@ public sealed class FileShareService
         };
     }
 
-    // The sessions of a user that are still being reported. Read-only - whoever is not in here gets no
-    // place either, so nobody can open another session's place.
-    public IReadOnlyList<(string SessionId, DateTimeOffset LastSeen)> LiveSessionsOf(Guid userId)
-    {
-        var now = DateTimeOffset.UtcNow;
-        return _live
-            .Where(entry => entry.Value.UserId == userId && now - entry.Value.LastSeen <= IdleTimeout)
-            .OrderBy(entry => entry.Value.LastSeen)
-            .Select(entry => (entry.Key, entry.Value.LastSeen))
-            .ToList();
-    }
 
     private static Guid AreaId(string key)
     {

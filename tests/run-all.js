@@ -19,8 +19,8 @@ const GROUPS = [
   },
   {
     name: "Group 3 - menus, tabs, file manager",
-    scripts: ["menus.js", "file-manager-tab.js", "file-manager-actions.js", "tab-scrollbar.js",
-      "add-tab-plus.js", "create-place.js"],
+    scripts: ["menus.js", "file-manager-tab.js", "file-manager-actions.js", "own-dialogs.js",
+      "tab-scrollbar.js", "add-tab-plus.js", "create-place.js"],
   },
   {
     name: "Group 4 - appearance, home page, names",

@@ -4368,6 +4368,7 @@ public sealed class HtmlViews
             emptyFolder = Language(context) == "de" ? "Dieser Ordner ist leer." : "This folder is empty.",
             folderName = Language(context) == "de" ? "Ordnername" : "Folder name",
             deleteConfirm = Language(context) == "de" ? "wirklich löschen?" : "delete?",
+            confirm = Language(context) == "de" ? "Bestätigen" : "Confirm",
             actionDone = Language(context) == "de" ? "Dateiaktion abgeschlossen." : "File action completed.",
             actionFailed = Language(context) == "de" ? "Dateiaktion fehlgeschlagen." : "File action failed.",
             working = Language(context) == "de" ? "Arbeite" : "Working",
@@ -8211,6 +8212,12 @@ public sealed class HtmlViews
                 // Not an id but a marker: picking it does not switch places, it makes one.
                 const CREATE_PLACE = '__create-place__';
 
+                // The confirmation sheet is the layout's, shared by every page; the shell only passes
+                // its own words (the delete label comes from its ui strings).
+                function askToConfirm(options) {
+                    return window.MatgateAskToConfirm({ confirm: ui('delete'), ...options });
+                }
+
                 // Asks for a name and hands it to the caller's work. Resolves with whatever that
                 // work returns, or with null when the sheet was closed. A refusal is said inside the
                 // sheet, which stays open: that is where the person is looking, and what they typed
@@ -8289,7 +8296,9 @@ public sealed class HtmlViews
                             // The extension stays out of the selection: renaming usually means
                             // changing the name, not the kind of file.
                             const dot = nameField.value.lastIndexOf('.');
-                            nameField.setSelectionRange(0, dot > 0 ? dot : nameField.value.length);
+                            nameField.setSelectionRange(
+                                0,
+                                options.selectAll || dot <= 0 ? nameField.value.length : dot);
                         }, 0);
                     });
                 }
@@ -8329,11 +8338,8 @@ public sealed class HtmlViews
                     // heading "Other connections".
                     const isWorkspace = place => (place.areaKind || '') === 'workspace';
                     const belongsHere = place => !isWorkspace(place)
-                        && (place.id === currentId
-                            || ['session', 'user', 'global'].includes(place.areaKind || ''));
-                    const rank = place => place.areaKind === 'session'
-                        ? 0
-                        : (place.id === currentId ? 1 : (place.areaKind === 'user' ? 2 : 3));
+                        && (place.id === currentId || ['user', 'global'].includes(place.areaKind || ''));
+                    const rank = place => place.id === currentId ? 0 : (place.areaKind === 'user' ? 1 : 2);
                     const current = places.filter(belongsHere).sort((a, b) => rank(a) - rank(b));
                     const workspacePlaces = places.filter(isWorkspace);
                     const others = places.filter(place => !belongsHere(place) && !isWorkspace(place));
@@ -10506,7 +10512,16 @@ public sealed class HtmlViews
                         return;
                     }
 
-                    const destinationPath = window.prompt(ui('destinationPath'), tab.filePath || '/');
+                    // Asked in the application's own sheet. The path is selected as a whole: it is
+                    // not a file name, so there is no extension to keep out of the selection.
+                    const destinationPath = await askForName({
+                        title: action === 'move' ? ui('move') : ui('copy'),
+                        label: ui('destinationPath'),
+                        value: tab.filePath || '/',
+                        confirm: action === 'move' ? ui('move') : ui('copy'),
+                        selectAll: true,
+                        work: async value => value
+                    });
                     if (!destinationPath) {
                         return;
                     }
@@ -10605,7 +10620,16 @@ public sealed class HtmlViews
 
                 async function deleteSelectedEntries(tab) {
                     const paths = selectedFilePaths(tab);
-                    if (!paths.length || !window.confirm(`${paths.length} ${ui('deleteConfirm')}`)) {
+                    if (!paths.length) {
+                        setFileMessage(tab, ui('selectFilesFirst'), 'error');
+                        return;
+                    }
+
+                    const sure = await askToConfirm({
+                        title: ui('delete'),
+                        text: `${paths.length} ${ui('deleteConfirm')}`
+                    });
+                    if (!sure) {
                         return;
                     }
 
@@ -10681,7 +10705,11 @@ public sealed class HtmlViews
                 }
 
                 async function deleteFileEntry(tab, path, name) {
-                    if (!window.confirm(`${name} ${ui('deleteConfirm')}`)) {
+                    const sure = await askToConfirm({
+                        title: ui('delete'),
+                        text: `${name} ${ui('deleteConfirm')}`
+                    });
+                    if (!sure) {
                         return;
                     }
 
@@ -17299,6 +17327,7 @@ public sealed class HtmlViews
                     /* Fixed, not absolute: this one is opened from the file manager in a tab AND
                        from the places dialog of a session, so it must not depend on which box it
                        happens to sit in. */
+                    .credential-dialog.confirm-dialog,
                     .credential-dialog.name-dialog {
                         position: fixed;
                         width: min(420px, calc(100vw - 32px));
@@ -17740,6 +17769,7 @@ public sealed class HtmlViews
                            named here as well - otherwise each of them keeps its desktop box. */
                         .credential-dialog,
                         .credential-dialog.copy-to-dialog,
+                        .credential-dialog.confirm-dialog,
                         .credential-dialog.name-dialog {
                             border-radius: 0;
                             display: flex;
@@ -18044,8 +18074,68 @@ public sealed class HtmlViews
                     {{viewModeToggle}}
                 </header>
                 <main class="{{A(mainClass)}}">{{body}}</main>
+                <!-- Every "are you sure?" in the application, on every page. The browser's own box
+                     cannot be styled, cannot be told which word belongs on the button, can be
+                     switched off, and in an installed app it looks like something went wrong rather
+                     than like a question. -->
+                <form id="confirm-dialog" class="credential-dialog confirm-dialog hidden" data-default-title="{{A(Language(context) == "de" ? "Bestätigen" : "Confirm")}}" data-default-ok="{{A(T(context, "Delete"))}}">
+                    <h2 data-confirm-title></h2>
+                    <p data-confirm-text></p>
+                    <div class="actions">
+                        <button type="submit" class="primary" data-confirm-ok>{{T(context, "Delete")}}</button>
+                        <button type="button" data-confirm-cancel>{{T(context, "Close")}}</button>
+                    </div>
+                </form>
                 <script>
                     (() => {
+                        // Asks a yes-or-no question. Resolves true only when the answer was pressed -
+                        // closing the sheet, Escape and a click beside it all mean no, which is what a
+                        // question about deleting something should default to.
+                        const askToConfirm = (options) => {
+                            const dialog = document.getElementById('confirm-dialog');
+                            if (!dialog) {
+                                return Promise.resolve(false);
+                            }
+
+                            const titleLine = dialog.querySelector('[data-confirm-title]');
+                            const textLine = dialog.querySelector('[data-confirm-text]');
+                            const okButton = dialog.querySelector('[data-confirm-ok]');
+                            const cancelButton = dialog.querySelector('[data-confirm-cancel]');
+
+                            return new Promise((resolve) => {
+                                const finish = (answer) => {
+                                    dialog.classList.add('hidden');
+                                    dialog.removeEventListener('submit', onSubmit);
+                                    cancelButton.removeEventListener('click', onCancel);
+                                    document.removeEventListener('keydown', onKey);
+                                    resolve(answer);
+                                };
+
+                                const onSubmit = (event) => { event.preventDefault(); finish(true); };
+                                const onCancel = () => finish(false);
+                                const onKey = (event) => {
+                                    if (event.key === 'Escape') {
+                                        event.preventDefault();
+                                        finish(false);
+                                    }
+                                };
+
+                                titleLine.textContent = options.title || dialog.dataset.defaultTitle || '';
+                                textLine.textContent = options.text || '';
+                                okButton.textContent = options.confirm || dialog.dataset.defaultOk || '';
+                                okButton.classList.toggle('danger', options.danger !== false);
+                                dialog.classList.remove('hidden');
+                                dialog.addEventListener('submit', onSubmit);
+                                cancelButton.addEventListener('click', onCancel);
+                                document.addEventListener('keydown', onKey);
+                                // The cancel button takes the focus, not the one that deletes: a stray
+                                // Enter should not be the thing that empties a folder.
+                                cancelButton.focus();
+                                window.setTimeout(() => cancelButton.focus(), 0);
+                            });
+                        };
+                        window.MatgateAskToConfirm = askToConfirm;
+
                         const closeOpenMenus = (keepMenu) => {
                             document.querySelectorAll('details.toolbar-menu[open], details.file-menu[open], details.shell-menu[open], details.tab-action-more[open]').forEach((menu) => {
                                 if (menu !== keepMenu) {
@@ -18167,13 +18257,27 @@ public sealed class HtmlViews
                         });
 
                         // Confirm-before-submit for any form marked [data-confirm] (inline deletes etc.).
+                        // The question is asked in the application's own sheet, so the form has to be
+                        // stopped first and sent again afterwards - the marker says it already asked.
                         document.addEventListener('submit', (event) => {
                             const form = event.target;
-                            if (form instanceof HTMLFormElement && form.hasAttribute('data-confirm')) {
-                                if (!window.confirm(form.getAttribute('data-confirm') || 'Are you sure?')) {
-                                    event.preventDefault();
-                                }
+                            if (!(form instanceof HTMLFormElement)
+                                || !form.hasAttribute('data-confirm')
+                                || form.dataset.confirmed === '1') {
+                                return;
                             }
+
+                            event.preventDefault();
+                            askToConfirm({
+                                text: form.getAttribute('data-confirm') || ''
+                            }).then(sure => {
+                                if (!sure) {
+                                    return;
+                                }
+
+                                form.dataset.confirmed = '1';
+                                form.submit();
+                            });
                         }, true);
 
                         // Compact single-bar view: merges header + tab strip into one row and
