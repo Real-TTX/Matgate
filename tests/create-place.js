@@ -101,7 +101,7 @@ const MARKER = "__create-place__";
 
   await page.goto(BASE + "/", { waitUntil: "networkidle" });
   await sleep(1200);
-  const connect = page.locator("a,button").filter({ hasText: /^s*(Connect|Verbinden)s*$/ }).first();
+  const connect = page.locator("a,button").filter({ hasText: /^ *(Connect|Verbinden) *$/ }).first();
   if (await connect.count()) { await connect.click(); await sleep(5000); }
   // The action is icon-only - its label lives in the title, not in the text.
   const filesButton = page.locator('#connection-tab-actions [title*="Files for this" i], #connection-tab-actions [title*="Dateien dieser" i]').first();
@@ -120,11 +120,20 @@ const MARKER = "__create-place__";
     const inDialog = await page.evaluate(() => {
       const select = document.getElementById("file-area-dialog-select");
       const option = select ? select.options[select.selectedIndex] : null;
-      return { shown: option ? option.textContent.trim() : null, host: !!document.querySelector(".file-area-host") };
+      const dialog = document.getElementById("file-area-dialog");
+      return {
+        shown: option ? option.textContent.trim() : null,
+        host: !!document.querySelector(".file-area-host"),
+        open: !!dialog && !dialog.classList.contains("hidden"),
+      };
     });
     console.log("     in the dialog: " + JSON.stringify(inDialog));
     check("it asks for a name there as well", askedInDialog, true);
     check("and the dialog shows the new place", /Frisch angelegt/.test(inDialog.shown || ""), true);
+    // The question sits on top of the dialog. A press on it used to count as a press BESIDE the
+    // dialog and closed it - so every rename, every delete and every new folder in there ended with
+    // the dialog gone.
+    check("answering the question leaves the dialog open", inDialog.open, true);
   }
 
   // --- Clean up: the new place is a share like any other. This test makes the place TWICE - once

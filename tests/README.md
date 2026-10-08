@@ -42,7 +42,7 @@ Signing in is limited to **10 attempts per 5 minutes per IP** (`Program.cs`, pol
 Several scripts sign in more than once, so `run-all.js` runs them in groups of at most six with a
 five-minute pause in between. Without that the last script of a group fails on the rate limit
 instead of on the thing it tests - the most useless failure there is. A full run takes about
-30 minutes.
+35 minutes.
 
 Symptom when it happens anyway: a script aborts after a few seconds because the shell never
 loaded, usually with "Cannot read properties of null".
@@ -76,3 +76,14 @@ Copy the shortest script that is close to what you need (`tab-scrollbar.js` is a
 keep the shape: sign in, do the thing, **measure**, print one line per check. Measuring is the
 point - "the button looks right" is not a test, "the button's centre is 69.6 and the tab's centre
 is 69.6" is.
+
+## What the phone tests can and cannot show
+
+`file-manager-phone.js`, `file-area-dialog-phone.js`, `mobile-*.js` and `burger-and-tabstrip.js` run
+Chromium at 390 pixels with touch, an iPhone user agent and a faked "installed to the home screen"
+(`display-mode: standalone` and `navigator.standalone`). That shows what the LAYOUT does on a phone -
+what is on the screen, how big it is, whether a tap reaches it and what the tap opens. It is not an
+iPhone: WebKit's own habits (a `<details>` that does not open, fixed elements clipped inside a
+scrolling container, safe areas, the soft keyboard) can only be checked on the device. When a phone
+bug is reported, the first question is which build the phone is running (the version under the
+info button).

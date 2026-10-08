@@ -2753,7 +2753,7 @@ public sealed class HtmlViews
                         <td>{{nameCell}}</td>
                         <td>{{(entry.Size is null ? "-" : $"{entry.Size:N0}")}}</td>
                         <td>{{(entry.ModifiedAt is null ? "-" : entry.ModifiedAt.Value.ToLocalTime().ToString("yyyy-MM-dd HH:mm"))}}</td>
-                        <td class="file-actions-cell file-row-actions">{{actionCell}}{{deleteCell}}</td>
+                        <td class="file-actions-cell"><div class="file-row-actions">{{actionCell}}{{deleteCell}}</div></td>
                     </tr>
                     """;
             }));
@@ -4443,6 +4443,10 @@ public sealed class HtmlViews
             mkdir = Icon("folder-plus"),
             refresh = Icon("refresh"),
             menu = Icon("more"),
+            more = Icon("more"),
+            edit = Icon("edit"),
+            globe = Icon("globe"),
+            settings = Icon("settings"),
             copyTo = Icon("external-link"),
             queue = Icon("list"),
             clear = Icon("x"),
@@ -8874,14 +8878,18 @@ public sealed class HtmlViews
                     return `<input type="text" class="${escapeHtml(CssClasses('toolbar-input', className))}"${attrs}>`;
                 }
 
+                // A button and the panel it opens. Not <details>: that element did not open in an iPhone
+                // app installed to the home screen, and the two menus of the file manager were dead there.
+                // How it behaves - a dropdown, or a sheet over the whole screen on a phone, and closing -
+                // is the layout script's; it finds the button by data-menu-toggle.
                 function ToolbarMenu(className, summaryClassName, summaryLabel, summaryIconHtml, summaryAttributes = '', ...items) {
                     const attrs = summaryAttributes ? ` ${summaryAttributes.trim()}` : '';
                     const chevron = fileIcon('chevronDown');
                     return `
-                        <details class="${escapeHtml(CssClasses('toolbar-menu', className))}">
-                            <summary class="${escapeHtml(CssClasses('toolbar-button toolbar-menu-trigger', summaryClassName))}"${attrs}>${summaryIconHtml || ''}<span>${escapeHtml(summaryLabel || '')}</span><span class="menu-caret">${chevron}</span></summary>
-                            <div class="toolbar-menu-panel file-menu-panel">${items.filter(Boolean).join('')}</div>
-                        </details>`;
+                        <div class="${escapeHtml(CssClasses('toolbar-menu', className))}">
+                            <button type="button" class="${escapeHtml(CssClasses('toolbar-button toolbar-menu-trigger', summaryClassName))}" data-menu-toggle aria-haspopup="true" aria-expanded="false"${attrs}>${summaryIconHtml || ''}<span>${escapeHtml(summaryLabel || '')}</span><span class="menu-caret">${chevron}</span></button>
+                            <div class="toolbar-menu-panel file-menu-panel" role="menu" data-menu-title="${escapeHtml(summaryLabel || '')}" hidden>${items.filter(Boolean).join('')}</div>
+                        </div>`;
                 }
 
                 function ToolbarMenuItem(label, iconHtml, className = '', extraAttributes = '', disabled = false) {
@@ -10192,7 +10200,7 @@ public sealed class HtmlViews
                             </div>
                             <table class="file-table">
                                 <thead>
-                                    <tr><th class="file-select-heading"><input type="checkbox" class="file-select-all" data-file-select-all aria-label="${escapeHtml(ui('selectAll'))}" title="${escapeHtml(ui('selectAll'))}"></th><th>${escapeHtml(ui('name') || 'Name')}</th><th>${escapeHtml(ui('size'))}</th><th>${escapeHtml(ui('modified'))}</th><th class="file-actions-heading">${escapeHtml(ui('actions'))}</th></tr>
+                                    <tr><th class="file-select-heading"><input type="checkbox" class="file-select-all" data-file-select-all aria-label="${escapeHtml(ui('selectAll'))}" title="${escapeHtml(ui('selectAll'))}"></th><th>${escapeHtml(ui('name') || 'Name')}</th><th>${escapeHtml(ui('size'))}</th><th>${escapeHtml(ui('modified'))}</th><th class="file-actions-heading"><span class="file-actions-heading-label">${escapeHtml(ui('actions'))}</span></th></tr>
                                 </thead>
                                 <tbody></tbody>
                             </table>
@@ -10213,8 +10221,6 @@ public sealed class HtmlViews
                         queueShell: manager.querySelector('[data-file-upload-queue-shell]'),
                         queueToggleButton: manager.querySelector('[data-file-action="toggle-upload-queue"]'),
                         queueBadge: manager.querySelector('[data-file-upload-queue-badge]'),
-                        createMenu: manager.querySelector('.file-create-menu'),
-                        actionsMenu: manager.querySelector('.file-actions-menu'),
                         clearFinishedButton: manager.querySelector('[data-file-action="clear-upload-finished"]'),
                         selectAllBox: manager.querySelector('[data-file-select-all]'),
                         batchButtons: Array.from(manager.querySelectorAll('[data-file-action="zip"], [data-file-action="copy"], [data-file-action="copy-to"], [data-file-action="move"], [data-file-action="delete-selected"], [data-file-action="download-selected"]'))
@@ -10574,6 +10580,12 @@ public sealed class HtmlViews
                             }
                         });
                         nameCell.appendChild(nameButton);
+                        // What the size and date columns would say. On a phone they are gone, and this line
+                        // takes their place under the name.
+                        const meta = document.createElement('div');
+                        meta.className = 'file-row-meta';
+                        meta.textContent = [isDirectory ? '' : formatFileSize(size), formatFileDateShort(modifiedAt)].filter(Boolean).join(' \u00b7 ');
+                        nameCell.appendChild(meta);
 
                         const sizeCell = document.createElement('td');
                         sizeCell.textContent = isDirectory ? '-' : formatFileSize(size);
@@ -10582,27 +10594,36 @@ public sealed class HtmlViews
                         modifiedCell.textContent = formatFileDate(modifiedAt);
 
                         const { actionCell, actions } = createFileActionCell();
+                        // A place that must not be written to offers no way to write: no renaming, no
+                        // extracting, no deleting - and so none of them in the sheet a phone shows, which is
+                        // made from these very buttons.
+                        const writable = !tab.displayRoot.classList.contains('file-display--readonly');
+                        const renameButton = () => fileActionButton('edit', ui('rename'), 'file-action-rename', () => renameFileEntry(tab, entryPath));
                         if (isDirectory) {
-                            actions.append(
-                                fileActionButton('folder', ui('open'), '', () => loadFilePath(tab, entryPath)),
-                                fileActionButton('edit', ui('rename'), '', () => renameFileEntry(tab, entryPath)));
+                            actions.appendChild(fileActionButton('folder', ui('open'), '', () => loadFilePath(tab, entryPath)));
+                            if (writable) {
+                                actions.appendChild(renameButton());
+                            }
                         }
                         else {
-                            actions.append(
-                                fileActionButton('view', ui('view'), '', () => viewFileEntry(tab, entryPath)),
-                                fileActionButton('edit', ui('rename'), '', () => renameFileEntry(tab, entryPath)),
-                                fileActionButton('download', ui('download'), '', () => downloadFileEntry(tab, entryPath)));
-                            if (isArchiveFileName(name)) {
+                            actions.appendChild(fileActionButton('view', ui('view'), '', () => viewFileEntry(tab, entryPath)));
+                            if (writable) {
+                                actions.appendChild(renameButton());
+                            }
+
+                            actions.appendChild(fileActionButton('download', ui('download'), '', () => downloadFileEntry(tab, entryPath)));
+                            if (writable && isArchiveFileName(name)) {
                                 // Extracting creates files - in a place that must not be written to the
                                 // button has no business being there.
                                 actions.appendChild(fileActionButton('archive', ui('unzip'), 'file-action-unzip', () => unzipFileEntry(tab, entryPath)));
                             }
                         }
 
-                        if (!isSmbShareRootEntry(tab, isDirectory)) {
+                        if (writable && !isSmbShareRootEntry(tab, isDirectory)) {
                             actions.appendChild(fileActionButton('delete', ui('delete'), 'danger file-action-delete', () => deleteFileEntry(tab, entryPath, name)));
                         }
 
+                        actions.appendChild(fileRowMoreButton(name, actions));
                         row.append(selectCell, nameCell, sizeCell, modifiedCell, actionCell);
                         tab.fileUi.tbody.appendChild(row);
                     }
@@ -10617,9 +10638,10 @@ public sealed class HtmlViews
                     return archiveExtensions.some(extension => normalized.endsWith(extension));
                 }
 
-                function closeFileMenus(tab) {
-                    tab.fileUi?.createMenu?.removeAttribute('open');
-                    tab.fileUi?.actionsMenu?.removeAttribute('open');
+                // The menus belong to the layout (one is open at a time, wherever it happens to sit while
+                // it is open); this only asks it to close them.
+                function closeFileMenus() {
+                    window.MatgateCloseMenus?.();
                 }
 
                 function setFileSelection(tab, path, selected, refresh = true) {
@@ -10669,6 +10691,17 @@ public sealed class HtmlViews
 
                     for (const button of tab.fileUi.batchButtons) {
                         button.disabled = count === 0;
+                    }
+
+                    // The number on the button that opens the actions - on a phone it is an icon.
+                    const actionsTrigger = tab.fileUi.root.querySelector('.file-actions-menu > .toolbar-menu-trigger');
+                    if (actionsTrigger) {
+                        if (count > 0) {
+                            actionsTrigger.setAttribute('data-count', String(count));
+                        }
+                        else {
+                            actionsTrigger.removeAttribute('data-count');
+                        }
                     }
 
                     tab.lastMessage = count > 0 ? `${count} ${ui('selected')}` : ui('ready');
@@ -10951,6 +10984,33 @@ public sealed class HtmlViews
                     return fileIcons[name] || '';
                 }
 
+                // The one button a row keeps on a phone: it opens the row's actions as a sheet. The sheet is
+                // made from the buttons the row already has, so there is exactly one place that says what
+                // each of them does and which of them exist.
+                function fileRowMoreButton(name, actions) {
+                    const button = document.createElement('button');
+                    button.type = 'button';
+                    button.className = 'file-row-more';
+                    button.title = ui('moreActions');
+                    button.setAttribute('aria-label', `${ui('moreActions')}: ${name}`);
+                    button.setAttribute('aria-haspopup', 'true');
+                    button.innerHTML = fileIcon('more');
+                    button.addEventListener('click', () => {
+                        window.MatgateOpenMenu({
+                            trigger: button,
+                            title: name,
+                            closeLabel: ui('close'),
+                            items: Array.from(actions.querySelectorAll('.file-action-button')).map(source => ({
+                                label: source.title,
+                                iconHtml: source.querySelector('svg') ? source.querySelector('svg').outerHTML : '',
+                                danger: source.classList.contains('danger'),
+                                onSelect: () => source.click()
+                            }))
+                        });
+                    });
+                    return button;
+                }
+
                 function fileActionButton(iconName, label, className, onClick) {
                     const button = document.createElement('button');
                     button.type = 'button';
@@ -11203,7 +11263,7 @@ public sealed class HtmlViews
                             if ((counts.failed || 0) > 0) {
                                 parts.push(`${counts.failed} ${uiText.failed || 'Failed'}`);
                             }
-                            summary.textContent = parts.join(' Â· ');
+                            summary.textContent = parts.join(' · ');
                         }
                     }
 
@@ -11238,12 +11298,12 @@ public sealed class HtmlViews
                             const total = item.total || item.file?.size || uploaded;
                             const percent = total > 0 ? Math.max(0, Math.min(100, Math.round((uploaded / total) * 100))) : 0;
                             const progressText = total > 0 ? `${formatFileSize(uploaded)} / ${formatFileSize(total)}` : formatFileSize(uploaded);
-                            const speedText = item.speed > 0 ? ` Â· ${formatUploadSpeed(item.speed)}` : '';
-                            const percentText = total > 0 ? ` Â· ${percent}%` : '';
-                            meta.textContent = `${item.targetPath || '/'} Â· ${progressText}${speedText}${percentText}`;
+                            const speedText = item.speed > 0 ? ` · ${formatUploadSpeed(item.speed)}` : '';
+                            const percentText = total > 0 ? ` · ${percent}%` : '';
+                            meta.textContent = `${item.targetPath || '/'} · ${progressText}${speedText}${percentText}`;
                         }
                         else if (item.status === 'done') {
-                            meta.textContent = `${item.targetPath || '/'} Â· ${formatFileSize(item.file?.size || item.total || 0)}`;
+                            meta.textContent = `${item.targetPath || '/'} · ${formatFileSize(item.file?.size || item.total || 0)}`;
                         }
                         else if (item.status === 'failed') {
                             meta.textContent = item.error || uiText.failed || 'Failed';
@@ -11423,7 +11483,7 @@ public sealed class HtmlViews
                                 sampleLoaded = item.loaded;
                             }
 
-                            tab.lastMessage = `${item.file?.name || ''} ${formatFileSize(item.loaded)} / ${formatFileSize(item.total || item.loaded)}${item.speed > 0 ? ` Â· ${formatUploadSpeed(item.speed)}` : ''}`;
+                            tab.lastMessage = `${item.file?.name || ''} ${formatFileSize(item.loaded)} / ${formatFileSize(item.total || item.loaded)}${item.speed > 0 ? ` · ${formatUploadSpeed(item.speed)}` : ''}`;
                             scheduleUploadQueueRender(tab);
                             updateStatusBar();
                         });
@@ -11493,6 +11553,12 @@ public sealed class HtmlViews
 
                     const date = new Date(value);
                     return Number.isNaN(date.getTime()) ? '-' : date.toLocaleString();
+                }
+
+                // The same moment, short enough to share a line with the size under a file's name.
+                function formatFileDateShort(value) {
+                    const date = value ? new Date(value) : null;
+                    return date && !Number.isNaN(date.getTime()) ? date.toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : '';
                 }
 
                 function restartTab(tab) {
@@ -12493,6 +12559,12 @@ public sealed class HtmlViews
                 clipboardClose.addEventListener('click', closeClipboardDialog);
                 sftpTargetClose.addEventListener('click', closeTargetFolderDialog);
                 copyToClose.addEventListener('click', closeCopyToDialog);
+                // Escape is the way out of every other question; this one had only its button.
+                document.addEventListener('keydown', event => {
+                    if (event.key === 'Escape' && !copyToDialog.classList.contains('hidden')) {
+                        closeCopyToDialog();
+                    }
+                });
                 copyToDialog.addEventListener('submit', event => {
                     event.preventDefault();
                     runCopyTo();
@@ -12549,7 +12621,10 @@ public sealed class HtmlViews
                     }
 
                     if (!fileAreaDialog.classList.contains('hidden')) {
-                        closeFileAreaDialog();
+                        // Whatever was opened from the dialog sits above it and takes the key first.
+                        if (!document.querySelector('.credential-dialog:not(.hidden):not(#file-area-dialog), dialog[open]')) {
+                            closeFileAreaDialog();
+                        }
                     }
                     else if (!sftpTargetDialog.classList.contains('hidden')) {
                         closeTargetFolderDialog();
@@ -12675,8 +12750,12 @@ public sealed class HtmlViews
                     }
 
                     // Only a press that lands outside the dialog itself closes it - the file manager
-                    // inside has plenty of its own menus and must not trip this.
-                    if (event.target instanceof Element && !fileAreaDialog.contains(event.target)) {
+                    // inside has plenty of its own menus and must not trip this. Nor does a press on
+                    // something that was opened FROM the dialog and sits on top of it: a question, a
+                    // menu, the viewer. Before, answering "delete this?" closed the dialog behind it.
+                    if (event.target instanceof Element
+                        && !fileAreaDialog.contains(event.target)
+                        && !event.target.closest('.credential-dialog, dialog, .toolbar-menu-panel')) {
                         closeFileAreaDialog();
                     }
                 }, true);
@@ -16772,7 +16851,6 @@ public sealed class HtmlViews
                     .toolbar-upload-button,
                     .website-tool-button,
                     .file-tool-button,
-                    .file-menu > summary,
                     .file-upload-button {
                         align-items: center;
                         background: var(--surface);
@@ -16797,9 +16875,7 @@ public sealed class HtmlViews
                     .website-tool-button:focus-visible,
                     .file-tool-button:hover,
                     .file-tool-button:focus-visible,
-                    .file-menu[open] > summary,
-                    .file-menu > summary:hover,
-                    .file-menu > summary:focus-visible {
+                    .toolbar-menu.is-open > .toolbar-menu-trigger {
                         background: var(--hover-bg);
                         border-color: var(--surface-3);
                         color: var(--text);
@@ -17116,7 +17192,6 @@ public sealed class HtmlViews
                         justify-content: flex-end;
                     }
                     .file-toolbar button,
-                    .file-menu > summary,
                     .file-upload-button {
                         gap: 7px;
                         min-height: 32px;
@@ -17142,27 +17217,31 @@ public sealed class HtmlViews
                     .file-menu {
                         position: relative;
                     }
-                    .file-menu > summary {
-                        align-items: center;
-                        background: var(--surface);
-                        border: 1px solid var(--line);
-                        border-radius: var(--radius);
-                        color: var(--text);
-                        cursor: pointer;
-                        display: inline-flex;
-                        list-style: none;
-                        text-decoration: none;
-                        font: inherit;
-                        justify-content: center;
-                    }
-                    .file-menu > summary::-webkit-details-marker {
+                    .toolbar-menu-panel[hidden] {
                         display: none;
                     }
-                    .file-menu[open] > summary,
-                    .file-menu > summary:hover {
-                        background: var(--hover-bg);
-                        border-color: var(--surface-3);
-                        color: var(--text);
+                    /* The number of what is selected, on the button that opens the actions for it. On a phone
+                       the button is an icon, and with the menu closed nothing else says that something is
+                       selected. */
+                    .file-actions-menu > .toolbar-menu-trigger { position: relative; }
+                    .file-actions-menu > .toolbar-menu-trigger[data-count]::after {
+                        align-items: center;
+                        background: var(--accent);
+                        border: 1px solid var(--surface);
+                        border-radius: 999px;
+                        box-shadow: var(--shadow);
+                        color: var(--bg);
+                        content: attr(data-count);
+                        display: inline-flex;
+                        font-size: 10px;
+                        font-weight: 700;
+                        height: 16px;
+                        justify-content: center;
+                        min-width: 16px;
+                        padding: 0 4px;
+                        position: absolute;
+                        right: -5px;
+                        top: -5px;
                     }
                     .file-menu-panel {
                         background: var(--surface);
@@ -17308,6 +17387,8 @@ public sealed class HtmlViews
                         min-height: 30px;
                         padding: 4px 8px;
                     }
+                    .file-row-more,
+                    .file-row-meta { display: none; }
                     .server-form {
                         gap: 16px;
                     }
@@ -17807,6 +17888,19 @@ public sealed class HtmlViews
                             transform: translate(-50%, -50%) scale(.96);
                         }
                     }
+                    /* A tablet held upright is too wide for the phone's sheet and too narrow for four labelled
+                       buttons in every row: the table needed some 950 pixels and the actions sat behind a
+                       sideways scroll. Icons only here - their names are in the title - and the name column may
+                       get a little narrower. */
+                    @media (min-width: 721px) and (max-width: 1000px) {
+                        .file-display .file-row-actions .file-action-button > span { display: none; }
+                        .file-display .file-row-actions .file-action-button { justify-content: center; min-width: 34px; padding: 4px 8px; }
+                        .file-display .file-actions-heading,
+                        .file-display .file-actions-cell { min-width: 0; }
+                        .file-display .file-table th:nth-child(2),
+                        .file-display .file-table td:nth-child(2) { min-width: 180px; }
+                    }
+
                     @media (max-width: 720px) {
                         .page-head, .auth-panel { align-items: stretch; flex-direction: column; grid-template-columns: 1fr; }
                         /* Compact single-row header on phones: the global nav folds into the burger menu. */
@@ -17912,31 +18006,52 @@ public sealed class HtmlViews
                         .server-form-actions > * { flex: 1; justify-content: center; }
                         .server-delete-form { width: 100%; }
                         .server-delete-form button { width: 100%; }
-                        /* The file manager's toolbar stood in six rows on the phone: every group on
-                           full width, every button with a border of its own - together half the screen
-                           height before the first file was visible. Now one row: refresh, the path takes
-                           the rest, the others as icons. Their labels are in the menu
-                           they open. */
-                        .file-toolbar { flex-wrap: nowrap; gap: 4px; padding: 4px 6px; }
-                        /* .toolbar-group, not .file-toolbar-group: the groups only carry the general
-                           class, which is why the earlier mobile rules had no effect here and the bar
-                           wrapped anyway. */
-                        .file-toolbar .toolbar-group { flex: 0 0 auto; flex-wrap: nowrap; gap: 4px; min-width: 0; }
-                        /* .file-toolbar button is (0,1,1) and beat the general 40px rule, and <summary>
-                           and the upload <label> are not buttons at all. */
-                        .file-toolbar button,
-                        .file-toolbar .file-menu > summary,
-                        .file-toolbar .file-upload-button { min-height: 40px; }
-                        .file-toolbar .file-toolbar-transfer { flex: 0 0 auto; }
-                        .file-toolbar .file-toolbar-main { flex: 1 1 auto; min-width: 0; }
-                        .file-path-input { flex: 1 1 auto; min-width: 0; }
-                        .file-menu { width: auto; }
-                        .file-menu > summary { justify-content: center; width: auto; }
-                        .file-menu-trigger > span:not(.menu-caret) { display: none; }
-                        .file-upload-button { width: auto; }
-                        .file-upload-button > span { display: none; }
-                        .file-tool-button,
-                        .file-upload-button { min-width: 40px; padding: 0 9px; }
+                        /* The file manager's toolbar in two rows. Row one is the place and what it offers - share,
+                           create, actions, queue, upload; row two is where you are - up, refresh, the path. It
+                           used to be one row: the place and the path got 20 pixels each, and the menus opened off
+                           the edge of the screen. The groups give up their boxes so the buttons can be arranged
+                           across them, and an empty item as wide as the bar breaks the line between the rows.
+                           The labels are in the sheets the menus open, and in the title of each button. */
+                        .file-display .file-toolbar { align-items: center; flex-wrap: wrap; gap: 4px; padding: 6px; }
+                        .file-display .file-toolbar .toolbar-group { display: contents; }
+                        .file-display .file-toolbar::after { content: ''; flex: 0 0 100%; height: 0; order: 7; }
+                        .file-display .file-toolbar button,
+                        .file-display .file-toolbar .file-upload-button { min-height: 40px; }
+                        .file-display .file-toolbar .file-tool-button > span,
+                        .file-display .file-toolbar .file-upload-button > span { display: none; }
+                        .file-display .file-toolbar .file-tool-button,
+                        .file-display .file-toolbar .file-upload-button,
+                        .file-display .file-toolbar .toolbar-icon-button { flex: 0 0 auto; min-width: 40px; padding: 0 9px; width: 40px; }
+                        .file-display .file-toolbar .toolbar-menu { flex: 0 0 auto; }
+                        .file-display .file-toolbar .file-place-select { flex: 1 1 0; font-size: 16px; max-width: none; min-height: 40px; min-width: 0; order: 1; }
+                        .file-display .file-toolbar [data-workspace-settings],
+                        .file-display .file-toolbar [data-share-place] { order: 2; }
+                        .file-display .file-toolbar .file-create-menu { margin-left: auto; order: 3; }
+                        .file-display .file-toolbar .file-actions-menu { order: 4; }
+                        .file-display .file-toolbar .file-upload-queue-toggle { order: 5; }
+                        .file-display .file-toolbar .file-upload-button { order: 6; }
+                        .file-display .file-toolbar [data-file-action="up"] { order: 8; }
+                        .file-display .file-toolbar [data-file-action="refresh"] { order: 9; }
+                        .file-display .file-toolbar .file-path-input { flex: 1 1 0; font-size: 16px; min-height: 40px; min-width: 0; order: 10; }
+                        /* The page of a shared workspace has the same bar without the place field and the queue:
+                           a plain wrapping row is enough there. */
+                        .workspace-file-manager .file-toolbar { align-items: center; flex-wrap: wrap; gap: 6px 4px; padding: 6px; }
+                        .workspace-file-manager .file-toolbar .toolbar-group { display: contents; }
+                        .workspace-file-manager .file-toolbar::after { content: ''; flex: 0 0 100%; height: 0; order: 3; }
+                        .workspace-file-manager .file-toolbar button,
+                        .workspace-file-manager .file-toolbar .file-upload-button { min-height: 40px; }
+                        .workspace-file-manager .file-toolbar .toolbar-icon-button { flex: 0 0 auto; min-width: 40px; order: 1; width: 40px; }
+                        .workspace-file-manager .workspace-path-form { flex: 1 1 0; gap: 4px; min-width: 0; order: 2; }
+                        .workspace-file-manager .file-path-input { flex: 1 1 0; font-size: 16px; min-height: 40px; min-width: 0; }
+                        .workspace-file-manager .file-toolbar .toolbar-menu { order: 4; }
+                        .workspace-file-manager .workspace-upload-form { margin-left: auto; order: 5; width: auto; }
+                        /* The rows: no empty column for ticks that this page does not have, and the actions as
+                           icons you can hit. The name carries the meaning. */
+                        .workspace-file-manager .file-select-heading,
+                        .workspace-file-manager .file-select-cell { display: none; }
+                        .workspace-file-manager .file-action-button { justify-content: center; min-height: 40px; min-width: 40px; }
+                        .workspace-file-manager .file-action-button > span { display: none; }
+                        .workspace-file-manager .file-row-actions { flex-wrap: nowrap; gap: 0; }
                         /* As in the burger sheet: the X carries no box. */
                         .mobile-tab-sheet .mobile-tab-sheet-close {
                             background: none;
@@ -17973,26 +18088,37 @@ public sealed class HtmlViews
                            instead of breaking the words. */
                         .credential-dialog .actions { flex-wrap: wrap; }
                         .credential-dialog .actions > * { flex: 1 1 auto; justify-content: center; }
-                        /* Every row carried four bordered buttons with labels: 210 of 372 pixels went
-                           to that column and pushed the name out of view. Here only icons, without a
-                           border of their own inside the already bordered table, and they may wrap - the
-                           name of the action is set as a title by
-                           fileActionButton anyway. */
-                        .file-row-actions { flex-wrap: wrap; gap: 2px; }
-                        .file-display .file-row-actions .file-action-button > span { display: none; }
-                        .file-row-actions button {
+                        /* A row on a phone: the name with its size and date under it, and ONE button at the end
+                           that opens the row's actions as a sheet. Four icons used to wrap inside a 68 pixel cell
+                           and made every file 180 pixels tall - and one of the four had no icon at all. The
+                           buttons stay in the row, the sheet is made from them; they are only not shown. */
+                        .file-display .file-row-actions .file-action-button { display: none; }
+                        .file-display .file-row-actions { flex-wrap: nowrap; gap: 0; justify-content: flex-end; }
+                        .file-row-more {
+                            align-items: center;
                             background: none;
                             border: 0;
+                            color: var(--muted);
+                            display: inline-flex;
                             justify-content: center;
-                            padding: 0 6px;
+                            min-height: 44px;
+                            min-width: 44px;
+                            padding: 0;
                         }
-                        /* Touchable targets: opening a row was a 30px strip. */
-                        .file-name-button,
-                        .file-row-actions button,
-                        .file-action-button {
-                            min-height: 40px;
-                            min-width: 40px;
-                        }
+                        .file-row-more .icon { height: 20px; width: 20px; }
+                        .file-row-meta { color: var(--muted); display: block; font-size: 12px; line-height: 1.3; padding: 0 0 2px 29px; }
+                        .file-display .file-table td { padding-bottom: 3px; padding-top: 3px; }
+                        .file-name-button { min-height: 40px; min-width: 0; }
+                        /* A finger needs more than the 14 pixels of a desktop checkbox. */
+                        .file-display .file-table th:first-child,
+                        .file-display .file-table td:first-child { min-width: 44px; width: 44px; }
+                        .file-display .file-select-cell input[type="checkbox"],
+                        .file-display .file-select-heading input[type="checkbox"] { height: 22px; width: 22px; }
+                        .file-actions-heading-label { display: none; }
+                        .file-display .file-actions-heading,
+                        .file-display .file-actions-cell { width: 52px; }
+                        .file-display .file-table th:nth-child(3),
+                        .file-display .file-table td:nth-child(3) { display: none; }
                         /* The name column had min-width: 260px AND width: 100% - together with the
                            action column the table needed around 690px and therefore lay half behind a
                            horizontal scrollbar. */
@@ -18173,6 +18299,7 @@ public sealed class HtmlViews
                         .credential-dialog.confirm-dialog,
                         .credential-dialog.colour-dialog,
                         .credential-dialog.name-dialog {
+                            border: 0;
                             border-radius: 0;
                             display: flex;
                             flex-direction: column;
@@ -18201,7 +18328,91 @@ public sealed class HtmlViews
                         /* The app bar steps aside while such a sheet is open. It sits in a stacking
                            context of its own next to the shell, so no z-index on the sheet can get
                            above it - and it was covering the sheet's own heading. */
-                        body:has(.credential-dialog:not(.hidden)) > header { display: none; }
+                        body:has(.credential-dialog:not(.hidden)) > header,
+                        body:has(.menu-sheet:not([hidden])) > header { display: none; }
+                        /* A menu on a phone is a sheet over the whole screen, with a head of its own: tapping
+                           beside it is no way out once it covers everything. While it is open it sits under
+                           <body> (see the layout script). */
+                        .toolbar-menu-panel.menu-sheet {
+                            align-content: start;
+                            border: 0;
+                            border-radius: 0;
+                            bottom: 0;
+                            box-shadow: none;
+                            gap: 0;
+                            left: 0;
+                            max-height: none;
+                            min-width: 0;
+                            overflow-y: auto;
+                            overscroll-behavior: contain;
+                            padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+                            position: fixed;
+                            right: 0;
+                            top: 0;
+                            width: auto;
+                            z-index: 60;
+                        }
+                        .menu-sheet-head {
+                            align-items: center;
+                            background: var(--surface);
+                            border-bottom: 1px solid var(--line);
+                            display: flex;
+                            font-size: 16px;
+                            justify-content: space-between;
+                            min-height: 52px;
+                            padding: 0 6px 0 14px;
+                            position: sticky;
+                            top: 0;
+                            z-index: 1;
+                        }
+                        .menu-sheet-head strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                        .menu-sheet-head .menu-sheet-close {
+                            background: none;
+                            border: 0;
+                            color: inherit;
+                            flex: 0 0 auto;
+                            font-size: 22px;
+                            min-height: 44px;
+                            min-width: 44px;
+                            width: auto;
+                        }
+                        .menu-sheet .toolbar-menu-item {
+                            background: transparent;
+                            border: 0;
+                            border-bottom: 1px solid var(--line);
+                            border-radius: 0;
+                            color: var(--text);
+                            font-size: 16px;
+                            gap: 12px;
+                            justify-content: flex-start;
+                            min-height: 56px;
+                            padding: 0 16px;
+                            text-align: left;
+                            width: 100%;
+                        }
+                        .menu-sheet .toolbar-menu-item .icon { height: 20px; width: 20px; }
+                        .menu-sheet .toolbar-menu-item.danger { color: var(--danger); }
+                        .menu-sheet .toolbar-menu-item:disabled { opacity: .45; }
+                        .menu-sheet .toolbar-menu-item:not(:disabled):active { background: var(--hover-strong-bg); }
+                        .menu-sheet .workspace-menu-form { gap: 10px; padding: 16px; }
+                        .menu-sheet .workspace-menu-input { font-size: 16px; min-height: 44px; }
+                        /* The dialog with the file manager in it is a whole screen too. Its own rules are more
+                           specific than the general ones above and kept it a box of 78% height, 32 pixels short
+                           of the right edge. */
+                        .credential-dialog.file-area-dialog {
+                            height: var(--matgate-viewport-height, 100vh);
+                            max-height: none;
+                            overflow: hidden;
+                            padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+                            width: 100vw;
+                        }
+                        .file-area-dialog-head { flex-wrap: wrap; gap: 8px; padding: 8px; }
+                        .file-area-dialog-select { flex: 1 1 0; font-size: 16px; max-width: none; min-height: 44px; }
+                        .file-area-dialog-actions { display: contents; }
+                        #file-area-dialog-close { min-height: 44px; min-width: 44px; order: 2; }
+                        #file-area-dialog-send { flex: 1 0 100%; justify-content: center; min-height: 44px; order: 3; }
+                        .file-area-dialog-status { flex: 1 0 100%; font-size: 12px; line-height: 1.2; order: 4; padding: 0 2px; text-align: left; }
+                        .file-area-dialog-status:empty { display: none; }
                         /* For the same reason as the tool icons: the general 40px rule applies to the
                            <button>, not to the <a> next to it - and neighbours of unequal height look
                            like a mistake. */
@@ -18548,6 +18759,176 @@ public sealed class HtmlViews
                                 }
                             });
                         };
+
+                        // ---- Menus made of a button and the panel it opens ---------------------------------
+                        //
+                        //   <div class="toolbar-menu"><button data-menu-toggle>...</button>
+                        //   <div class="toolbar-menu-panel" hidden>...</div></div>
+                        //
+                        // On a wide screen the panel drops down beside its button. On a phone it becomes a
+                        // sheet over the whole screen with a head of its own and a way back, and it sits under
+                        // <body> while it is open: iOS clips fixed elements that live inside a scrolling
+                        // container, and a sheet is fixed. There is no <details> in any of this - that element
+                        // did not open in an iPhone app installed to the home screen, which left the file
+                        // manager's two menus dead there.
+                        const menuSheetMode = () => window.matchMedia('(max-width: 720px)').matches;
+                        let activeMenu = null;
+
+                        const closeToolbarMenu = () => {
+                            if (!activeMenu) {
+                                return;
+                            }
+
+                            const { home, trigger, panel } = activeMenu;
+                            activeMenu = null;
+                            panel.querySelectorAll(':scope > .menu-sheet-head').forEach((head) => head.remove());
+                            panel.classList.remove('menu-sheet', 'file-display--readonly');
+                            panel.style.left = '';
+                            panel.style.right = '';
+                            panel.hidden = true;
+                            if (panel.hasAttribute('data-menu-dynamic')) {
+                                panel.remove();
+                            }
+                            else if (panel.parentElement !== home) {
+                                home.appendChild(panel);
+                            }
+
+                            home.classList.remove('is-open');
+                            trigger.setAttribute('aria-expanded', 'false');
+                        };
+
+                        const showToolbarMenu = (trigger, panel, home, title) => {
+                            closeToolbarMenu();
+                            panel.hidden = false;
+                            home.classList.add('is-open');
+                            trigger.setAttribute('aria-expanded', 'true');
+                            // A place that must not be written to hides what writes with a rule that looks at an
+                            // ancestor - and under <body> the sheet has none.
+                            if (home.closest('.file-display--readonly')) {
+                                panel.classList.add('file-display--readonly');
+                            }
+
+                            if (menuSheetMode()) {
+                                const head = document.createElement('div');
+                                head.className = 'menu-sheet-head';
+                                const heading = document.createElement('strong');
+                                heading.textContent = title || '';
+                                const close = document.createElement('button');
+                                close.type = 'button';
+                                close.className = 'menu-sheet-close';
+                                close.setAttribute('aria-label', panel.getAttribute('data-menu-close') || (document.documentElement.lang === 'de' ? 'Schließen' : 'Close'));
+                                close.textContent = '\u00d7';
+                                close.addEventListener('click', closeToolbarMenu);
+                                head.append(heading, close);
+                                panel.insertBefore(head, panel.firstChild);
+                                panel.classList.add('menu-sheet');
+                                document.body.appendChild(panel);
+                            }
+                            else if (panel.getBoundingClientRect().right > window.innerWidth - 8) {
+                                // Beside its button, but never off the right edge of the screen.
+                                panel.style.left = 'auto';
+                                panel.style.right = '0';
+                            }
+
+                            activeMenu = { home, trigger, panel };
+                        };
+
+                        window.MatgateCloseMenus = closeToolbarMenu;
+
+                        // A menu made on the spot - the actions of one row in the file list, say. Items are
+                        // { label, iconHtml, danger, disabled, onSelect }. The sheet is closed BEFORE onSelect
+                        // runs, so whatever the choice opens is not underneath it.
+                        window.MatgateOpenMenu = (options) => {
+                            const trigger = options.trigger;
+                            if (activeMenu && activeMenu.trigger === trigger) {
+                                closeToolbarMenu();
+                                return;
+                            }
+
+                            const panel = document.createElement('div');
+                            panel.className = 'toolbar-menu-panel file-menu-panel';
+                            panel.setAttribute('role', 'menu');
+                            panel.setAttribute('data-menu-dynamic', '1');
+                            panel.setAttribute('data-menu-close', options.closeLabel || 'Close');
+                            panel.hidden = true;
+                            options.items.forEach((item) => {
+                                const button = document.createElement('button');
+                                button.type = 'button';
+                                button.className = 'toolbar-button toolbar-menu-item file-menu-item' + (item.danger ? ' danger' : '');
+                                button.setAttribute('role', 'menuitem');
+                                button.disabled = !!item.disabled;
+                                button.innerHTML = (item.iconHtml || '') + '<span></span>';
+                                button.lastChild.textContent = item.label || '';
+                                button.addEventListener('click', () => {
+                                    closeToolbarMenu();
+                                    item.onSelect();
+                                });
+                                panel.appendChild(button);
+                            });
+                            const home = trigger.parentElement;
+                            home.appendChild(panel);
+                            showToolbarMenu(trigger, panel, home, options.title);
+                        };
+
+                        document.addEventListener('click', (event) => {
+                            const target = event.target instanceof Element ? event.target : null;
+                            if (!target) {
+                                return;
+                            }
+
+                            const toggle = target.closest('[data-menu-toggle]');
+                            if (toggle) {
+                                if (activeMenu && activeMenu.trigger === toggle) {
+                                    closeToolbarMenu();
+                                    return;
+                                }
+
+                                const home = toggle.parentElement;
+                                const panel = home ? home.querySelector(':scope > .toolbar-menu-panel') : null;
+                                if (panel) {
+                                    showToolbarMenu(toggle, panel, home, panel.getAttribute('data-menu-title') || toggle.getAttribute('title') || (toggle.textContent || '').trim());
+                                }
+
+                                return;
+                            }
+
+                            // Choosing something closes the menu - after the choice has been handled, because
+                            // this listener runs last. A field or a submit button inside a panel is no choice: a
+                            // form that is being sent must stay as it is until the browser has read it.
+                            if (activeMenu && activeMenu.panel.contains(target)) {
+                                const chosen = target.closest('button, a[href]');
+                                if (chosen && !chosen.disabled && !chosen.closest('form') && !chosen.classList.contains('menu-sheet-close')) {
+                                    closeToolbarMenu();
+                                }
+                            }
+                        });
+
+                        // Beside the panel closes it - on pointerdown, because some surfaces swallow the click.
+                        document.addEventListener('pointerdown', (event) => {
+                            if (!activeMenu) {
+                                return;
+                            }
+
+                            const target = event.target instanceof Element ? event.target : null;
+                            if (target && !activeMenu.panel.contains(target) && !activeMenu.trigger.contains(target)) {
+                                closeToolbarMenu();
+                            }
+                        }, true);
+
+                        // Capturing, and it stops the event: with a menu open above a dialog, Escape closes the
+                        // menu and nothing else - the dialog's own handler would close it as well.
+                        document.addEventListener('keydown', (event) => {
+                            if (event.key === 'Escape' && activeMenu) {
+                                const trigger = activeMenu.trigger;
+                                closeToolbarMenu();
+                                trigger.focus();
+                                event.stopPropagation();
+                            }
+                        }, true);
+
+                        // Turned the phone, or resized the window across the line: the sheet and the dropdown are
+                        // two different things, and one cannot be turned into the other while it is open.
+                        window.matchMedia('(max-width: 720px)').addEventListener('change', closeToolbarMenu);
 
                         // Generic in-page tabs: [data-tabs] with [data-tab-target] buttons + [data-tab-panel]
                         // panels. Server-render sets the initial active tab; this adds client-side switching.
@@ -20367,15 +20748,18 @@ public sealed class HtmlViews
         return $"""<input type="text" class="{A(CssClasses("toolbar-input", className))}"{attrs}>""";
     }
 
+    // A button and the panel it opens. Not <details>: that element did not open in an iPhone app
+    // installed to the home screen. How it behaves - a dropdown, or a sheet over the whole screen on a
+    // phone, and closing - is the layout script's; it finds the button by data-menu-toggle.
     private static string ToolbarMenu(string className, string summaryClassName, string summaryLabel, string summaryIconHtml, string summaryAttributes = "", params string[] items)
     {
         var content = string.Join("", items.Where(item => !string.IsNullOrWhiteSpace(item)));
         var attrs = string.IsNullOrWhiteSpace(summaryAttributes) ? "" : $" {summaryAttributes.Trim()}";
         return $"""
-            <details class="{A(CssClasses("toolbar-menu", className))}">
-                <summary class="{A(CssClasses("toolbar-button toolbar-menu-trigger", summaryClassName))}"{attrs}>{summaryIconHtml}<span>{E(summaryLabel)}</span><span class="menu-caret">{Icon("chevron-down")}</span></summary>
-                <div class="toolbar-menu-panel file-menu-panel">{content}</div>
-            </details>
+            <div class="{A(CssClasses("toolbar-menu", className))}">
+                <button type="button" class="{A(CssClasses("toolbar-button toolbar-menu-trigger", summaryClassName))}" data-menu-toggle aria-haspopup="true" aria-expanded="false"{attrs}>{summaryIconHtml}<span>{E(summaryLabel)}</span><span class="menu-caret">{Icon("chevron-down")}</span></button>
+                <div class="toolbar-menu-panel file-menu-panel" role="menu" data-menu-title="{A(summaryLabel)}" hidden>{content}</div>
+            </div>
             """;
     }
 

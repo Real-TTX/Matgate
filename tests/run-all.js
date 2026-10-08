@@ -20,7 +20,7 @@ const GROUPS = [
   {
     name: "Group 3 - menus, tabs, file manager",
     scripts: ["menus.js", "file-manager-tab.js", "file-manager-actions.js", "own-dialogs.js",
-      "tab-scrollbar.js", "add-tab-plus.js", "create-place.js"],
+      "tab-scrollbar.js", "add-tab-plus.js"],
   },
   {
     name: "Group 4 - appearance, home page, names",
@@ -30,6 +30,11 @@ const GROUPS = [
   {
     name: "Group 5 - second factor and sharing",
     scripts: ["totp.js", "place-settings-dialog.js", "sharing.js", "workspace-dissolved.js"],
+  },
+  {
+    name: "Group 6 - the phone, creating places",
+    scripts: ["file-manager-phone.js", "file-area-dialog-phone.js", "file-manager-menus.js",
+      "public-page-phone.js", "create-place.js"],
   },
 ];
 
