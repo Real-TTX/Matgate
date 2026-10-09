@@ -32,9 +32,9 @@ const GROUPS = [
     scripts: ["totp.js", "place-settings-dialog.js", "sharing.js", "workspace-dissolved.js"],
   },
   {
-    name: "Group 6 - the phone, creating places",
+    name: "Group 6 - the phone, creating places, stuck keys",
     scripts: ["file-manager-phone.js", "file-area-dialog-phone.js", "file-manager-menus.js",
-      "public-page-phone.js", "create-place.js"],
+      "public-page-phone.js", "create-place.js", "stuck-keys.js"],
   },
 ];
 

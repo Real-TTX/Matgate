@@ -5979,6 +5979,7 @@ public sealed class HtmlViews
                         tab.tabButton.classList.remove('active');
                         tab.panel.classList.add('hidden');
                     }
+                    releaseInactiveHeldKeys();
                     setWorkspaceVisible(false);
                     document.title = `${(shellTabs.get(tabId)?.title || ui('dashboard'))} - Matgate`;
 
@@ -7995,6 +7996,7 @@ public sealed class HtmlViews
                         tab.tabButton.classList.remove('active');
                         tab.panel.classList.add('hidden');
                     }
+                    releaseInactiveHeldKeys();
 
                     updateTabActions();
                     saveWorkspaceTabs();
@@ -8242,6 +8244,16 @@ public sealed class HtmlViews
 
                         panel.focus();
                     });
+                    // Focus leaving the surface - a click on the toolbar, the tab strip, the address bar - takes the
+                    // keyboard with it, and the release of whatever is held with it. Moving to something INSIDE the
+                    // panel, the hidden field of the on-screen keyboard, is not leaving.
+                    panel.addEventListener('focusout', event => {
+                        if (event.relatedTarget instanceof Node && panel.contains(event.relatedTarget)) {
+                            return;
+                        }
+
+                        releaseHeldKeys(tab);
+                    });
 
                     tabs.set(tab.id, tab);
                     activateTab(tab.id);
@@ -8249,6 +8261,39 @@ public sealed class HtmlViews
                     startTab(tab);
                     saveWorkspaceTabs();
                     return tab;
+                }
+
+                // A key that is down when the keyboard leaves a session never reports its release to this
+                // page: Ctrl for Ctrl+Tab (which switches BROWSER tabs), Alt for Alt+Tab, the Windows key, a
+                // virtual desktop. The remote desktop then keeps it pressed - every click is a Ctrl+click,
+                // every letter a shortcut - until the key is pressed once more, and a held letter goes on
+                // repeating, because the auto-repeat of Guacamole runs until the release it never gets.
+                // Guacamole.Keyboard lets go of what it knows to be down only when told to, so it is told
+                // whenever the keyboard may have gone elsewhere: the window loses focus, the page is hidden,
+                // focus leaves the surface of the session, another tab comes to the front.
+                function releaseHeldKeys(tab) {
+                    if (tab && tab.keyboard) {
+                        tab.keyboard.reset();
+                        // Its own idea of which modifiers are down goes too: one that is STILL held when the
+                        // keyboard comes back is then pressed again by its next key, instead of being taken for
+                        // a key that was never let go.
+                        tab.keyboard.modifiers = new Guacamole.Keyboard.ModifierState();
+                    }
+                }
+
+                function releaseAllHeldKeys() {
+                    for (const tab of tabs.values()) {
+                        releaseHeldKeys(tab);
+                    }
+                }
+
+                // Every session but the one that is shown now.
+                function releaseInactiveHeldKeys() {
+                    for (const tab of tabs.values()) {
+                        if (tab.id !== activeTabId) {
+                            releaseHeldKeys(tab);
+                        }
+                    }
                 }
 
                 function activateTab(tabId) {
@@ -8271,6 +8316,7 @@ public sealed class HtmlViews
                         tab.tabButton.classList.toggle('active', active);
                         tab.panel.classList.toggle('hidden', !active);
                     }
+                    releaseInactiveHeldKeys();
 
                     const activeTab = tabs.get(tabId);
                     fitDisplay(activeTab);
@@ -12873,6 +12919,12 @@ public sealed class HtmlViews
                         syncLocalClipboardToRemote(activeTab);
                     }
                 });
+                // The keyboard leaves the page without a word: Alt+Tab, Ctrl+Tab to another browser tab, the
+                // Windows key, another virtual desktop. Whatever was held then is let go - on the way out,
+                // and on the way back as well, because not every platform reports the way out.
+                window.addEventListener('blur', releaseAllHeldKeys);
+                window.addEventListener('focus', releaseAllHeldKeys);
+                document.addEventListener('visibilitychange', releaseAllHeldKeys);
                 // pagehide instead of beforeunload: beforeunload also fires for navigations that
                 // never happen - a download, a link to a file, a cancelled page change. Every one
                 // of those would have disconnected all sessions here even though the page stayed.
@@ -13199,6 +13251,14 @@ public sealed class HtmlViews
                             client.sendKeyEvent(0, keysym);
                             return false;
                         };
+                        // A key held while the keyboard leaves the page - Ctrl+Tab, Alt+Tab - would stay down on the remote side.
+                        const releaseHeldKeys = () => {
+                            keyboard.reset();
+                            keyboard.modifiers = new Guacamole.Keyboard.ModifierState();
+                        };
+                        window.addEventListener('blur', releaseHeldKeys);
+                        window.addEventListener('focus', releaseHeldKeys);
+                        document.addEventListener('visibilitychange', releaseHeldKeys);
 
                         const parameters = new URLSearchParams({
                             token: auth.authToken,
