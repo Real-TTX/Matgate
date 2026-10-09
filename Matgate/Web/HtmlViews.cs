@@ -4600,6 +4600,14 @@ public sealed class HtmlViews
             dropIntoSession = Language(context) == "de" ? "in die Sitzung" : "into the session",
             dropNowhere = Language(context) == "de" ? "Hier nimmt gerade nichts Dateien an" : "Nothing here takes files right now",
             pastedImageName = Language(context) == "de" ? "Bild" : "Image",
+            pasteFoldersOnly = Language(context) == "de" ? "Ordner lassen sich nicht einfügen - nur Dateien" : "Folders cannot be pasted - only files",
+            pasteOnServer = Language(context) == "de" ? "Auf dem Server" : "On the server",
+            pasteSending = Language(context) == "de" ? "Füge Dateien ein" : "Pasting files",
+            pasteFoldersSkipped = Language(context) == "de" ? "Ordner wurden ausgelassen" : "Folders were left out",
+            pastePartly = Language(context) == "de" ? "Dateien eingefügt - der Rest ist fehlgeschlagen" : "files pasted - the others failed",
+            pasteFiles = Language(context) == "de" ? "Dateien" : "files",
+            pastePasted = Language(context) == "de" ? "eingefügt" : "pasted",
+            pasteCopyPath = Language(context) == "de" ? "Pfad in die Zwischenablage der Sitzung legen" : "Put the path on the session clipboard",
             placesOther = Language(context) == "de" ? "Andere Verbindungen" : "Other connections",
             placesWorkspaces = "Workspaces",
             newPlace = Language(context) == "de" ? "Neue Ablage ..." : "New place ...",
@@ -8103,6 +8111,16 @@ public sealed class HtmlViews
                         if (shouldSuppressBrowserScroll(event)) {
                             event.preventDefault();
                         }
+
+                        // Ctrl+V / Shift+Insert: noted for Guacamole.Keyboard's handler, which runs right after
+                        // this one and may hold the key back (see holdPasteKey). A key that is only repeating
+                        // must not paste again, so the browser's own paste is cancelled for it.
+                        const chord = isPasteChord(event);
+                        if (chord && event.repeat) {
+                            event.preventDefault();
+                        }
+
+                        tab.pasteChordPending = chord && !event.repeat;
                     }, true);
 
                     const displayRoot = document.createElement('div');
@@ -8312,6 +8330,7 @@ public sealed class HtmlViews
                 // focus leaves the surface of the session, another tab comes to the front.
                 function releaseHeldKeys(tab) {
                     if (tab && tab.keyboard) {
+                        passHeldPasteOn(tab);
                         tab.keyboard.reset();
                         // Its own idea of which modifiers are down goes too: one that is STILL held when the
                         // keyboard comes back is then pressed again by its next key, instead of being taken for
@@ -10288,11 +10307,27 @@ public sealed class HtmlViews
                         // keydown but NOT beforeinput.
                         tab.keyboard = new Guacamole.Keyboard(tab.panel);
                         tab.keyboard.onkeydown = keysym => {
+                            // A paste key press is held back for the moment the paste event takes to say whether
+                            // there are files on the clipboard. Returning true tells Guacamole.Keyboard the key
+                            // press was NOT handled, so it does not cancel it - and a browser only pastes from a
+                            // key press that is not cancelled.
+                            if (tab.pasteChordPending) {
+                                tab.pasteChordPending = false;
+                                if (holdPasteKey(tab, keysym)) {
+                                    return true;
+                                }
+                            }
+
                             markKeysymSent(keysym);
                             client.sendKeyEvent(1, keysym);
                             return false;
                         };
                         tab.keyboard.onkeyup = keysym => {
+                            // Let go before the paste event came: the press goes out first, then the release.
+                            if (tab.heldPaste && tab.heldPaste.keysym === keysym) {
+                                passHeldPasteOn(tab);
+                            }
+
                             client.sendKeyEvent(0, keysym);
                             return false;
                         };
@@ -12410,6 +12445,267 @@ public sealed class HtmlViews
                     }
                 }
 
+                // ---- Files from the clipboard, into the session ------------------------------------------------
+                //
+                // The official RDP client lets you copy files in Explorer, press Ctrl+V in the remote session and
+                // they land in the folder that is open there. Guacamole cannot do that: the clipboard channel of
+                // guacd carries text only (its own log says so - "Only Unicode and text clipboard formats are
+                // currently supported"), so there is no way to hand a file to the folder the remote Explorer has
+                // open. What can be done is the first half: Ctrl+V with files on the clipboard sends them into the
+                // session's drive in one go, and a note says where they are.
+                //
+                // A browser fires "paste" - the one event that carries the clipboard's files - only for a key
+                // press that was not cancelled, and Guacamole.Keyboard cancels every key press it forwards. So the
+                // Ctrl+V of a session is held back for the moment the paste event takes to arrive: with files on
+                // the clipboard they go to the drive and the key press is dropped; with anything else the key press
+                // goes on to the remote as it always did - and as it does after PASTE_HOLD_MS when the browser
+                // fires no paste event at all.
+                const PASTE_HOLD_MS = 150;
+
+                function isPasteChord(event) {
+                    if (event.altKey || event.metaKey) {
+                        return false;
+                    }
+
+                    const letterV = event.code === 'KeyV' || String(event.key || '').toLowerCase() === 'v';
+                    return (event.ctrlKey && !event.shiftKey && letterV)
+                        || (event.shiftKey && !event.ctrlKey && event.key === 'Insert');
+                }
+
+                function canTakeFiles(tab) {
+                    return !!(tab && tab.client && !tab.terminal && tab.filesystem);
+                }
+
+                function holdPasteKey(tab, keysym) {
+                    if (!canTakeFiles(tab) || tab.heldPaste) {
+                        return false;
+                    }
+
+                    tab.heldPaste = { keysym, timer: window.setTimeout(() => passHeldPasteOn(tab), PASTE_HOLD_MS) };
+                    return true;
+                }
+
+                // The key press goes to the remote after all - the clipboard held no files, or no paste event came.
+                function passHeldPasteOn(tab) {
+                    const held = tab && tab.heldPaste;
+                    if (!held) {
+                        return;
+                    }
+
+                    window.clearTimeout(held.timer);
+                    tab.heldPaste = null;
+                    if (tab.client && !tab.terminal) {
+                        tab.client.sendKeyEvent(1, held.keysym);
+                    }
+                }
+
+                // The key press is dropped: the files took its place.
+                function dropHeldPaste(tab) {
+                    const held = tab && tab.heldPaste;
+                    if (!held) {
+                        return;
+                    }
+
+                    window.clearTimeout(held.timer);
+                    tab.heldPaste = null;
+                    // Guacamole.Keyboard still takes the key for pressed and would start repeating it after half a
+                    // second - which the remote would see as Ctrl+V again and again.
+                    if (tab.keyboard) {
+                        tab.keyboard.release(held.keysym);
+                    }
+                }
+
+                function heldPasteTab() {
+                    for (const tab of tabs.values()) {
+                        if (tab.heldPaste) {
+                            return tab;
+                        }
+                    }
+
+                    return null;
+                }
+
+                // Does the clipboard hold FILES somebody copied - or a program's picture of what it copied? Excel
+                // puts a picture of the cells next to their text, a web page puts its image next to the html:
+                // those are text pastes and stay ones. Files copied in a file manager come alone, or with just
+                // their names. Folders cannot be read, they are counted so that the note can say so.
+                function clipboardFileCopy(data) {
+                    if (!data) {
+                        return null;
+                    }
+
+                    const files = [];
+                    const folders = [];
+                    Array.from(data.items || []).forEach(item => {
+                        if (item.kind !== 'file') {
+                            return;
+                        }
+
+                        const entry = typeof item.webkitGetAsEntry === 'function' ? item.webkitGetAsEntry() : null;
+                        const file = item.getAsFile();
+                        if (entry && entry.isDirectory) {
+                            folders.push(entry.name || (file ? file.name : ''));
+                        }
+                        else if (file) {
+                            files.push(file);
+                        }
+                    });
+                    if (!files.length && !folders.length) {
+                        Array.from(data.files || []).forEach(file => files.push(file));
+                    }
+
+                    if (!files.length && !folders.length) {
+                        return null;
+                    }
+
+                    const types = Array.from(data.types || []);
+                    if (types.includes('text/html')) {
+                        return null;
+                    }
+
+                    if (types.includes('text/plain')) {
+                        const names = new Set(files.map(file => file.name).concat(folders));
+                        const backslash = String.fromCharCode(92);
+                        const text = (data.getData('text/plain') || '').split('\n').map(line => line.trim()).filter(Boolean);
+                        const onlyNames = text.length > 0 && text.every(line =>
+                            names.has(line.slice(Math.max(line.lastIndexOf('/'), line.lastIndexOf(backslash)) + 1)));
+                        if (!onlyNames) {
+                            return null;
+                        }
+                    }
+
+                    return { files: filesFromClipboard({ files }), folders };
+                }
+
+                // A note over the session that stays long enough to read - the status line only holds a
+                // message for two seconds, and "where did my files go" is not answered in two seconds.
+                function showSessionNote(tab, options) {
+                    if (!tab || !tab.panel) {
+                        return;
+                    }
+
+                    let note = tab.sessionNote;
+                    if (!note) {
+                        note = document.createElement('div');
+                        note.className = 'session-note';
+                        note.setAttribute('role', 'status');
+                        tab.panel.appendChild(note);
+                        tab.sessionNote = note;
+                    }
+
+                    note.replaceChildren();
+                    const text = document.createElement('div');
+                    text.className = 'session-note-text';
+                    const title = document.createElement('strong');
+                    title.textContent = options.title;
+                    text.appendChild(title);
+                    if (options.detail) {
+                        const detail = document.createElement('code');
+                        detail.className = 'session-note-detail';
+                        detail.textContent = options.detail;
+                        text.appendChild(detail);
+                    }
+
+                    note.appendChild(text);
+
+                    const row = document.createElement('div');
+                    row.className = 'session-note-actions';
+                    if (options.action) {
+                        const action = document.createElement('button');
+                        action.type = 'button';
+                        action.textContent = options.action.label;
+                        action.addEventListener('click', () => {
+                            options.action.run();
+                            hideSessionNote(tab);
+                        });
+                        row.appendChild(action);
+                    }
+
+                    const close = document.createElement('button');
+                    close.type = 'button';
+                    close.className = 'session-note-close';
+                    close.setAttribute('aria-label', ui('close'));
+                    close.textContent = '\u00d7';
+                    close.addEventListener('click', () => hideSessionNote(tab));
+                    row.appendChild(close);
+                    note.appendChild(row);
+
+                    window.clearTimeout(tab.sessionNoteTimer);
+                    if (!options.keep) {
+                        tab.sessionNoteTimer = window.setTimeout(() => hideSessionNote(tab), options.ms || 12000);
+                    }
+                }
+
+                function hideSessionNote(tab) {
+                    window.clearTimeout(tab.sessionNoteTimer);
+                    if (tab.sessionNote) {
+                        tab.sessionNote.remove();
+                        tab.sessionNote = null;
+                    }
+                }
+
+                // The files go to the drive of an RDP session (its own folder, "Session", unless the tab was
+                // told otherwise) or - an SSH session asks once where on the server - to a path. Then the note
+                // says where they are: a drive shows up in Windows as \tsclient\Files, which is also what the
+                // address bar of an Explorer window understands, in every language.
+                function pasteFilesIntoSession(tab, copy) {
+                    const files = copy.files;
+                    const backslash = String.fromCharCode(92);
+                    if (!files.length) {
+                        showSessionNote(tab, { title: uiText.pasteFoldersOnly || 'Folders cannot be pasted - only files', detail: copy.folders.join(', ') });
+                        return;
+                    }
+
+                    if (needsTargetFolder(tab) && typeof tab.targetFolder !== 'string') {
+                        askForTargetFolder(tab, files, true);
+                        return;
+                    }
+
+                    const send = folder => {
+                        const total = files.length;
+                        let done = 0;
+                        let failed = 0;
+                        const place = needsTargetFolder(tab)
+                            ? (uiText.pasteOnServer || 'On the server') + ': ' + (folder || '/')
+                            : backslash + backslash + 'tsclient' + backslash + 'Files' + (folder ? backslash + folder.replace(/^\/+|\/+$/g, '').split('/').join(backslash) : '');
+                        const sending = () => (uiText.pasteSending || 'Pasting files') + ' ' + done + '/' + total;
+                        showSessionNote(tab, { title: sending(), keep: true });
+                        const finished = ok => {
+                            done += 1;
+                            failed += ok ? 0 : 1;
+                            if (done < total) {
+                                showSessionNote(tab, { title: sending(), keep: true });
+                                return;
+                            }
+
+                            const skipped = copy.folders.length ? ' ' + (uiText.pasteFoldersSkipped || 'Folders were left out') + ': ' + copy.folders.join(', ') : '';
+                            const title = failed
+                                ? (total - failed) + '/' + total + ' ' + (uiText.pastePartly || 'files pasted - the others failed')
+                                : (total === 1 ? files[0].name : total + ' ' + (uiText.pasteFiles || 'files')) + ' ' + (uiText.pastePasted || 'pasted');
+                            showSessionNote(tab, {
+                                title,
+                                detail: place,
+                                action: needsTargetFolder(tab) ? null : {
+                                    label: uiText.pasteCopyPath || 'Put the path on the session clipboard',
+                                    run: () => sendClipboardText(tab, place)
+                                },
+                                ms: 14000
+                            });
+                            if (skipped) {
+                                flashStatus(tab, skipped.trim());
+                            }
+                        };
+                        sendFilesToSession(tab, files, folder, finished);
+                    };
+
+                    if (typeof tab.targetFolder === 'string') {
+                        send(tab.targetFolder);
+                        return;
+                    }
+
+                    listDriveAreas(tab, areas => send(areas.indexOf('Session') >= 0 ? 'Session' : (areas[0] || '')));
+                }
+
                 function uploadFilesToSession(tab, files) {
                     if (!tab) {
                         return;
@@ -12444,7 +12740,7 @@ public sealed class HtmlViews
                     sendFilesToSession(tab, list, tab.targetFolder || '');
                 }
 
-                function sendFilesToSession(tab, files, folder) {
+                function sendFilesToSession(tab, files, folder, onFinished) {
                     // Picking a file puts the page in the background, and a phone may close the tunnel
                     // while it is there - so by the time the files come back the session can already be
                     // gone. Streaming into that dead tunnel is what surfaces as "invalid state": the
@@ -12459,7 +12755,7 @@ public sealed class HtmlViews
 
                     const prefix = folder ? ('/' + folder.replace(/^\/+|\/+$/g, '')) : '';
                     tab.uploadQueue = (tab.uploadQueue || []).concat(
-                        Array.from(files).filter(Boolean).map(file => ({ file, prefix })));
+                        Array.from(files).filter(Boolean).map(file => ({ file, prefix, onFinished })));
                     pumpUploadQueue(tab);
                 }
 
@@ -12488,7 +12784,8 @@ public sealed class HtmlViews
                         return;
                     }
 
-                    const { file, prefix } = tab.uploadQueue.shift();
+                    const entry = tab.uploadQueue.shift();
+                    const { file, prefix } = entry;
                     // A counter, not the session id: that can legitimately be empty, and an empty
                     // string is falsy - the "busy" check would never have held, which is exactly how
                     // three files ended up streaming at once again.
@@ -12531,9 +12828,15 @@ public sealed class HtmlViews
                             const writer = new Guacamole.BlobWriter(stream);
                             writer.oncomplete = () => done(() => {
                                 flashStatus(tab, `${uiText.xferUploaded || 'Uploaded'}: ${file.name}`);
+                                if (entry.onFinished) {
+                                    entry.onFinished(true);
+                                }
                             });
                             writer.onerror = () => done(() => {
                                 flashStatus(tab, `${uiText.xferUploadFailed || 'Upload failed'}: ${file.name}`);
+                                if (entry.onFinished) {
+                                    entry.onFinished(false);
+                                }
                             });
                             // From here Guacamole.BlobWriter owns stream.onack and drives the transfer;
                             // touching it again would stall the upload.
@@ -12544,6 +12847,9 @@ public sealed class HtmlViews
                             if (status && typeof status.isError === 'function' && status.isError()) {
                                 done(() => {
                                     flashStatus(tab, `${uiText.xferUploadFailed || 'Upload failed'}: ${file.name}`);
+                                    if (entry.onFinished) {
+                                        entry.onFinished(false);
+                                    }
                                 });
                                 return;
                             }
@@ -12558,7 +12864,7 @@ public sealed class HtmlViews
                         // the case above rather than reporting a failure the user cannot act on: the
                         // files are kept and go out after the reconnect.
                         tab.uploadBusy = false;
-                        tab.uploadQueue.unshift({ file, prefix });
+                        tab.uploadQueue.unshift(entry);
                         tab.pendingUpload = {
                             files: tab.uploadQueue.map(entry => entry.file),
                             folder: prefix,
@@ -12588,8 +12894,8 @@ public sealed class HtmlViews
                     renderPendingFiles();
                 }
 
-                function askForTargetFolder(tab, files) {
-                    pendingTargetUpload = { tab, files: Array.from(files || []) };
+                function askForTargetFolder(tab, files, fromPaste) {
+                    pendingTargetUpload = { tab, files: Array.from(files || []), fromPaste: !!fromPaste };
                     renderPendingFiles();
 
                     if (usesAreaPicker(tab)) {
@@ -13144,6 +13450,24 @@ public sealed class HtmlViews
                 }
 
                 document.addEventListener('paste', event => {
+                    // The Ctrl+V of a session is waiting for this event (see holdPasteKey): files on the
+                    // clipboard go to the session's drive and the key press is dropped, anything else lets the
+                    // key press through to the remote as it always did.
+                    const held = heldPasteTab();
+                    if (held) {
+                        const copy = clipboardFileCopy(event.clipboardData);
+                        if (copy) {
+                            event.preventDefault();
+                            dropHeldPaste(held);
+                            pasteFilesIntoSession(held, copy);
+                        }
+                        else {
+                            passHeldPasteOn(held);
+                        }
+
+                        return;
+                    }
+
                     const files = filesFromClipboard(event.clipboardData);
                     if (!files.length) {
                         return;
@@ -13175,7 +13499,7 @@ public sealed class HtmlViews
                         return;
                     }
 
-                    const { tab } = pendingTargetUpload;
+                    const { tab, fromPaste } = pendingTargetUpload;
                     const files = pendingTargetUpload.files;
                     if (!files.length) {
                         // Nothing picked yet - say so instead of closing on an empty send.
@@ -13192,6 +13516,12 @@ public sealed class HtmlViews
 
                     const folder = tab.targetFolder;
                     closeTargetFolderDialog();
+                    // Pasted files get the note under the session, with where they went.
+                    if (fromPaste) {
+                        pasteFilesIntoSession(tab, { files, folders: [] });
+                        return;
+                    }
+
                     sendFilesToSession(tab, files, folder);
                 });
                 if (resolutionClose) {
@@ -15285,6 +15615,32 @@ public sealed class HtmlViews
                     .resolution-scale-slider { accent-color: var(--accent); background: transparent; border: 0; grid-column: 1 / -1; min-height: 32px; padding: 0; width: 100%; }
                     .resolution-scale-note { font-size: 12px; margin: 0; }
                     .resolution-scale-apply { justify-content: center; width: 100%; }
+                    /* What happened to files pasted into a session, over the picture and long enough to read. */
+                    .session-note {
+                        align-items: flex-start;
+                        background: var(--surface);
+                        border: 1px solid var(--line);
+                        border-radius: var(--radius);
+                        bottom: 14px;
+                        box-shadow: var(--shadow-strong);
+                        color: var(--text);
+                        display: flex;
+                        flex-wrap: wrap;
+                        gap: 8px 14px;
+                        justify-content: space-between;
+                        left: 50%;
+                        max-width: min(620px, calc(100% - 24px));
+                        min-width: min(300px, calc(100% - 24px));
+                        padding: 10px 12px;
+                        position: absolute;
+                        transform: translateX(-50%);
+                        z-index: 5;
+                    }
+                    .session-note-text { display: grid; flex: 1 1 200px; gap: 4px; min-width: 0; }
+                    .session-note-detail { -webkit-user-select: text; font-size: 12px; overflow-wrap: anywhere; user-select: text; }
+                    .session-note-actions { align-items: center; display: flex; flex: 0 0 auto; gap: 8px; margin-left: auto; }
+                    .session-note-actions button { min-height: 30px; }
+                    .session-note-close { font-size: 18px; line-height: 1; min-width: 30px; padding: 0; }
                     .status-resolution {
                         color: var(--muted);
                         flex: 0 0 auto;
