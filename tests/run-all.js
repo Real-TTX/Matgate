@@ -36,6 +36,10 @@ const GROUPS = [
     scripts: ["file-manager-phone.js", "file-area-dialog-phone.js", "file-manager-menus.js",
       "public-page-phone.js", "create-place.js", "stuck-keys.js"],
   },
+  {
+    name: "Group 7 - a remote desktop: pointer, scale, panning",
+    scripts: ["touch-pointer.js", "scale-slider.js", "pan-and-zoom.js", "mouse-follows-view.js"],
+  },
 ];
 
 const PAUSE = 310000;

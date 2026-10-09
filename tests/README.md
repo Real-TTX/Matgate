@@ -77,6 +77,18 @@ keep the shape: sign in, do the thing, **measure**, print one line per check. Me
 point - "the button looks right" is not a test, "the button's centre is 69.6 and the tab's centre
 is 69.6" is.
 
+## A remote desktop to test against
+
+The stack has an SSH host but no RDP or VNC machine, and a pointer, a scale or a pan can only be checked
+against a desktop. `toy-vnc.js` is a minimal VNC server for that: a 1600x900 screen of coloured tiles, a
+white marker that follows the pointer, and a log of every pointer and key event it received
+(`GET http://127.0.0.1:5902/log`). guacd reaches it as `host.docker.internal:5901`, which needs Docker
+Desktop. `toy-vnc-rig.js` starts it, makes the connection `Toy-VNC` through the admin form and removes both
+again; `seed.js` clears a connection left behind by an aborted run. The tests that use it
+(`touch-pointer.js`, `scale-slider.js`, `pan-and-zoom.js`, `mouse-follows-view.js`) read what the
+"remote" received instead of guessing from the picture. It speaks VNC, so RDP's own habits - the reconnect
+on a new size, the pointer a fresh connection starts with - are not part of it.
+
 ## What the phone tests can and cannot show
 
 `file-manager-phone.js`, `file-area-dialog-phone.js`, `mobile-*.js` and `burger-and-tabstrip.js` run

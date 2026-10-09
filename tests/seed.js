@@ -21,11 +21,13 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 // next run then fails on "name already taken" - a failure that looks real and says nothing about
 // the thing it was meant to test. Removed before a run starts; nothing else is touched.
 const LEFTOVER_USERS = ["UmbauTester", "FreigabeTester", "VorgabeTester", "TestGrossKlein", "DialogTest"];
+// The connection to the toy VNC server (toy-vnc.js) that the remote-desktop tests make for themselves.
+const LEFTOVER_CONNECTIONS = ["Toy-VNC"];
 const LEFTOVER_SHARES = ["Dialogablage", "Dialogablage neu", "DissolvedShare", "Frisch angelegt",
   "Pruefablage", "Zeigerablage", "My place shared", "Shared place shared", "Testablage", "Ansichtssache"];
 
 async function purgeLeftovers(page) {
-  const removed = await page.evaluate(async ([users, shares]) => {
+  const removed = await page.evaluate(async ([users, shares, connections]) => {
     const parse = html => new DOMParser().parseFromString(html, "text/html");
     const text = async url => (await fetch(url, { credentials: "same-origin" })).text();
     // The delete forms carry their own anti-forgery field, so posting the form as it is works.
@@ -42,6 +44,13 @@ async function purgeLeftovers(page) {
       if (form && userNames.includes(name)) { await send(form); done.push("user " + name); }
     }
 
+    const serverPage = parse(await text("/admin?tab=servers"));
+    for (const row of serverPage.querySelectorAll("tr")) {
+      const name = ((row.querySelector("td") || {}).textContent || "").trim();
+      const form = row.querySelector("form[action$='/delete']");
+      if (form && connections.includes(name)) { await send(form); done.push("connection " + name); }
+    }
+
     const shareList = parse(await text("/workspaces"));
     const seen = new Set();
     for (const link of shareList.querySelectorAll("tr td:first-child a[href^='/workspaces/']")) {
@@ -53,7 +62,7 @@ async function purgeLeftovers(page) {
       if (form) { await send(form); done.push("share " + name); }
     }
     return done;
-  }, [LEFTOVER_USERS, LEFTOVER_SHARES]);
+  }, [LEFTOVER_USERS, LEFTOVER_SHARES, LEFTOVER_CONNECTIONS]);
   console.log("leftovers: " + (removed.length ? "removed " + removed.join(", ") : "none"));
 }
 

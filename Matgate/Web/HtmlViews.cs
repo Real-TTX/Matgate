@@ -4528,6 +4528,12 @@ public sealed class HtmlViews
             comboWin = Language(context) == "de" ? "Windows-Taste" : "Windows key",
             resolutionLabel = Language(context) == "de" ? "Auflösung" : "Resolution",
             resolutionFitShort = Language(context) == "de" ? "Anpassen" : "Fit",
+            scaleLabel = Language(context) == "de" ? "Skalierung" : "Scale",
+            scaleAuto = Language(context) == "de" ? "Automatisch (100 %)" : "Auto (100%)",
+            scaleApply = Language(context) == "de" ? "Anwenden" : "Apply",
+            scaleNote = Language(context) == "de" ? "Auflösung der Gegenstelle" : "Remote resolution",
+            scaleReconnect = Language(context) == "de" ? "Beim Anwenden verbindet RDP neu." : "RDP reconnects when this is applied.",
+            zoomLabel = Language(context) == "de" ? "Zoom" : "Zoom",
             autoResize = Language(context) == "de" ? "Auto-Größe" : "Auto-resize",
             autoResizeHint = Language(context) == "de"
                 ? "An: Größe ändern passt die Gegenstelle an (scharf, RDP verbindet neu). Aus: das Bild wird gestreckt (kein Neuverbinden)."
@@ -7081,6 +7087,38 @@ public sealed class HtmlViews
                     }
                 }, { passive: true });
 
+                // A session that was just (re)connected - or got a new size, which for RDP is a reconnect -
+                // starts with its pointer in a corner of its own, and nothing tells it where the pointer was.
+                // The cursor then sat in the top left until the next movement, and on a touch device the
+                // next swipe set out from there. So the pointer is put back where it was (kept inside the new
+                // size) - or, with nothing known yet on a touch device, in the middle, where a swipe can
+                // carry on from.
+                function restorePointer(tab) {
+                    // Only desktops have a pointer to put back; a terminal has none.
+                    if (!tab || !tab.client || tab.terminal || !supportsResolution(tab.protocol)) {
+                        return;
+                    }
+
+                    const display = tab.client.getDisplay();
+                    const width = display.getWidth();
+                    const height = display.getHeight();
+                    if (!width || !height) {
+                        return;
+                    }
+
+                    if (tab.syncPointer && tab.syncPointer()) {
+                        return;
+                    }
+
+                    const known = tab.lastPointer || (isTouchDevice ? { x: Math.floor(width / 2), y: Math.floor(height / 2) } : null);
+                    if (!known) {
+                        return;
+                    }
+
+                    tab.lastPointer = { x: Math.max(0, Math.min(width - 1, known.x)), y: Math.max(0, Math.min(height - 1, known.y)) };
+                    tab.client.sendMouseState({ x: tab.lastPointer.x, y: tab.lastPointer.y, left: false, middle: false, right: false, up: false, down: false }, false);
+                }
+
                 // Send a right-click at the last known cursor position (touch cursor mode has no
                 // native right-click gesture, so a toolbar button drives it).
                 function sendRightClick(tab) {
@@ -7090,9 +7128,10 @@ public sealed class HtmlViews
                     const p = tab.lastPointer || { x: 0, y: 0 };
                     const down = { x: p.x, y: p.y, left: false, middle: false, right: true, up: false, down: false };
                     const up = { x: p.x, y: p.y, left: false, middle: false, right: false, up: false, down: false };
-                    tab.client.sendMouseState(down, true);
+                    // lastPointer is in remote pixels, so no display scale on top.
+                    tab.client.sendMouseState(down, false);
                     window.setTimeout(() => {
-                        try { tab.client.sendMouseState(up, true); } catch {}
+                        try { tab.client.sendMouseState(up, false); } catch {}
                     }, 60);
                 }
 
@@ -9162,13 +9201,26 @@ public sealed class HtmlViews
                         }
                     };
                     // Emulate one mouse-wheel tick at (x,y): dir < 0 = up, dir > 0 = down.
+                    // The tick goes where the pointer is: with the touchpad that is where the cursor already
+                    // stands, with direct touch under the fingers. It used to be sent with the raw screen
+                    // position of the fingers, which is not a position in the remote at all - every two-finger
+                    // scroll threw the cursor somewhere else.
                     const sendScroll = (x, y, dir) => {
                         if (!tab.client) {
                             return;
                         }
-                        const base = { x: Math.round(x), y: Math.round(y), left: false, middle: false, right: false, up: false, down: false };
-                        tab.client.sendMouseState({ x: base.x, y: base.y, left: false, middle: false, right: false, up: dir < 0, down: dir > 0 }, true);
-                        tab.client.sendMouseState(base, true);
+                        const at = (tab.pointerMode === 'touchpad' && tab.lastPointer)
+                            ? tab.lastPointer
+                            : (tab.remoteFromClient ? tab.remoteFromClient(x, y) : null);
+                        const known = !!at;
+                        const px = known ? at.x : Math.round(x);
+                        const py = known ? at.y : Math.round(y);
+                        const base = { x: px, y: py, left: false, middle: false, right: false, up: false, down: false };
+                        tab.client.sendMouseState({ x: px, y: py, left: false, middle: false, right: false, up: dir < 0, down: dir > 0 }, !known);
+                        tab.client.sendMouseState(base, !known);
+                        if (known) {
+                            tab.lastPointer = { x: px, y: py };
+                        }
                     };
                     // Start tracking a clean two-finger gesture. We stay UNDECIDED (and let events reach
                     // Guacamole) until the fingers clearly spread/pinch (=> zoom) or clearly translate
@@ -9192,13 +9244,35 @@ public sealed class HtmlViews
                     // this the browser zoomed the whole UI instead - sometimes yes, sometimes no,
                     // depending on where the fingers land, which is exactly the impression of
                     // "works partly". Scrolling still works with one finger.
+                    // Two fingers in a fixed resolution: a pinch zooms around the fingers, dragging pans the
+                    // view - the screen is bigger than the display, that is what this mode is - and when there
+                    // is nothing to pan the same drag scrolls the remote, as it does in the fit modes. Until the
+                    // fingers have clearly done one or the other the gesture is undecided.
                     let deskDist = 0;
                     let deskZoom = 1;
+                    let deskMode = null;      // null = undecided, 'zoom', 'pan' or 'wheel'
+                    let deskMid = { x: 0, y: 0 };
+                    let deskLastMid = { x: 0, y: 0 };
+                    let deskScroll = { left: 0, top: 0 };
+                    let deskContent = { x: 0, y: 0 };   // what is under the fingers, in un-zoomed pixels
+                    let deskCanPan = false;
+                    let deskAccum = 0;
                     root.addEventListener('touchstart', event => {
                         if (isDesktopDisplayMode(tab)) {
                             if (event.touches.length === 2) {
                                 deskDist = distance(event.touches);
                                 deskZoom = tab.zoom || 1;
+                                deskMode = null;
+                                deskMid = midpoint(event.touches);
+                                deskLastMid = deskMid;
+                                deskScroll = { left: root.scrollLeft, top: root.scrollTop };
+                                const box = root.getBoundingClientRect();
+                                deskContent = {
+                                    x: (root.scrollLeft + deskMid.x - box.left) / deskZoom,
+                                    y: (root.scrollTop + deskMid.y - box.top) / deskZoom
+                                };
+                                deskCanPan = root.scrollWidth > root.clientWidth + 2 || root.scrollHeight > root.clientHeight + 2;
+                                deskAccum = 0;
                                 swallow(event);
                             }
 
@@ -9224,12 +9298,42 @@ public sealed class HtmlViews
                         if (isDesktopDisplayMode(tab)) {
                             if (event.touches.length === 2 && deskDist > 0) {
                                 swallow(event);
-                                const factor = distance(event.touches) / deskDist;
-                                const target = Math.min(3, Math.max(0.25, deskZoom * factor));
-                                if (Math.abs(target - (tab.zoom || 1)) > 0.01) {
-                                    tab.zoom = Math.round(target * 100) / 100;
-                                    fitDisplay(tab);
+                                const dist = distance(event.touches);
+                                const m = midpoint(event.touches);
+                                if (!deskMode) {
+                                    if (Math.abs(dist / deskDist - 1) > 0.06) {
+                                        deskMode = 'zoom';
+                                    }
+                                    else if (Math.hypot(m.x - deskMid.x, m.y - deskMid.y) > 10) {
+                                        deskMode = deskCanPan ? 'pan' : 'wheel';
+                                    }
+                                    else {
+                                        return;
+                                    }
                                 }
+
+                                if (deskMode === 'zoom') {
+                                    tab.zoom = Math.round(Math.min(3, Math.max(0.25, deskZoom * (dist / deskDist))) * 100) / 100;
+                                    fitDisplay(tab);
+                                    // What was under the fingers stays under them.
+                                    const box = root.getBoundingClientRect();
+                                    root.scrollLeft = deskContent.x * tab.zoom - (m.x - box.left);
+                                    root.scrollTop = deskContent.y * tab.zoom - (m.y - box.top);
+                                }
+                                else if (deskMode === 'pan') {
+                                    root.scrollLeft = deskScroll.left - (m.x - deskMid.x);
+                                    root.scrollTop = deskScroll.top - (m.y - deskMid.y);
+                                }
+                                else {
+                                    // Nothing to pan: the drag scrolls the remote. Fingers moving down scroll the content up.
+                                    deskAccum += m.y - deskLastMid.y;
+                                    while (Math.abs(deskAccum) >= SCROLL_STEP) {
+                                        sendScroll(m.x, m.y, deskAccum > 0 ? -1 : 1);
+                                        deskAccum -= deskAccum > 0 ? SCROLL_STEP : -SCROLL_STEP;
+                                    }
+                                }
+
+                                deskLastMid = m;
                             }
 
                             return;
@@ -9318,6 +9422,7 @@ public sealed class HtmlViews
                         // like a continuation of the previous one.
                         if (event.touches.length < 2) {
                             deskDist = 0;
+                            deskMode = null;
                         }
 
                         if (mode) {
@@ -9758,7 +9863,10 @@ public sealed class HtmlViews
                         tab.displayScaler = scaler;
                         tab.displayRoot.appendChild(scaler);
                         applyDisplayMode(tab);
-                        display.onresize = () => fitDisplay(tab);
+                        display.onresize = () => {
+                            fitDisplay(tab);
+                            restorePointer(tab);
+                        };
                         updateTabActions();
 
                         tunnel.onstatechange = state => {
@@ -9824,6 +9932,7 @@ public sealed class HtmlViews
                                     tab.panel.focus();
                                 }
                                 fitDisplay(tab);
+                                restorePointer(tab);
                             }
 
                             if (state === Guacamole.Client.State.DISCONNECTED && !tab.terminal) {
@@ -9840,6 +9949,11 @@ public sealed class HtmlViews
                         let lastRawMouse = null;
                         ['mousemove', 'mousedown', 'mouseup'].forEach(type =>
                             displayEl.addEventListener(type, event => { lastRawMouse = event; }, true));
+                        // Whether the mouse is over the picture right now, and which buttons it holds.
+                        let pointerInside = false;
+                        let pointerButtons = { left: false, middle: false, right: false };
+                        displayEl.addEventListener('mouseenter', () => { pointerInside = true; });
+                        displayEl.addEventListener('mouseleave', () => { pointerInside = false; });
                         // Remote pixel under the cursor, derived straight from the rendered geometry. This is
                         // correct under scroll, zoom AND non-uniform stretch - unlike the built-in
                         // display-scale mapping, which assumes a single uniform scale and desynced the cursor
@@ -9859,8 +9973,56 @@ public sealed class HtmlViews
                                 y: Math.round((lastRawMouse.clientY - rect.top) * (h / rect.height))
                             };
                         };
+                        // The remote pixel under any point of the screen, from the same rendered geometry, kept
+                        // inside the picture. For a finger: it can land beside the picture, on the empty margin.
+                        const remoteFromClient = (clientX, clientY) => {
+                            const rect = displayEl.getBoundingClientRect();
+                            const w = display.getWidth();
+                            const h = display.getHeight();
+                            if (!rect.width || !rect.height || !w || !h) {
+                                return null;
+                            }
+
+                            return {
+                                x: Math.max(0, Math.min(w - 1, Math.round((clientX - rect.left) * (w / rect.width)))),
+                                y: Math.max(0, Math.min(h - 1, Math.round((clientY - rect.top) * (h / rect.height))))
+                            };
+                        };
+                        // The gesture code lives outside this closure and needs the same mapping.
+                        tab.remoteFromClient = remoteFromClient;
+                        // The mouse has not moved but what is under it has: the view was panned or scrolled, the
+                        // picture was zoomed, the remote got another size. The remote pointer used to stay where it
+                        // was until the next movement and then jump to where the mouse really is. Returns whether
+                        // it sent anything - it does not when the mouse is not over the picture.
+                        tab.syncPointer = () => {
+                            if (!pointerInside || !lastRawMouse) {
+                                return false;
+                            }
+
+                            const at = remoteFromClient(lastRawMouse.clientX, lastRawMouse.clientY);
+                            if (!at) {
+                                return false;
+                            }
+
+                            tab.lastPointer = at;
+                            client.sendMouseState({ x: at.x, y: at.y, left: pointerButtons.left, middle: pointerButtons.middle, right: pointerButtons.right, up: false, down: false }, false);
+                            return true;
+                        };
+                        if (!isTouchDevice && !tab.scrollSyncWired) {
+                            tab.scrollSyncWired = true;
+                            let scrollSync = 0;
+                            tab.displayRoot.addEventListener('scroll', () => {
+                                if (!scrollSync) {
+                                    scrollSync = window.requestAnimationFrame(() => {
+                                        scrollSync = 0;
+                                        tab.syncPointer();
+                                    });
+                                }
+                            }, { passive: true });
+                        }
                         const mouse = new Guacamole.Mouse(displayEl);
                         mouse.onmousedown = mouse.onmouseup = mouse.onmousemove = state => {
+                            pointerButtons = { left: !!state.left, middle: !!state.middle, right: !!state.right };
                             // Always map the cursor from the live rendered geometry and send it verbatim (no
                             // auto display-scale). This is correct in every mode - fit, fixed-resolution,
                             // stretch, zoom - because it reads the actual on-screen size; the built-in
@@ -9919,6 +10081,7 @@ public sealed class HtmlViews
                                 }
                                 event.preventDefault();
                                 event.stopPropagation();
+                                lastRawMouse = event;
                                 root.scrollLeft = panning.sl - (event.clientX - panning.x);
                                 root.scrollTop = panning.st - (event.clientY - panning.y);
                             }, true);
@@ -9931,6 +10094,8 @@ public sealed class HtmlViews
                                 }
                                 panning = null;
                                 root.classList.remove('panning');
+                                // The remote pointer was left behind while the view moved.
+                                tab.syncPointer();
                             };
                             window.addEventListener('mouseup', endPan, true);
                             window.addEventListener('blur', () => endPan());
@@ -9939,13 +10104,42 @@ public sealed class HtmlViews
                         // Two touch pointer emulators; only the active mode forwards. "touchpad" = relative
                         // (swipe moves the cursor like a laptop trackpad), "direct" = absolute (tap positions).
                         tab.pointerMode = pointerMode;
-                        const forwardTouch = wanted => state => {
-                            if (tab.pointerMode === wanted) {
-                                tab.lastPointer = { x: state.x, y: state.y };
-                                client.sendMouseState(state, true);
-                                if (wanted === 'touchpad') {
-                                    edgeScrollToCursor(tab, state.x, state.y);
+                        // Where the finger is, raw. The two emulators below work out a position from the
+                        // element's place in the LAYOUT, which knows nothing of a pinch zoom (a transform on a
+                        // parent) or of a stretch: with the view zoomed in, a tap landed where the same tap would
+                        // have landed on the un-zoomed picture - often in the top row, because the picture there
+                        // is only a band in the middle of the screen. The mouse has been mapped from the real
+                        // geometry for a long time; the finger now is as well.
+                        let lastRawTouch = null;
+                        ['touchstart', 'touchmove', 'touchend'].forEach(type =>
+                            displayEl.addEventListener(type, event => {
+                                const finger = event.touches[0] || event.changedTouches[0];
+                                if (finger) {
+                                    lastRawTouch = { x: finger.clientX, y: finger.clientY };
                                 }
+                            }, true));
+                        const forwardTouch = wanted => state => {
+                            if (tab.pointerMode !== wanted) {
+                                return;
+                            }
+
+                            if (wanted === 'direct') {
+                                const at = lastRawTouch ? remoteFromClient(lastRawTouch.x, lastRawTouch.y) : null;
+                                if (at) {
+                                    state.x = at.x;
+                                    state.y = at.y;
+                                    tab.lastPointer = { x: state.x, y: state.y };
+                                    client.sendMouseState(state, false);
+                                    return;
+                                }
+                            }
+
+                            // The touchpad's pixels are scaled ones; what the shell remembers is remote pixels.
+                            const scale = display.getScale() || 1;
+                            tab.lastPointer = { x: Math.round(state.x / scale), y: Math.round(state.y / scale) };
+                            client.sendMouseState(state, true);
+                            if (wanted === 'touchpad') {
+                                edgeScrollToCursor(tab, tab.lastPointer.x, tab.lastPointer.y);
                             }
                         };
                         if (Guacamole.Mouse.Touchscreen) {
@@ -9955,6 +10149,17 @@ public sealed class HtmlViews
                         if (Guacamole.Mouse.Touchpad) {
                             const touchpad = new Guacamole.Mouse.Touchpad(display.getElement());
                             touchpad.onmousedown = touchpad.onmouseup = touchpad.onmousemove = forwardTouch('touchpad');
+                            // The emulator moves a pointer of its own and has no idea where the remote one really
+                            // is: it starts in the top left corner, and nothing that happens elsewhere - a tap in
+                            // direct mode, the mouse, a reconnect that put the remote pointer back - moves it. So the
+                            // first swipe sent the pointer from THERE, and the cursor jumped to the top left. It is
+                            // put where the remote pointer is before every gesture.
+                            displayEl.addEventListener('touchstart', () => {
+                                const at = tab.lastPointer || { x: Math.floor(display.getWidth() / 2), y: Math.floor(display.getHeight() / 2) };
+                                const scale = display.getScale() || 1;
+                                touchpad.currentState.x = Math.max(0, Math.min(displayEl.offsetWidth - 1, at.x * scale));
+                                touchpad.currentState.y = Math.max(0, Math.min(displayEl.offsetHeight - 1, at.y * scale));
+                            }, true);
                         }
 
                         // Remember where the user last tapped/clicked on the remote view (screen Y,
@@ -11823,6 +12028,27 @@ public sealed class HtmlViews
                     // pixel detail to reveal. Beats a fixed WxH that would force constant scrolling.
                     return (isTouchDevice && !isTabletDevice) ? 'fit50' : 'fit';
                 }
+                // 'fit' is 100 percent, 'fit75' 75, 'fit63' 63 - any whole percent from the lowest the slider
+                // offers up to 100. The buttons name the usual ones; the slider fills in everything between.
+                // Above 100 would only make the remote smaller than the window and show it at 1:1, which
+                // is no scale at all - zooming in is what the pinch gesture and the zoom buttons are for.
+                const FIT_PERCENT_MIN = 25;
+                function fitPercentOf(res) {
+                    if (res === 'fit') {
+                        return 100;
+                    }
+
+                    const match = /^fit([0-9]{2,3})$/.exec(String(res));
+                    const percent = match ? parseInt(match[1], 10) : 0;
+                    return percent >= FIT_PERCENT_MIN && percent <= 100 ? percent : null;
+                }
+                function fitResForPercent(percent) {
+                    const clamped = Math.max(FIT_PERCENT_MIN, Math.min(100, Math.round(percent)));
+                    return clamped === 100 ? 'fit' : 'fit' + clamped;
+                }
+                function isValidDisplayRes(value) {
+                    return displayResPresets.includes(value) || fitPercentOf(value) !== null;
+                }
                 function loadResMap() {
                     try {
                         const raw = localStorage.getItem(displayResStorageKey);
@@ -11838,7 +12064,7 @@ public sealed class HtmlViews
                         return 'fit';
                     }
                     const stored = loadResMap()[serverId];
-                    return displayResPresets.includes(stored) ? stored : defaultDisplayRes();
+                    return isValidDisplayRes(stored) ? stored : defaultDisplayRes();
                 }
                 function saveResForServer(serverId, res) {
                     try {
@@ -11912,9 +12138,8 @@ public sealed class HtmlViews
                     sendDisplaySize(tab, true);
                 }
                 function fitScaleFor(res) {
-                    if (res === 'fit75') return 0.75;
-                    if (res === 'fit50') return 0.5;
-                    return 1;
+                    const percent = fitPercentOf(res);
+                    return percent === null ? 1 : percent / 100;
                 }
                 function parseDisplayRes(value) {
                     const parts = String(value).split('x');
@@ -11928,7 +12153,7 @@ public sealed class HtmlViews
                     }
                 }
                 function setDisplayRes(value) {
-                    if (!displayResPresets.includes(value)) {
+                    if (!isValidDisplayRes(value)) {
                         return;
                     }
                     const tab = tabs.get(activeTabId);
@@ -11948,7 +12173,9 @@ public sealed class HtmlViews
                         restartTab(tab);
                     }
                     else {
-                        sendDisplaySize(tab);
+                        // Picking a scale is an explicit request: it renegotiates the size even where a resize of
+                        // the window would only stretch the picture (auto-resize off).
+                        sendDisplaySize(tab, true);
                     }
                     updateTabActions();
                 }
@@ -11958,18 +12185,86 @@ public sealed class HtmlViews
                     return !!tab && (tab.protocol || '').toUpperCase() === 'VNC';
                 }
                 function resolutionOptionLabel(preset, scaleStyle) {
-                    if (scaleStyle) {
+                    const percent = fitPercentOf(preset);
+                    if (scaleStyle && percent !== null) {
                         // Auto-resolution sessions: express the fit presets as a plain scale.
-                        if (preset === 'fit') return uiText.scaleAuto || 'Auto (100%)';
-                        if (preset === 'fit75') return '75%';
-                        if (preset === 'fit50') return '50%';
+                        return percent === 100 ? (uiText.scaleAuto || 'Auto (100%)') : percent + '%';
                     }
+
                     const fit = uiText.resolutionFitShort || 'Fit';
-                    if (preset === 'fit') return fit;
-                    if (preset === 'fit75') return fit + ' 75%';
-                    if (preset === 'fit50') return fit + ' 50%';
+                    if (percent !== null) {
+                        return percent === 100 ? fit : fit + ' ' + percent + '%';
+                    }
+
                     return preset.replace('x', '×');
                 }
+                // The scale without steps. In a fit mode it is the share of the window the remote is drawn at -
+                // 63 percent asks the remote for a desktop 1/0.63 as large as the window, and shows it scaled
+                // down. That renegotiates the size (RDP reconnects), so it is applied with a button and not
+                // on every pixel the slider moves. In a fixed resolution the slider is the zoom, which is
+                // purely local and follows the finger at once.
+                function buildScaleControls(tab) {
+                    const fixed = isDesktopDisplayMode(tab);
+                    const box = document.createElement('div');
+                    box.className = 'resolution-scale';
+                    const head = document.createElement('label');
+                    head.className = 'resolution-scale-head';
+                    const name = document.createElement('span');
+                    name.textContent = fixed ? (uiText.zoomLabel || 'Zoom') : (uiText.scaleLabel || 'Scale');
+                    const value = document.createElement('strong');
+                    head.append(name, value);
+                    const slider = document.createElement('input');
+                    slider.type = 'range';
+                    slider.className = 'resolution-scale-slider';
+                    slider.step = '1';
+                    head.appendChild(slider);
+                    box.appendChild(head);
+
+                    if (fixed) {
+                        slider.min = '25';
+                        slider.max = '300';
+                        slider.value = String(Math.round((tab.zoom || 1) * 100));
+                        const showZoom = () => { value.textContent = slider.value + ' %'; };
+                        slider.addEventListener('input', () => {
+                            showZoom();
+                            tab.zoom = Math.max(0.25, Math.min(3, Number(slider.value) / 100));
+                            fitDisplay(tab);
+                        });
+                        showZoom();
+                        return box;
+                    }
+
+                    const current = fitPercentOf(tab.displayRes) ?? 100;
+                    slider.min = String(FIT_PERCENT_MIN);
+                    slider.max = '100';
+                    slider.value = String(current);
+                    const note = document.createElement('p');
+                    note.className = 'muted resolution-scale-note';
+                    const apply = document.createElement('button');
+                    apply.type = 'button';
+                    apply.className = 'primary resolution-scale-apply';
+                    apply.textContent = uiText.scaleApply || 'Apply';
+                    const show = () => {
+                        const percent = Number(slider.value);
+                        value.textContent = percent + ' %';
+                        const rect = tab.panel.getBoundingClientRect();
+                        const factor = percent / 100;
+                        const size = Math.floor(rect.width / factor) + ' × ' + Math.floor(rect.height / factor);
+                        const reconnects = !isScaleOnlyTab(tab) && !tab.farmWebsite;
+                        note.textContent = (uiText.scaleNote || 'Remote resolution') + ': ' + size
+                            + (reconnects ? '. ' + (uiText.scaleReconnect || 'RDP reconnects when this is applied.') : '');
+                        apply.disabled = percent === current;
+                    };
+                    slider.addEventListener('input', show);
+                    apply.addEventListener('click', () => {
+                        setDisplayRes(fitResForPercent(Number(slider.value)));
+                        closeResolutionDialog();
+                    });
+                    show();
+                    box.append(note, apply);
+                    return box;
+                }
+
                 function openResolutionDialog() {
                     const tab = tabs.get(activeTabId);
                     if (!resolutionDialog || !resolutionOptions || !tab) {
@@ -11993,6 +12288,7 @@ public sealed class HtmlViews
                     // re-renders at the viewport size).
                     if (resolutionExtra) {
                         resolutionExtra.replaceChildren();
+                        resolutionExtra.appendChild(buildScaleControls(tab));
                         if (!tab.farmWebsite) {
                             const toggle = document.createElement('button');
                             toggle.type = 'button';
@@ -14982,6 +15278,13 @@ public sealed class HtmlViews
                     .resolution-toggle-state { font-weight: 700; font-size: 12px; color: var(--muted); }
                     .resolution-toggle.active .resolution-toggle-state { color: var(--accent); }
                     .resolution-fit-now { width: 100%; justify-content: center; }
+                    /* The scale without steps: name and value on one line, the slider under them. The general
+                       input rule gives every field a border and padding, which a slider does not want. */
+                    .resolution-scale { border-bottom: 1px solid var(--line); display: grid; gap: 8px; padding-bottom: 14px; }
+                    .resolution-scale-head { align-items: center; display: grid; font-weight: 600; gap: 6px 10px; grid-template-columns: 1fr auto; }
+                    .resolution-scale-slider { accent-color: var(--accent); background: transparent; border: 0; grid-column: 1 / -1; min-height: 32px; padding: 0; width: 100%; }
+                    .resolution-scale-note { font-size: 12px; margin: 0; }
+                    .resolution-scale-apply { justify-content: center; width: 100%; }
                     .status-resolution {
                         color: var(--muted);
                         flex: 0 0 auto;
