@@ -5024,7 +5024,8 @@ public sealed class HtmlViews
                                 if (kbRect && kbRect.height === 0 && active && active.classList && active.classList.contains('osk-input')) {
                                     active.blur();
                                 }
-                                updateSessionKeyboardShift();
+                                // Also moves the bottom edge of the dialogs (updateViewportHeight shifts the session too).
+                                updateViewportHeight();
                             });
                         }
                     }
@@ -5090,17 +5091,29 @@ public sealed class HtmlViews
                     }
                 }
 
+                // Android lets the keyboard overlay the page: it reports its own rectangle and leaves the
+                // visual viewport alone. Nothing anywhere else.
+                function overlaidKeyboardHeight() {
+                    const vk = navigator.virtualKeyboard;
+                    if (vk && vk.overlaysContent && vk.boundingRect && vk.boundingRect.height > 0) {
+                        return vk.boundingRect.height;
+                    }
+                    return 0;
+                }
+
                 const updateViewportHeight = () => {
                     const vv = window.visualViewport;
                     const visualHeight = vv ? vv.height : window.innerHeight;
-                    // In the session shell the on-screen keyboard must OVERLAY the remote view, not shrink
-                    // it: shrinking resizes the RDP/VNC session (Android) and leaves a scroll/gap (iOS).
-                    // window.innerHeight stays at the full height while the keyboard is open on iOS, so use
-                    // it for the shell. Scrolling form pages (shell-layout=0) keep shrinking so their
-                    // inputs stay above the keyboard.
                     const keyboardOpen = (window.innerHeight - visualHeight) > 120;
-                    const height = (shellLayout && keyboardOpen) ? window.innerHeight : visualHeight;
+                    // This height is for the dialogs: the session is laid out with dvh, and the keyboard must
+                    // OVERLAY that - shrinking it would resize the RDP/VNC session (Android) and leave a
+                    // scroll/gap (iOS). A dialog has fields of its own, though. Taken at the full height it ran
+                    // under the keyboard: half of it hidden, and the buttons at its bottom with it. So it gets
+                    // the part of the screen the keyboard leaves. iOS shrinks the visual viewport and may pan
+                    // it (the top edge follows); Android reports the keyboard on its own.
+                    const height = Math.max(0, visualHeight - overlaidKeyboardHeight());
                     document.documentElement.style.setProperty('--matgate-viewport-height', `${Math.round(height)}px`);
+                    document.documentElement.style.setProperty('--matgate-viewport-top', `${Math.round(vv ? vv.offsetTop : 0)}px`);
                     // iOS standalone-PWA bug: opening the keyboard pans the whole app upward and often
                     // NEVER pans it back after dismissal - the app then sits shifted up with a dead black
                     // strip at the physical bottom. Once the keyboard is closed, force the pan back.
@@ -13551,6 +13564,30 @@ public sealed class HtmlViews
                 window.addEventListener('blur', releaseAllHeldKeys);
                 window.addEventListener('focus', releaseAllHeldKeys);
                 document.addEventListener('visibilitychange', releaseAllHeldKeys);
+                // A dialog is for typing into itself, and the keyboards of a session type into the session: the
+                // device's (through the hidden input) and the application's own. Left up, they float over the
+                // dialog - the application's took the buttons at its bottom, the device's covered half of it.
+                // Dialogs open from a dozen places; what they share is that one that was hidden is not any more,
+                // and that is what this watches for.
+                (() => {
+                    const becameShown = record => {
+                        const node = record.target;
+                        if (node.localName === 'dialog') {
+                            return record.attributeName === 'open' && node.open;
+                        }
+                        return record.attributeName === 'class'
+                            && node.classList.contains('credential-dialog')
+                            && !node.classList.contains('hidden')
+                            && String(record.oldValue || '').split(' ').includes('hidden');
+                    };
+                    new MutationObserver(records => {
+                        if (records.some(becameShown)) {
+                            for (const tab of tabs.values()) {
+                                closeSessionKeyboards(tab);
+                            }
+                        }
+                    }).observe(document.body, { attributes: true, attributeFilter: ['class', 'open'], attributeOldValue: true, subtree: true });
+                })();
                 // pagehide instead of beforeunload: beforeunload also fires for navigations that
                 // never happen - a download, a link to a file, a cancelled page change. Every one
                 // of those would have disconnected all sessions here even though the page stayed.
@@ -18571,7 +18608,10 @@ public sealed class HtmlViews
                         top: 50%;
                         transform: translate(-50%, -50%) scale(1);
                         width: min(420px, calc(100% - 32px));
-                        z-index: 4;
+                        /* Above the keyboard of the application (30, in the session's box): it used to sit on top of
+                           a dialog and take the buttons at its bottom. Below the sheets that are asked for from inside
+                           a dialog - confirm, name, colour (40) - which must stay on top of it. */
+                        z-index: 35;
                         opacity: 1;
                         transition: opacity .18s ease, transform .18s ease, display .18s ease allow-discrete;
                     }
@@ -18973,6 +19013,7 @@ public sealed class HtmlViews
                             margin: 0;
                             max-height: none;
                             max-width: none;
+                            top: var(--matgate-viewport-top, 0px);
                             width: 100vw;
                         }
                         .file-viewer-dialog .file-viewer-page,
@@ -19014,6 +19055,8 @@ public sealed class HtmlViews
                         /* The per-dialog widths further up are more specific, so they are
                            named here as well - otherwise each of them keeps its desktop box. */
                         .credential-dialog,
+                        .credential-dialog.clipboard-dialog,
+                        .credential-dialog.send-files-dialog,
                         .credential-dialog.copy-to-dialog,
                         .credential-dialog.confirm-dialog,
                         .credential-dialog.colour-dialog,
@@ -19029,9 +19072,24 @@ public sealed class HtmlViews
                             overflow-y: auto;
                             padding: 16px;
                             position: fixed;
-                            top: 0;
+                            /* With the keyboard up the sheet ends where the keyboard begins (see updateViewportHeight). */
+                            top: var(--matgate-viewport-top, 0px);
                             transform: none;
                             width: 100vw;
+                        }
+                        /* The paste dialog is the one sheet in which one writes: its field takes what is left over, so
+                           with the keyboard up the buttons stay in view and the field gets smaller instead. */
+                        .clipboard-dialog > label {
+                            display: flex;
+                            flex: 1 1 auto;
+                            flex-direction: column;
+                            gap: 6px;
+                            min-height: 0;
+                        }
+                        .clipboard-dialog textarea {
+                            flex: 1 1 auto;
+                            min-height: 96px;
+                            resize: none;
                         }
                         /* The centring transform goes with the centred box - including the one the
                            closed state and the opening animation use. */

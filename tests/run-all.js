@@ -37,8 +37,9 @@ const GROUPS = [
       "public-page-phone.js", "create-place.js", "stuck-keys.js"],
   },
   {
-    name: "Group 7 - remote sessions: pointer, scale, panning, pasting files",
-    scripts: ["touch-pointer.js", "scale-slider.js", "pan-and-zoom.js", "mouse-follows-view.js", "paste-files.js"],
+    name: "Group 7 - remote sessions: pointer, scale, panning, pasting files, keyboards",
+    scripts: ["touch-pointer.js", "scale-slider.js", "pan-and-zoom.js", "mouse-follows-view.js", "paste-files.js",
+      "keyboard-and-dialogs.js"],
   },
 ];
 

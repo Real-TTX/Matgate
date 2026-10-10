@@ -99,3 +99,10 @@ iPhone: WebKit's own habits (a `<details>` that does not open, fixed elements cl
 scrolling container, safe areas, the soft keyboard) can only be checked on the device. When a phone
 bug is reported, the first question is which build the phone is running (the version under the
 info button).
+
+`keyboard-and-dialogs.js` is the one place where the soft keyboard is part of a test - and there it is
+faked: Chromium has none. iOS is imitated by shrinking (and panning) `window.visualViewport`, Android
+by an own `navigator.virtualKeyboard` that reports a rectangle. What the script proves is what the
+application does with those two reports (a dialog ends where the keyboard begins), not what a real
+phone reports; and it proves that the application's own keyboard goes down when a dialog opens and
+never lies on top of one.
