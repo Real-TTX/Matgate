@@ -6349,6 +6349,37 @@ public sealed class HtmlViews
                         activateNewConnectionTab();
                     });
 
+                    // A middle click on a tab closes it, as in a browser: the same as the cross on the tab, without
+                    // having to hit the cross. The plus ("new connection") is no tab to close. The button press is
+                    // cancelled as well, or Windows starts its autoscroll over a strip that scrolls sideways - and in
+                    // the capture phase, because the cross keeps its own presses from bubbling.
+                    if (tabsRoot) {
+                        const closableTabOf = event => {
+                            const element = event.button === 1 && event.target instanceof Element ? event.target.closest('.session-tab') : null;
+                            const kind = element ? element.getAttribute('data-tab-kind') : '';
+                            return kind === 'connection' || kind === 'page' ? element : null;
+                        };
+                        tabsRoot.addEventListener('mousedown', event => {
+                            if (closableTabOf(event)) {
+                                event.preventDefault();
+                            }
+                        }, true);
+                        tabsRoot.addEventListener('auxclick', event => {
+                            const element = closableTabOf(event);
+                            if (!element) {
+                                return;
+                            }
+
+                            event.preventDefault();
+                            if (element.getAttribute('data-tab-kind') === 'page') {
+                                closeShellTab(element.getAttribute('data-shell-tab-id'));
+                            }
+                            else {
+                                closeTab(element.getAttribute('data-tab-id'));
+                            }
+                        });
+                    }
+
                     // Safety net: on the shell, NO internal navigation may replace the page - that would
                     // tear down every live session. Any internal <a> that isn't already a shell-tab link,
                     // a download, or an external/_blank link is intercepted and opened as a shell tab
@@ -20180,6 +20211,19 @@ public sealed class HtmlViews
                                             }, 60);
                                         });
                                         item.appendChild(x);
+                                        // Narrow windows list the tabs instead of showing a strip. A middle click closes an entry as it
+                                        // closes a tab in the strip, by doing what the cross does.
+                                        item.addEventListener('mousedown', ev => {
+                                            if (ev.button === 1) {
+                                                ev.preventDefault();
+                                            }
+                                        });
+                                        item.addEventListener('auxclick', ev => {
+                                            if (ev.button === 1) {
+                                                ev.preventDefault();
+                                                x.click();
+                                            }
+                                        });
                                     }
                                     tabPanel.appendChild(item);
                                 });

@@ -28,8 +28,8 @@ const GROUPS = [
       "username-case.js", "offline-page.js"],
   },
   {
-    name: "Group 5 - second factor and sharing",
-    scripts: ["totp.js", "place-settings-dialog.js", "sharing.js", "workspace-dissolved.js"],
+    name: "Group 5 - second factor, sharing, closing tabs",
+    scripts: ["totp.js", "place-settings-dialog.js", "sharing.js", "workspace-dissolved.js", "tab-middle-click.js"],
   },
   {
     name: "Group 6 - the phone, creating places, stuck keys",
