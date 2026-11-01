@@ -21,6 +21,12 @@ on:
 permissions:
   contents: write
 
+# One release, one writer at a time: two runs replacing the same assets at once (a push to main and its tag)
+# left the release without its exe.
+concurrency:
+  group: agent-release
+  cancel-in-progress: false
+
 jobs:
   build:
     name: Build Windows agent
@@ -67,7 +73,8 @@ jobs:
           path: publish/matgate-agent.exe*
 
       - name: Rolling release agent-latest
-        if: github.event_name == 'push'
+        # Only main fills the rolling release; a tag build is the same code and would race it.
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
