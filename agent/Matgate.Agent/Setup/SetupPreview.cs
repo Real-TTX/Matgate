@@ -8,6 +8,8 @@ internal static class SetupPreview
 {
     public static void Save(string folder)
     {
+        // The folder picker and the clipboard need it; without, the "Hinzufügen" button did nothing.
+        Console.WriteLine($"apartment: {Thread.CurrentThread.GetApartmentState()}");
         Directory.CreateDirectory(folder);
         var result = new Installer.Result("q3Vx9Lk2-example-token-Rt7mWp", "B6A1A74FF49B59E48728364E704707897F3C88F02CCAA3EAD9237DFE224BA135", 7488, true);
         foreach (var page in new[] { "Welcome", "Connection", "Content", "Finish" })

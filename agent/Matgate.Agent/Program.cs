@@ -29,7 +29,7 @@ try
     switch (command)
     {
         case "":
-            return RunSetupDialog();
+            return Sta(RunSetupDialog);
         case "run":
         case "--config":
             await RunAgentAsync(args, version);
@@ -38,21 +38,30 @@ try
         case "install":
             return RunSetup(args);
         case "uninstall":
-            return RunUninstall(args);
+            return Sta(() => RunUninstall(args));
         case "tray":
-            Matgate.Agent.Ui.TrayApplication.Run();
-            return 0;
+            return Sta(() =>
+            {
+                Matgate.Agent.Ui.TrayApplication.Run();
+                return 0;
+            });
         case "connection-info":
-            Application.EnableVisualStyles();
-            Matgate.Agent.Ui.ConnectionWindow.TryShow(modal: true);
-            return 0;
+            return Sta(() =>
+            {
+                Application.EnableVisualStyles();
+                Matgate.Agent.Ui.ConnectionWindow.TryShow(modal: true);
+                return 0;
+            });
         case "restart":
             return Installer.Restart(Console.WriteLine) ? 0 : 1;
         case "setup-preview":
             // Draws the dialogs into image files without showing them - for checking the layout.
-            Application.EnableVisualStyles();
-            SetupPreview.Save(args[1]);
-            return 0;
+            return Sta(() =>
+            {
+                Application.EnableVisualStyles();
+                SetupPreview.Save(args[1]);
+                return 0;
+            });
         case "status":
             // What the tray icon sees, for a console.
             var status = AgentStatus.Query();
@@ -73,6 +82,35 @@ catch (Exception exception) when (command is "setup" or "install" or "uninstall"
 {
     Console.WriteLine("Failed: " + exception.Message);
     return 1;
+}
+
+// Windows' own dialogs (the folder picker) and the clipboard work only on a single-threaded apartment.
+// The entry point is async - the agent is a server - and so runs on the thread pool, which is not one:
+// the folder dialog simply never opened. Every window therefore gets a thread of its own.
+static int Sta(Func<int> body)
+{
+    var result = 0;
+    Exception? failure = null;
+    var thread = new Thread(() =>
+    {
+        try
+        {
+            result = body();
+        }
+        catch (Exception exception)
+        {
+            failure = exception;
+        }
+    });
+    thread.SetApartmentState(ApartmentState.STA);
+    thread.Start();
+    thread.Join();
+    if (failure is not null)
+    {
+        System.Runtime.ExceptionServices.ExceptionDispatchInfo.Capture(failure).Throw();
+    }
+
+    return result;
 }
 
 static int RunSetupDialog()
