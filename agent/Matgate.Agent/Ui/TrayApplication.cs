@@ -92,7 +92,7 @@ internal sealed class TrayApplication : ApplicationContext
 
     private void Refresh()
     {
-        _status = AgentStatus.Query();
+        _status = AgentStatus.Query(Installer.FindExisting()?.Port ?? 7488);
         _state = _status switch
         {
             { Connections: > 0 } => State.Connected,

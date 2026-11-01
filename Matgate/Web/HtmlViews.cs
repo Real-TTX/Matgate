@@ -18824,6 +18824,9 @@ public sealed class HtmlViews
                     .credential-dialog.file-area-dialog.hidden { display: none; }
                     .file-area-dialog-actions { align-items: center; display: flex; gap: 8px; }
                     .file-area-dialog-status { flex: 1 1 auto; font-size: 12px; text-align: right; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                    /* The server form hides fields per protocol with [hidden]; the grid's display rules would
+                       otherwise win over it and leave e.g. "Target user" on an agent or a VNC connection. */
+                    .server-form-section[hidden], .server-form-section [data-protocols][hidden] { display: none !important; }
                     .credential-dialog.copy-to-dialog { max-width: 460px; width: min(460px, calc(100vw - 32px)); }
                     /* Fixed, not absolute: this one is opened from the file manager in a tab AND
                        from the places dialog of a session, so it must not depend on which box it
@@ -20765,7 +20768,7 @@ public sealed class HtmlViews
                         <input name="host" value="{{A(server?.Host)}}" placeholder="PC-Terminal / Host" required aria-required="true">
                     </label>
                     <label>Port
-                        <input name="port" type="number" min="1" max="65535" value="{{A(port)}}" placeholder="3389 / 5900 / 22 / 21 / 445">
+                        <input name="port" type="number" min="1" max="65535" value="{{A(port)}}" placeholder="3389 / 5900 / 22 / 21 / 445 / 7488">
                     </label>
                 </div>
             </section>
@@ -20793,8 +20796,13 @@ public sealed class HtmlViews
                     <label data-protocols="rdp,ssh,sftp,ftp,smb,webdav">{{T(context, "Target user")}}
                         <input name="targetUserName" value="{{A(server?.UserName)}}" autocomplete="off">
                     </label>
-                    <label data-protocols="rdp,vnc,ssh,sftp,ftp,smb,webdav,agent">{{T(context, "Connection password")}}
+                    <label data-protocols="rdp,vnc,ssh,sftp,ftp,smb,webdav">{{T(context, "Connection password")}}
                         <input name="targetPassword" type="password" autocomplete="new-password">
+                        {{passwordHelp}}
+                    </label>
+                    <!-- An agent has no user, only the token its setup shows. -->
+                    <label data-protocols="agent">{{(Language(context) == "de" ? "Token des Agents" : "Agent token")}}
+                        <input name="targetPassword" type="password" autocomplete="new-password" placeholder="{{A(Language(context) == "de" ? "wird im Setup des Agents angezeigt" : "shown by the agent's setup")}}">
                         {{passwordHelp}}
                     </label>
                     {{clearPassword}}

@@ -64,7 +64,8 @@ try
             });
         case "status":
             // What the tray icon sees, for a console.
-            var status = AgentStatus.Query();
+            var portIndex = Array.IndexOf(args, "--port");
+            var status = AgentStatus.Query(portIndex > 0 && portIndex + 1 < args.Length ? int.Parse(args[portIndex + 1]) : Installer.FindExisting()?.Port ?? 7488);
             Console.WriteLine(status is null ? "The agent is not running." : System.Text.Json.JsonSerializer.Serialize(status));
             return status is null ? 1 : 0;
         case "write-icon":
@@ -281,7 +282,7 @@ static async Task RunAgentAsync(string[] args, string version)
     AgentStatus.Port = config.Port;
     AgentStatus.Mode = Microsoft.Extensions.Hosting.WindowsServices.WindowsServiceHelpers.IsWindowsService() ? "service" : "user";
     AgentStatus.OpenTerminals = () => terminals.Count;
-    var tokenBytes = Encoding.UTF8.GetBytes(config.Token);
+    var tokenBytes = Encoding.UTF8.GetBytes(config.Token.Trim());
 
     var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { ContentRootPath = AppContext.BaseDirectory });
     builder.Host.UseWindowsService(options => options.ServiceName = "MatgateAgent");
@@ -298,7 +299,8 @@ static async Task RunAgentAsync(string[] args, string version)
     {
         // The token is compared in constant time, and a wrong one gets nothing back but the status.
         var header = context.Request.Headers.Authorization.ToString();
-        var offered = header.StartsWith("Bearer ", StringComparison.Ordinal) ? Encoding.UTF8.GetBytes(header[7..]) : [];
+        // Trimmed: a token pasted with a space or a line break at its end is still the token.
+        var offered = header.StartsWith("Bearer ", StringComparison.Ordinal) ? Encoding.UTF8.GetBytes(header[7..].Trim()) : [];
         if (!context.WebSockets.IsWebSocketRequest)
         {
             context.Response.StatusCode = StatusCodes.Status400BadRequest;

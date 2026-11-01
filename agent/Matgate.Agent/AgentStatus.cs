@@ -11,7 +11,8 @@ namespace Matgate.Agent;
 // user's session, the agent may run as a service in session 0. The pipe carries no secret.
 public static class AgentStatus
 {
-    public const string PipeName = "MatgateAgentStatus";
+    // One pipe per port: two agents on one machine (an installed one and a test) do not answer for each other.
+    public static string PipeName(int port) => "MatgateAgentStatus-" + port;
 
     private static int _connections;
     private static string _lastRemote = "";
@@ -52,7 +53,7 @@ public static class AgentStatus
                     var security = new PipeSecurity();
                     security.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.AuthenticatedUserSid, null), PipeAccessRights.ReadWrite, AccessControlType.Allow));
                     security.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null), PipeAccessRights.FullControl, AccessControlType.Allow));
-                    await using var server = NamedPipeServerStreamAcl.Create(PipeName, PipeDirection.Out, 4, PipeTransmissionMode.Byte, PipeOptions.Asynchronous, 0, 0, security);
+                    await using var server = NamedPipeServerStreamAcl.Create(PipeName(Port), PipeDirection.Out, 4, PipeTransmissionMode.Byte, PipeOptions.Asynchronous, 0, 0, security);
                     await server.WaitForConnectionAsync(stopping);
                     var json = JsonSerializer.SerializeToUtf8Bytes(Current());
                     await server.WriteAsync(json, stopping);
@@ -71,11 +72,11 @@ public static class AgentStatus
     }
 
     // For the tray: null when no agent answers.
-    public static Snapshot? Query()
+    public static Snapshot? Query(int port)
     {
         try
         {
-            using var client = new NamedPipeClientStream(".", PipeName, PipeDirection.In);
+            using var client = new NamedPipeClientStream(".", PipeName(port), PipeDirection.In);
             client.Connect(500);
             using var reader = new StreamReader(client, Encoding.UTF8);
             return JsonSerializer.Deserialize<Snapshot>(reader.ReadToEnd());

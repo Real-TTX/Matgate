@@ -103,7 +103,8 @@ public sealed class AgentLink : IDisposable
 
         var socket = new ClientWebSocket();
         socket.Options.KeepAliveInterval = TimeSpan.FromSeconds(20);
-        socket.Options.SetRequestHeader("Authorization", "Bearer " + server.Password);
+        // Trimmed: pasted tokens often bring a space or a line break along.
+        socket.Options.SetRequestHeader("Authorization", "Bearer " + (server.Password ?? "").Trim());
         if (server.IgnoreCertificate)
         {
             socket.Options.RemoteCertificateValidationCallback = (_, _, _, _) => true;

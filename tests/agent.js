@@ -89,7 +89,8 @@ let agent;
     await sleep(500);
     await page.evaluate(([name, secret, port]) => {
       const set = (field, value) => {
-        const el = document.querySelector("[name='" + field + "']");
+        // The form has one field per protocol under some names; the one in use is the enabled one.
+        const el = [...document.querySelectorAll("[name='" + field + "']")].find(e => !e.disabled) || document.querySelector("[name='" + field + "']");
         el.value = value;
         el.dispatchEvent(new Event("change", { bubbles: true }));
       };
@@ -113,7 +114,7 @@ let agent;
   server = await saveConnection(TOKEN);
   const hello = await status(server.id);
   check("with the right token the agent is online", hello.online, true);
-  const tray = JSON.parse(execFileSync(AGENT_EXE, ["status"], { encoding: "utf8" }));
+  const tray = JSON.parse(execFileSync(AGENT_EXE, ["status", "--port", String(PORT)], { encoding: "utf8" }));
   check("what the tray icon sees: the port, and Matgate connected", [tray.Port, tray.Connections >= 1], [PORT, true]);
   check("and says what it offers", (hello.plugins || []).map(p => p.kind + ":" + p.id), ["files:files", "terminal:cmd"]);
   check("and who it is", [hello.name, /Windows/i.test(hello.os || "")], [NAME, true]);
