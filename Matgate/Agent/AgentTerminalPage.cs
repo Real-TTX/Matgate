@@ -27,10 +27,12 @@ public static class AgentTerminalPage
             .keys button { flex: 0 0 auto; min-height: 36px; min-width: 44px; }
             @media (pointer: coarse) { .keys { display: flex; } }
             .hidden { display: none !important; }
+            button.icon { align-items: center; display: inline-flex; justify-content: center; min-width: 32px; padding: 2px 6px; }
         </style>
         </head>
         <body data-server="__SERVER__" data-csrf="__CSRF__" data-text="__TEXT__">
         <div class="bar">
+            <button id="home" type="button" class="icon" title=""><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></button>
             <strong>__TITLE__</strong>
             <span id="status" class="status"></span>
             <button id="restart" type="button" class="hidden"></button>
@@ -73,6 +75,14 @@ public static class AgentTerminalPage
             const restartButton = document.getElementById('restart');
             const killButton = document.getElementById('kill');
             restartButton.textContent = text.restart;
+            // The agent's icon: back to its start screen in the shell.
+            const homeButton = document.getElementById('home');
+            homeButton.title = text.overview;
+            homeButton.setAttribute('aria-label', text.overview);
+            if (!(window.parent && window.parent !== window && window.parent.MatgateShowAgent)) {
+                homeButton.classList.add('hidden');
+            }
+            homeButton.addEventListener('click', () => window.parent.MatgateShowAgent(server));
             killButton.textContent = text.kill;
             const setStatus = (value, bad) => {
                 statusLine.textContent = value;

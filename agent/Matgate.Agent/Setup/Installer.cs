@@ -33,6 +33,9 @@ public sealed class SetupOptions
     // The icon in the notification area, started at every logon.
     public bool Tray { get; set; } = true;
 
+    // Matgate may bring new versions on its own.
+    public bool AutoUpdate { get; set; } = true;
+
     // Filled from an existing installation only.
     public string Version { get; set; } = "";
 }
@@ -87,6 +90,7 @@ public static class Installer
                 options.Roots = config.Roots;
                 options.Claude = config.Terminals.Any(t => t.Id == "claude" && t.Enabled);
                 options.PowerShell = config.Terminals.Any(t => t.Id == "powershell" && t.Enabled);
+                options.AutoUpdate = config.AutoUpdate;
             }
         }
         catch (UnauthorizedAccessException)
@@ -150,6 +154,16 @@ public static class Installer
             }
         }
 
+        // The agent replaces its own program on an update, so its account may write the program folder
+        // (in user mode it is the user; LocalSystem may anyway).
+        if (runAccount != "LocalSystem")
+        {
+            var programSecurity = new DirectoryInfo(ProgramFolder).GetAccessControl();
+            programSecurity.AddAccessRule(new FileSystemAccessRule(new NTAccount(runAccount), FileSystemRights.Modify,
+                InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit, PropagationFlags.None, AccessControlType.Allow));
+            new DirectoryInfo(ProgramFolder).SetAccessControl(programSecurity);
+        }
+
         // The settings: token, certificate, folders. Readable only by Windows itself, administrators and
         // the account the agent runs as - the token is the only key to the machine.
         Directory.CreateDirectory(DataFolder);
@@ -157,6 +171,7 @@ public static class Installer
         var config = AgentConfig.LoadOrCreate(ConfigPath, out _);
         config.Port = options.Port;
         config.ListenAddress = "0.0.0.0";
+        config.AutoUpdate = options.AutoUpdate;
         if (options.Roots.Count > 0)
         {
             config.Roots = options.Roots;

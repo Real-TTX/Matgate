@@ -41,6 +41,9 @@ services:
       MATGATE_ADMIN_USER: admin
       MATGATE_ADMIN_PASSWORD: test-only-pw
       MATGATE_ADMIN_EMAIL: admin@example.invalid
+      # tests/agent-update.js serves its own agent releases (instead of GitHub) on the host.
+      MATGATE_AGENT_UPDATE_URL: http://host.docker.internal:17499/
+      MATGATE_AGENT_UPDATE_CACHE_SECONDS: "0"
     volumes: [mgdata:/data, secrets:/run/matgate-secrets, files:/files]
     healthcheck:
       test: ["CMD-SHELL", "test -s /run/matgate-secrets/guac.key"]

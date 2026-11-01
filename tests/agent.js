@@ -216,7 +216,7 @@ let agent;
   await sleep(2500);
   const inFiles = await page.evaluate(() => ({
     rows: [...document.querySelectorAll(".connection-panel:not(.hidden) .file-table tbody tr")].map(r => r.textContent).join(" "),
-    back: [...document.querySelectorAll("#connection-tab-actions button")].some(b => /Übersicht|Overview/.test(b.title || b.textContent)),
+    back: [...document.querySelectorAll("#connection-tab-actions button")].some(b => /Übersicht|overview/i.test(b.title || b.getAttribute("aria-label") || b.textContent)),
     places: !!document.querySelector(".connection-panel:not(.hidden) [data-file-place-select]"),
   }));
   check("the Dateien tile opens the file manager in the same tab", /Test/.test(inFiles.rows), true);

@@ -38,7 +38,7 @@ public static class AgentStatus
     private static readonly DateTimeOffset Started = DateTimeOffset.Now;
 
     public static Snapshot Current() => new(
-        typeof(AgentStatus).Assembly.GetName().Version?.ToString(3) ?? "0",
+        typeof(AgentStatus).Assembly.GetName().Version?.ToString() ?? "0",
         Port, Mode, Volatile.Read(ref _connections), _lastRemote, _lastConnected, OpenTerminals(), Started);
 
     public static void StartServer(CancellationToken stopping)

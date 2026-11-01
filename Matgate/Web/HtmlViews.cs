@@ -6081,6 +6081,17 @@ public sealed class HtmlViews
                 }
 
                 window.MatgateOpenShellTab = openShellTab;
+                // From an agent's terminal page: back to that agent's start screen (its tab, or a new one).
+                window.MatgateShowAgent = serverId => {
+                    const existing = [...tabs.values()].find(candidate => candidate.serverId === serverId && isAgentTab(candidate));
+                    if (!existing) {
+                        openServer(serverId);
+                        return;
+                    }
+
+                    activateTab(existing.id);
+                    startAgentHome(existing);
+                };
                 // An embedded page could so far only open a PAGE as a tab. For the workspace
                 // page to be able to point at its own place in the file manager, it needs the
                 // way to a connection too.
@@ -7729,14 +7740,18 @@ public sealed class HtmlViews
                                     });
                             }
 
-                            // In the files the way back to the overview, with the programs beside it.
+                            // The agent's own icon, always first: back to its start screen from the files - and in the
+                            // overview a fresh look (a new version, a program that ended).
+                            const overviewButton = createTabActionButton(
+                                tab.iconHtml || actionIcons.home,
+                                agentTexts.overview,
+                                () => startAgentHome(tab),
+                                'tab-action-keep tab-action-app',
+                                true);
+                            addTabAction('agent-overview', overviewButton);
+
+                            // In the files the programs beside it.
                             if (tab.agentView === 'files') {
-                                const overviewButton = createTabActionButton(
-                                    actionIcons.home,
-                                    agentTexts.overview,
-                                    () => startAgentHome(tab),
-                                    'tab-action-keep');
-                                addTabAction('agent-overview', overviewButton);
                                 (tab.agentStatus && tab.agentStatus.plugins || [])
                                     .filter(plugin => plugin.kind === 'terminal')
                                     .forEach(plugin => {
@@ -10520,7 +10535,18 @@ public sealed class HtmlViews
                     endConfirm: agentGerman ? 'Das Programm wird auf dem Rechner beendet.' : 'The program will be ended on the machine.',
                     refresh: agentGerman ? 'Aktualisieren' : 'Refresh',
                     version: agentGerman ? 'Agent-Version' : 'Agent version',
-                    overview: agentGerman ? 'Übersicht' : 'Overview',
+                    overview: agentGerman ? 'Agent-Übersicht' : 'Agent overview',
+                    updateAvailable: agentGerman ? 'Neue Version verfügbar' : 'New version available',
+                    updateRunning: agentGerman ? 'läuft' : 'running',
+                    updateNow: agentGerman ? 'Jetzt aktualisieren' : 'Update now',
+                    updateManual: agentGerman ? 'Dieser Agent kann sich nicht selbst aktualisieren - das Setup der neuen Version auf dem Rechner ausführen.' : 'This agent cannot update itself - run the setup of the new version on the machine.',
+                    updateNotAllowed: agentGerman ? 'Aktualisieren darf, wer die Verbindung bearbeiten darf.' : 'Whoever may edit the connection may update it.',
+                    updateSessions: agentGerman ? 'Das Update startet den Agent neu - laufende Sitzungen werden beendet.' : 'The update restarts the agent - running sessions will end.',
+                    updating: agentGerman ? 'Wird aktualisiert ... der Agent startet neu.' : 'Updating ... the agent restarts.',
+                    updated: agentGerman ? 'Aktualisiert auf' : 'Updated to',
+                    updateFailed: agentGerman ? 'Das Update hat nicht geklappt' : 'The update did not work',
+                    automaticOn: agentGerman ? 'automatische Updates an' : 'automatic updates on',
+                    automaticOff: agentGerman ? 'automatische Updates aus' : 'automatic updates off',
                 };
 
                 function isAgentTab(tab) {
@@ -10582,6 +10608,74 @@ public sealed class HtmlViews
                     renderAgentHome(tab, root, status, (sessionList && sessionList.sessions) || [], roots);
                 }
 
+                function updateNotice(status, sessions) {
+                    const update = status.online && status.update;
+                    if (!update || !update.available) {
+                        return '';
+                    }
+
+                    const action = !update.canUpdate
+                        ? `<span class="muted">${escapeHtml(agentTexts.updateManual)}</span>`
+                        : !update.allowed
+                            ? `<span class="muted">${escapeHtml(agentTexts.updateNotAllowed)}</span>`
+                            : `<button type="button" class="button primary" data-agent-update>${escapeHtml(agentTexts.updateNow)}</button>`;
+                    return `<div class="agent-home-update" data-agent-update-box>
+                        <span><strong>${escapeHtml(agentTexts.updateAvailable)}: ${escapeHtml(update.latest)}</strong>
+                            <small class="muted">${escapeHtml(agentTexts.updateRunning)}: ${escapeHtml(update.current)}${sessions.length ? ' · ' + escapeHtml(agentTexts.updateSessions) : ''}</small></span>
+                        ${action}
+                    </div>`;
+                }
+
+                // "Jetzt aktualisieren": Matgate sends the new agent, the agent restarts with it. The overview
+                // waits for it to come back with the new version - or says that it did not.
+                async function updateAgent(tab, root, status, sessions) {
+                    if (sessions.length) {
+                        const confirmed = await askToConfirm({ title: agentTexts.updateNow, text: agentTexts.updateSessions, confirm: agentTexts.updateNow });
+                        if (!confirmed) {
+                            return;
+                        }
+                    }
+
+                    const box = root.querySelector('[data-agent-update-box]');
+                    const say = (text, failed) => {
+                        if (box) {
+                            box.innerHTML = `<span>${escapeHtml(text)}</span>`;
+                            box.classList.toggle('is-failed', !!failed);
+                        }
+                    };
+                    say(agentTexts.updating);
+                    const id = encodeURIComponent(tab.serverId);
+                    const target = status.update.latest;
+                    const response = await fetch('/api/agent/' + id + '/update', {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: { 'X-Matgate-Csrf': csrfToken },
+                    }).catch(() => null);
+                    if (!response || !response.ok) {
+                        const problem = response ? (await response.json().catch(() => ({ error: '' }))).error : '';
+                        say(agentTexts.updateFailed + (problem ? ': ' + problem : '.'), true);
+                        return;
+                    }
+
+                    for (let waited = 0; waited < 150; waited += 3) {
+                        await new Promise(resolve => window.setTimeout(resolve, 3000));
+                        if (!tabs.has(tab.id) || tab.agentView !== 'home') {
+                            return;
+                        }
+
+                        const now = await fetch('/api/agent/' + id + '/status', { credentials: 'same-origin' })
+                            .then(r => r.ok ? r.json() : null)
+                            .catch(() => null);
+                        if (now && now.online && now.update && now.update.current === target) {
+                            flashStatus(tab, agentTexts.updated + ' ' + target);
+                            startAgentHome(tab);
+                            return;
+                        }
+                    }
+
+                    say(agentTexts.updateFailed + '.', true);
+                }
+
                 function renderAgentHome(tab, root, status, sessions, roots) {
                     const online = !!status.online;
                     const plugins = status.plugins || [];
@@ -10622,12 +10716,14 @@ public sealed class HtmlViews
                             </span>
                             <span class="agent-home-state ${online ? 'is-online' : 'is-offline'}">${escapeHtml(online ? agentTexts.online : agentTexts.unreachable)}</span>
                         </section>
+                        ${updateNotice(status, sessions)}
                         ${online ? '' : `<div class="agent-home-notice"><span>${escapeHtml(agentTexts.offlineHint)}</span><button type="button" class="button" data-agent-retry>${escapeHtml(agentTexts.retry)}</button></div>`}
                         ${online && (fileTile || programTiles) ? `<h3 class="agent-home-section">${escapeHtml(agentTexts.plugins)}</h3><div class="agent-home-grid">${fileTile}${programTiles}</div>` : ''}
                         ${sessions.length ? `<h3 class="agent-home-section">${escapeHtml(agentTexts.sessions)}<button type="button" class="button agent-home-refresh" data-agent-retry>${escapeHtml(agentTexts.refresh)}</button></h3><ul class="agent-sessions">${sessionRows}</ul>` : ''}
-                        ${online ? `<p class="muted agent-home-foot">${escapeHtml(agentTexts.version)} ${escapeHtml(status.version || '-')}</p>` : ''}`;
+                        ${online ? `<p class="muted agent-home-foot">${escapeHtml(agentTexts.version)} ${escapeHtml(status.version || '-')}${status.update ? ' · ' + escapeHtml(status.update.automatic ? agentTexts.automaticOn : agentTexts.automaticOff) : ''}</p>` : ''}`;
 
                     root.querySelectorAll('[data-agent-retry]').forEach(button => button.addEventListener('click', () => startAgentHome(tab)));
+                    root.querySelector('[data-agent-update]')?.addEventListener('click', () => updateAgent(tab, root, status, sessions));
                     root.querySelector('[data-agent-files]')?.addEventListener('click', () => {
                         tab.agentView = 'files';
                         startFileTab(tab);
@@ -18939,6 +19035,20 @@ public sealed class HtmlViews
                     .agent-session-name { display: flex; flex: 1 1 180px; flex-direction: column; min-width: 0; }
                     .agent-session-name small { color: var(--muted); }
                     .agent-home-foot { font-size: 12px; margin-top: 22px; }
+                    .agent-home-update {
+                        align-items: center;
+                        background: color-mix(in srgb, var(--accent) 9%, var(--surface));
+                        border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
+                        border-radius: var(--radius);
+                        display: flex;
+                        flex-wrap: wrap;
+                        gap: 12px;
+                        justify-content: space-between;
+                        margin-top: 18px;
+                        padding: 12px 14px;
+                    }
+                    .agent-home-update > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+                    .agent-home-update.is-failed { background: color-mix(in srgb, var(--danger) 8%, var(--surface)); border-color: color-mix(in srgb, var(--danger) 30%, var(--line)); }
                     @media (max-width: 720px) {
                         .agent-home-grid { grid-template-columns: 1fr; }
                         .agent-tile { min-height: 0; }

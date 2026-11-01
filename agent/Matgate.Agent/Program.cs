@@ -23,7 +23,8 @@ if (args.Length > 0)
     AgentLog.AttachToParentConsole();
 }
 
-var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0";
+// All four parts: a CI build is 0.3.2.57, and Matgate compares against exactly that.
+var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString() ?? "0";
 try
 {
     switch (command)
@@ -52,6 +53,8 @@ try
                 Matgate.Agent.Ui.ConnectionWindow.TryShow(modal: true);
                 return 0;
             });
+        case "apply-update":
+            return UpdatePlugin.Run(args);
         case "restart":
             return Installer.Restart(Console.WriteLine) ? 0 : 1;
         case "setup-preview":
@@ -144,6 +147,8 @@ static int RunSetup(string[] args)
             case "--password": options.Password = Next(); break;
             case "--no-claude": options.Claude = false; break;
             case "--powershell": options.PowerShell = true; break;
+            case "--no-auto-update": options.AutoUpdate = false; break;
+            case "--no-tray": options.Tray = false; break;
             case "--dry-run": options.DryRun = true; break;
             case "--root":
                 var value = Next();
@@ -279,6 +284,7 @@ static async Task RunAgentAsync(string[] args, string version)
 
     var files = new FilesPlugin(config.Roots);
     var terminals = new TerminalPlugin(config, files);
+    var updates = new UpdatePlugin(config, configPath);
     AgentStatus.Port = config.Port;
     AgentStatus.Mode = Microsoft.Extensions.Hosting.WindowsServices.WindowsServiceHelpers.IsWindowsService() ? "service" : "user";
     AgentStatus.OpenTerminals = () => terminals.Count;
@@ -320,7 +326,11 @@ static async Task RunAgentAsync(string[] args, string version)
         AgentStatus.Connected(context.Connection.RemoteIpAddress?.ToString() ?? "");
         try
         {
-        await new Connection(socket, config, version, files, terminals).RunAsync(context.RequestAborted);
+        await new Connection(socket, config, version, files, terminals, updates, () =>
+        {
+            // As a service a non-zero exit makes Windows restart it (failure actions); the updater does the rest.
+            Environment.Exit(AgentStatus.Mode == "service" ? 1 : 0);
+        }).RunAsync(context.RequestAborted);
         }
         finally
         {

@@ -42,6 +42,10 @@ const GROUPS = [
     scripts: ["touch-pointer.js", "scale-slider.js", "pan-and-zoom.js", "mouse-follows-view.js", "paste-files.js",
       "keyboard-and-dialogs.js"],
   },
+  {
+    name: "Group 8 - updating an agent from Matgate",
+    scripts: ["agent-update.js"],
+  },
 ];
 
 const PAUSE = 310000;

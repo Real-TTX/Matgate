@@ -49,6 +49,10 @@ jobs:
             -p:Version=${{ steps.version.outputs.version }} -p:InformationalVersion=${{ steps.version.outputs.version }}
           ls -la publish
           sha256sum publish/matgate-agent.exe | cut -d' ' -f1 > publish/matgate-agent.exe.sha256
+          # What Matgate reads to know the newest agent - uploaded after the exe, so it never names a file
+          # that is not there yet.
+          printf '{"version":"%s","sha256":"%s","size":%s,"commit":"%s"}'             "${{ steps.version.outputs.version }}" "$(cat publish/matgate-agent.exe.sha256)"             "$(stat -c%s publish/matgate-agent.exe)" "${GITHUB_SHA::7}" > publish/matgate-agent.json
+          cat publish/matgate-agent.json
 
       - name: Smoke test
         shell: bash
@@ -72,4 +76,5 @@ jobs:
             gh release create agent-latest --title "Matgate agent (latest)" --prerelease \
               --notes "The newest Windows agent from main. Download matgate-agent.exe, double-click it and press Install."
           gh release upload agent-latest publish/matgate-agent.exe publish/matgate-agent.exe.sha256 --clobber
+          gh release upload agent-latest publish/matgate-agent.json --clobber
           gh release edit agent-latest --notes "Matgate agent ${{ steps.version.outputs.version }} (${GITHUB_SHA::7}). Download matgate-agent.exe, double-click it and press Install. Uninstall: Settings > Apps > Installed apps > Matgate Agent."

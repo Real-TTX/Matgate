@@ -45,6 +45,9 @@ public sealed class AgentConfig
     // finds its session again. 0 = until the program ends by itself.
     public int DetachedSessionMinutes { get; set; } = 60;
 
+    // Matgate may bring new versions on its own (when no terminal is open). Off: only "Jetzt aktualisieren".
+    public bool AutoUpdate { get; set; } = true;
+
     public static AgentConfig LoadOrCreate(string path, out bool created)
     {
         created = !File.Exists(path);

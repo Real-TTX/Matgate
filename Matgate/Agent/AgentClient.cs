@@ -8,7 +8,7 @@ using Matgate.Models;
 namespace Matgate.Agent;
 
 // What the agent said about itself when the connection was made.
-public sealed record AgentHello(string Name, string Version, string Machine, string User, string Os, IReadOnlyList<AgentPlugin> Plugins);
+public sealed record AgentHello(string Name, string Version, string Machine, string User, string Os, IReadOnlyList<AgentPlugin> Plugins, bool AutoUpdate, bool CanUpdate);
 
 public sealed record AgentPlugin(string Id, string Kind, string Title);
 
@@ -273,7 +273,9 @@ public sealed class AgentLink : IDisposable
             frame.Text("machine") ?? "",
             frame.Text("user") ?? "",
             frame.Text("os") ?? "",
-            plugins);
+            plugins,
+            frame.Data?["autoUpdate"]?.GetValue<bool>() ?? false,
+            frame.Data?["canUpdate"]?.GetValue<bool>() ?? false);
     }
 
     public void Dispose()

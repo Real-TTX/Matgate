@@ -22,6 +22,7 @@ public static partial class EndpointMapping
         app.MapGet("/api/agent/{id:guid}/terminal-socket", AgentTerminalSocketAsync).RequireAuthorization();
         app.MapPost("/api/agent/{id:guid}/terminal/kill", AgentTerminalKillAsync).RequireAuthorization();
         app.MapGet("/api/agent/{id:guid}/sessions", AgentSessionsAsync).RequireAuthorization();
+        app.MapPost("/api/agent/{id:guid}/update", AgentUpdateAsync).RequireAuthorization();
         app.MapGet("/agent/{id:guid}/terminal", AgentTerminalPageAsync).RequireAuthorization();
         app.MapGet("/assets/xterm/{file}", XtermAsset);
     }
@@ -53,7 +54,7 @@ public static partial class EndpointMapping
             || user.FileAccessRules?.Any(rule => rule.ServerId == server.Id) != true;
     }
 
-    private static async Task<IResult> AgentStatusAsync(Guid id, HttpContext context, JsonDataStore store, AgentClientPool agents)
+    private static async Task<IResult> AgentStatusAsync(Guid id, HttpContext context, JsonDataStore store, AgentClientPool agents, AgentUpdates updates)
     {
         var (server, result, user) = await RequireAgentAsync(id, context, store);
         if (result is not null)
@@ -77,6 +78,7 @@ public static partial class EndpointMapping
                 plugins = hello.Plugins
                     .Where(plugin => plugin.Kind != "terminal" || terminalsAllowed)
                     .Select(plugin => new { id = plugin.Id, kind = plugin.Kind, title = plugin.Title }),
+                update = await UpdateInfoAsync(hello, user!, server!, updates, context.RequestAborted),
             });
         }
         catch (Exception exception) when (exception is InvalidOperationException or TimeoutException)
@@ -222,6 +224,69 @@ public static partial class EndpointMapping
         }
     }
 
+    // Whether there is a newer agent, and whether this user may install it here.
+    private static async Task<object> UpdateInfoAsync(AgentHello hello, MatgateUser user, ServerEndpoint server, AgentUpdates updates, CancellationToken cancellationToken)
+    {
+        AgentUpdates.AgentRelease? latest = null;
+        try
+        {
+            using var quick = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            quick.CancelAfter(TimeSpan.FromSeconds(4));
+            latest = await updates.LatestAsync(quick.Token);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+
+        return new
+        {
+            current = hello.Version,
+            latest = latest?.Version,
+            available = AgentUpdates.IsNewer(latest, hello.Version),
+            canUpdate = hello.CanUpdate,
+            allowed = CanEditServer(user, server),
+            automatic = hello.AutoUpdate,
+        };
+    }
+
+    // "Jetzt aktualisieren": the newest agent onto this machine, now. Whoever may change the connection may do it.
+    private static async Task<IResult> AgentUpdateAsync(Guid id, HttpContext context, JsonDataStore store, AgentClientPool agents, AgentUpdates updates)
+    {
+        if (!ValidateCsrfHeader(context))
+        {
+            return Results.BadRequest(new { error = HtmlViews.Translate(context, "Invalid request") });
+        }
+
+        var (server, result, user) = await RequireAgentAsync(id, context, store);
+        if (result is not null)
+        {
+            return result;
+        }
+
+        if (!CanEditServer(user!, server!))
+        {
+            return Results.StatusCode(StatusCodes.Status403Forbidden);
+        }
+
+        try
+        {
+            var link = await agents.GetAsync(server!, context.RequestAborted);
+            var latest = await updates.LatestAsync(context.RequestAborted)
+                ?? throw new InvalidOperationException("No agent release can be read right now.");
+            if (!AgentUpdates.IsNewer(latest, link.Hello.Version))
+            {
+                return Results.Ok(new { ok = true, version = link.Hello.Version, current = true });
+            }
+
+            await updates.PushAsync(link, latest, context.RequestAborted);
+            return Results.Ok(new { ok = true, version = latest.Version });
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or HttpRequestException or TimeoutException)
+        {
+            return Results.BadRequest(new { error = exception.Message });
+        }
+    }
+
     // The programs running on the machine - so the overview can offer to go back to one.
     private static async Task<IResult> AgentSessionsAsync(Guid id, HttpContext context, JsonDataStore store, AgentClientPool agents)
     {
@@ -323,6 +388,7 @@ public static partial class EndpointMapping
                 restart = de ? "Neu starten" : "Start again",
                 kill = de ? "Beenden" : "End",
                 killConfirm = de ? "Programm wirklich beenden?" : "Really end the program?",
+                overview = de ? "Agent-Übersicht" : "Agent overview",
             })));
         return Results.Content(html, "text/html; charset=utf-8");
     }

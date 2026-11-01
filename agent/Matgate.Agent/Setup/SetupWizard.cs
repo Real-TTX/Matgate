@@ -21,6 +21,7 @@ internal sealed class SetupWizard : Form
     private readonly RadioButton _modeService = new() { Text = "Als Windows-Dienst unter einem Konto", AutoSize = true };
     private readonly TextBox _account = new() { Width = 260, PlaceholderText = @"Konto: .\name oder LocalSystem" };
     private readonly TextBox _password = new() { Width = 260, UseSystemPasswordChar = true };
+    private readonly CheckBox _autoUpdate = new() { Text = "Automatisch aktualisieren - über Matgate, wenn kein Terminal offen ist", AutoSize = true, Checked = true };
     private readonly CheckBox _tray = new() { Text = "Symbol im Infobereich anzeigen (Status, Verbindungsdaten, Log)", AutoSize = true, Checked = true };
     private readonly ListView _roots = new() { View = View.Details, FullRowSelect = true, HeaderStyle = ColumnHeaderStyle.Nonclickable, Width = 420, Height = 96, BorderStyle = BorderStyle.FixedSingle };
     private readonly CheckBox _claude = new() { Text = "Claude Code", AutoSize = true, Checked = true };
@@ -70,6 +71,7 @@ internal sealed class SetupWizard : Form
             _modeUser.Checked = !_modeService.Checked;
             _account.Text = _installed.Account;
             _tray.Checked = _installed.Tray;
+            _autoUpdate.Checked = _installed.AutoUpdate;
             _rootList.AddRange(_installed.Roots);
             _claude.Checked = _installed.Claude;
             _powerShell.Checked = _installed.PowerShell;
@@ -200,6 +202,7 @@ internal sealed class SetupWizard : Form
                 content.Controls.Add(account);
                 content.Controls.Add(Brand.Hint("Läuft auch ohne Anmeldung. Das Passwort geht an Windows, der Agent speichert es nicht.", 20));
                 content.Controls.Add(_tray);
+                content.Controls.Add(_autoUpdate);
                 UpdateModeFields();
                 break;
 
@@ -299,6 +302,7 @@ internal sealed class SetupWizard : Form
             Account = _account.Text.Trim(),
             Password = _password.Text,
             Tray = _tray.Checked,
+            AutoUpdate = _autoUpdate.Checked,
             Roots = [.. _rootList],
             Claude = _claude.Checked,
             PowerShell = _powerShell.Checked,

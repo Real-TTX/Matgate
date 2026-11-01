@@ -70,6 +70,21 @@ local pipe without secrets; `matgate-agent status` shows the same in a console.
 
 ![Info](../docs/images/agent-tray-info.png) ![Connection details](../docs/images/agent-tray-connection.png)
 
+## Updates
+
+Matgate brings new versions to its agents itself - the agent needs no internet access of its own. It reads the
+release `agent-latest` (`matgate-agent.json`: version, SHA-256, size), fetches and checks the exe once and sends it
+over the connection the agent already trusts. The agent checks size, SHA-256 and that the new exe answers
+`--version` with the announced version, then a separate copy swaps the program, starts it and waits for it to
+answer; if it does not within two minutes, the previous version (kept as `.bak`) is put back.
+
+- **Automatically:** every hour, for every agent that allows it (setup: "Automatisch aktualisieren", config
+  `AutoUpdate`) and has no terminal open.
+- **Now:** the agent overview in Matgate shows a new version with "Jetzt aktualisieren" (for whoever may edit
+  the connection).
+
+Only the installed single-file agent updates itself; its account may write its program folder for that.
+
 ## Uninstalling it
 
 ![Uninstall](../docs/images/agent-uninstall-confirm.png)
