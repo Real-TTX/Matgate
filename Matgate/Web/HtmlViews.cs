@@ -20574,8 +20574,10 @@ public sealed class HtmlViews
             <section class="panel server-form-section" data-protocols="agent">
                 <h2>{{(Language(context) == "de" ? "Matgate-Agent" : "Matgate agent")}}</h2>
                 <p class="muted">{{(Language(context) == "de"
-                    ? "Der Agent läuft auf dem Rechner und lauscht auf einem Port (Standard 7488). Host und Port hier eintragen, als Verbindungspasswort das Token, das der Agent beim ersten Start ausgibt und in matgate-agent.json ablegt. Was der Agent anbietet (Dateien, Claude Code, ...), legt er selbst fest."
+                    ? "Der Agent läuft auf dem Rechner und lauscht auf einem Port (Standard 7488). Host und Port hier eintragen, als Verbindungspasswort das Token, das das Setup des Agents anzeigt. Was der Agent anbietet (Dateien, Claude Code, ...), legt er selbst fest."
                     : "The agent runs on the machine and listens on a port (default 7488). Enter host and port here, and as connection password the token the agent prints on its first start and keeps in matgate-agent.json. What the agent offers (files, Claude Code, ...) is up to the agent.")}}</p>
+                <p><a href="https://github.com/Real-TTX/Matgate/releases/download/agent-latest/matgate-agent.exe" target="_blank" rel="noopener">{{(Language(context) == "de" ? "Agent für Windows herunterladen" : "Download the agent for Windows")}}</a>
+                    <span class="muted">{{(Language(context) == "de" ? " - doppelklicken, Installieren; das Setup zeigt danach Port, Token und Fingerabdruck. Entfernen über Einstellungen > Apps." : " - double-click, Install; the setup then shows port, token and fingerprint. Remove it under Settings > Apps.")}}</span></p>
                 <div class="form-grid">
                     <label class="check"><input type="checkbox" name="ignoreCertificate"{{Checked(server?.IgnoreCertificate ?? true)}}> {{(Language(context) == "de" ? "Zertifikat ignorieren (selbst signiertes Zertifikat des Agents)" : "Ignore certificate (the agent's self-signed certificate)")}}</label>
                 </div>

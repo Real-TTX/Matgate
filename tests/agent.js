@@ -22,7 +22,7 @@ const check = (name, got, want) => {
   if (!ok) failures.push(name);
 };
 
-const AGENT_EXE = path.join(__dirname, "..", "agent", "Matgate.Agent", "bin", "Debug", "net10.0", "matgate-agent.exe");
+const AGENT_EXE = path.join(__dirname, "..", "agent", "Matgate.Agent", "bin", "Debug", "net10.0-windows", "matgate-agent.exe");
 const work = fs.mkdtempSync(path.join(os.tmpdir(), "matgate-agent-test-"));
 const share = path.join(work, "share");
 fs.mkdirSync(path.join(share, "Ordner"), { recursive: true });
@@ -47,9 +47,15 @@ const runningTerminals = () => {
 
 let agent;
 (async () => {
-  if (!fs.existsSync(AGENT_EXE)) {
-    execFileSync("dotnet", ["build", path.join(__dirname, "..", "agent", "Matgate.Agent", "Matgate.Agent.csproj"), "-nologo", "-v", "q"], { stdio: "inherit" });
-  }
+  // Always built: an old exe would test old code.
+  execFileSync("dotnet", ["build", path.join(__dirname, "..", "agent", "Matgate.Agent", "Matgate.Agent.csproj"), "-nologo", "-v", "q"], { stdio: "inherit" });
+  // --- The setup, as a dry run: it says what it would do and changes nothing on this machine.
+  const plan = execFileSync(AGENT_EXE, ["setup", "--dry-run", "--port", "7600", "--no-firewall"], { encoding: "utf8" });
+  check("setup --dry-run plans the install without changing anything", [/Program Files.+Matgate Agent/.test(plan), /Starts at logon as/.test(plan), /Dry run - nothing changed/.test(plan)], [true, true, true]);
+  const servicePlan = execFileSync(AGENT_EXE, ["setup", "--dry-run", "--mode", "service", "--account", "LocalSystem"], { encoding: "utf8" });
+  check("and as a service under the account it is given", /Windows service under LocalSystem/.test(servicePlan), true);
+  check("--version answers", /^[0-9]+[.][0-9]+[.][0-9]+/.test(execFileSync(AGENT_EXE, ["--version"], { encoding: "utf8" }).trim()), true);
+
   agent = spawn(AGENT_EXE, ["--config", path.join(work, "matgate-agent.json")], { stdio: ["ignore", "pipe", "pipe"] });
   let agentLog = "";
   agent.stdout.on("data", d => { agentLog += d; });

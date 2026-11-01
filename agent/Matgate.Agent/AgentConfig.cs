@@ -67,6 +67,13 @@ public sealed class AgentConfig
         return config;
     }
 
+    public void Save(string path)
+    {
+        var temporary = path + ".tmp";
+        File.WriteAllText(temporary, JsonSerializer.Serialize(this, Json));
+        File.Move(temporary, path, overwrite: true);
+    }
+
     private static AgentConfig Default()
     {
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);

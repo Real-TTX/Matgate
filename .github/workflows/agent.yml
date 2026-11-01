@@ -1,0 +1,75 @@
+name: Agent
+
+# Builds the Windows agent (one self-contained matgate-agent.exe: setup, uninstall and the agent
+# itself) and puts it into the rolling release "agent-latest", where Matgate's connection form links
+# to it. Like MatMon's agent feed: the newest build from main is always at the same address.
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "agent/**"
+      - "Matgate/Agent/AgentWire.cs"
+      - ".github/workflows/agent.yml"
+    tags:
+      - "v*"
+  pull_request:
+    paths:
+      - "agent/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Windows agent
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Compute version
+        id: version
+        shell: bash
+        run: |
+          base="$(sed -n 's/.*<VersionPrefix>\([^<]*\)<\/VersionPrefix>.*/\1/p' agent/Matgate.Agent/Matgate.Agent.csproj | head -n 1)"
+          echo "version=${base}.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish
+        shell: bash
+        run: |
+          dotnet publish agent/Matgate.Agent/Matgate.Agent.csproj -c Release -r win-x64 -o publish \
+            -p:Version=${{ steps.version.outputs.version }} -p:InformationalVersion=${{ steps.version.outputs.version }}
+          ls -la publish
+          sha256sum publish/matgate-agent.exe | cut -d' ' -f1 > publish/matgate-agent.exe.sha256
+
+      - name: Smoke test
+        shell: bash
+        run: |
+          ./publish/matgate-agent.exe --version
+          ./publish/matgate-agent.exe setup --dry-run --port 7600
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: matgate-agent-win-x64
+          path: publish/matgate-agent.exe*
+
+      - name: Rolling release agent-latest
+        if: github.event_name == 'push'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view agent-latest >/dev/null 2>&1 || \
+            gh release create agent-latest --title "Matgate agent (latest)" --prerelease \
+              --notes "The newest Windows agent from main. Download matgate-agent.exe, double-click it and press Install."
+          gh release upload agent-latest publish/matgate-agent.exe publish/matgate-agent.exe.sha256 --clobber
+          gh release edit agent-latest --notes "Matgate agent ${{ steps.version.outputs.version }} (${GITHUB_SHA::7}). Download matgate-agent.exe, double-click it and press Install. Uninstall: Settings > Apps > Installed apps > Matgate Agent."

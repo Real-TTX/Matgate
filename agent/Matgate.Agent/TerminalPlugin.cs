@@ -13,13 +13,13 @@ public sealed class TerminalPlugin
     private readonly AgentConfig _config;
     private readonly FilesPlugin _files;
     private readonly ConcurrentDictionary<string, Session> _sessions = new();
-    private readonly Timer _reaper;
+    private readonly System.Threading.Timer _reaper;
 
     public TerminalPlugin(AgentConfig config, FilesPlugin files)
     {
         _config = config;
         _files = files;
-        _reaper = new Timer(_ => Reap(), null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
+        _reaper = new System.Threading.Timer(_ => Reap(), null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
     }
 
     public IEnumerable<AgentTerminal> Available => OperatingSystem.IsWindows()

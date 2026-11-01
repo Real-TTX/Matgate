@@ -1,227 +1,265 @@
+using System.Diagnostics;
 using System.Net;
-using System.Net.WebSockets;
 using System.Reflection;
-using System.Runtime.InteropServices;
 using System.Security.Cryptography;
-using System.Security.Cryptography.X509Certificates;
 using System.Text;
-using System.Text.Json.Nodes;
 using Matgate.Agent;
+using Matgate.Agent.Setup;
 
 // The Matgate agent: a small server on the machine that Matgate connects to - like an RDP server, with
 // host, port and a password (the token). What it offers is up to the agent: Matgate asks after
 // connecting and shows exactly that.
 //
-//   matgate-agent [--config path]
-var configPath = Path.Combine(AppContext.BaseDirectory, "matgate-agent.json");
-for (var i = 0; i < args.Length - 1; i++)
+//   matgate-agent                      double-click: the setup dialog (asks for administrator rights)
+//   matgate-agent run [--config path]  the agent itself (what the service or the logon task starts)
+//   matgate-agent setup [--port 7488] [--firewall|--no-firewall] [--mode user|service]
+//                       [--account .\name|LocalSystem] [--password pw] [--root Name=C:\Path ...]
+//                       [--no-claude] [--powershell] [--dry-run]
+//   matgate-agent uninstall [--keep-config] [--gui]
+//   matgate-agent --version
+var command = args.FirstOrDefault() ?? "";
+if (args.Length > 0)
 {
-    if (args[i] == "--config")
-    {
-        configPath = Path.GetFullPath(args[i + 1]);
-    }
+    AgentLog.AttachToParentConsole();
 }
 
-var config = AgentConfig.LoadOrCreate(configPath, out var created);
 var version = Assembly.GetExecutingAssembly().GetName().Version?.ToString(3) ?? "0";
-var certificate = LoadOrCreateCertificate(config, Path.GetDirectoryName(configPath)!);
-
-Console.WriteLine($"Matgate agent {version}");
-Console.WriteLine($"  configuration: {configPath}{(created ? " (created)" : "")}");
-Console.WriteLine($"  listening on:  {config.ListenAddress}:{config.Port}");
-Console.WriteLine($"  token:         {config.Token}");
-Console.WriteLine($"  certificate:   SHA-256 {certificate.GetCertHashString(HashAlgorithmName.SHA256)}");
-
-var files = new FilesPlugin(config.Roots);
-var terminals = new TerminalPlugin(config, files);
-var tokenBytes = Encoding.UTF8.GetBytes(config.Token);
-
-var builder = WebApplication.CreateSlimBuilder();
-builder.Logging.SetMinimumLevel(LogLevel.Warning);
-builder.WebHost.ConfigureKestrel(options =>
+try
 {
-    var address = IPAddress.TryParse(config.ListenAddress, out var parsed) ? parsed : IPAddress.Any;
-    options.Listen(address, config.Port, listen => listen.UseHttps(certificate));
-});
-var app = builder.Build();
-app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(20) });
-
-app.Map("/matgate", async context =>
+    switch (command)
+    {
+        case "":
+            return RunSetupDialog();
+        case "run":
+        case "--config":
+            await RunAgentAsync(args, version);
+            return 0;
+        case "setup":
+        case "install":
+            return RunSetup(args);
+        case "uninstall":
+            return RunUninstall(args);
+        case "setup-preview":
+            // Draws the dialogs into image files without showing them - for checking the layout.
+            Application.EnableVisualStyles();
+            SetupPreview.Save(args[1]);
+            return 0;
+        case "--version":
+            Console.WriteLine(version);
+            return 0;
+        default:
+            Console.WriteLine($"Unknown command \"{command}\". Commands: run, setup, uninstall, --version.");
+            return 2;
+    }
+}
+catch (Exception exception) when (command is "setup" or "install" or "uninstall")
 {
-    // The token is compared in constant time, and a wrong one gets nothing back but the status.
-    var header = context.Request.Headers.Authorization.ToString();
-    var offered = header.StartsWith("Bearer ", StringComparison.Ordinal) ? Encoding.UTF8.GetBytes(header[7..]) : [];
-    if (!context.WebSockets.IsWebSocketRequest)
-    {
-        context.Response.StatusCode = StatusCodes.Status400BadRequest;
-        return;
-    }
-
-    if (!CryptographicOperations.FixedTimeEquals(offered, tokenBytes))
-    {
-        await Task.Delay(500);
-        context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-        return;
-    }
-
-    using var socket = await context.WebSockets.AcceptWebSocketAsync();
-    Console.WriteLine($"{DateTime.Now:T} Matgate connected from {context.Connection.RemoteIpAddress}");
-    await new Connection(socket, config, version, files, terminals).RunAsync(context.RequestAborted);
-    Console.WriteLine($"{DateTime.Now:T} Matgate disconnected");
-});
-
-await app.RunAsync();
-
-static X509Certificate2 LoadOrCreateCertificate(AgentConfig config, string directory)
-{
-    var path = Path.IsPathRooted(config.CertificatePath)
-        ? config.CertificatePath
-        : Path.Combine(directory, config.CertificatePath);
-    if (File.Exists(path))
-    {
-        return X509CertificateLoader.LoadPkcs12FromFile(path, config.CertificatePassword);
-    }
-
-    using var key = RSA.Create(3072);
-    var request = new CertificateRequest($"CN={Environment.MachineName}", key, HashAlgorithmName.SHA256, RSASignaturePadding.Pkcs1);
-    var names = new SubjectAlternativeNameBuilder();
-    names.AddDnsName(Environment.MachineName);
-    names.AddDnsName("localhost");
-    request.CertificateExtensions.Add(names.Build());
-    using var created = request.CreateSelfSigned(DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddYears(10));
-    File.WriteAllBytes(path, created.Export(X509ContentType.Pfx, config.CertificatePassword));
-    return X509CertificateLoader.LoadPkcs12FromFile(path, config.CertificatePassword);
+    Console.WriteLine("Failed: " + exception.Message);
+    return 1;
 }
 
-// One connection from Matgate. Requests are answered concurrently (a file copy must not hold up a
-// terminal); every send goes through one lock, because a WebSocket takes one message at a time.
-internal sealed class Connection(WebSocket socket, AgentConfig config, string version, FilesPlugin files, TerminalPlugin terminals)
+static int RunSetupDialog()
 {
-    private readonly SemaphoreSlim _sendLock = new(1, 1);
-
-    public async Task RunAsync(CancellationToken cancellationToken)
+    if (!WindowsNative.IsElevated())
     {
-        try
+        return Relaunch([]);
+    }
+
+    Application.EnableVisualStyles();
+    Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
+    Application.Run(new SetupForm());
+    return 0;
+}
+
+static int RunSetup(string[] args)
+{
+    var options = new SetupOptions();
+    for (var i = 1; i < args.Length; i++)
+    {
+        string Next() => i + 1 < args.Length ? args[++i] : throw new InvalidOperationException($"{args[i]} needs a value.");
+        switch (args[i])
         {
-            await SendAsync(Hello());
-            while (socket.State == WebSocketState.Open)
-            {
-                var frame = await AgentWire.ReceiveAsync(socket, cancellationToken);
-                if (frame is null)
+            case "--port": options.Port = int.Parse(Next()); break;
+            case "--firewall": options.OpenFirewall = true; break;
+            case "--no-firewall": options.OpenFirewall = false; break;
+            case "--mode": options.Mode = Next() == "service" ? "service" : "user"; break;
+            case "--account": options.Account = Next(); break;
+            case "--password": options.Password = Next(); break;
+            case "--no-claude": options.Claude = false; break;
+            case "--powershell": options.PowerShell = true; break;
+            case "--dry-run": options.DryRun = true; break;
+            case "--root":
+                var value = Next();
+                var separator = value.IndexOf('=');
+                if (separator <= 0)
                 {
-                    break;
+                    throw new InvalidOperationException("--root expects Name=Path.");
                 }
 
-                switch (frame.Kind)
-                {
-                    case "req":
-                        _ = Task.Run(() => AnswerAsync(frame, cancellationToken), cancellationToken);
-                        break;
-                    case "evt" when frame.Op == "pty.input":
-                        terminals.Input(frame);
-                        break;
-                    case "evt" when frame.Op == "pty.resize":
-                        terminals.Resize(frame);
-                        break;
-                    case "evt" when frame.Op == "pty.detach":
-                        terminals.Detach(frame);
-                        break;
-                }
-            }
-        }
-        catch (Exception exception) when (exception is WebSocketException or OperationCanceledException or InvalidDataException)
-        {
-            // Gone - the sessions keep running for the next connection.
-        }
-        finally
-        {
-            terminals.DetachAll(SendAsync);
-            files.DropAllUploads();
+                options.Roots.Add(new AgentRoot { Name = value[..separator], Path = value[(separator + 1)..] });
+                break;
+            default: throw new InvalidOperationException($"Unknown option {args[i]}.");
         }
     }
 
-    private async Task AnswerAsync(AgentFrame request, CancellationToken cancellationToken)
+    if (!options.DryRun && !WindowsNative.IsElevated())
     {
-        AgentFrame response;
-        try
+        Console.WriteLine("Setup needs administrator rights - run it in an administrator console.");
+        return 1;
+    }
+
+    if (options.Roots.Count == 0 && Installer.FindExisting() is null)
+    {
+        options.Roots.Add(new AgentRoot { Name = "Home", Path = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) });
+    }
+
+    var result = Installer.Install(options, Console.WriteLine);
+    if (!options.DryRun)
+    {
+        Console.WriteLine();
+        Console.WriteLine($"In Matgate: connection type Agent, host {Environment.MachineName}, port {result.Port}, \"ignore certificate\".");
+        Console.WriteLine($"  connection password: {result.Token}");
+        Console.WriteLine($"  certificate SHA-256: {result.Fingerprint}");
+    }
+
+    return result.Listening || options.DryRun ? 0 : 3;
+}
+
+static int RunUninstall(string[] args)
+{
+    var gui = args.Contains("--gui");
+    var keepConfig = args.Contains("--keep-config");
+    if (gui && !args.Contains("--confirmed"))
+    {
+        if (MessageBox.Show("Matgate Agent von diesem Rechner entfernen?", "Matgate Agent", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK)
         {
-            response = request.Op switch
-            {
-                "hello" => Hello(request.Id),
-                "pty.open" => terminals.Open(request, SendAsync),
-                "pty.kill" => terminals.Kill(request),
-                "pty.list" => terminals.List(request),
-                _ when request.Op.StartsWith("files.", StringComparison.Ordinal) && files.IsAvailable
-                    => await files.HandleAsync(request, cancellationToken),
-                _ => throw new InvalidOperationException("The agent does not offer this."),
-            };
-        }
-        catch (Exception exception) when (exception is not OperationCanceledException)
-        {
-            response = new AgentFrame { Id = request.Id, Kind = "res", Op = request.Op, Error = Explain(exception) };
+            return 0;
         }
 
-        try
+        keepConfig = MessageBox.Show(
+            "Einstellungen, Token und Zertifikat behalten (für eine spätere Neuinstallation mit demselben Token)?",
+            "Matgate Agent", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes;
+    }
+
+    if (!WindowsNative.IsElevated())
+    {
+        if (!gui)
         {
-            await SendAsync(response);
+            Console.WriteLine("Uninstall needs administrator rights - run it in an administrator console.");
+            return 1;
         }
-        catch (Exception exception) when (exception is WebSocketException or ObjectDisposedException)
+
+        return Relaunch(["uninstall", "--gui", "--confirmed", .. keepConfig ? new[] { "--keep-config" } : []]);
+    }
+
+    try
+    {
+        Installer.Uninstall(keepConfig, Console.WriteLine);
+        if (gui)
         {
+            MessageBox.Show("Matgate Agent wurde entfernt.", "Matgate Agent", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        return 0;
+    }
+    catch (Exception exception) when (gui)
+    {
+        MessageBox.Show("Entfernen fehlgeschlagen: " + exception.Message, "Matgate Agent", MessageBoxButtons.OK, MessageBoxIcon.Error);
+        return 1;
+    }
+}
+
+// Asks for administrator rights by starting this exe again through UAC.
+static int Relaunch(string[] arguments)
+{
+    try
+    {
+        var info = new ProcessStartInfo(Environment.ProcessPath!) { UseShellExecute = true, Verb = "runas" };
+        foreach (var argument in arguments)
+        {
+            info.ArgumentList.Add(argument);
+        }
+
+        Process.Start(info);
+        return 0;
+    }
+    catch (System.ComponentModel.Win32Exception)
+    {
+        // UAC declined.
+        return 1;
+    }
+}
+
+static async Task RunAgentAsync(string[] args, string version)
+{
+    var configPath = Environment.GetEnvironmentVariable("MATGATE_AGENT_CONFIG");
+    for (var i = 0; i < args.Length - 1; i++)
+    {
+        if (args[i] == "--config")
+        {
+            configPath = Path.GetFullPath(args[i + 1]);
         }
     }
 
-    private AgentFrame Hello(long id = 0)
+    // Installed: the settings in ProgramData. Started by hand from a folder: next to the exe.
+    configPath ??= File.Exists(Installer.ConfigPath)
+        ? Installer.ConfigPath
+        : Path.Combine(AppContext.BaseDirectory, "matgate-agent.json");
+    var directory = Path.GetDirectoryName(configPath)!;
+    AgentLog.UseFile(directory);
+
+    var config = AgentConfig.LoadOrCreate(configPath, out var created);
+    var certificate = AgentCertificate.LoadOrCreate(config, directory);
+
+    AgentLog.Write($"Matgate agent {version}");
+    AgentLog.Write($"  configuration: {configPath}{(created ? " (created)" : "")}");
+    AgentLog.Write($"  listening on:  {config.ListenAddress}:{config.Port}");
+    AgentLog.Write($"  certificate:   SHA-256 {certificate.GetCertHashString(HashAlgorithmName.SHA256)}");
+    if (created)
     {
-        var plugins = new JsonArray();
-        if (files.IsAvailable)
-        {
-            plugins.Add(new JsonObject { ["id"] = "files", ["kind"] = "files", ["title"] = "Dateien" });
-        }
-
-        foreach (var terminal in terminals.Available)
-        {
-            plugins.Add(new JsonObject { ["id"] = terminal.Id, ["kind"] = "terminal", ["title"] = string.IsNullOrWhiteSpace(terminal.Title) ? terminal.Id : terminal.Title });
-        }
-
-        return new AgentFrame
-        {
-            Id = id,
-            Kind = id == 0 ? "evt" : "res",
-            Op = "hello",
-            Data = new JsonObject
-            {
-                ["protocol"] = AgentWire.ProtocolVersion,
-                ["version"] = version,
-                ["name"] = string.IsNullOrWhiteSpace(config.Name) ? Environment.MachineName : config.Name,
-                ["machine"] = Environment.MachineName,
-                ["user"] = Environment.UserName,
-                ["os"] = RuntimeInformation.OSDescription,
-                ["plugins"] = plugins,
-            },
-        };
+        // Only when it was just made - after that it stays in the configuration, not in every log.
+        AgentLog.Write($"  token:         {config.Token}");
     }
 
-    private async Task SendAsync(AgentFrame frame)
-    {
-        await _sendLock.WaitAsync();
-        try
-        {
-            await AgentWire.SendAsync(socket, frame, CancellationToken.None);
-        }
-        finally
-        {
-            _sendLock.Release();
-        }
-    }
+    var files = new FilesPlugin(config.Roots);
+    var terminals = new TerminalPlugin(config, files);
+    var tokenBytes = Encoding.UTF8.GetBytes(config.Token);
 
-    // The sentence a person sees in Matgate. The machine's own messages may name local paths, so only
-    // the kinds of failure that are the user's to fix are passed on as they are.
-    private static string Explain(Exception exception) => exception switch
+    var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { ContentRootPath = AppContext.BaseDirectory });
+    builder.Host.UseWindowsService(options => options.ServiceName = "MatgateAgent");
+    builder.Logging.SetMinimumLevel(LogLevel.Warning);
+    builder.WebHost.ConfigureKestrel(options =>
     {
-        InvalidOperationException => exception.Message,
-        FileNotFoundException or DirectoryNotFoundException => "This path does not exist.",
-        UnauthorizedAccessException => "No permission for this path on the machine.",
-        IOException => "The file is in use or could not be written.",
-        _ => "The agent could not do this.",
-    };
+        var address = IPAddress.TryParse(config.ListenAddress, out var parsed) ? parsed : IPAddress.Any;
+        options.Listen(address, config.Port, listen => listen.UseHttps(certificate));
+    });
+    var app = builder.Build();
+    app.UseWebSockets(new WebSocketOptions { KeepAliveInterval = TimeSpan.FromSeconds(20) });
+
+    app.Map("/matgate", async context =>
+    {
+        // The token is compared in constant time, and a wrong one gets nothing back but the status.
+        var header = context.Request.Headers.Authorization.ToString();
+        var offered = header.StartsWith("Bearer ", StringComparison.Ordinal) ? Encoding.UTF8.GetBytes(header[7..]) : [];
+        if (!context.WebSockets.IsWebSocketRequest)
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            return;
+        }
+
+        if (!CryptographicOperations.FixedTimeEquals(offered, tokenBytes))
+        {
+            AgentLog.Write($"Refused a connection with a wrong token from {context.Connection.RemoteIpAddress}");
+            await Task.Delay(500);
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return;
+        }
+
+        using var socket = await context.WebSockets.AcceptWebSocketAsync();
+        AgentLog.Write($"Matgate connected from {context.Connection.RemoteIpAddress}");
+        await new Connection(socket, config, version, files, terminals).RunAsync(context.RequestAborted);
+        AgentLog.Write("Matgate disconnected");
+    });
+
+    await app.RunAsync();
 }
