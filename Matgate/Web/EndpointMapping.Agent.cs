@@ -21,6 +21,7 @@ public static partial class EndpointMapping
         app.MapGet("/api/agent/{id:guid}/status", AgentStatusAsync).RequireAuthorization();
         app.MapGet("/api/agent/{id:guid}/terminal-socket", AgentTerminalSocketAsync).RequireAuthorization();
         app.MapPost("/api/agent/{id:guid}/terminal/kill", AgentTerminalKillAsync).RequireAuthorization();
+        app.MapGet("/api/agent/{id:guid}/sessions", AgentSessionsAsync).RequireAuthorization();
         app.MapGet("/agent/{id:guid}/terminal", AgentTerminalPageAsync).RequireAuthorization();
         app.MapGet("/assets/xterm/{file}", XtermAsset);
     }
@@ -218,6 +219,45 @@ public static partial class EndpointMapping
             }
 
             await browser.CloseAsync();
+        }
+    }
+
+    // The programs running on the machine - so the overview can offer to go back to one.
+    private static async Task<IResult> AgentSessionsAsync(Guid id, HttpContext context, JsonDataStore store, AgentClientPool agents)
+    {
+        var (server, result, user) = await RequireAgentAsync(id, context, store);
+        if (result is not null)
+        {
+            return result;
+        }
+
+        if (!CanUseAgentTerminal(user!, server!))
+        {
+            return Results.Json(new { sessions = Array.Empty<object>() });
+        }
+
+        try
+        {
+            var link = await agents.GetAsync(server!, context.RequestAborted);
+            var titles = link.Hello.Plugins.ToDictionary(plugin => plugin.Id, plugin => plugin.Title);
+            var response = await link.RequestAsync("pty.list", cancellationToken: context.RequestAborted);
+            var sessions = (response.Data?["sessions"] as JsonArray ?? [])
+                .OfType<JsonObject>()
+                .Select(item => new
+                {
+                    session = item["session"]?.GetValue<string>() ?? "",
+                    plugin = item["plugin"]?.GetValue<string>() ?? "",
+                    title = titles.GetValueOrDefault(item["plugin"]?.GetValue<string>() ?? "", item["plugin"]?.GetValue<string>() ?? ""),
+                    started = item["started"]?.GetValue<long>() ?? 0,
+                    attached = item["attached"]?.GetValue<bool>() ?? false,
+                })
+                .OrderByDescending(item => item.started)
+                .ToList();
+            return Results.Json(new { sessions });
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or TimeoutException)
+        {
+            return Results.Json(new { sessions = Array.Empty<object>(), error = exception.Message });
         }
     }
 

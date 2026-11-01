@@ -4464,6 +4464,7 @@ public sealed class HtmlViews
         {
             fullscreen = Icon("maximize"),
             terminal = Icon("terminal"),
+            home = Icon("home"),
             copy = Icon("copy"),
             clipboard = Icon("clipboard"),
             upload = Icon("upload"),
@@ -7714,7 +7715,7 @@ public sealed class HtmlViews
 
                         // A Matgate agent says what it offers. Its programs (Claude Code, PowerShell, ...) open
                         // in a terminal tab of their own, started in the folder this file tab is showing.
-                        if ((tab.protocol || '').toUpperCase() === 'AGENT' && !tab.terminal) {
+                        if (isAgentTab(tab) && !tab.terminal) {
                             if (tab.agentStatus === undefined) {
                                 tab.agentStatus = null;
                                 fetch('/api/agent/' + encodeURIComponent(tab.serverId) + '/status', { credentials: 'same-origin' })
@@ -7727,27 +7728,26 @@ public sealed class HtmlViews
                                         }
                                     });
                             }
-                            (tab.agentStatus && tab.agentStatus.plugins || [])
-                                .filter(plugin => plugin.kind === 'terminal')
-                                .forEach(plugin => {
-                                    const programButton = createTabActionButton(
-                                        actionIcons.terminal,
-                                        plugin.title || plugin.id,
-                                        () => {
-                                            const query = new URLSearchParams({
-                                                plugin: plugin.id,
-                                                title: plugin.title || plugin.id,
-                                                session: crypto.randomUUID(),
-                                                cwd: tab.filePath || '/',
-                                            });
-                                            openShellTab(
-                                                '/agent/' + encodeURIComponent(tab.serverId) + '/terminal?' + query.toString(),
-                                                (plugin.title || plugin.id) + ' - ' + (tab.name || ''),
-                                                actionIcons.terminal);
-                                        },
-                                        'tab-action-keep');
-                                    addTabAction('agent-' + plugin.id, programButton);
-                                });
+
+                            // In the files the way back to the overview, with the programs beside it.
+                            if (tab.agentView === 'files') {
+                                const overviewButton = createTabActionButton(
+                                    actionIcons.home,
+                                    agentTexts.overview,
+                                    () => startAgentHome(tab),
+                                    'tab-action-keep');
+                                addTabAction('agent-overview', overviewButton);
+                                (tab.agentStatus && tab.agentStatus.plugins || [])
+                                    .filter(plugin => plugin.kind === 'terminal')
+                                    .forEach(plugin => {
+                                        const programButton = createTabActionButton(
+                                            actionIcons.terminal,
+                                            plugin.title || plugin.id,
+                                            () => openAgentTerminal(tab, plugin, tab.filePath || '/'),
+                                            '');
+                                        addTabAction('agent-' + plugin.id, programButton);
+                                    });
+                            }
                         }
 
                         const disconnectButton = createTabActionButton(
@@ -8482,6 +8482,11 @@ public sealed class HtmlViews
                     updateSessionKeyboardShift();
                     saveTabOrder();
                     saveWorkspaceTabs();
+                    // The overview of an agent is fresh every time one comes back to it: a program started or
+                    // ended in the meantime shows up.
+                    if (isAgentTab(activeTab) && activeTab.agentView === 'home' && activeTab.displayRoot.querySelector('.agent-home-inner')) {
+                        startAgentHome(activeTab);
+                    }
                 }
 
                 // Report the session as still open, so the gateway does not sweep away the file areas
@@ -9897,6 +9902,12 @@ public sealed class HtmlViews
 
                 async function startTab(tab) {
                     if (isFileProtocol(tab.protocol)) {
+                        // An agent starts on its overview; its files are one of the plugins on it.
+                        if (isAgentTab(tab) && tab.agentView !== 'files') {
+                            startAgentHome(tab);
+                            return;
+                        }
+
                         startFileTab(tab);
                         return;
                     }
@@ -10482,6 +10493,173 @@ public sealed class HtmlViews
                     }
                 }
 
+                // A Matgate agent opens on its overview: the machine, whether it answers, what it offers -
+                // its plugins, as tiles - and the programs still running on it. Files are one of the plugins
+                // and open in this same tab; a program opens in a terminal tab of its own.
+                const agentGerman = (document.documentElement.lang || '').toLowerCase().startsWith('de');
+                const agentTexts = {
+                    checking: agentGerman ? 'Verbinde mit dem Agent ...' : 'Connecting to the agent ...',
+                    online: agentGerman ? 'Online' : 'Online',
+                    unreachable: agentGerman ? 'Nicht erreichbar' : 'Unreachable',
+                    offlineHint: agentGerman ? 'Matgate erreicht den Agent nicht. Läuft er auf dem Rechner, und stimmen Host, Port und Token?' : 'Matgate cannot reach the agent. Is it running on the machine, and are host, port and token right?',
+                    retry: agentGerman ? 'Erneut versuchen' : 'Try again',
+                    plugins: agentGerman ? 'Was dieser Rechner anbietet' : 'What this machine offers',
+                    files: agentGerman ? 'Dateien' : 'Files',
+                    filesHint: agentGerman ? 'Freigegebene Ordner durchsuchen, hoch- und herunterladen' : 'Browse the shared folders, upload and download',
+                    open: agentGerman ? 'Öffnen' : 'Open',
+                    start: agentGerman ? 'Starten' : 'Start',
+                    startIn: agentGerman ? 'Starten in' : 'Start in',
+                    claudeHint: agentGerman ? 'Claude Code im Terminal - arbeitet direkt im gewählten Ordner' : 'Claude Code in a terminal - works right in the chosen folder',
+                    terminalHint: agentGerman ? 'Terminal auf dem Rechner' : 'A terminal on the machine',
+                    sessions: agentGerman ? 'Laufende Sitzungen' : 'Running sessions',
+                    since: agentGerman ? 'seit' : 'since',
+                    attached: agentGerman ? 'gerade offen' : 'open now',
+                    detached: agentGerman ? 'läuft weiter, kein Fenster offen' : 'keeps running, no window open',
+                    resume: agentGerman ? 'Fortsetzen' : 'Resume',
+                    end: agentGerman ? 'Beenden' : 'End',
+                    endConfirm: agentGerman ? 'Das Programm wird auf dem Rechner beendet.' : 'The program will be ended on the machine.',
+                    refresh: agentGerman ? 'Aktualisieren' : 'Refresh',
+                    version: agentGerman ? 'Agent-Version' : 'Agent version',
+                    overview: agentGerman ? 'Übersicht' : 'Overview',
+                };
+
+                function isAgentTab(tab) {
+                    return !!tab && (tab.protocol || '').toUpperCase() === 'AGENT';
+                }
+
+                // A program of the agent in a terminal tab: a new session in the given folder, or an
+                // existing one to go back to.
+                function openAgentTerminal(tab, plugin, cwd, session) {
+                    const query = new URLSearchParams({
+                        plugin: plugin.id,
+                        title: plugin.title || plugin.id,
+                        session: session || crypto.randomUUID(),
+                        cwd: cwd || '/',
+                    });
+                    openShellTab(
+                        '/agent/' + encodeURIComponent(tab.serverId) + '/terminal?' + query.toString(),
+                        (plugin.title || plugin.id) + ' - ' + (tab.name || ''),
+                        actionIcons.terminal,
+                        tab.name || '');
+                }
+
+                async function startAgentHome(tab) {
+                    tab.terminal = false;
+                    tab.client = null;
+                    tab.keyboard = null;
+                    tab.agentView = 'home';
+                    tab.tunnelState = 'Agent';
+                    tab.lastError = '';
+                    tab.connectedAt ??= Date.now();
+                    tab.displayRoot.className = 'agent-home';
+                    tab.displayRoot.replaceChildren();
+                    hideOverlay(tab);
+                    setStatus(tab, ui('loading'));
+                    const root = document.createElement('div');
+                    root.className = 'agent-home-inner';
+                    root.innerHTML = `<p class="muted">${escapeHtml(agentTexts.checking)}</p>`;
+                    tab.displayRoot.appendChild(root);
+
+                    const id = encodeURIComponent(tab.serverId);
+                    const getJson = url => fetch(url, { credentials: 'same-origin' })
+                        .then(response => response.ok ? response.json() : null)
+                        .catch(() => null);
+                    const status = await getJson('/api/agent/' + id + '/status') || { online: false, plugins: [] };
+                    const online = !!status.online;
+                    const [sessionList, top] = online
+                        ? await Promise.all([getJson('/api/agent/' + id + '/sessions'), getJson('/api/files/' + id + '/list?path=/')])
+                        : [null, null];
+                    if (!tabs.has(tab.id) || tab.agentView !== 'home') {
+                        return;
+                    }
+
+                    tab.agentStatus = status;
+                    setStatus(tab, online ? ui('ready') : agentTexts.unreachable);
+                    updateTabActions();
+                    const roots = ((top && (top.entries || top.Entries)) || [])
+                        .filter(entry => entry.isDirectory || entry.IsDirectory)
+                        .map(entry => entry.name || entry.Name);
+                    renderAgentHome(tab, root, status, (sessionList && sessionList.sessions) || [], roots);
+                }
+
+                function renderAgentHome(tab, root, status, sessions, roots) {
+                    const online = !!status.online;
+                    const plugins = status.plugins || [];
+                    const files = plugins.find(plugin => plugin.kind === 'files');
+                    const programs = plugins.filter(plugin => plugin.kind === 'terminal');
+                    const machine = [status.machine, status.user, status.os].filter(Boolean).join(' · ');
+                    const folderChoices = ['/', ...roots.map(name => '/' + name)];
+                    const defaultFolder = roots.length ? '/' + roots[0] : '/';
+                    const folderSelect = folderChoices.length > 1
+                        ? `<select class="toolbar-input" data-agent-cwd aria-label="${escapeHtml(agentTexts.startIn)}">${folderChoices.map(value => `<option value="${escapeHtml(value)}"${value === defaultFolder ? ' selected' : ''}>${escapeHtml(value === '/' ? agentTexts.startIn + ' ...' : value.slice(1))}</option>`).join('')}</select>`
+                        : '';
+                    const fileTile = files ? `
+                        <button type="button" class="agent-tile agent-tile--open" data-agent-files>
+                            <span class="agent-tile-head">${fileIcon('folder')}<strong>${escapeHtml(agentTexts.files)}</strong></span>
+                            <p>${escapeHtml(roots.length ? roots.join(', ') : agentTexts.filesHint)}</p>
+                            <span class="agent-tile-actions"><span class="button">${escapeHtml(agentTexts.open)}</span></span>
+                        </button>` : '';
+                    const programTiles = programs.map(plugin => `
+                        <div class="agent-tile" data-agent-program="${escapeHtml(plugin.id)}">
+                            <span class="agent-tile-head">${actionIcons.terminal}<strong>${escapeHtml(plugin.title || plugin.id)}</strong></span>
+                            <p>${escapeHtml(plugin.id === 'claude' ? agentTexts.claudeHint : agentTexts.terminalHint)}</p>
+                            <span class="agent-tile-actions">${folderSelect}<button type="button" class="button primary" data-agent-start="${escapeHtml(plugin.id)}">${escapeHtml(agentTexts.start)}</button></span>
+                        </div>`).join('');
+                    const sessionRows = sessions.map(item => `
+                        <li>
+                            <span class="agent-session-name"><strong>${escapeHtml(item.title || item.plugin)}</strong>
+                                <small>${escapeHtml(agentTexts.since)} ${escapeHtml(new Date(item.started).toLocaleString([], { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }))} · ${escapeHtml(item.attached ? agentTexts.attached : agentTexts.detached)}</small></span>
+                            <button type="button" class="button" data-agent-resume="${escapeHtml(item.session)}" data-agent-plugin="${escapeHtml(item.plugin)}">${escapeHtml(agentTexts.resume)}</button>
+                            <button type="button" class="button danger" data-agent-kill="${escapeHtml(item.session)}">${escapeHtml(agentTexts.end)}</button>
+                        </li>`).join('');
+
+                    root.innerHTML = `
+                        <section class="agent-home-head">
+                            <span class="agent-home-icon">${tab.iconHtml || actionIcons.terminal}</span>
+                            <span class="agent-home-title">
+                                <h2>${escapeHtml(status.name || tab.name || '')}</h2>
+                                <span class="muted">${escapeHtml(online ? machine : (status.error || ''))}</span>
+                            </span>
+                            <span class="agent-home-state ${online ? 'is-online' : 'is-offline'}">${escapeHtml(online ? agentTexts.online : agentTexts.unreachable)}</span>
+                        </section>
+                        ${online ? '' : `<div class="agent-home-notice"><span>${escapeHtml(agentTexts.offlineHint)}</span><button type="button" class="button" data-agent-retry>${escapeHtml(agentTexts.retry)}</button></div>`}
+                        ${online && (fileTile || programTiles) ? `<h3 class="agent-home-section">${escapeHtml(agentTexts.plugins)}</h3><div class="agent-home-grid">${fileTile}${programTiles}</div>` : ''}
+                        ${sessions.length ? `<h3 class="agent-home-section">${escapeHtml(agentTexts.sessions)}<button type="button" class="button agent-home-refresh" data-agent-retry>${escapeHtml(agentTexts.refresh)}</button></h3><ul class="agent-sessions">${sessionRows}</ul>` : ''}
+                        ${online ? `<p class="muted agent-home-foot">${escapeHtml(agentTexts.version)} ${escapeHtml(status.version || '-')}</p>` : ''}`;
+
+                    root.querySelectorAll('[data-agent-retry]').forEach(button => button.addEventListener('click', () => startAgentHome(tab)));
+                    root.querySelector('[data-agent-files]')?.addEventListener('click', () => {
+                        tab.agentView = 'files';
+                        startFileTab(tab);
+                        updateTabActions();
+                    });
+                    root.querySelectorAll('[data-agent-start]').forEach(button => button.addEventListener('click', () => {
+                        const plugin = programs.find(candidate => candidate.id === button.dataset.agentStart);
+                        const select = button.closest('.agent-tile').querySelector('[data-agent-cwd]');
+                        if (plugin) {
+                            openAgentTerminal(tab, plugin, select ? select.value : defaultFolder);
+                        }
+                    }));
+                    root.querySelectorAll('[data-agent-resume]').forEach(button => button.addEventListener('click', () => {
+                        const plugin = programs.find(candidate => candidate.id === button.dataset.agentPlugin)
+                            || { id: button.dataset.agentPlugin, title: button.dataset.agentPlugin };
+                        openAgentTerminal(tab, plugin, '/', button.dataset.agentResume);
+                    }));
+                    root.querySelectorAll('[data-agent-kill]').forEach(button => button.addEventListener('click', async () => {
+                        const confirmed = await askToConfirm({ title: agentTexts.end, text: agentTexts.endConfirm, confirm: agentTexts.end });
+                        if (!confirmed) {
+                            return;
+                        }
+
+                        await fetch('/api/agent/' + encodeURIComponent(tab.serverId) + '/terminal/kill?session=' + encodeURIComponent(button.dataset.agentKill), {
+                            method: 'POST',
+                            credentials: 'same-origin',
+                            headers: { 'X-Matgate-Csrf': csrfToken },
+                        }).catch(() => null);
+                        startAgentHome(tab);
+                    }));
+                }
+
                 function startFileTab(tab) {
                     tab.terminal = false;
                     tab.client = null;
@@ -10509,7 +10687,8 @@ public sealed class HtmlViews
                     // The gateway's places, in EVERY file manager - including the one of an SMB or
                     // FTP connection. Before, the bar only existed when you were in a place anyway;
                     // from a connection there was no way there.
-                    const placeList = isFileProtocol(tab.protocol) ? fileAreaChoices('') : [];
+                    // An agent is a machine, not one of the gateway's places - jumping to those belongs elsewhere.
+                    const placeList = isFileProtocol(tab.protocol) && !isAgentTab(tab) ? fileAreaChoices('') : [];
                     const placeSelect = placeList.length > 1 ? `
                         <select class="toolbar-input file-place-select" data-file-place-select aria-label="${escapeHtml(ui('places'))}" title="${escapeHtml(ui('places'))}">
                             ${placeOptionGroups(placeList, tab.serverId)}
@@ -18680,6 +18859,90 @@ public sealed class HtmlViews
                         overflow: hidden;
                     }
                     .file-area-dialog-body > .connection-panel { display: flex; flex: 1 1 auto; min-width: 0; }
+                    /* The overview of a Matgate agent: the machine, its plugins as tiles, running programs. */
+                    .agent-home { background: var(--bg); height: 100%; overflow: auto; }
+                    .agent-home-inner { margin: 0 auto; max-width: 980px; padding: clamp(14px, 3vw, 28px); }
+                    .agent-home-head { align-items: center; display: flex; gap: 14px; }
+                    .agent-home-icon {
+                        align-items: center;
+                        background: color-mix(in srgb, var(--accent) 14%, transparent);
+                        border-radius: var(--radius);
+                        color: var(--accent);
+                        display: inline-flex;
+                        flex: 0 0 auto;
+                        height: 52px;
+                        justify-content: center;
+                        width: 52px;
+                    }
+                    .agent-home-icon svg { height: 28px; width: 28px; }
+                    .agent-home-title { display: flex; flex: 1 1 auto; flex-direction: column; gap: 2px; min-width: 0; }
+                    .agent-home-title h2 { font-size: 1.35rem; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                    .agent-home-title .muted { font-size: 13px; overflow-wrap: anywhere; }
+                    .agent-home-state { border-radius: 999px; flex: 0 0 auto; font-size: 12px; font-weight: 600; padding: 4px 11px; }
+                    .agent-home-state.is-online { background: color-mix(in srgb, #3fc47a 20%, transparent); color: color-mix(in srgb, #3fc47a 55%, var(--text)); }
+                    .agent-home-state.is-offline { background: color-mix(in srgb, var(--danger) 16%, transparent); color: var(--danger); }
+                    .agent-home-notice {
+                        align-items: center;
+                        background: color-mix(in srgb, var(--danger) 8%, var(--surface));
+                        border: 1px solid color-mix(in srgb, var(--danger) 30%, var(--line));
+                        border-radius: var(--radius);
+                        display: flex;
+                        flex-wrap: wrap;
+                        gap: 12px;
+                        justify-content: space-between;
+                        margin-top: 18px;
+                        padding: 12px 14px;
+                    }
+                    .agent-home-section {
+                        align-items: center;
+                        color: var(--muted);
+                        display: flex;
+                        font-size: 12px;
+                        gap: 10px;
+                        justify-content: space-between;
+                        letter-spacing: .05em;
+                        margin: 26px 0 10px;
+                        text-transform: uppercase;
+                    }
+                    .agent-home-refresh { font-size: 12px; letter-spacing: 0; min-height: 28px; text-transform: none; }
+                    .agent-home-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); }
+                    .agent-tile {
+                        /* A button by the global rules - centred; a tile reads from the left like the others. */
+                        align-items: stretch;
+                        justify-content: flex-start;
+                        background: var(--surface);
+                        border: 1px solid var(--line);
+                        border-radius: var(--radius);
+                        color: var(--text);
+                        display: flex;
+                        flex-direction: column;
+                        font: inherit;
+                        gap: 8px;
+                        min-height: 150px;
+                        padding: 16px;
+                        text-align: left;
+                    }
+                    button.agent-tile { cursor: pointer; }
+                    button.agent-tile:hover, button.agent-tile:focus-visible { border-color: var(--accent); }
+                    .agent-tile-head { align-items: center; display: flex; gap: 10px; }
+                    .agent-tile-head svg { color: var(--accent); flex: 0 0 auto; height: 22px; width: 22px; }
+                    .agent-tile-head strong { font-size: 15px; }
+                    .agent-tile p { color: var(--muted); font-size: 13px; margin: 0; overflow-wrap: anywhere; }
+                    .agent-tile-actions { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; margin-top: auto; }
+                    .agent-tile-actions select { flex: 1 1 140px; min-width: 0; }
+                    .agent-sessions { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); list-style: none; margin: 0; padding: 0; }
+                    .agent-sessions li { align-items: center; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 14px; }
+                    .agent-sessions li:first-child { border-top: 0; }
+                    .agent-session-name { display: flex; flex: 1 1 180px; flex-direction: column; min-width: 0; }
+                    .agent-session-name small { color: var(--muted); }
+                    .agent-home-foot { font-size: 12px; margin-top: 22px; }
+                    @media (max-width: 720px) {
+                        .agent-home-grid { grid-template-columns: 1fr; }
+                        .agent-tile { min-height: 0; }
+                        .agent-tile-actions .button, .agent-tile-actions select, .agent-sessions .button { min-height: 44px; }
+                        .agent-tile-actions .button { flex: 1 1 auto; justify-content: center; }
+                        .agent-home-state { font-size: 11px; padding: 3px 9px; }
+                    }
                     /* While the dialog shows an area, its tab stays out of the strip. */
                     .tab-in-dialog { display: none; }
                     .credential-dialog {

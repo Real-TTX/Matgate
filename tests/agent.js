@@ -160,9 +160,22 @@ let agent;
   // --- A program in a terminal tab.
   await page.goto(BASE + "/?open=" + server.id, { waitUntil: "networkidle" });
   await sleep(3000);
-  const programButton = page.locator("#connection-tab-actions button[title='Eingabeaufforderung'], .tab-action-overflow-panel button[title='Eingabeaufforderung']").first();
-  check("the agent's file tab offers its program", await programButton.count(), 1);
-  await programButton.click();
+  // The agent opens on its overview: the machine, its plugins as tiles.
+  const overview = () => page.evaluate(() => {
+    const home = document.querySelector(".connection-panel:not(.hidden) .agent-home");
+    return home ? {
+      online: !!home.querySelector(".agent-home-state.is-online"),
+      tiles: [...home.querySelectorAll(".agent-tile strong")].map(t => t.textContent.trim()),
+      sessions: [...home.querySelectorAll(".agent-sessions li strong")].map(t => t.textContent.trim()),
+      folders: [...home.querySelectorAll("[data-agent-cwd] option")].map(o => o.value),
+    } : null;
+  });
+  const first = await overview();
+  check("opening the agent shows its overview, online", first && first.online, true);
+  check("with its plugins as tiles", first && first.tiles, ["Files", "Eingabeaufforderung"]);
+  check("and the shared folders to start a program in", first && first.folders, ["/", "/Test"]);
+  check("nothing is running yet", first && first.sessions, []);
+  await page.locator(".agent-home [data-agent-start='cmd']").click();
   await sleep(3000);
   const frame = () => page.frames().find(f => /\/agent\/.+\/terminal/.test(f.url()));
   const screen = async () => {
@@ -191,6 +204,22 @@ let agent;
   for (let i = 0; i < 20 && !(await screen()).includes(MARK); i++) { await sleep(500); }
   check("after a reload the same program is there again, with what it showed", (await screen()).includes(MARK), true);
   check("and it is still one program, not a second", runningTerminals(), 1);
+
+  // Back on the overview, the running program is listed and can be resumed.
+  await page.locator(".session-tab--connection .session-tab-main").first().click();
+  await sleep(2500);
+  check("the overview lists the running program", (await overview()).sessions, ["Eingabeaufforderung"]);
+
+  // Files are the other plugin, in this same tab, with the way back.
+  await page.locator(".agent-home [data-agent-files]").click();
+  await sleep(2500);
+  const inFiles = await page.evaluate(() => ({
+    rows: [...document.querySelectorAll(".connection-panel:not(.hidden) .file-table tbody tr")].map(r => r.textContent).join(" "),
+    back: [...document.querySelectorAll("#connection-tab-actions button")].some(b => /Übersicht|Overview/.test(b.title || b.textContent)),
+    places: !!document.querySelector(".connection-panel:not(.hidden) [data-file-place-select]"),
+  }));
+  check("the Dateien tile opens the file manager in the same tab", /Test/.test(inFiles.rows), true);
+  check("with the way back to the overview, and no gateway places in the way", [inFiles.back, inFiles.places], [true, false]);
 
   await page.locator(".session-tab--page .session-tab-close").first().click();
   for (let i = 0; i < 20 && runningTerminals() !== 0; i++) { await sleep(500); }
