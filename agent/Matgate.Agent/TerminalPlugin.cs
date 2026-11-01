@@ -13,6 +13,8 @@ public sealed class TerminalPlugin
     private readonly AgentConfig _config;
     private readonly FilesPlugin _files;
     private readonly ConcurrentDictionary<string, Session> _sessions = new();
+
+    public int Count => _sessions.Count;
     private readonly System.Threading.Timer _reaper;
 
     public TerminalPlugin(AgentConfig config, FilesPlugin files)

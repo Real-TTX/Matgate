@@ -29,6 +29,12 @@ public sealed class SetupOptions
     public bool PowerShell { get; set; }
 
     public bool DryRun { get; set; }
+
+    // The icon in the notification area, started at every logon.
+    public bool Tray { get; set; } = true;
+
+    // Filled from an existing installation only.
+    public string Version { get; set; } = "";
 }
 
 // Installs the agent the way MatMon installs its agent: the exe copies itself to Program Files, the
@@ -40,6 +46,8 @@ public static class Installer
     private const string TaskName = "Matgate Agent";
     private const string ServiceName = "MatgateAgent";
     private const string FirewallRule = "Matgate Agent";
+    private const string TrayRunValue = "Matgate Agent Tray";
+    private const string RunKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
     private const string UninstallKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\MatgateAgent";
 
     public static string ProgramFolder => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), ProductName);
@@ -65,13 +73,25 @@ public static class Installer
             Mode = key.GetValue("MatgateAgentMode") as string ?? "user",
             Account = key.GetValue("MatgateAgentAccount") as string ?? "",
             OpenFirewall = (key.GetValue("MatgateAgentFirewall") as int? ?? 1) == 1,
+            Version = key.GetValue("DisplayVersion") as string ?? "",
         };
-        if (File.Exists(ConfigPath))
+        using (var run = Registry.LocalMachine.OpenSubKey(RunKey))
         {
-            var config = AgentConfig.LoadOrCreate(ConfigPath, out _);
-            options.Roots = config.Roots;
-            options.Claude = config.Terminals.Any(t => t.Id == "claude" && t.Enabled);
-            options.PowerShell = config.Terminals.Any(t => t.Id == "powershell" && t.Enabled);
+            options.Tray = run?.GetValue(TrayRunValue) is not null;
+        }
+        try
+        {
+            if (File.Exists(ConfigPath))
+            {
+                var config = AgentConfig.LoadOrCreate(ConfigPath, out _);
+                options.Roots = config.Roots;
+                options.Claude = config.Terminals.Any(t => t.Id == "claude" && t.Enabled);
+                options.PowerShell = config.Terminals.Any(t => t.Id == "powershell" && t.Enabled);
+            }
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // A service's settings are for administrators; the tray of a normal user gets along without them.
         }
 
         return options;
@@ -192,9 +212,33 @@ public static class Installer
         }
 
         WriteUninstallEntry(options, runAccount);
+        SetTray(options.Tray, log);
         var listening = WaitForPort(options.Port, TimeSpan.FromSeconds(20));
         log(listening ? $"The agent listens on port {options.Port}." : $"The agent did not answer on port {options.Port} yet - see {Path.Combine(DataFolder, "agent.log")}.");
         return new Result(config.Token, fingerprint, options.Port, listening);
+    }
+
+    // For the tray's "restart": the service, or the logon task, stopped and started again.
+    public static bool Restart(Action<string> log)
+    {
+        var mode = FindExisting()?.Mode;
+        if (mode is null)
+        {
+            log("The agent is not installed.");
+            return false;
+        }
+
+        StopRunning(log);
+        if (mode == "service")
+        {
+            Run("sc.exe", ["start", ServiceName], log);
+        }
+        else
+        {
+            Run("schtasks", ["/Run", "/TN", TaskName], log);
+        }
+
+        return true;
     }
 
     public static void Uninstall(bool keepConfig, Action<string> log)
@@ -204,6 +248,7 @@ public static class Installer
         RemoveService(log);
         RemoveLogonTask(log);
         Run("netsh", ["advfirewall", "firewall", "delete", "rule", "name=" + FirewallRule], log, ignoreFailure: true);
+        SetTray(false, log);
         Registry.LocalMachine.DeleteSubKeyTree(UninstallKey, throwOnMissingSubKey: false);
 
         if (!keepConfig && Directory.Exists(DataFolder))
@@ -285,6 +330,56 @@ public static class Installer
               <Actions Context="Author"><Exec><Command>{exe}</Command><Arguments>run</Arguments></Exec></Actions>
             </Task>
             """;
+    }
+
+    public static string StartMenuShortcut => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms), ProductName + ".lnk");
+
+    // The icon in the notification area: started at every logon (all users, like MatMon's tray) and
+    // from a Start menu entry; started right away for whoever is signed in.
+    private static void SetTray(bool enabled, Action<string> log)
+    {
+        using (var run = Registry.LocalMachine.CreateSubKey(RunKey))
+        {
+            if (enabled)
+            {
+                run.SetValue(TrayRunValue, $"\"{InstalledExe}\" tray");
+            }
+            else
+            {
+                run.DeleteValue(TrayRunValue, throwOnMissingValue: false);
+            }
+        }
+
+        if (!enabled)
+        {
+            File.Delete(StartMenuShortcut);
+            return;
+        }
+
+        try
+        {
+            var shellType = Type.GetTypeFromProgID("WScript.Shell")!;
+            dynamic shell = Activator.CreateInstance(shellType)!;
+            dynamic shortcut = shell.CreateShortcut(StartMenuShortcut);
+            shortcut.TargetPath = InstalledExe;
+            shortcut.Arguments = "tray";
+            shortcut.Description = "Matgate Agent - Status und Verbindungsdaten";
+            shortcut.IconLocation = InstalledExe + ",0";
+            shortcut.Save();
+        }
+        catch (Exception exception) when (exception is System.Runtime.InteropServices.COMException or InvalidOperationException)
+        {
+            log("  Start menu entry: " + exception.Message);
+        }
+
+        // Explorer opens the shortcut as the signed-in user - this process runs elevated, and the icon
+        // must not.
+        if (File.Exists(StartMenuShortcut))
+        {
+            Process.Start(new ProcessStartInfo("explorer.exe", $"\"{StartMenuShortcut}\"") { UseShellExecute = false });
+        }
+
+        log("  Symbol im Infobereich: eingerichtet");
     }
 
     private static void SetTerminal(AgentConfig config, string id, string title, string command, bool enabled)

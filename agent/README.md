@@ -17,6 +17,8 @@ Windows first. The file plugin runs anywhere .NET runs; terminals use Windows' p
 
 ## Installing it
 
+![Setup](../docs/images/agent-setup-welcome.png)
+
 Download `matgate-agent.exe` (the link is on the Agent connection form in Matgate, or the release
 `agent-latest` on GitHub), double-click it and confirm the administrator prompt. The setup asks for:
 
@@ -29,6 +31,11 @@ Download `matgate-agent.exe` (the link is on the Agent connection form in Matgat
     without anyone signed in. The password goes straight to Windows (service configuration); the
     account gets "log on as a service". LocalSystem works but runs every program as SYSTEM.
 - **Shared folders** for the file manager, and which **programs** (Claude Code, PowerShell) it offers.
+
+It is a wizard like MatMon's setup: Welcome, connection and how it runs, what Matgate may see, progress,
+and a last page with everything Matgate needs:
+
+![Ready](../docs/images/agent-setup-finish.png)
 
 Afterwards it shows host, port, token and certificate fingerprint to copy into Matgate (connection
 type *Agent*, the token as connection password, "Ignore certificate"). Running the setup again
@@ -52,12 +59,26 @@ matgate-agent.exe setup --mode service --account ".\matgate" --password "..." --
 matgate-agent.exe setup --dry-run      # says what it would do, changes nothing
 ```
 
+## The tray icon
+
+The Matgate mark in the notification area, started at every logon (it can be switched off in the setup).
+Its dot says the state: green - Matgate is connected; teal - the agent runs and waits; red - installed
+but not answering; grey - not set up. Double-click opens *Info*; the menu also has *Verbindungsdaten*
+(host, port, token, fingerprint to copy - for a service this asks for administrator rights), *Einstellungen
+ändern* (the setup again), *Agent neu starten* and *Log-Ordner öffnen*. It only looks at the agent through a
+local pipe without secrets; `matgate-agent status` shows the same in a console.
+
+![Info](../docs/images/agent-tray-info.png) ![Connection details](../docs/images/agent-tray-connection.png)
+
 ## Uninstalling it
 
-Settings > Apps > Installed apps > **Matgate Agent** > Uninstall. It asks whether to keep the
-settings (token, certificate - for a later install with the same token), then removes the service or
-the logon task, the firewall rule, the Apps & Features entry, the settings unless kept, and the program
-folder. Unattended: `"%ProgramFiles%\Matgate Agent\matgate-agent.exe" uninstall [--keep-config]`.
+![Uninstall](../docs/images/agent-uninstall-confirm.png)
+
+Settings > Apps > Installed apps > **Matgate Agent** > Uninstall opens the same wizard. It asks whether to
+delete the settings too (token, certificate - kept by default, so a later install keeps the same token),
+then removes the service or the logon task, the tray icon and its Start menu entry, the firewall rule, the
+Apps & Features entry, the settings if asked to, and the program folder - from a copy in %TEMP%, which
+removes itself afterwards. Unattended: `"%ProgramFiles%\Matgate Agent\matgate-agent.exe" uninstall [--keep-config]`.
 
 The connection in Matgate stays until it is deleted there.
 

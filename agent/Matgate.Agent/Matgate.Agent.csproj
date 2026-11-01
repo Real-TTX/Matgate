@@ -11,8 +11,9 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <AssemblyName>matgate-agent</AssemblyName>
     <RootNamespace>Matgate.Agent</RootNamespace>
-    <VersionPrefix>0.2.0</VersionPrefix>
+    <VersionPrefix>0.3.0</VersionPrefix>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>matgate-agent.ico</ApplicationIcon>
   </PropertyGroup>
 
   <!-- dotnet publish -r win-x64: one self-contained file, which is what the setup copies. -->

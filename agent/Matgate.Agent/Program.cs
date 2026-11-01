@@ -39,10 +39,27 @@ try
             return RunSetup(args);
         case "uninstall":
             return RunUninstall(args);
+        case "tray":
+            Matgate.Agent.Ui.TrayApplication.Run();
+            return 0;
+        case "connection-info":
+            Application.EnableVisualStyles();
+            Matgate.Agent.Ui.ConnectionWindow.TryShow(modal: true);
+            return 0;
+        case "restart":
+            return Installer.Restart(Console.WriteLine) ? 0 : 1;
         case "setup-preview":
             // Draws the dialogs into image files without showing them - for checking the layout.
             Application.EnableVisualStyles();
             SetupPreview.Save(args[1]);
+            return 0;
+        case "status":
+            // What the tray icon sees, for a console.
+            var status = AgentStatus.Query();
+            Console.WriteLine(status is null ? "The agent is not running." : System.Text.Json.JsonSerializer.Serialize(status));
+            return status is null ? 1 : 0;
+        case "write-icon":
+            SetupPreview.WriteIcon(args[1]);
             return 0;
         case "--version":
             Console.WriteLine(version);
@@ -67,7 +84,8 @@ static int RunSetupDialog()
 
     Application.EnableVisualStyles();
     Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
-    Application.Run(new SetupForm());
+    Application.SetCompatibleTextRenderingDefault(false);
+    Application.Run(new SetupWizard(uninstall: false));
     return 0;
 }
 
@@ -128,19 +146,6 @@ static int RunSetup(string[] args)
 static int RunUninstall(string[] args)
 {
     var gui = args.Contains("--gui");
-    var keepConfig = args.Contains("--keep-config");
-    if (gui && !args.Contains("--confirmed"))
-    {
-        if (MessageBox.Show("Matgate Agent von diesem Rechner entfernen?", "Matgate Agent", MessageBoxButtons.OKCancel, MessageBoxIcon.Question) != DialogResult.OK)
-        {
-            return 0;
-        }
-
-        keepConfig = MessageBox.Show(
-            "Einstellungen, Token und Zertifikat behalten (für eine spätere Neuinstallation mit demselben Token)?",
-            "Matgate Agent", MessageBoxButtons.YesNo, MessageBoxIcon.Question) == DialogResult.Yes;
-    }
-
     if (!WindowsNative.IsElevated())
     {
         if (!gui)
@@ -149,24 +154,36 @@ static int RunUninstall(string[] args)
             return 1;
         }
 
-        return Relaunch(["uninstall", "--gui", "--confirmed", .. keepConfig ? new[] { "--keep-config" } : []]);
+        return Relaunch(["uninstall", "--gui"]);
     }
 
-    try
+    if (!gui)
     {
-        Installer.Uninstall(keepConfig, Console.WriteLine);
-        if (gui)
-        {
-            MessageBox.Show("Matgate Agent wurde entfernt.", "Matgate Agent", MessageBoxButtons.OK, MessageBoxIcon.Information);
-        }
-
+        Installer.Uninstall(args.Contains("--keep-config"), Console.WriteLine);
         return 0;
     }
-    catch (Exception exception) when (gui)
+
+    // The program folder cannot go while this exe runs from it: like MatMon's uninstaller, a copy in
+    // %TEMP% does the work and removes itself afterwards.
+    var singleFile = string.IsNullOrEmpty(typeof(Installer).Assembly.Location);
+    if (singleFile && !args.Contains("--relaunched") && Environment.ProcessPath!.StartsWith(Installer.ProgramFolder, StringComparison.OrdinalIgnoreCase))
     {
-        MessageBox.Show("Entfernen fehlgeschlagen: " + exception.Message, "Matgate Agent", MessageBoxButtons.OK, MessageBoxIcon.Error);
-        return 1;
+        var copy = Path.Combine(Path.GetTempPath(), $"Matgate Agent deinstallieren {Guid.NewGuid():N}.exe");
+        File.Copy(Environment.ProcessPath!, copy);
+        Process.Start(new ProcessStartInfo(copy) { UseShellExecute = false, ArgumentList = { "uninstall", "--gui", "--relaunched" } });
+        return 0;
     }
+
+    Application.EnableVisualStyles();
+    Application.SetCompatibleTextRenderingDefault(false);
+    Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
+    Application.Run(new SetupWizard(uninstall: true));
+    if (args.Contains("--relaunched"))
+    {
+        Process.Start(new ProcessStartInfo("cmd.exe", $"/c ping -n 3 127.0.0.1 >nul & del /f /q \"{Environment.ProcessPath}\"") { CreateNoWindow = true, UseShellExecute = false });
+    }
+
+    return 0;
 }
 
 // Asks for administrator rights by starting this exe again through UAC.
@@ -223,6 +240,9 @@ static async Task RunAgentAsync(string[] args, string version)
 
     var files = new FilesPlugin(config.Roots);
     var terminals = new TerminalPlugin(config, files);
+    AgentStatus.Port = config.Port;
+    AgentStatus.Mode = Microsoft.Extensions.Hosting.WindowsServices.WindowsServiceHelpers.IsWindowsService() ? "service" : "user";
+    AgentStatus.OpenTerminals = () => terminals.Count;
     var tokenBytes = Encoding.UTF8.GetBytes(config.Token);
 
     var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { ContentRootPath = AppContext.BaseDirectory });
@@ -257,9 +277,19 @@ static async Task RunAgentAsync(string[] args, string version)
 
         using var socket = await context.WebSockets.AcceptWebSocketAsync();
         AgentLog.Write($"Matgate connected from {context.Connection.RemoteIpAddress}");
+        AgentStatus.Connected(context.Connection.RemoteIpAddress?.ToString() ?? "");
+        try
+        {
         await new Connection(socket, config, version, files, terminals).RunAsync(context.RequestAborted);
+        }
+        finally
+        {
+            AgentStatus.Disconnected();
+        }
+
         AgentLog.Write("Matgate disconnected");
     });
 
+    AgentStatus.StartServer(app.Lifetime.ApplicationStopping);
     await app.RunAsync();
 }
