@@ -15,7 +15,7 @@ using Microsoft.Extensions.Primitives;
 
 namespace Matgate.Web;
 
-public static class EndpointMapping
+public static partial class EndpointMapping
 {
     private const string FaviconSvg = """
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
@@ -439,6 +439,7 @@ public static class EndpointMapping
 
     public static void MapMatgateEndpoints(this WebApplication app)
     {
+        MapAgentEndpoints(app);
         app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
         app.MapMethods("/favicon.svg", new[] { "GET", "HEAD" }, () => Results.Text(FaviconSvg, "image/svg+xml"));
         app.MapMethods("/favicon.ico", new[] { "GET", "HEAD" }, () => Results.Text(FaviconSvg, "image/svg+xml"));
@@ -5502,6 +5503,7 @@ public static class EndpointMapping
             ServerProtocol.Sftp => 22,
             ServerProtocol.Ftp => 21,
             ServerProtocol.Smb => 445,
+            ServerProtocol.Agent => 7488,
             _ => 3389
         };
         var port = protocol == ServerProtocol.Website

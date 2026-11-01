@@ -4463,6 +4463,7 @@ public sealed class HtmlViews
         var actionIcons = JsonSerializer.Serialize(new
         {
             fullscreen = Icon("maximize"),
+            terminal = Icon("terminal"),
             copy = Icon("copy"),
             clipboard = Icon("clipboard"),
             upload = Icon("upload"),
@@ -6028,6 +6029,21 @@ public sealed class HtmlViews
                         return;
                     }
 
+                    // Closing an agent terminal ends its program. Its page cannot say so itself - it is
+                    // gone before it could - and otherwise the program would wait for a reattach.
+                    const agentTerminal = /^[/]agent[/]([0-9a-fA-F-]+)[/]terminal[?](.*)$/.exec(tab.url || '');
+                    if (agentTerminal) {
+                        const session = new URLSearchParams(agentTerminal[2]).get('session');
+                        if (session) {
+                            fetch('/api/agent/' + agentTerminal[1] + '/terminal/kill?session=' + encodeURIComponent(session), {
+                                method: 'POST',
+                                credentials: 'same-origin',
+                                keepalive: true,
+                                headers: { 'X-Matgate-Csrf': csrfToken },
+                            }).catch(() => {});
+                        }
+                    }
+
                     tab.button.remove();
                     tab.panel.remove();
                     shellTabs.delete(tabId);
@@ -6784,7 +6800,7 @@ public sealed class HtmlViews
 
                 function isFileProtocol(protocol) {
                     // LOCAL is a file area on the gateway itself - same manager, same operations.
-                    return ['SFTP', 'FTP', 'SMB', 'LOCAL', 'WEBDAV'].includes((protocol || '').toUpperCase());
+                    return ['SFTP', 'FTP', 'SMB', 'LOCAL', 'WEBDAV', 'AGENT'].includes((protocol || '').toUpperCase());
                 }
 
                 function isWebsiteProtocol(protocol) {
@@ -7694,6 +7710,44 @@ public sealed class HtmlViews
                                 '',
                                 true);
                             addTabAction('fileArea', areaButton);
+                        }
+
+                        // A Matgate agent says what it offers. Its programs (Claude Code, PowerShell, ...) open
+                        // in a terminal tab of their own, started in the folder this file tab is showing.
+                        if ((tab.protocol || '').toUpperCase() === 'AGENT' && !tab.terminal) {
+                            if (tab.agentStatus === undefined) {
+                                tab.agentStatus = null;
+                                fetch('/api/agent/' + encodeURIComponent(tab.serverId) + '/status', { credentials: 'same-origin' })
+                                    .then(response => response.ok ? response.json() : null)
+                                    .catch(() => null)
+                                    .then(status => {
+                                        tab.agentStatus = status || { online: false, plugins: [] };
+                                        if (tab.id === activeTabId) {
+                                            updateTabActions();
+                                        }
+                                    });
+                            }
+                            (tab.agentStatus && tab.agentStatus.plugins || [])
+                                .filter(plugin => plugin.kind === 'terminal')
+                                .forEach(plugin => {
+                                    const programButton = createTabActionButton(
+                                        actionIcons.terminal,
+                                        plugin.title || plugin.id,
+                                        () => {
+                                            const query = new URLSearchParams({
+                                                plugin: plugin.id,
+                                                title: plugin.title || plugin.id,
+                                                session: crypto.randomUUID(),
+                                                cwd: tab.filePath || '/',
+                                            });
+                                            openShellTab(
+                                                '/agent/' + encodeURIComponent(tab.serverId) + '/terminal?' + query.toString(),
+                                                (plugin.title || plugin.id) + ' - ' + (tab.name || ''),
+                                                actionIcons.terminal);
+                                        },
+                                        'tab-action-keep');
+                                    addTabAction('agent-' + plugin.id, programButton);
+                                });
                         }
 
                         const disconnectButton = createTabActionButton(
@@ -20380,7 +20434,7 @@ public sealed class HtmlViews
         var terminalFontSize = ServerEndpoint.NormalizeTerminalFontSize(
             server?.TerminalFontSize ?? ServerEndpoint.DefaultTerminalFontSize);
         var passwordHelp = server is null ? "" : $"""<p class="muted">{T(context, "Leave password empty to keep it unchanged.")}</p>""";
-        var clearPassword = server is null ? "" : $"""<label class="check" data-protocols="rdp,vnc,ssh,sftp,ftp,smb,webdav"><input type="checkbox" name="clearPassword"> {T(context, "Clear saved target password")}</label>""";
+        var clearPassword = server is null ? "" : $"""<label class="check" data-protocols="rdp,vnc,ssh,sftp,ftp,smb,webdav,agent"><input type="checkbox" name="clearPassword"> {T(context, "Clear saved target password")}</label>""";
         var canManageGlobal = currentUser.IsAdmin || currentUser.CanManageServers;
         var canCreatePrivate = currentUser.IsAdmin || currentUser.CanCreateServers;
         var scopeValue = server?.OwnerUserId is not null ? "private" : "global";
@@ -20441,7 +20495,7 @@ public sealed class HtmlViews
                     </label>
                 </div>
             </section>
-            <section class="panel server-form-section" data-protocols="rdp,vnc,ssh,sftp,ftp,smb,webdav">
+            <section class="panel server-form-section" data-protocols="rdp,vnc,ssh,sftp,ftp,smb,webdav,agent">
                 <h2>{{T(context, "Target")}}</h2>
                 <div class="form-grid">
                     <label><span>{{T(context, "Host or IP")}}<span class="req" aria-hidden="true">*</span></span>
@@ -20470,13 +20524,13 @@ public sealed class HtmlViews
                     <label class="check"><input type="checkbox" name="ignoreCertificate"{{Checked(server?.IgnoreCertificate ?? true)}}> {{T(context, "Ignore certificate")}}</label>
                 </div>
             </section>
-            <section class="panel server-form-section" data-protocols="rdp,vnc,ssh,sftp,ftp,smb,webdav">
+            <section class="panel server-form-section" data-protocols="rdp,vnc,ssh,sftp,ftp,smb,webdav,agent">
                 <h2>{{T(context, "Credentials")}}</h2>
                 <div class="form-grid">
                     <label data-protocols="rdp,ssh,sftp,ftp,smb,webdav">{{T(context, "Target user")}}
                         <input name="targetUserName" value="{{A(server?.UserName)}}" autocomplete="off">
                     </label>
-                    <label data-protocols="rdp,vnc,ssh,sftp,ftp,smb,webdav">{{T(context, "Connection password")}}
+                    <label data-protocols="rdp,vnc,ssh,sftp,ftp,smb,webdav,agent">{{T(context, "Connection password")}}
                         <input name="targetPassword" type="password" autocomplete="new-password">
                         {{passwordHelp}}
                     </label>
@@ -20515,6 +20569,15 @@ public sealed class HtmlViews
                     <label>{{T(context, "SSH font size")}}
                         <input name="terminalFontSize" type="number" min="8" max="24" value="{{terminalFontSize}}">
                     </label>
+                </div>
+            </section>
+            <section class="panel server-form-section" data-protocols="agent">
+                <h2>{{(Language(context) == "de" ? "Matgate-Agent" : "Matgate agent")}}</h2>
+                <p class="muted">{{(Language(context) == "de"
+                    ? "Der Agent läuft auf dem Rechner und lauscht auf einem Port (Standard 7488). Host und Port hier eintragen, als Verbindungspasswort das Token, das der Agent beim ersten Start ausgibt und in matgate-agent.json ablegt. Was der Agent anbietet (Dateien, Claude Code, ...), legt er selbst fest."
+                    : "The agent runs on the machine and listens on a port (default 7488). Enter host and port here, and as connection password the token the agent prints on its first start and keeps in matgate-agent.json. What the agent offers (files, Claude Code, ...) is up to the agent.")}}</p>
+                <div class="form-grid">
+                    <label class="check"><input type="checkbox" name="ignoreCertificate"{{Checked(server?.IgnoreCertificate ?? true)}}> {{(Language(context) == "de" ? "Zertifikat ignorieren (selbst signiertes Zertifikat des Agents)" : "Ignore certificate (the agent's self-signed certificate)")}}</label>
                 </div>
             </section>
             <section class="panel server-form-section" data-protocols="sftp,ftp,smb">
@@ -20623,6 +20686,7 @@ public sealed class HtmlViews
             (ServerProtocol.Ftp, "Ftp", "FTP", "ftp", "#e0863a"),
             (ServerProtocol.Smb, "Smb", "SMB", "smb", "#35c07f"),
             (ServerProtocol.WebDav, "WebDav", "WebDAV", "cloud", "#2bb3c0"),
+            (ServerProtocol.Agent, "Agent", "Agent", "desktop", "#7fd6a8"),
             (ServerProtocol.Website, "Website", T(context, "Website (Beta)"), "globe", "#3aa0ff"),
         };
 

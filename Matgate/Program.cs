@@ -146,6 +146,7 @@ builder.Services.AddSingleton<BrowserFarmClient>();
 builder.Services.AddSingleton<BrowserFarmSessionManager>();
 builder.Services.AddHostedService<BrowserFarmReaper>();
 builder.Services.AddSingleton<NetworkToolsService>();
+builder.Services.AddSingleton<Matgate.Agent.AgentClientPool>();
 builder.Services.AddSingleton<IFileGatewayService, FileGatewayService>();
 builder.Services.AddSingleton<WorkspaceService>();
 builder.Services.AddSingleton<WebsiteProxyService>();

@@ -13,3 +13,7 @@ tests/*.png
 run-out.txt
 suite-out.txt
 tests/*-out.txt
+
+# A local agent run creates its secret and certificate next to itself.
+agent/**/matgate-agent.json
+*.pfx

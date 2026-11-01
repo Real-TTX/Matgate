@@ -50,7 +50,7 @@ public interface IFileGatewayService
     Task DeleteAsync(ServerEndpoint server, string? path, CancellationToken cancellationToken = default);
 }
 
-public sealed class FileGatewayService : IFileGatewayService
+public sealed partial class FileGatewayService(Matgate.Agent.AgentClientPool agents) : IFileGatewayService
 {
     private const int SmbChunkSize = 1024 * 1024;
 
@@ -64,6 +64,7 @@ public sealed class FileGatewayService : IFileGatewayService
             ServerProtocol.Sftp => ListSftpAsync(server, path, cancellationToken),
             ServerProtocol.Local => ListLocalAsync(server, path, cancellationToken),
             ServerProtocol.WebDav => ListWebDavAsync(server, path, cancellationToken),
+            ServerProtocol.Agent => ListAgentAsync(server, path, cancellationToken),
             ServerProtocol.Ftp => ListFtpAsync(server, path, cancellationToken),
             ServerProtocol.Smb => ListSmbAsync(server, path, cancellationToken),
             _ => throw new InvalidOperationException("Dieser Server ist keine Dateiverbindung.")
@@ -80,6 +81,7 @@ public sealed class FileGatewayService : IFileGatewayService
             ServerProtocol.Sftp => GetSftpFileInfoAsync(server, path, cancellationToken),
             ServerProtocol.Local => GetLocalFileInfoAsync(server, path, cancellationToken),
             ServerProtocol.WebDav => GetWebDavFileInfoAsync(server, path, cancellationToken),
+            ServerProtocol.Agent => GetAgentFileInfoAsync(server, path, cancellationToken),
             ServerProtocol.Ftp => GetFtpFileInfoAsync(server, path, cancellationToken),
             ServerProtocol.Smb => GetSmbFileInfoAsync(server, path, cancellationToken),
             _ => throw new InvalidOperationException("Dieser Server ist keine Dateiverbindung.")
@@ -104,6 +106,7 @@ public sealed class FileGatewayService : IFileGatewayService
             ServerProtocol.Sftp => CopySftpRangeAsync(server, path, output, offset, length, cancellationToken),
             ServerProtocol.Local => CopyLocalRangeAsync(server, path, output, offset, length, cancellationToken),
             ServerProtocol.WebDav => CopyWebDavRangeAsync(server, path, output, offset, length, cancellationToken),
+            ServerProtocol.Agent => CopyAgentRangeAsync(server, path, output, offset, length, cancellationToken),
             ServerProtocol.Ftp => CopyFtpRangeAsync(server, path, output, offset, length, cancellationToken),
             ServerProtocol.Smb => CopySmbRangeAsync(server, path, output, offset, length, cancellationToken),
             _ => throw new InvalidOperationException("Dieser Server ist keine Dateiverbindung.")
@@ -120,6 +123,7 @@ public sealed class FileGatewayService : IFileGatewayService
             ServerProtocol.Sftp => DownloadSftpAsync(server, path, cancellationToken),
             ServerProtocol.Local => DownloadLocalAsync(server, path, cancellationToken),
             ServerProtocol.WebDav => DownloadWebDavAsync(server, path, cancellationToken),
+            ServerProtocol.Agent => DownloadAgentAsync(server, path, cancellationToken),
             ServerProtocol.Ftp => DownloadFtpAsync(server, path, cancellationToken),
             ServerProtocol.Smb => DownloadSmbAsync(server, path, cancellationToken),
             _ => throw new InvalidOperationException("Dieser Server ist keine Dateiverbindung.")
@@ -152,6 +156,7 @@ public sealed class FileGatewayService : IFileGatewayService
             ServerProtocol.Sftp => UploadSftpAsync(server, path, content, fileName, cancellationToken),
             ServerProtocol.Local => UploadLocalAsync(server, path, content, fileName, cancellationToken),
             ServerProtocol.WebDav => UploadWebDavAsync(server, path, content, fileName, cancellationToken),
+            ServerProtocol.Agent => UploadAgentAsync(server, path, content, fileName, cancellationToken),
             ServerProtocol.Ftp => UploadFtpAsync(server, path, content, fileName, cancellationToken),
             ServerProtocol.Smb => UploadSmbAsync(server, path, content, fileName, cancellationToken),
             _ => throw new InvalidOperationException("Dieser Server ist keine Dateiverbindung.")
@@ -172,6 +177,7 @@ public sealed class FileGatewayService : IFileGatewayService
             ServerProtocol.Sftp => CreateSftpFileAsync(server, path, fileName, cancellationToken),
             ServerProtocol.Local => CreateLocalFileAsync(server, path, fileName, cancellationToken),
             ServerProtocol.WebDav => CreateWebDavFileAsync(server, path, fileName, cancellationToken),
+            ServerProtocol.Agent => CreateAgentFileAsync(server, path, fileName, cancellationToken),
             ServerProtocol.Ftp => CreateFtpFileAsync(server, path, fileName, cancellationToken),
             ServerProtocol.Smb => CreateSmbFileAsync(server, path, fileName, cancellationToken),
             _ => throw new InvalidOperationException("Dieser Server ist keine Dateiverbindung.")
@@ -192,6 +198,7 @@ public sealed class FileGatewayService : IFileGatewayService
             ServerProtocol.Sftp => CreateSftpDirectoryAsync(server, path, directoryName, cancellationToken),
             ServerProtocol.Local => CreateLocalDirectoryAsync(server, path, directoryName, cancellationToken),
             ServerProtocol.WebDav => CreateWebDavDirectoryAsync(server, path, directoryName, cancellationToken),
+            ServerProtocol.Agent => CreateAgentDirectoryAsync(server, path, directoryName, cancellationToken),
             ServerProtocol.Ftp => CreateFtpDirectoryAsync(server, path, directoryName, cancellationToken),
             ServerProtocol.Smb => CreateSmbDirectoryAsync(server, path, directoryName, cancellationToken),
             _ => throw new InvalidOperationException("Dieser Server ist keine Dateiverbindung.")
@@ -208,6 +215,7 @@ public sealed class FileGatewayService : IFileGatewayService
             ServerProtocol.Sftp => DeleteSftpAsync(server, path, cancellationToken),
             ServerProtocol.Local => DeleteLocalAsync(server, path, cancellationToken),
             ServerProtocol.WebDav => DeleteWebDavAsync(server, path, cancellationToken),
+            ServerProtocol.Agent => DeleteAgentAsync(server, path, cancellationToken),
             ServerProtocol.Ftp => DeleteFtpAsync(server, path, cancellationToken),
             ServerProtocol.Smb => DeleteSmbAsync(server, path, cancellationToken),
             _ => throw new InvalidOperationException("Dieser Server ist keine Dateiverbindung.")
