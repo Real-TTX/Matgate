@@ -172,6 +172,10 @@ public static class Installer
         config.Port = options.Port;
         config.ListenAddress = "0.0.0.0";
         config.AutoUpdate = options.AutoUpdate;
+        if (config.DetachedSessionMinutes == 60)
+        {
+            config.DetachedSessionMinutes = 0;
+        }
         if (options.Roots.Count > 0)
         {
             config.Roots = options.Roots;

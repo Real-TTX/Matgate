@@ -271,6 +271,18 @@ static async Task RunAgentAsync(string[] args, string version)
 
     var config = AgentConfig.LoadOrCreate(configPath, out var created);
     var certificate = AgentCertificate.LoadOrCreate(config, directory);
+    // 60 minutes was the old default for terminals nobody looks at; sessions now stay until they are ended.
+    if (config.DetachedSessionMinutes == 60)
+    {
+        config.DetachedSessionMinutes = 0;
+        try
+        {
+            config.Save(configPath);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+        }
+    }
 
     AgentLog.Write($"Matgate agent {version}");
     AgentLog.Write($"  configuration: {configPath}{(created ? " (created)" : "")}");

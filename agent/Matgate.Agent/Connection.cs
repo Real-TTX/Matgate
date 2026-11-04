@@ -94,7 +94,19 @@ public sealed class Connection(WebSocket socket, AgentConfig config, string vers
 
         foreach (var terminal in terminals.Available)
         {
-            plugins.Add(new JsonObject { ["id"] = terminal.Id, ["kind"] = "terminal", ["title"] = string.IsNullOrWhiteSpace(terminal.Title) ? terminal.Id : terminal.Title });
+            var variants = new JsonArray();
+            foreach (var variant in terminal.EffectiveVariants)
+            {
+                variants.Add(new JsonObject { ["id"] = variant.Id, ["title"] = variant.Title });
+            }
+
+            plugins.Add(new JsonObject
+            {
+                ["id"] = terminal.Id,
+                ["kind"] = "terminal",
+                ["title"] = string.IsNullOrWhiteSpace(terminal.Title) ? terminal.Id : terminal.Title,
+                ["variants"] = variants,
+            });
         }
 
         return new AgentFrame

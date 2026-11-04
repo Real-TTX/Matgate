@@ -77,7 +77,7 @@ public static partial class EndpointMapping
                 version = hello.Version,
                 plugins = hello.Plugins
                     .Where(plugin => plugin.Kind != "terminal" || terminalsAllowed)
-                    .Select(plugin => new { id = plugin.Id, kind = plugin.Kind, title = plugin.Title }),
+                    .Select(plugin => new { id = plugin.Id, kind = plugin.Kind, title = plugin.Title, variants = plugin.Variants.Select(variant => new { id = variant.Id, title = variant.Title }) }),
                 update = await UpdateInfoAsync(hello, user!, server!, updates, context.RequestAborted),
             });
         }
@@ -149,6 +149,7 @@ public static partial class EndpointMapping
                 ["cols"] = int.TryParse(query["cols"], out var cols) ? cols : 120,
                 ["rows"] = int.TryParse(query["rows"], out var rows) ? rows : 32,
                 ["cwd"] = query["cwd"].ToString(),
+                ["variant"] = query["variant"].ToString(),
             }, cancellationToken: context.RequestAborted);
             await browser.SendTextAsync(new { type = "ready", session, attached = opened.Bool("attached") });
 
@@ -315,6 +316,7 @@ public static partial class EndpointMapping
                     title = titles.GetValueOrDefault(item["plugin"]?.GetValue<string>() ?? "", item["plugin"]?.GetValue<string>() ?? ""),
                     started = item["started"]?.GetValue<long>() ?? 0,
                     attached = item["attached"]?.GetValue<bool>() ?? false,
+                    cwd = item["cwd"]?.GetValue<string>() ?? "",
                 })
                 .OrderByDescending(item => item.started)
                 .ToList();

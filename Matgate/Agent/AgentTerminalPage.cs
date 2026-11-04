@@ -142,7 +142,7 @@ public static class AgentTerminalPage
                 window.clearTimeout(retryTimer);
                 setStatus(text.connecting);
                 const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
-                const query = new URLSearchParams({ plugin, session, cols: term.cols, rows: term.rows, cwd: params.get('cwd') || '' });
+                const query = new URLSearchParams({ plugin, session, cols: term.cols, rows: term.rows, cwd: params.get('cwd') || '', variant: params.get('variant') || '' });
                 socket = new WebSocket(`${scheme}//${location.host}/api/agent/${server}/terminal-socket?${query}`);
                 socket.binaryType = 'arraybuffer';
                 socket.onmessage = event => {
@@ -154,8 +154,15 @@ public static class AgentTerminalPage
                     if (message.type === 'ready') {
                         retry = 0;
                         setStatus(message.attached ? text.reattached : text.connected);
-                        // A program that kept running redraws itself on a size change.
-                        sendControl({ type: 'resize', cols: term.cols, rows: term.rows });
+                        // A program that kept running redraws itself on a size change - but the console ignores a
+                        // "change" to the size it already has, so it is nudged one column and back.
+                        if (message.attached) {
+                            sendControl({ type: 'resize', cols: Math.max(10, term.cols - 1), rows: term.rows });
+                            window.setTimeout(() => sendControl({ type: 'resize', cols: term.cols, rows: term.rows }), 150);
+                        }
+                        else {
+                            sendControl({ type: 'resize', cols: term.cols, rows: term.rows });
+                        }
                     }
                     else if (message.type === 'exit') {
                         ended = true;

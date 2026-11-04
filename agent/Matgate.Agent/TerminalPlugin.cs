@@ -67,8 +67,17 @@ public sealed class TerminalPlugin
             ?? _files.FirstRoot
             ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 
-        var pty = new ConPty(terminal.Command, directory, columns, rows);
-        var session = new Session(id, plugin, pty);
+        var command = terminal.Command;
+        var variant = request.Text("variant");
+        if (!string.IsNullOrEmpty(variant))
+        {
+            var chosen = terminal.EffectiveVariants.FirstOrDefault(candidate => candidate.Id == variant)
+                ?? throw new InvalidOperationException("This way of starting the program is not offered.");
+            command += " " + chosen.Arguments;
+        }
+
+        var pty = new ConPty(command, directory, columns, rows);
+        var session = new Session(id, plugin, pty) { Folder = request.Text("cwd") ?? "" };
         _sessions[id] = session;
         pty.Output += session.OnOutput;
         pty.Exited += code =>
@@ -134,6 +143,7 @@ public sealed class TerminalPlugin
                 ["plugin"] = session.Plugin,
                 ["started"] = session.Started.ToUnixTimeMilliseconds(),
                 ["attached"] = session.IsAttached,
+                ["cwd"] = session.Folder,
             });
         }
 
@@ -179,6 +189,9 @@ public sealed class TerminalPlugin
         public ConPty Pty { get; } = pty;
 
         public DateTimeOffset Started { get; } = DateTimeOffset.UtcNow;
+
+        // The folder in Matgate's terms it was started in - shown in the list of running sessions.
+        public string Folder { get; init; } = "";
 
         public DateTimeOffset DetachedSince { get; private set; } = DateTimeOffset.UtcNow;
 

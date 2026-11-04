@@ -34,7 +34,8 @@ fs.writeFileSync(path.join(work, "matgate-agent.json"), JSON.stringify({
   Token: TOKEN,
   Name: NAME,
   Roots: [{ Name: "Test", Path: share }],
-  Terminals: [{ Id: "cmd", Title: "Eingabeaufforderung", Command: "cmd.exe /k echo " + MARK }],
+  Terminals: [{ Id: "cmd", Title: "Eingabeaufforderung", Command: "cmd.exe /k echo " + MARK,
+    Variants: [{ Id: "hello", Title: "Mit Gruss", Arguments: "& echo GRUSS-" + MARK }] }],
 }, null, 2));
 
 const runningTerminals = () => {
@@ -168,15 +169,35 @@ let agent;
       online: !!home.querySelector(".agent-home-state.is-online"),
       tiles: [...home.querySelectorAll(".agent-tile strong")].map(t => t.textContent.trim()),
       sessions: [...home.querySelectorAll(".agent-sessions li strong")].map(t => t.textContent.trim()),
-      folders: [...home.querySelectorAll("[data-agent-cwd] option")].map(o => o.value),
+      folder: (home.querySelector("[data-agent-program='cmd']") || { dataset: {} }).dataset.agentFolder,
+      variants: [...home.querySelectorAll("[data-agent-program='cmd'] [data-agent-variant]")].map(b => b.textContent.trim()),
     } : null;
   });
   const first = await overview();
   check("opening the agent shows its overview, online", first && first.online, true);
   check("with its plugins as tiles", first && first.tiles, ["Files", "Eingabeaufforderung"]);
-  check("and the shared folders to start a program in", first && first.folders, ["/", "/Test"]);
+  check("a program starts in the first shared folder unless chosen otherwise", first && first.folder, "/Test");
+  check("and offers its own ways to start (variants)", first && first.variants, ["Mit Gruss"]);
+
+  // Down into a subfolder with the folder browser in the tile.
+  await page.locator(".agent-home [data-agent-program='cmd'] [data-agent-browse]").click();
+  await sleep(1500);
+  const browser = () => page.evaluate(() => {
+    const box = document.querySelector(".agent-home [data-agent-program='cmd'] [data-agent-browser]");
+    return box && !box.hidden ? {
+      crumbs: [...box.querySelectorAll(".agent-crumbs button")].map(b => b.textContent.trim()),
+      folders: [...box.querySelectorAll(".agent-folder-list button")].map(b => b.textContent.trim()),
+    } : null;
+  });
+  check("the folder browser shows the subfolders of the chosen folder", await browser(), { crumbs: ["Shared folders", "Test"], folders: ["Ordner"] });
+  await page.locator(".agent-home [data-agent-browser] [data-agent-go='/Test/Ordner']").click();
+  await sleep(1500);
+  check("and goes down into one", (await browser()).crumbs, ["Shared folders", "Test", "Ordner"]);
+  await page.locator(".agent-home [data-agent-browser] [data-agent-pick]").click();
+  check("a closed folder browser takes no room", await page.evaluate(() => [...document.querySelectorAll(".agent-home [data-agent-browser]")].filter(box => box.hidden && box.offsetHeight > 0).length), 0);
+  check("taking it makes it the start folder", await page.evaluate(() => document.querySelector(".agent-home [data-agent-program='cmd']").dataset.agentFolder), "/Test/Ordner");
   check("nothing is running yet", first && first.sessions, []);
-  await page.locator(".agent-home [data-agent-start='cmd']").click();
+  await page.locator(".agent-home [data-agent-start='cmd']:not([data-agent-variant])").click();
   await sleep(3000);
   const frame = () => page.frames().find(f => /\/agent\/.+\/terminal/.test(f.url()));
   const screen = async () => {
@@ -191,6 +212,7 @@ let agent;
   }
   check("the program starts in a terminal tab and its output shows", (await screen()).includes(MARK), true);
   check("it runs on the machine", runningTerminals(), 1);
+  check("in the chosen subfolder", /share[\\/]Ordner>/i.test(await screen()), true);
 
   await frame().locator(".xterm-helper-textarea").focus();
   await page.keyboard.type("echo eingabe-%COMPUTERNAME%-ok");
@@ -208,6 +230,8 @@ let agent;
 
   // Back on the overview, the running program is listed and can be resumed.
   await page.locator(".session-tab--connection .session-tab-main").first().click();
+  await sleep(800);
+  await page.evaluate(() => [...document.querySelectorAll("#connection-tab-actions button")].find(b => /Übersicht|overview/i.test(b.title || b.getAttribute("aria-label") || "")).click());
   await sleep(2500);
   check("the overview lists the running program", (await overview()).sessions, ["Eingabeaufforderung"]);
 
@@ -223,8 +247,51 @@ let agent;
   check("with the way back to the overview, and no gateway places in the way", [inFiles.back, inFiles.places], [true, false]);
 
   await page.locator(".session-tab--page .session-tab-close").first().click();
+  await sleep(2000);
+  check("closing the tab does NOT end the program - the work stays", runningTerminals(), 1);
+  // Back to the agent tab (closing a page tab may front another one); it shows its overview fresh.
+  await page.locator(".session-tab--connection .session-tab-main").first().click();
+  await sleep(800);
+  await page.evaluate(() => [...document.querySelectorAll("#connection-tab-actions button")].find(b => /Übersicht|overview/i.test(b.title || b.getAttribute("aria-label") || "")).click());
+  await sleep(2500);
+  check("the overview still lists it", (await overview()).sessions, ["Eingabeaufforderung"]);
+  await page.locator(".agent-home [data-agent-resume]").first().click();
+  await sleep(1500);
+  for (let i = 0; i < 20 && !(await screen()).includes(MARK); i++) { await sleep(500); }
+  check("Fortsetzen opens it again, with what it showed before", (await screen()).toUpperCase().includes(("eingabe-" + os.hostname() + "-ok").toUpperCase()), true);
+  check("still the same one program", runningTerminals(), 1);
+  await page.locator(".session-tab--page .session-tab-close").first().click();
+  await sleep(1500);
+
+  // A variant: the same program, started with its extra arguments.
+  // Back to the agent tab (closing a page tab may front another one); it shows its overview fresh.
+  await page.locator(".session-tab--connection .session-tab-main").first().click();
+  await sleep(800);
+  await page.evaluate(() => [...document.querySelectorAll("#connection-tab-actions button")].find(b => /Übersicht|overview/i.test(b.title || b.getAttribute("aria-label") || "")).click());
+  await sleep(2500);
+  await page.locator(".agent-home [data-agent-variant='hello']").click();
+  await sleep(1500);
+  for (let i = 0; i < 20 && !(await screen()).includes("GRUSS-" + MARK); i++) { await sleep(500); }
+  check("a variant starts the program with its own arguments", (await screen()).includes("GRUSS-" + MARK), true);
+  check("as a second session beside the first", runningTerminals(), 2);
+  await page.locator(".session-tab--page .session-tab-close").first().click();
+  await sleep(1500);
+
+  // Ending both from the overview.
+  // Back to the agent tab (closing a page tab may front another one); it shows its overview fresh.
+  await page.locator(".session-tab--connection .session-tab-main").first().click();
+  await sleep(800);
+  await page.evaluate(() => [...document.querySelectorAll("#connection-tab-actions button")].find(b => /Übersicht|overview/i.test(b.title || b.getAttribute("aria-label") || "")).click());
+  await sleep(2500);
+  check("the overview lists both", (await overview()).sessions.length, 2);
+  for (let round = 0; round < 2; round++) {
+    await page.locator(".agent-home [data-agent-kill]").first().click();
+    await sleep(500);
+    await page.evaluate(() => { const ok = document.querySelector("#confirm-dialog [data-confirm-ok]"); if (ok) { ok.click(); } });
+    await sleep(2500);
+  }
   for (let i = 0; i < 20 && runningTerminals() !== 0; i++) { await sleep(500); }
-  check("closing the tab ends the program on the machine", runningTerminals(), 0);
+  check("Beenden in the overview ends them on the machine", runningTerminals(), 0);
 
   console.log("failed: " + JSON.stringify(failures));
   await b.close();

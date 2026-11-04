@@ -43,7 +43,7 @@ public sealed class AgentConfig
 
     // A terminal whose browser went away keeps running this long, so a phone that drops the connection
     // finds its session again. 0 = until the program ends by itself.
-    public int DetachedSessionMinutes { get; set; } = 60;
+    public int DetachedSessionMinutes { get; set; }
 
     // Matgate may bring new versions on its own (when no terminal is open). Off: only "Jetzt aktualisieren".
     public bool AutoUpdate { get; set; } = true;
@@ -110,4 +110,26 @@ public sealed class AgentTerminal
     public string Command { get; set; } = "";
 
     public bool Enabled { get; set; } = true;
+
+    // Other ways to start the same program, offered beside "start". Null: the known ones (Claude Code's
+    // "continue the last conversation" and "pick a conversation"), so an existing configuration gets them too.
+    public List<AgentTerminalVariant>? Variants { get; set; }
+
+    public IReadOnlyList<AgentTerminalVariant> EffectiveVariants => Variants ?? (Id == "claude"
+        ?
+        [
+            new AgentTerminalVariant { Id = "continue", Title = "Letzte Unterhaltung fortsetzen", Arguments = "--continue" },
+            new AgentTerminalVariant { Id = "resume", Title = "Unterhaltung auswählen", Arguments = "--resume" },
+        ]
+        : []);
+}
+
+public sealed class AgentTerminalVariant
+{
+    public string Id { get; set; } = "";
+
+    public string Title { get; set; } = "";
+
+    // Appended to the program's command line.
+    public string Arguments { get; set; } = "";
 }

@@ -10,7 +10,10 @@ namespace Matgate.Agent;
 // What the agent said about itself when the connection was made.
 public sealed record AgentHello(string Name, string Version, string Machine, string User, string Os, IReadOnlyList<AgentPlugin> Plugins, bool AutoUpdate, bool CanUpdate);
 
-public sealed record AgentPlugin(string Id, string Kind, string Title);
+public sealed record AgentPlugin(string Id, string Kind, string Title, IReadOnlyList<AgentPluginVariant> Variants);
+
+// Another way to start the same program - for Claude Code "continue the last conversation".
+public sealed record AgentPluginVariant(string Id, string Title);
 
 // Matgate's connections to its agents - one WebSocket per agent, opened when first needed and kept
 // while it lives. Matgate connects to the agent (host, port, token), like it connects to an RDP server.
@@ -260,10 +263,16 @@ public sealed class AgentLink : IDisposable
         {
             foreach (var item in list.OfType<JsonObject>())
             {
+                var variants = (item["variants"] as JsonArray ?? [])
+                    .OfType<JsonObject>()
+                    .Select(variant => new AgentPluginVariant(variant["id"]?.GetValue<string>() ?? "", variant["title"]?.GetValue<string>() ?? ""))
+                    .Where(variant => variant.Id.Length > 0)
+                    .ToList();
                 plugins.Add(new AgentPlugin(
                     item["id"]?.GetValue<string>() ?? "",
                     item["kind"]?.GetValue<string>() ?? "",
-                    item["title"]?.GetValue<string>() ?? ""));
+                    item["title"]?.GetValue<string>() ?? "",
+                    variants));
             }
         }
 

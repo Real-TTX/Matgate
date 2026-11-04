@@ -6030,20 +6030,8 @@ public sealed class HtmlViews
                         return;
                     }
 
-                    // Closing an agent terminal ends its program. Its page cannot say so itself - it is
-                    // gone before it could - and otherwise the program would wait for a reattach.
-                    const agentTerminal = /^[/]agent[/]([0-9a-fA-F-]+)[/]terminal[?](.*)$/.exec(tab.url || '');
-                    if (agentTerminal) {
-                        const session = new URLSearchParams(agentTerminal[2]).get('session');
-                        if (session) {
-                            fetch('/api/agent/' + agentTerminal[1] + '/terminal/kill?session=' + encodeURIComponent(session), {
-                                method: 'POST',
-                                credentials: 'same-origin',
-                                keepalive: true,
-                                headers: { 'X-Matgate-Csrf': csrfToken },
-                            }).catch(() => {});
-                        }
-                    }
+                    // An agent terminal keeps running when its tab closes - picking the work up again later, from
+                    // another device even, is the point. It ends with "Beenden" (its page or the agent overview).
 
                     tab.button.remove();
                     tab.panel.remove();
@@ -10536,6 +10524,13 @@ public sealed class HtmlViews
                     refresh: agentGerman ? 'Aktualisieren' : 'Refresh',
                     version: agentGerman ? 'Agent-Version' : 'Agent version',
                     overview: agentGerman ? 'Agent-Übersicht' : 'Agent overview',
+                    folder: agentGerman ? 'Ordner' : 'Folder',
+                    shares: agentGerman ? 'Freigaben' : 'Shared folders',
+                    noSubfolders: agentGerman ? 'Keine Unterordner' : 'No subfolders',
+                    useFolder: agentGerman ? 'Diesen Ordner nehmen' : 'Use this folder',
+                    pickShare: agentGerman ? 'Einen freigegebenen Ordner wählen' : 'Pick a shared folder',
+                    cancel: agentGerman ? 'Abbrechen' : 'Cancel',
+                    loadingFolders: agentGerman ? 'Lade Ordner ...' : 'Loading folders ...',
                     updateAvailable: agentGerman ? 'Neue Version verfügbar' : 'New version available',
                     updateRunning: agentGerman ? 'läuft' : 'running',
                     updateNow: agentGerman ? 'Jetzt aktualisieren' : 'Update now',
@@ -10555,18 +10550,72 @@ public sealed class HtmlViews
 
                 // A program of the agent in a terminal tab: a new session in the given folder, or an
                 // existing one to go back to.
-                function openAgentTerminal(tab, plugin, cwd, session) {
+                function openAgentTerminal(tab, plugin, cwd, session, variant) {
                     const query = new URLSearchParams({
                         plugin: plugin.id,
                         title: plugin.title || plugin.id,
                         session: session || crypto.randomUUID(),
                         cwd: cwd || '/',
                     });
+                    if (variant) {
+                        query.set('variant', variant);
+                    }
+
+                    // The folder in the tab's second line: two sessions of the same program are told apart by it.
                     openShellTab(
                         '/agent/' + encodeURIComponent(tab.serverId) + '/terminal?' + query.toString(),
                         (plugin.title || plugin.id) + ' - ' + (tab.name || ''),
                         actionIcons.terminal,
-                        tab.name || '');
+                        (tab.name || '') + (cwd && cwd !== '/' ? ' · ' + cwd : ''));
+                }
+
+                // Where a program of this agent started last time - so the next start begins there.
+                function agentFolderKey(tab, plugin) {
+                    return 'matgate.agent.folder.' + tab.serverId + '.' + plugin.id;
+                }
+
+                // A folder browser inside a program's tile: the shared folders, and from there down into any
+                // subfolder - not only the shared folders themselves.
+                async function browseAgentFolder(tab, tile, path) {
+                    const box = tile.querySelector('[data-agent-browser]');
+                    box.hidden = false;
+                    box.innerHTML = `<p class="muted">${escapeHtml(agentTexts.loadingFolders)}</p>`;
+                    const listing = await fetch('/api/files/' + encodeURIComponent(tab.serverId) + '/list?path=' + encodeURIComponent(path), { credentials: 'same-origin' })
+                        .then(response => response.ok ? response.json() : null)
+                        .catch(() => null);
+                    if (!box.isConnected) {
+                        return;
+                    }
+
+                    const folders = ((listing && (listing.entries || listing.Entries)) || [])
+                        .filter(entry => entry.isDirectory || entry.IsDirectory)
+                        .map(entry => entry.name || entry.Name);
+                    const parts = path.split('/').filter(Boolean);
+                    const crumbs = [`<button type="button" data-agent-go="/">${escapeHtml(agentTexts.shares)}</button>`]
+                        .concat(parts.map((part, index) => `<button type="button" data-agent-go="${escapeHtml('/' + parts.slice(0, index + 1).join('/'))}">${escapeHtml(part)}</button>`))
+                        .join('<span class="muted">/</span>');
+                    const base = path === '/' ? '' : path;
+                    const rows = folders.map(name => `<li><button type="button" data-agent-go="${escapeHtml(base + '/' + name)}">${fileIcon('folder')}<span>${escapeHtml(name)}</span></button></li>`).join('');
+                    box.innerHTML = `
+                        <div class="agent-crumbs">${crumbs}</div>
+                        <ul class="agent-folder-list">${rows || `<li class="muted agent-folder-empty">${escapeHtml(agentTexts.noSubfolders)}</li>`}</ul>
+                        <div class="agent-folder-actions">
+                            ${path === '/'
+                                ? `<span class="muted">${escapeHtml(agentTexts.pickShare)}</span>`
+                                : `<button type="button" class="button primary" data-agent-pick>${escapeHtml(agentTexts.useFolder)}</button>`}
+                            <button type="button" class="button" data-agent-close>${escapeHtml(agentTexts.cancel)}</button>
+                        </div>`;
+                    box.querySelectorAll('[data-agent-go]').forEach(button => button.addEventListener('click', () => browseAgentFolder(tab, tile, button.dataset.agentGo)));
+                    box.querySelector('[data-agent-pick]')?.addEventListener('click', () => {
+                        tile.dataset.agentFolder = path;
+                        tile.querySelector('[data-agent-folder-text]').textContent = path;
+                        box.hidden = true;
+                        box.replaceChildren();
+                    });
+                    box.querySelector('[data-agent-close]').addEventListener('click', () => {
+                        box.hidden = true;
+                        box.replaceChildren();
+                    });
                 }
 
                 async function startAgentHome(tab) {
@@ -10682,27 +10731,38 @@ public sealed class HtmlViews
                     const files = plugins.find(plugin => plugin.kind === 'files');
                     const programs = plugins.filter(plugin => plugin.kind === 'terminal');
                     const machine = [status.machine, status.user, status.os].filter(Boolean).join(' · ');
-                    const folderChoices = ['/', ...roots.map(name => '/' + name)];
                     const defaultFolder = roots.length ? '/' + roots[0] : '/';
-                    const folderSelect = folderChoices.length > 1
-                        ? `<select class="toolbar-input" data-agent-cwd aria-label="${escapeHtml(agentTexts.startIn)}">${folderChoices.map(value => `<option value="${escapeHtml(value)}"${value === defaultFolder ? ' selected' : ''}>${escapeHtml(value === '/' ? agentTexts.startIn + ' ...' : value.slice(1))}</option>`).join('')}</select>`
-                        : '';
+                    const startFolder = plugin => {
+                        try {
+                            return localStorage.getItem(agentFolderKey(tab, plugin)) || defaultFolder;
+                        }
+                        catch {
+                            return defaultFolder;
+                        }
+                    };
                     const fileTile = files ? `
                         <button type="button" class="agent-tile agent-tile--open" data-agent-files>
                             <span class="agent-tile-head">${fileIcon('folder')}<strong>${escapeHtml(agentTexts.files)}</strong></span>
                             <p>${escapeHtml(roots.length ? roots.join(', ') : agentTexts.filesHint)}</p>
                             <span class="agent-tile-actions"><span class="button">${escapeHtml(agentTexts.open)}</span></span>
                         </button>` : '';
-                    const programTiles = programs.map(plugin => `
-                        <div class="agent-tile" data-agent-program="${escapeHtml(plugin.id)}">
+                    const programTiles = programs.map(plugin => {
+                        const folder = startFolder(plugin);
+                        const variants = (plugin.variants || []).map(variant => `<button type="button" class="button" data-agent-start="${escapeHtml(plugin.id)}" data-agent-variant="${escapeHtml(variant.id)}">${escapeHtml(variant.title)}</button>`).join('');
+                        return `
+                        <div class="agent-tile" data-agent-program="${escapeHtml(plugin.id)}" data-agent-folder="${escapeHtml(folder)}">
                             <span class="agent-tile-head">${actionIcons.terminal}<strong>${escapeHtml(plugin.title || plugin.id)}</strong></span>
                             <p>${escapeHtml(plugin.id === 'claude' ? agentTexts.claudeHint : agentTexts.terminalHint)}</p>
-                            <span class="agent-tile-actions">${folderSelect}<button type="button" class="button primary" data-agent-start="${escapeHtml(plugin.id)}">${escapeHtml(agentTexts.start)}</button></span>
-                        </div>`).join('');
+                            <span class="agent-folder"><span class="muted">${escapeHtml(agentTexts.folder)}</span>
+                                <button type="button" class="agent-folder-path" data-agent-browse>${fileIcon('folder')}<span data-agent-folder-text>${escapeHtml(folder)}</span></button></span>
+                            <div class="agent-folder-browser" data-agent-browser hidden></div>
+                            <span class="agent-tile-actions"><button type="button" class="button primary" data-agent-start="${escapeHtml(plugin.id)}">${escapeHtml(agentTexts.start)}</button>${variants}</span>
+                        </div>`;
+                    }).join('');
                     const sessionRows = sessions.map(item => `
                         <li>
                             <span class="agent-session-name"><strong>${escapeHtml(item.title || item.plugin)}</strong>
-                                <small>${escapeHtml(agentTexts.since)} ${escapeHtml(new Date(item.started).toLocaleString([], { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }))} · ${escapeHtml(item.attached ? agentTexts.attached : agentTexts.detached)}</small></span>
+                                <small>${escapeHtml(agentTexts.since)} ${escapeHtml(new Date(item.started).toLocaleString([], { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }))} · ${escapeHtml(item.attached ? agentTexts.attached : agentTexts.detached)}${item.cwd && item.cwd !== '/' ? ' · ' + escapeHtml(item.cwd) : ''}</small></span>
                             <button type="button" class="button" data-agent-resume="${escapeHtml(item.session)}" data-agent-plugin="${escapeHtml(item.plugin)}">${escapeHtml(agentTexts.resume)}</button>
                             <button type="button" class="button danger" data-agent-kill="${escapeHtml(item.session)}">${escapeHtml(agentTexts.end)}</button>
                         </li>`).join('');
@@ -10729,12 +10789,32 @@ public sealed class HtmlViews
                         startFileTab(tab);
                         updateTabActions();
                     });
+                    root.querySelectorAll('[data-agent-browse]').forEach(button => button.addEventListener('click', () => {
+                        const tile = button.closest('.agent-tile');
+                        const box = tile.querySelector('[data-agent-browser]');
+                        if (!box.hidden) {
+                            box.hidden = true;
+                            box.replaceChildren();
+                            return;
+                        }
+
+                        browseAgentFolder(tab, tile, tile.dataset.agentFolder || defaultFolder);
+                    }));
                     root.querySelectorAll('[data-agent-start]').forEach(button => button.addEventListener('click', () => {
                         const plugin = programs.find(candidate => candidate.id === button.dataset.agentStart);
-                        const select = button.closest('.agent-tile').querySelector('[data-agent-cwd]');
-                        if (plugin) {
-                            openAgentTerminal(tab, plugin, select ? select.value : defaultFolder);
+                        const folder = button.closest('.agent-tile').dataset.agentFolder || defaultFolder;
+                        if (!plugin) {
+                            return;
                         }
+
+                        try {
+                            localStorage.setItem(agentFolderKey(tab, plugin), folder);
+                        }
+                        catch {
+                            // A full or forbidden storage only costs the remembered folder.
+                        }
+
+                        openAgentTerminal(tab, plugin, folder, null, button.dataset.agentVariant || '');
                     }));
                     root.querySelectorAll('[data-agent-resume]').forEach(button => button.addEventListener('click', () => {
                         const plugin = programs.find(candidate => candidate.id === button.dataset.agentPlugin)
@@ -19035,6 +19115,51 @@ public sealed class HtmlViews
                     .agent-session-name { display: flex; flex: 1 1 180px; flex-direction: column; min-width: 0; }
                     .agent-session-name small { color: var(--muted); }
                     .agent-home-foot { font-size: 12px; margin-top: 22px; }
+                    .agent-folder { align-items: center; display: flex; gap: 8px; min-width: 0; }
+                    .agent-folder-path {
+                        align-items: center;
+                        background: var(--surface-2);
+                        border: 1px solid var(--line);
+                        border-radius: 8px;
+                        color: var(--text);
+                        cursor: pointer;
+                        display: inline-flex;
+                        flex: 1 1 auto;
+                        font: inherit;
+                        font-size: 13px;
+                        gap: 6px;
+                        min-height: 32px;
+                        min-width: 0;
+                        padding: 4px 10px;
+                        text-align: left;
+                    }
+                    .agent-folder-path span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                    .agent-folder-path svg { color: var(--accent); flex: 0 0 auto; height: 16px; width: 16px; }
+                    .agent-folder-browser { border: 1px solid var(--line); border-radius: 8px; display: flex; flex-direction: column; gap: 6px; padding: 8px; }
+                    .agent-folder-browser[hidden] { display: none; }
+                    .agent-crumbs { align-items: center; display: flex; flex-wrap: wrap; gap: 4px; font-size: 13px; }
+                    .agent-crumbs button { background: none; border: 0; color: var(--accent); cursor: pointer; font: inherit; padding: 2px 4px; }
+                    .agent-folder-list { list-style: none; margin: 0; max-height: 220px; overflow-y: auto; padding: 0; }
+                    .agent-folder-list button {
+                        align-items: center;
+                        background: none;
+                        border: 0;
+                        border-radius: 6px;
+                        color: var(--text);
+                        cursor: pointer;
+                        display: flex;
+                        font: inherit;
+                        font-size: 13px;
+                        gap: 8px;
+                        min-height: 34px;
+                        padding: 4px 6px;
+                        text-align: left;
+                        width: 100%;
+                    }
+                    .agent-folder-list button:hover { background: var(--surface-2); }
+                    .agent-folder-list svg { color: var(--accent); flex: 0 0 auto; height: 16px; width: 16px; }
+                    .agent-folder-empty { font-size: 13px; padding: 4px 6px; }
+                    .agent-folder-actions { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; }
                     .agent-home-update {
                         align-items: center;
                         background: color-mix(in srgb, var(--accent) 9%, var(--surface));
