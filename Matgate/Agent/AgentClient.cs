@@ -63,6 +63,14 @@ public sealed class AgentClientPool(ILogger<AgentClientPool> logger)
     }
 }
 
+// Something on the gateway that shows a screen session (the browser's WebSocket): every screen.* event of it.
+public interface IAgentScreenListener
+{
+    Task OnFrameAsync(AgentFrame frame);
+
+    Task OnClosedAsync();
+}
+
 // Something on the gateway that shows a terminal session (the browser's WebSocket).
 public interface IAgentTerminalListener
 {
@@ -80,6 +88,7 @@ public sealed class AgentLink : IDisposable
     private readonly SemaphoreSlim _sendLock = new(1, 1);
     private readonly ConcurrentDictionary<long, TaskCompletionSource<AgentFrame>> _pending = new();
     private readonly ConcurrentDictionary<string, IAgentTerminalListener> _terminals = new();
+    private readonly ConcurrentDictionary<string, IAgentScreenListener> _screens = new();
     private readonly TaskCompletionSource<AgentHello> _hello = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly CancellationTokenSource _closed = new();
     private long _nextId;
@@ -183,6 +192,13 @@ public sealed class AgentLink : IDisposable
         _terminals.TryRemove(new KeyValuePair<string, IAgentTerminalListener>(session, listener));
     }
 
+    public void ListenScreen(string session, IAgentScreenListener listener) => _screens[session] = listener;
+
+    public void StopListeningScreen(string session, IAgentScreenListener listener)
+    {
+        _screens.TryRemove(new KeyValuePair<string, IAgentScreenListener>(session, listener));
+    }
+
     private async Task SendAsync(AgentFrame frame, CancellationToken cancellationToken)
     {
         if (!IsOpen)
@@ -231,6 +247,10 @@ public sealed class AgentLink : IDisposable
                     case "evt" when frame.Op == "pty.exit" && _terminals.TryRemove(frame.Text("session") ?? "", out var ended):
                         await ended.OnExitAsync(frame.Data?["code"]?.GetValue<int>());
                         break;
+                    case "evt" when frame.Op.StartsWith("screen.", StringComparison.Ordinal) && _screens.TryGetValue(frame.Text("session") ?? "", out var screen):
+                        // Queued by the listener: a slow browser must not hold up this connection.
+                        await screen.OnFrameAsync(frame);
+                        break;
                 }
             }
         }
@@ -253,6 +273,12 @@ public sealed class AgentLink : IDisposable
             }
 
             _terminals.Clear();
+            foreach (var screen in _screens.Values)
+            {
+                _ = screen.OnClosedAsync();
+            }
+
+            _screens.Clear();
         }
     }
 

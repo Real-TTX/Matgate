@@ -25,6 +25,7 @@ public static partial class EndpointMapping
         app.MapPost("/api/agent/{id:guid}/update", AgentUpdateAsync).RequireAuthorization();
         app.MapGet("/agent/{id:guid}/terminal", AgentTerminalPageAsync).RequireAuthorization();
         app.MapGet("/assets/xterm/{file}", XtermAsset);
+        MapAgentScreenEndpoints(app);
     }
 
     // The agent connection this user may open, or the reason why not.
@@ -76,7 +77,7 @@ public static partial class EndpointMapping
                 os = hello.Os,
                 version = hello.Version,
                 plugins = hello.Plugins
-                    .Where(plugin => plugin.Kind != "terminal" || terminalsAllowed)
+                    .Where(plugin => (plugin.Kind != "terminal" && plugin.Kind != "screen") || terminalsAllowed)
                     .Select(plugin => new { id = plugin.Id, kind = plugin.Kind, title = plugin.Title, variants = plugin.Variants.Select(variant => new { id = variant.Id, title = variant.Title }) }),
                 update = await UpdateInfoAsync(hello, user!, server!, updates, context.RequestAborted),
             });

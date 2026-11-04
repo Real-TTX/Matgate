@@ -6,7 +6,7 @@ namespace Matgate.Agent;
 
 // One connection from Matgate. Requests are answered concurrently (a file copy must not hold up a
 // terminal); every send goes through one lock, because a WebSocket takes one message at a time.
-public sealed class Connection(WebSocket socket, AgentConfig config, string version, FilesPlugin files, TerminalPlugin terminals, UpdatePlugin updates, Action shutdown)
+public sealed class Connection(WebSocket socket, AgentConfig config, string version, FilesPlugin files, TerminalPlugin terminals, UpdatePlugin updates, Matgate.Agent.Screen.ScreenPlugin screen, Action shutdown)
 {
     private readonly SemaphoreSlim _sendLock = new(1, 1);
 
@@ -37,6 +37,10 @@ public sealed class Connection(WebSocket socket, AgentConfig config, string vers
                     case "evt" when frame.Op == "pty.detach":
                         terminals.Detach(frame);
                         break;
+                    case "evt" when frame.Op.StartsWith("screen.", StringComparison.Ordinal):
+                        // Input and acknowledgements in order; whatever takes long (the clipboard) goes its own way inside.
+                        screen.Event(frame);
+                        break;
                 }
             }
         }
@@ -47,6 +51,7 @@ public sealed class Connection(WebSocket socket, AgentConfig config, string vers
         finally
         {
             terminals.DetachAll(SendAsync);
+            screen.DetachAll(SendAsync);
             files.DropAllUploads();
         }
     }
@@ -65,6 +70,8 @@ public sealed class Connection(WebSocket socket, AgentConfig config, string vers
                 "update.begin" => updates.Begin(request),
                 "update.write" => updates.Write(request),
                 "update.apply" => updates.Apply(request, shutdown),
+                "screen.open" => screen.Open(request, SendAsync),
+                "screen.clip.read" => screen.ReadClip(request),
                 _ when request.Op.StartsWith("files.", StringComparison.Ordinal) && files.IsAvailable
                     => await files.HandleAsync(request, cancellationToken),
                 _ => throw new InvalidOperationException("The agent does not offer this."),
@@ -90,6 +97,11 @@ public sealed class Connection(WebSocket socket, AgentConfig config, string vers
         if (files.IsAvailable)
         {
             plugins.Add(new JsonObject { ["id"] = "files", ["kind"] = "files", ["title"] = "Dateien" });
+        }
+
+        if (screen.IsAvailable)
+        {
+            plugins.Add(new JsonObject { ["id"] = "screen", ["kind"] = "screen", ["title"] = "Bildschirm" });
         }
 
         foreach (var terminal in terminals.Available)

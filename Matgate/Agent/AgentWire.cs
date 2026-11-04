@@ -9,7 +9,7 @@ namespace Matgate.Agent;
 // The wire between the gateway and an agent. Shared as source by both sides (the agent project links
 // this file), so the two can never disagree about it.
 //
-// One WebSocket per agent, opened BY the agent (outbound only - no port has to be open on the machine).
+// One WebSocket per agent, opened by Matgate (like a connection to an RDP server: host, port, token).
 // Every message is one binary WebSocket message:
 //
 //   [4 bytes: length of the header, big endian][header: UTF-8 JSON][payload: raw bytes, may be empty]

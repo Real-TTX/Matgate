@@ -11,7 +11,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <AssemblyName>matgate-agent</AssemblyName>
     <RootNamespace>Matgate.Agent</RootNamespace>
-    <VersionPrefix>0.5.1</VersionPrefix>
+    <VersionPrefix>0.6.0</VersionPrefix>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>matgate-agent.ico</ApplicationIcon>
   </PropertyGroup>
@@ -26,7 +26,11 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="Concentus" Version="2.2.2" />
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.*" />
+    <PackageReference Include="NAudio.Wasapi" Version="3.3.0" />
+    <PackageReference Include="Vortice.Direct3D11" Version="3.8.3" />
+    <PackageReference Include="Vortice.MediaFoundation" Version="3.8.3" />
   </ItemGroup>
 
   <ItemGroup>

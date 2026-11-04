@@ -14,7 +14,7 @@ using Matgate.Agent.Setup;
 //   matgate-agent run [--config path]  the agent itself (what the service or the logon task starts)
 //   matgate-agent setup [--port 7488] [--firewall|--no-firewall] [--mode user|service]
 //                       [--account .\name|LocalSystem] [--password pw] [--root Name=C:\Path ...]
-//                       [--no-claude] [--powershell] [--dry-run]
+//                       [--no-claude] [--powershell] [--no-screen] [--dry-run]
 //   matgate-agent uninstall [--keep-config] [--gui]
 //   matgate-agent --version
 var command = args.FirstOrDefault() ?? "";
@@ -65,6 +65,9 @@ try
                 SetupPreview.Save(args[1]);
                 return 0;
             });
+        case "screen-probe":
+            // Captures and encodes for a few seconds and prints what came out - for checking a machine.
+            return Matgate.Agent.Screen.ScreenProbe.Run(args);
         case "status":
             // What the tray icon sees, for a console.
             var portIndex = Array.IndexOf(args, "--port");
@@ -148,6 +151,7 @@ static int RunSetup(string[] args)
             case "--no-claude": options.Claude = false; break;
             case "--powershell": options.PowerShell = true; break;
             case "--no-auto-update": options.AutoUpdate = false; break;
+            case "--no-screen": options.Screen = false; break;
             case "--no-tray": options.Tray = false; break;
             case "--dry-run": options.DryRun = true; break;
             case "--root":
@@ -297,6 +301,7 @@ static async Task RunAgentAsync(string[] args, string version)
     var files = new FilesPlugin(config.Roots);
     var terminals = new TerminalPlugin(config, files);
     var updates = new UpdatePlugin(config, configPath);
+    var screen = new Matgate.Agent.Screen.ScreenPlugin(config);
     AgentStatus.Port = config.Port;
     AgentStatus.Mode = Microsoft.Extensions.Hosting.WindowsServices.WindowsServiceHelpers.IsWindowsService() ? "service" : "user";
     AgentStatus.OpenTerminals = () => terminals.Count;
@@ -335,7 +340,7 @@ static async Task RunAgentAsync(string[] args, string version)
 
         using var socket = await context.WebSockets.AcceptWebSocketAsync();
         AgentLog.Write($"Matgate connected from {context.Connection.RemoteIpAddress}");
-        await new Connection(socket, config, version, files, terminals, updates, () =>
+        await new Connection(socket, config, version, files, terminals, updates, screen, () =>
         {
             // As a service a non-zero exit makes Windows restart it (failure actions); the updater does the rest.
             Environment.Exit(AgentStatus.Mode == "service" ? 1 : 0);

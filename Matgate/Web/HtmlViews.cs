@@ -5895,6 +5895,9 @@ public sealed class HtmlViews
                     panel.setAttribute('data-shell-panel-id', resolvedTab.id);
                     const iframe = document.createElement('iframe');
                     iframe.title = resolvedTab.title;
+                    // A page in a tab may use the clipboard, full screen and sound like a page of its own (the agent's screen does).
+                    iframe.allow = 'clipboard-read; clipboard-write; fullscreen; autoplay; keyboard-map';
+                    iframe.allowFullscreen = true;
                     iframe.src = shellEmbeddedUrl(resolvedTab.url);
                     panel.appendChild(iframe);
 
@@ -10509,6 +10512,8 @@ public sealed class HtmlViews
                     plugins: agentGerman ? 'Was dieser Rechner anbietet' : 'What this machine offers',
                     files: agentGerman ? 'Dateien' : 'Files',
                     filesHint: agentGerman ? 'Freigegebene Ordner durchsuchen, hoch- und herunterladen' : 'Browse the shared folders, upload and download',
+                    screen: agentGerman ? 'Bildschirm' : 'Screen',
+                    screenHint: agentGerman ? 'Den Rechner bedienen wie davor sitzend - mit Ton und Zwischenablage, auch für Dateien' : 'Use the machine as if sitting in front of it - with sound and a clipboard, files included',
                     open: agentGerman ? 'Öffnen' : 'Open',
                     start: agentGerman ? 'Starten' : 'Start',
                     startIn: agentGerman ? 'Starten in' : 'Start in',
@@ -10730,6 +10735,7 @@ public sealed class HtmlViews
                     const plugins = status.plugins || [];
                     const files = plugins.find(plugin => plugin.kind === 'files');
                     const programs = plugins.filter(plugin => plugin.kind === 'terminal');
+                    const screenPlugin = plugins.find(plugin => plugin.kind === 'screen');
                     const machine = [status.machine, status.user, status.os].filter(Boolean).join(' · ');
                     const defaultFolder = roots.length ? '/' + roots[0] : '/';
                     const startFolder = plugin => {
@@ -10745,6 +10751,12 @@ public sealed class HtmlViews
                             <span class="agent-tile-head">${fileIcon('folder')}<strong>${escapeHtml(agentTexts.files)}</strong></span>
                             <p>${escapeHtml(roots.length ? roots.join(', ') : agentTexts.filesHint)}</p>
                             <span class="agent-tile-actions"><span class="button">${escapeHtml(agentTexts.open)}</span></span>
+                        </button>` : '';
+                    const screenTile = screenPlugin ? `
+                        <button type="button" class="agent-tile agent-tile--open" data-agent-screen>
+                            <span class="agent-tile-head">${actionIcons.resolution}<strong>${escapeHtml(agentTexts.screen)}</strong></span>
+                            <p>${escapeHtml(agentTexts.screenHint)}</p>
+                            <span class="agent-tile-actions"><span class="button primary">${escapeHtml(agentTexts.open)}</span></span>
                         </button>` : '';
                     const programTiles = programs.map(plugin => {
                         const folder = startFolder(plugin);
@@ -10778,12 +10790,19 @@ public sealed class HtmlViews
                         </section>
                         ${updateNotice(status, sessions)}
                         ${online ? '' : `<div class="agent-home-notice"><span>${escapeHtml(agentTexts.offlineHint)}</span><button type="button" class="button" data-agent-retry>${escapeHtml(agentTexts.retry)}</button></div>`}
-                        ${online && (fileTile || programTiles) ? `<h3 class="agent-home-section">${escapeHtml(agentTexts.plugins)}</h3><div class="agent-home-grid">${fileTile}${programTiles}</div>` : ''}
+                        ${online && (screenTile || fileTile || programTiles) ? `<h3 class="agent-home-section">${escapeHtml(agentTexts.plugins)}</h3><div class="agent-home-grid">${screenTile}${fileTile}${programTiles}</div>` : ''}
                         ${sessions.length ? `<h3 class="agent-home-section">${escapeHtml(agentTexts.sessions)}<button type="button" class="button agent-home-refresh" data-agent-retry>${escapeHtml(agentTexts.refresh)}</button></h3><ul class="agent-sessions">${sessionRows}</ul>` : ''}
                         ${online ? `<p class="muted agent-home-foot">${escapeHtml(agentTexts.version)} ${escapeHtml(status.version || '-')}${status.update ? ' · ' + escapeHtml(status.update.automatic ? agentTexts.automaticOn : agentTexts.automaticOff) : ''}</p>` : ''}`;
 
                     root.querySelectorAll('[data-agent-retry]').forEach(button => button.addEventListener('click', () => startAgentHome(tab)));
                     root.querySelector('[data-agent-update]')?.addEventListener('click', () => updateAgent(tab, root, status, sessions));
+                    root.querySelector('[data-agent-screen]')?.addEventListener('click', () => {
+                        openShellTab(
+                            '/agent/' + encodeURIComponent(tab.serverId) + '/screen',
+                            agentTexts.screen + ' - ' + (tab.name || ''),
+                            actionIcons.resolution,
+                            tab.name || '');
+                    });
                     root.querySelector('[data-agent-files]')?.addEventListener('click', () => {
                         tab.agentView = 'files';
                         startFileTab(tab);

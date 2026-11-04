@@ -25,6 +25,7 @@ internal sealed class SetupWizard : Form
     private readonly CheckBox _tray = new() { Text = "Symbol im Infobereich anzeigen (Status, Verbindungsdaten, Log)", AutoSize = true, Checked = true };
     private readonly ListView _roots = new() { View = View.Details, FullRowSelect = true, HeaderStyle = ColumnHeaderStyle.Nonclickable, Width = 420, Height = 96, BorderStyle = BorderStyle.FixedSingle };
     private readonly CheckBox _claude = new() { Text = "Claude Code", AutoSize = true, Checked = true };
+    private readonly CheckBox _screen = new() { Text = "Bildschirm - den Rechner aus Matgate bedienen, mit Ton und Zwischenablage", AutoSize = true, Checked = true };
     private readonly CheckBox _powerShell = new() { Text = "PowerShell", AutoSize = true };
     private readonly CheckBox _deleteSettings = new() { AutoSize = true, MaximumSize = new Size(Brand.ContentWidth, 0) };
     private readonly ProgressBar _progress = new() { Style = ProgressBarStyle.Marquee, MarqueeAnimationSpeed = 30, Height = 18, Width = Brand.ContentWidth };
@@ -74,6 +75,7 @@ internal sealed class SetupWizard : Form
             _autoUpdate.Checked = _installed.AutoUpdate;
             _rootList.AddRange(_installed.Roots);
             _claude.Checked = _installed.Claude;
+            _screen.Checked = _installed.Screen;
             _powerShell.Checked = _installed.PowerShell;
             _password.PlaceholderText = "für den Dienst erneut eingeben";
         }
@@ -224,6 +226,8 @@ internal sealed class SetupWizard : Form
                 programs.Controls.AddRange([_claude, _powerShell]);
                 content.Controls.Add(programs);
                 content.Controls.Add(Brand.Hint("Starten im Ordner, der in Matgate offen ist. Claude Code muss hier installiert sein."));
+                content.Controls.Add(_screen);
+                content.Controls.Add(Brand.Hint("Zeigt, was der Monitor zeigt - nur als angemeldeter Benutzer, nicht als Dienst.", 20));
                 RefreshRoots();
                 break;
 
@@ -305,6 +309,7 @@ internal sealed class SetupWizard : Form
             AutoUpdate = _autoUpdate.Checked,
             Roots = [.. _rootList],
             Claude = _claude.Checked,
+            Screen = _screen.Checked,
             PowerShell = _powerShell.Checked,
         };
         var keepConfig = !_deleteSettings.Checked;

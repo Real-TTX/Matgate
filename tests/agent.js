@@ -117,7 +117,7 @@ let agent;
   check("with the right token the agent is online", hello.online, true);
   const tray = JSON.parse(execFileSync(AGENT_EXE, ["status", "--port", String(PORT)], { encoding: "utf8" }));
   check("what the tray icon sees: the port and the open terminals (not whether Matgate is connected)", [tray.Port, tray.Terminals, "Connections" in tray], [PORT, 0, false]);
-  check("and says what it offers", (hello.plugins || []).map(p => p.kind + ":" + p.id), ["files:files", "terminal:cmd"]);
+  check("and says what it offers", (hello.plugins || []).map(p => p.kind + ":" + p.id), ["files:files", "screen:screen", "terminal:cmd"]);
   check("and who it is", [hello.name, /Windows/i.test(hello.os || "")], [NAME, true]);
 
   // --- Files, through the normal file API.
@@ -175,7 +175,7 @@ let agent;
   });
   const first = await overview();
   check("opening the agent shows its overview, online", first && first.online, true);
-  check("with its plugins as tiles", first && first.tiles, ["Files", "Eingabeaufforderung"]);
+  check("with its plugins as tiles", first && first.tiles, ["Screen", "Files", "Eingabeaufforderung"]);
   check("a program starts in the first shared folder unless chosen otherwise", first && first.folder, "/Test");
   check("and offers its own ways to start (variants)", first && first.variants, ["Mit Gruss"]);
 

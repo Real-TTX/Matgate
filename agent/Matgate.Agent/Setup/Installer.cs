@@ -36,6 +36,9 @@ public sealed class SetupOptions
     // Matgate may bring new versions on its own.
     public bool AutoUpdate { get; set; } = true;
 
+    // The screen in Matgate (desktop, sound, clipboard) - works in user mode only.
+    public bool Screen { get; set; } = true;
+
     // Filled from an existing installation only.
     public string Version { get; set; } = "";
 }
@@ -91,6 +94,7 @@ public static class Installer
                 options.Claude = config.Terminals.Any(t => t.Id == "claude" && t.Enabled);
                 options.PowerShell = config.Terminals.Any(t => t.Id == "powershell" && t.Enabled);
                 options.AutoUpdate = config.AutoUpdate;
+                options.Screen = config.Screen;
             }
         }
         catch (UnauthorizedAccessException)
@@ -172,6 +176,7 @@ public static class Installer
         config.Port = options.Port;
         config.ListenAddress = "0.0.0.0";
         config.AutoUpdate = options.AutoUpdate;
+        config.Screen = options.Screen;
         if (config.DetachedSessionMinutes == 60)
         {
             config.DetachedSessionMinutes = 0;

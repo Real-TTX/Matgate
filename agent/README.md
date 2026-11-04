@@ -9,11 +9,52 @@ Plugins today:
 - **Files** - the configured folders in Matgate's file manager (browse, upload, download, create,
   delete, copy between places).
 - **Terminals** - programs in a terminal tab in the browser, e.g. **Claude Code** or PowerShell.
-  A session keeps running when the browser goes away (a phone that loses the connection attaches
-  again and sees what happened); closing its tab ends the program.
+  A session keeps running when its tab closes or the browser goes away; the agent overview lists it
+  with *Fortsetzen* and *Beenden*. Claude Code also offers "Letzte Unterhaltung fortsetzen"
+  (`--continue`) and "Unterhaltung auswählen" (`--resume`), which survive a restart of the machine.
+- **Screen** - the machine's desktop in the browser, to work on it as if sitting in front of it
+  (see below).
 
 Windows first. The file plugin runs anywhere .NET runs; terminals use Windows' pseudo console
-(ConPTY) and are only offered on Windows so far.
+(ConPTY) and the screen uses DXGI and Media Foundation, so both are only offered on Windows so far.
+
+## The screen
+
+What the monitor shows, in a tab of Matgate - like AnyDesk rather than RDP: it is the real desktop of
+the signed-in user, not a session of its own, so whoever sits at the machine sees the same.
+
+- **Picture:** DXGI desktop duplication (only changed pictures are captured), encoded as H.264 by
+  Windows' own encoder in low-latency mode (baseline profile, no B-frames, one picture in, one out) and
+  decoded by the browser itself (WebCodecs) onto a canvas. At most three pictures are on the way: a slow
+  network gets fewer pictures, never older ones. When the screen stands still the last picture is sent
+  once or twice more, sharper. Screens wider than 2560 pixels are halved.
+- **Mouse pointer:** the machine's cursor shape becomes the browser's cursor, so it moves without waiting
+  for a picture.
+- **Keyboard:** keys travel as key positions (scan codes) and the machine's layout applies - a German
+  keyboard in front of a German Windows types what is on its keys, AltGr included. Nothing stays pressed
+  when the page loses the keyboard. In full screen the browser also passes on keys it otherwise keeps.
+- **Sound:** what the machine plays (WASAPI loopback), as Opus where the browser can decode it, else PCM.
+  Starts with the first click into the picture (browsers want one); the speaker button switches it.
+- **Clipboard, both ways:** Ctrl+V with text, a picture or files on this device's clipboard puts them on
+  the machine's clipboard (files as real files, as Explorer copies them) and presses Ctrl+V there - so
+  files land in the folder that is open on the machine. Text and pictures copied on the machine land on
+  this device's clipboard; files copied there are offered for download (a browser cannot put files on a
+  clipboard).
+- **Several monitors:** a choice in the bar.
+- **Phone and tablet:** a tap is a click, a long press the right button, a finger that moves drags, two
+  fingers scroll, pinching zooms; a key bar (Esc, Tab, Windows, Ctrl, Alt, Del, arrows) and the device's
+  keyboard.
+- **One viewer at a time:** a second window takes the screen over; the first says so and can take it back.
+
+Limits: the agent has to run *as the signed-in user* (a service lives in session 0 and sees no desktop).
+The lock screen and administrator prompts (UAC) are protected desktops - the page says so and continues
+once they are gone. Windows that run as administrator (Task Manager, an elevated console) do not take
+input from a program without administrator rights, which the agent is in user mode. Ctrl+Alt+Del cannot
+be sent. It can be switched off in the setup ("Bildschirm") or with `"Screen": false`.
+
+`matgate-agent screen-probe` captures and encodes for three seconds and prints the numbers (frames, sizes,
+milliseconds per picture) - whether and how fast a machine can share its screen. The picture itself is not
+kept.
 
 ## Installing it
 
@@ -30,7 +71,8 @@ Download `matgate-agent.exe` (the link is on the Agent connection form in Matgat
   - *as a Windows service under an account* (`.\name`, `DOMAIN\name` or `LocalSystem`) - runs
     without anyone signed in. The password goes straight to Windows (service configuration); the
     account gets "log on as a service". LocalSystem works but runs every program as SYSTEM.
-- **Shared folders** for the file manager, and which **programs** (Claude Code, PowerShell) it offers.
+- **Shared folders** for the file manager, which **programs** (Claude Code, PowerShell) it offers, and
+  whether Matgate may show and use the **screen**.
 
 It is a wizard like MatMon's setup: Welcome, connection and how it runs, what Matgate may see, progress,
 and a last page with everything Matgate needs:
@@ -62,8 +104,9 @@ matgate-agent.exe setup --dry-run      # says what it would do, changes nothing
 ## The tray icon
 
 The Matgate mark in the notification area, started at every logon (it can be switched off in the setup).
-Its dot says the state: green - Matgate is connected; teal - the agent runs and waits; red - installed
-but not answering; grey - not set up. Double-click opens *Info*; the menu also has *Verbindungsdaten*
+Its dot says the state: green - the agent runs; red - installed but not answering; grey - not set up.
+Whether Matgate is connected right now is not shown (Matgate keeps its connection open while idle); who
+connected when is in `agent.log`. Double-click opens *Info*; the menu also has *Verbindungsdaten*
 (host, port, token, fingerprint to copy - for a service this asks for administrator rights), *Einstellungen
 ändern* (the setup again), *Agent neu starten* and *Log-Ordner öffnen*. It only looks at the agent through a
 local pipe without secrets; `matgate-agent status` shows the same in a console.
@@ -121,7 +164,9 @@ One self-contained file. `matgate-agent.exe run [--config path]` starts the agen
     { "Id": "claude", "Title": "Claude Code", "Command": "cmd.exe /c claude", "Enabled": true },
     { "Id": "powershell", "Title": "PowerShell", "Command": "powershell.exe -NoLogo", "Enabled": false }
   ],
-  "DetachedSessionMinutes": 60
+  "DetachedSessionMinutes": 0,
+  "AutoUpdate": true,
+  "Screen": true
 }
 ```
 
@@ -130,19 +175,21 @@ One self-contained file. `matgate-agent.exe run [--config path]` starts the agen
 - `Terminals` - each entry is one plugin. `Command` is the whole command line; programs run as the
   user the agent runs as, in a pseudo console with `TERM=xterm-256color`.
 - `ListenAddress` - `127.0.0.1` when Matgate runs on the same machine or reaches it through a tunnel.
-- `DetachedSessionMinutes` - how long a terminal without a browser keeps running (0 = until the
-  program ends).
+- `DetachedSessionMinutes` - how long a terminal without a browser keeps running (0, the default =
+  until the program ends or is ended in the overview).
+- `Screen` - the screen plugin (only offered while the agent runs as the signed-in user).
 
 ## Security
 
-A terminal on the machine can do whatever the agent's user can. So:
+A terminal or the screen can do whatever the agent's user can. So:
 
 - Prefer "as the signed-in user" or a service account without administrator rights. LocalSystem
   (or an administrator account) gives every program in a terminal full control of the machine.
 - Keep the token secret; it is the only key. Change it by clearing `Token` and restarting.
 - With "Ignore certificate" Matgate does not check whom it talks to; on an untrusted network give
   the agent a certificate Matgate trusts (`CertificatePath`).
-- In Matgate, a user who is limited to a folder or to reading on this connection gets no terminal.
+- In Matgate, a user who is limited to a folder or to reading on this connection gets no terminal and
+  no screen.
 
 ## Protocol
 

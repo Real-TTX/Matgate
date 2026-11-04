@@ -43,8 +43,8 @@ const GROUPS = [
       "keyboard-and-dialogs.js"],
   },
   {
-    name: "Group 8 - updating an agent from Matgate",
-    scripts: ["agent-update.js"],
+    name: "Group 8 - an agent: updating it from Matgate, its screen",
+    scripts: ["agent-update.js", "agent-screen.js"],
   },
 ];
 

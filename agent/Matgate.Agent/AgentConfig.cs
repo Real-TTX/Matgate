@@ -48,6 +48,10 @@ public sealed class AgentConfig
     // Matgate may bring new versions on its own (when no terminal is open). Off: only "Jetzt aktualisieren".
     public bool AutoUpdate { get; set; } = true;
 
+    // The screen (desktop with mouse, keyboard, sound and clipboard) in Matgate. Only works while the agent
+    // runs as the signed-in user - a service sees no desktop.
+    public bool Screen { get; set; } = true;
+
     public static AgentConfig LoadOrCreate(string path, out bool created)
     {
         created = !File.Exists(path);
