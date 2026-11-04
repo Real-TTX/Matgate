@@ -15,8 +15,7 @@ internal sealed class TrayApplication : ApplicationContext
     private enum State
     {
         NotInstalled,
-        Ready,
-        Connected,
+        Running,
         Stopped,
     }
 
@@ -32,8 +31,7 @@ internal sealed class TrayApplication : ApplicationContext
     {
         _icons = Enum.GetValues<State>().ToDictionary(state => state, state => Mark.Create(state switch
         {
-            State.Connected => Brand.Ok,
-            State.Ready => Brand.Accent,
+            State.Running => Brand.Ok,
             State.Stopped => Brand.Error,
             _ => Brand.Neutral,
         }));
@@ -95,8 +93,7 @@ internal sealed class TrayApplication : ApplicationContext
         _status = AgentStatus.Query(Installer.FindExisting()?.Port ?? 7488);
         _state = _status switch
         {
-            { Connections: > 0 } => State.Connected,
-            not null => State.Ready,
+            not null => State.Running,
             null when File.Exists(Installer.InstalledExe) => State.Stopped,
             _ => State.NotInstalled,
         };
@@ -113,17 +110,16 @@ internal sealed class TrayApplication : ApplicationContext
 
     private Color Color() => _state switch
     {
-        State.Connected => Brand.Ok,
-        State.Ready => Brand.Accent,
+        State.Running => Brand.Ok,
         State.Stopped => Brand.Error,
         _ => Brand.Neutral,
     };
 
     private (string Title, string Detail) Describe() => _state switch
     {
-        State.Connected => ("Mit Matgate verbunden",
-            $"Matgate ({_status!.LastRemote}) ist seit {_status.LastConnected:HH:mm} Uhr verbunden" + (_status.Terminals > 0 ? $", {_status.Terminals} Terminal(s) offen." : ".")),
-        State.Ready => ("Bereit", $"Wartet auf Port {_status!.Port} auf Matgate." + (_status.LastConnected is { } last ? $" Zuletzt verbunden {last:dd.MM. HH:mm} Uhr." : "")),
+        // Whether Matgate is connected right now is left out on purpose: Matgate keeps its connection open
+        // while idle, so "connected" said nothing. Who connected when is in the log.
+        State.Running => ("Läuft", $"Bereit für Matgate auf Port {_status!.Port}. Wer sich wann verbunden hat, steht im Log."),
         State.Stopped => ("Agent läuft nicht", "Installiert, antwortet aber nicht. \"Agent neu starten\" im Menü, oder das Log ansehen."),
         _ => ("Nicht eingerichtet", "Das Setup richtet den Agent ein: matgate-agent.exe doppelklicken."),
     };
@@ -139,13 +135,15 @@ internal sealed class TrayApplication : ApplicationContext
 
         if (installed is not null)
         {
-            rows.Add(new("Läuft", installed.Mode == "service" ? $"als Dienst ({installed.Account})" : "als angemeldeter Benutzer"));
+            rows.Add(new("Modus", installed.Mode == "service" ? $"als Dienst ({installed.Account})" : "als angemeldeter Benutzer"));
         }
 
         if (_status is not null)
         {
             rows.Add(new("Gestartet", $"{_status.Started:dd.MM.yyyy HH:mm} Uhr"));
             rows.Add(new("Version", _status.Version));
+            // Worth knowing before "Agent neu starten" - a restart ends them.
+            rows.Add(new("Terminals", _status.Terminals == 0 ? "keine offen" : $"{_status.Terminals} offen"));
         }
 
         rows.Add(new("Einstellungen", Installer.DataFolder));

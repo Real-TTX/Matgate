@@ -6,17 +6,13 @@ using System.Text.Json;
 
 namespace Matgate.Agent;
 
-// What the tray icon shows: whether the agent runs, on which port, whether Matgate is connected and how
-// many terminals are open. Handed out over a local named pipe, like MatMon's agent - the tray runs in the
+// What the tray icon shows: whether the agent runs, on which port and how many terminals are open. Whether
+// Matgate is connected says little (Matgate keeps its connection open while idle) - that is in the log. Handed out over a local named pipe, like MatMon's agent - the tray runs in the
 // user's session, the agent may run as a service in session 0. The pipe carries no secret.
 public static class AgentStatus
 {
     // One pipe per port: two agents on one machine (an installed one and a test) do not answer for each other.
     public static string PipeName(int port) => "MatgateAgentStatus-" + port;
-
-    private static int _connections;
-    private static string _lastRemote = "";
-    private static DateTimeOffset? _lastConnected;
 
     public static int Port { get; set; }
 
@@ -24,22 +20,13 @@ public static class AgentStatus
 
     public static Func<int> OpenTerminals { get; set; } = () => 0;
 
-    public static void Connected(string remote)
-    {
-        Interlocked.Increment(ref _connections);
-        _lastRemote = remote;
-        _lastConnected = DateTimeOffset.Now;
-    }
-
-    public static void Disconnected() => Interlocked.Decrement(ref _connections);
-
-    public sealed record Snapshot(string Version, int Port, string Mode, int Connections, string LastRemote, DateTimeOffset? LastConnected, int Terminals, DateTimeOffset Started);
+    public sealed record Snapshot(string Version, int Port, string Mode, int Terminals, DateTimeOffset Started);
 
     private static readonly DateTimeOffset Started = DateTimeOffset.Now;
 
     public static Snapshot Current() => new(
         typeof(AgentStatus).Assembly.GetName().Version?.ToString() ?? "0",
-        Port, Mode, Volatile.Read(ref _connections), _lastRemote, _lastConnected, OpenTerminals(), Started);
+        Port, Mode, OpenTerminals(), Started);
 
     public static void StartServer(CancellationToken stopping)
     {

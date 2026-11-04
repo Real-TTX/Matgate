@@ -22,8 +22,8 @@ internal static class SetupPreview
         Draw(uninstall, Path.Combine(folder, "uninstall-confirm.png"), () => { });
 
         var info = new InfoWindow(() => { }, () => { });
-        Draw(info, Path.Combine(folder, "tray-info.png"), () => info.Show(Brand.Ok, ("Mit Matgate verbunden", "Matgate (192.168.1.20) ist seit 09:41 Uhr verbunden, 1 Terminal(s) offen."),
-            [new("Rechner", Environment.MachineName), new("Port", "7488"), new("Läuft", "als angemeldeter Benutzer"), new("Gestartet", "01.11.2026 08:02 Uhr"), new("Version", Brand.Version), new("Einstellungen", Installer.DataFolder)]));
+        Draw(info, Path.Combine(folder, "tray-info.png"), () => info.Show(Brand.Ok, ("Läuft", "Bereit für Matgate auf Port 7488. Wer sich wann verbunden hat, steht im Log."),
+            [new("Rechner", Environment.MachineName), new("Port", "7488"), new("Modus", "als angemeldeter Benutzer"), new("Gestartet", "01.11.2026 08:02 Uhr"), new("Version", Brand.Version), new("Terminals", "1 offen"), new("Einstellungen", Installer.DataFolder)]));
         Draw(ConnectionWindow.Preview(), Path.Combine(folder, "tray-connection.png"), () => { });
 
         using var icon = Mark.Create(Brand.Ok, 64);

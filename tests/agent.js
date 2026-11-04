@@ -116,7 +116,7 @@ let agent;
   const hello = await status(server.id);
   check("with the right token the agent is online", hello.online, true);
   const tray = JSON.parse(execFileSync(AGENT_EXE, ["status", "--port", String(PORT)], { encoding: "utf8" }));
-  check("what the tray icon sees: the port, and Matgate connected", [tray.Port, tray.Connections >= 1], [PORT, true]);
+  check("what the tray icon sees: the port and the open terminals (not whether Matgate is connected)", [tray.Port, tray.Terminals, "Connections" in tray], [PORT, 0, false]);
   check("and says what it offers", (hello.plugins || []).map(p => p.kind + ":" + p.id), ["files:files", "terminal:cmd"]);
   check("and who it is", [hello.name, /Windows/i.test(hello.os || "")], [NAME, true]);
 

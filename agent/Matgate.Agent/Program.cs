@@ -335,19 +335,11 @@ static async Task RunAgentAsync(string[] args, string version)
 
         using var socket = await context.WebSockets.AcceptWebSocketAsync();
         AgentLog.Write($"Matgate connected from {context.Connection.RemoteIpAddress}");
-        AgentStatus.Connected(context.Connection.RemoteIpAddress?.ToString() ?? "");
-        try
-        {
         await new Connection(socket, config, version, files, terminals, updates, () =>
         {
             // As a service a non-zero exit makes Windows restart it (failure actions); the updater does the rest.
             Environment.Exit(AgentStatus.Mode == "service" ? 1 : 0);
         }).RunAsync(context.RequestAborted);
-        }
-        finally
-        {
-            AgentStatus.Disconnected();
-        }
 
         AgentLog.Write("Matgate disconnected");
     });
