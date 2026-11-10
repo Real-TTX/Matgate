@@ -4,6 +4,8 @@
 // the real desktop, plays a test tone instead of the machine's sound, and reports every input and every
 // clipboard change back instead of doing it - a test must not move anyone's mouse or overwrite anyone's
 // clipboard. What it checks is the whole way: agent -> Matgate (Docker) -> browser (WebCodecs) and back.
+// The screen runs in a helper process of the agent, as it does for a LocalSystem service (MATGATE_AGENT_SCREEN_HOST=1;
+// SCREEN_DIRECT=1 keeps it in the agent's own process instead).
 const { chromium } = require("playwright-core");
 const { spawn, execFileSync } = require("child_process");
 const fs = require("fs");
@@ -31,13 +33,15 @@ let agent;
 (async () => {
   execFileSync("dotnet", ["build", path.join(__dirname, "..", "agent", "Matgate.Agent", "Matgate.Agent.csproj"), "-nologo", "-v", "q"], { stdio: "inherit" });
   agent = spawn(AGENT_EXE, ["--config", path.join(work, "matgate-agent.json")], {
-    stdio: ["ignore", "pipe", "pipe"], env: { ...process.env, MATGATE_AGENT_SCREEN_TEST: "1" },
+    stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env, MATGATE_AGENT_SCREEN_TEST: "1", MATGATE_AGENT_SCREEN_HOST: process.env.SCREEN_DIRECT === "1" ? "0" : "1" },
   });
   let agentLog = "";
   agent.stdout.on("data", d => { agentLog += d; });
   agent.stderr.on("data", d => { agentLog += d; });
   for (let i = 0; i < 40 && !/listening on/.test(agentLog); i++) { await sleep(250); }
   check("the agent starts on loopback", /listening on:\s+127\.0\.0\.1:17489/.test(agentLog), true);
+  if (!/listening on/.test(agentLog)) { console.log("agent output: " + agentLog.slice(-2000)); }
 
   let b; try { b = await chromium.launch({ channel: "msedge", headless: true, args: ["--autoplay-policy=no-user-gesture-required"] }); }
   catch { b = await chromium.launch({ channel: "chrome", headless: true }); }
@@ -93,7 +97,9 @@ let agent;
     }
   }
 
-  // --- The screen page on its own (as the tab shows it): picture first.
+  // --- The screen page on its own (as the tab shows it): picture first. At the machine's own resolution for now;
+  // fitting it to the window comes further down.
+  await context.addInitScript(id => localStorage.setItem("matgate.screen.resolution." + id, "native"), server.id);
   const view = await context.newPage();
   view.on("pageerror", e => { console.log("JS ERROR: " + e.message); failures.push("JS error"); });
   await view.goto(BASE + "/agent/" + server.id + "/screen", { waitUntil: "domcontentloaded" });
@@ -223,6 +229,57 @@ let agent;
   await sleep(800);
   check("and on again", (await packets()) - before >= 20, true);
 
+  // --- Statistics: pictures per second and the way there and back, in the bar.
+  const stats = await view.evaluate(() => window.__screen.stats || {});
+  check("the bar shows pictures per second and the round trip", [stats.fps > 0, typeof stats.rtt === "number", stats.fpsLimit, /\d+ (B\/s|fps)/.test(await view.evaluate(() => document.getElementById("stats").textContent))], [true, true, 60, true]);
+  check("and which encoder works", /^(hardware: .+|software)$/.test(stats.encoder || ""), true);
+
+  // --- Resolution, as RDP does it: "fit to window" sets the machine's monitor to the largest mode that fits.
+  const resolutionPicture = async (want, label) => {
+    for (let i = 0; i < 25 && JSON.stringify(await picture().then(p => [p.width, p.height])) !== JSON.stringify(want); i++) { await sleep(300); }
+    check(label, await picture().then(p => [p.width, p.height]), want);
+  };
+  check("the monitor's modes are offered", await view.evaluate(() => [...document.querySelectorAll("#resolution option")].map(o => o.value)),
+    ["auto", "native", "1920x1080", "1600x900", "1280x1024", "1280x720", "1024x768", "800x600"]);
+  await debug();
+  await view.selectOption("#resolution", "auto");
+  await resolutionPicture([1280, 720], "fit to window: 1400x864 takes 1280x720 on the second monitor");
+  check("the monitor really changed", (await debug()).filter(l => /^display/.test(l)), ["display TEST2 1280x720"]);
+  await view.setViewportSize({ width: 1000, height: 700 });
+  await resolutionPicture([800, 600], "a smaller window: the monitor goes back to 800x600");
+  check("its own mode again", (await debug()).filter(l => /^display/.test(l)), ["display TEST2 restored"]);
+  await view.setViewportSize({ width: 1400, height: 900 });
+  await resolutionPicture([1280, 720], "and grows with the window");
+  await view.selectOption("#resolution", "1600x900");
+  await resolutionPicture([1600, 900], "a mode of one's own");
+  check("the choice is kept for this machine", await view.evaluate(id => localStorage.getItem("matgate.screen.resolution." + id), server.id), "1600x900");
+  await debug();
+  await view.selectOption("#resolution", "native");
+  await resolutionPicture([800, 600], "as on the machine: its own mode");
+  check("put back", (await debug()).filter(l => /^display/.test(l)), ["display TEST2 restored"]);
+  await view.selectOption("#resolution", "auto");
+  await resolutionPicture([1280, 720], "fit to window once more");
+
+  // --- Full screen: the picture takes the whole screen, the bar waits above it.
+  await view.click("#fullscreen");
+  await sleep(1200);
+  const full = await view.evaluate(() => ({ full: !!document.fullscreenElement, fs: document.body.classList.contains("fs"), handle: getComputedStyle(document.getElementById("handle")).display !== "none" }));
+  check("full screen: page in full screen, bar tucked away, a handle to bring it", full, { full: true, fs: true, handle: true });
+  await sleep(1200);
+  check("the bar goes up after a moment", await view.evaluate(() => document.querySelector(".bar").classList.contains("show")), false);
+  await view.mouse.move(700, 1);
+  await sleep(600);
+  check("and comes down at the top edge", await view.evaluate(() => document.querySelector(".bar").classList.contains("show")), true);
+  await view.evaluate(() => document.exitFullscreen());
+  await sleep(800);
+  check("leaving full screen brings the bar back", await view.evaluate(() => document.body.classList.contains("fs")), false);
+
+  // --- Ctrl+Alt+Del: from the bar (and from a phone's key bar).
+  await debug();
+  await view.click("#cad");
+  await sleep(500);
+  check("Ctrl+Alt+Del reaches the machine", (await debug()).filter(l => l === "sas"), ["sas"]);
+
   // --- Touch: a tap is a click, a long press the right button, two fingers scroll.
   const phone = await b.newContext({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
   const tapPage = await phone.newPage();
@@ -233,6 +290,8 @@ let agent;
   await tapPage.goto(BASE + "/agent/" + server.id + "/screen", { waitUntil: "domcontentloaded" });
   for (let i = 0; i < 30 && (await tapPage.evaluate(() => window.__screen.frames)) < 3; i++) { await sleep(300); }
   check("on a phone the picture arrives too", (await tapPage.evaluate(() => window.__screen.frames)) >= 3, true);
+  // The window on the computer lost the screen to the phone: its monitor got its own mode back first.
+  check("taking over puts the last viewer's resolution back", await tapPage.evaluate(() => [...document.querySelectorAll("#monitor option")].map(o => o.textContent)).then(list => list[1]), "2: 800×600");
   check("with the key bar and the keyboard button", await tapPage.evaluate(() => [getComputedStyle(document.getElementById("keys")).display !== "none", !document.getElementById("keyboard").classList.contains("hidden")]), [true, true]);
   const touchDebug = () => tapPage.evaluate(() => window.__screen.debug.splice(0));
   await touchDebug();

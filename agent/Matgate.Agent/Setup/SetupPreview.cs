@@ -90,7 +90,7 @@ internal static class SetupPreview
             // This machine's screen may be smaller than the window; say whether the content fits the real size.
             foreach (var panel in AllControls(form).OfType<FlowLayoutPanel>().Where(p => p.AutoScroll))
             {
-                Console.WriteLine($"{Path.GetFileName(path)}: content {panel.DisplayRectangle.Height} px, room at 560 px client height {560 - 84 - 58 - 34} px");
+                Console.WriteLine($"{Path.GetFileName(path)}: content {panel.DisplayRectangle.Height} px, room at 680 px client height {680 - 84 - 58 - 34} px");
             }
             using var bitmap = new Bitmap(form.Width, form.Height);
             form.DrawToBitmap(bitmap, new Rectangle(0, 0, form.Width, form.Height));

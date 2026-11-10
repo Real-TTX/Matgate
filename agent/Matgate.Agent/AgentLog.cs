@@ -9,6 +9,9 @@ public static class AgentLog
     private static readonly object Gate = new();
     private static string? _file;
 
+    // A helper process (see SessionHost) has no log file of its own: its lines go to the agent through this.
+    public static Action<string>? Sink { get; set; }
+
     public static void UseFile(string directory)
     {
         _file = Path.Combine(directory, "agent.log");
@@ -25,6 +28,7 @@ public static class AgentLog
         {
         }
 
+        Sink?.Invoke(line);
         if (_file is null)
         {
             return;

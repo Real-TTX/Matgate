@@ -27,6 +27,24 @@ internal sealed class TrayApplication : ApplicationContext
     private AgentStatus.Snapshot? _status;
     private State _state = State.NotInstalled;
 
+    // The program file as it was when the icon started: an update puts a new one there (see UpdatePlugin), and
+    // the icon then starts again from it - otherwise it would show the old version until the next sign-in.
+    private static readonly (DateTime, long) StartedFrom = Stamp();
+    private static bool _restart;
+
+    private static (DateTime, long) Stamp()
+    {
+        try
+        {
+            var file = new FileInfo(Environment.ProcessPath!);
+            return (file.LastWriteTimeUtc, file.Length);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return default;
+        }
+    }
+
     private TrayApplication()
     {
         _icons = Enum.GetValues<State>().ToDictionary(state => state, state => Mark.Create(state switch
@@ -86,6 +104,12 @@ internal sealed class TrayApplication : ApplicationContext
             }
         }) { IsBackground = true }.Start();
         Application.Run(tray);
+        if (_restart)
+        {
+            mutex.ReleaseMutex();
+            mutex.Dispose();
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Environment.ProcessPath!, "tray") { UseShellExecute = false });
+        }
     }
 
     private void Refresh()
@@ -98,6 +122,14 @@ internal sealed class TrayApplication : ApplicationContext
             _ => State.NotInstalled,
         };
         _icon.Icon = _icons[_state];
+        if (_state == State.Running && StartedFrom != default && Stamp() is var now && now != default && now != StartedFrom)
+        {
+            _restart = true;
+            _icon.Visible = false;
+            ExitThread();
+            return;
+        }
+
         var (title, _) = Describe();
         _stateItem.Text = title;
         // The tooltip is limited to 127 characters.

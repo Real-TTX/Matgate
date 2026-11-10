@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json.Nodes;
@@ -6,22 +7,41 @@ namespace Matgate.Agent.Screen;
 
 // The screen as a plugin: the machine's real desktop as H.264 video in the browser, with mouse, keyboard,
 // sound and a clipboard that works in both directions (text, pictures and files). Like AnyDesk rather
-// than RDP: it shows what the monitor shows, so it needs the agent to run in the signed-in user's session
-// (user mode), not as a service in session 0.
+// than RDP: it shows what the monitor shows.
+//
+// Where it runs: in this process when the agent runs as the signed-in user (user mode); through a helper in
+// the console session when the agent is a LocalSystem service (session 0 has no screen) - then also the
+// sign-in screen, the lock screen, UAC prompts and administrator windows, and Ctrl+Alt+Del.
 //
 // One viewer at a time: a second one takes the screen over, the first is told so.
-public sealed class ScreenPlugin(AgentConfig config)
+public sealed class ScreenPlugin
 {
+    private readonly AgentConfig _config;
     private readonly object _gate = new();
+    private readonly bool _helper;
+    private readonly HostLink? _host;
+    private readonly ConcurrentDictionary<string, Viewer> _viewers = new();
     private ScreenSession? _session;
+
+    // inThisProcess: the helper itself, which always does the work here.
+    public ScreenPlugin(AgentConfig config, bool inThisProcess = false)
+    {
+        _config = config;
+        _helper = !inThisProcess && OperatingSystem.IsWindows()
+            && (SessionNative.IsSystemService || Environment.GetEnvironmentVariable("MATGATE_AGENT_SCREEN_HOST") == "1");
+        if (_helper)
+        {
+            _host = new HostLink("screen", StartHelper, null, OnHelperEvent, OnHelperExit);
+        }
+    }
 
     // MATGATE_AGENT_SCREEN_TEST=1: a generated picture, and input/clipboard reported instead of done -
     // the tests must not move anyone's mouse or overwrite anyone's clipboard.
     public static bool TestMode => Environment.GetEnvironmentVariable("MATGATE_AGENT_SCREEN_TEST") == "1";
 
-    public bool IsAvailable => OperatingSystem.IsWindows() && config.Screen && (TestMode || Process.GetCurrentProcess().SessionId != 0);
+    public bool IsAvailable => OperatingSystem.IsWindows() && _config.Screen && (TestMode || _helper || SessionNative.CurrentSession != 0);
 
-    public JsonArray Monitors()
+    public static JsonArray Monitors()
     {
         var list = new JsonArray();
         foreach (var monitor in TestMode ? TestPattern.Monitors() : DesktopCapture.Monitors())
@@ -39,11 +59,11 @@ public sealed class ScreenPlugin(AgentConfig config)
         return list;
     }
 
-    public AgentFrame Open(AgentFrame request, Func<AgentFrame, Task> send)
+    public async Task<AgentFrame> OpenAsync(AgentFrame request, Func<AgentFrame, Task> send)
     {
         if (!IsAvailable)
         {
-            throw new InvalidOperationException("This agent does not share its screen - it has to run as the signed-in user, not as a service.");
+            throw new InvalidOperationException("This agent does not share its screen - it has to run as the signed-in user or as a LocalSystem service.");
         }
 
         var id = request.Text("session");
@@ -52,8 +72,25 @@ public sealed class ScreenPlugin(AgentConfig config)
             id = Guid.NewGuid().ToString("N");
         }
 
-        var session = new ScreenSession(id, send, request.Int("monitor", 0), Math.Clamp(request.Int("maxWidth", 2560), 640, 7680),
-            request.Text("quality") ?? "auto", request.Int("fps", 30));
+        if (_helper)
+        {
+            var data = (JsonObject)(request.Data?.DeepClone() ?? new JsonObject());
+            data["session"] = id;
+            var viewer = new Viewer(id, send, data);
+            _viewers[id] = viewer;
+            try
+            {
+                var opened = await OpenInHelperAsync(viewer);
+                return new AgentFrame { Id = request.Id, Kind = "res", Op = request.Op, Data = opened };
+            }
+            catch
+            {
+                _viewers.TryRemove(id, out _);
+                throw;
+            }
+        }
+
+        var session = new ScreenSession(id, send, request);
         ScreenSession? previous;
         lock (_gate)
         {
@@ -62,7 +99,7 @@ public sealed class ScreenPlugin(AgentConfig config)
         }
 
         previous?.Stop("taken");
-        var monitor = session.Start();
+        var monitor = await Task.Run(session.Start);
         return new AgentFrame
         {
             Id = request.Id,
@@ -81,6 +118,41 @@ public sealed class ScreenPlugin(AgentConfig config)
 
     public void Event(AgentFrame frame)
     {
+        if (_helper)
+        {
+            var id = frame.Text("session") ?? "";
+            if (!_viewers.TryGetValue(id, out var viewer))
+            {
+                return;
+            }
+
+            switch (frame.Op)
+            {
+                case "screen.sas" when !TestMode:
+                    // Ctrl+Alt+Del: Windows takes it from the service itself.
+                    if (!SessionNative.IsLocalSystem || !SessionNative.SendSecureAttention())
+                    {
+                        _ = viewer.Send(Status(id, "nocad"));
+                    }
+
+                    return;
+                case "screen.close":
+                    _viewers.TryRemove(id, out _);
+                    break;
+                case "screen.config":
+                    // Kept for a new helper (another session): it opens with the latest wishes.
+                    foreach (var (name, value) in frame.Data ?? [])
+                    {
+                        viewer.Open[name] = value?.DeepClone();
+                    }
+
+                    break;
+            }
+
+            _host!.Post(frame.Op, frame.Data ?? [], frame.Payload);
+            return;
+        }
+
         var session = Find(frame.Text("session"));
         if (session is null)
         {
@@ -104,6 +176,9 @@ public sealed class ScreenPlugin(AgentConfig config)
             case "screen.audio":
                 session.Audio(frame.Bool("on"), frame.Text("codec") ?? "opus");
                 break;
+            case "screen.sas":
+                session.SecureAttention();
+                break;
             case "screen.clip.set":
             case "screen.clip.begin":
             case "screen.clip.chunk":
@@ -117,8 +192,14 @@ public sealed class ScreenPlugin(AgentConfig config)
     }
 
     // A file the machine copied, read in pieces for a download in the browser.
-    public AgentFrame ReadClip(AgentFrame request)
+    public async Task<AgentFrame> ReadClipAsync(AgentFrame request)
     {
+        if (_helper)
+        {
+            var answer = await _host!.RequestAsync("screen.clip.read", request.Data ?? []);
+            return new AgentFrame { Id = request.Id, Kind = "res", Op = request.Op, Data = answer.Data, Payload = answer.Payload };
+        }
+
         var session = Find(request.Text("session")) ?? throw new InvalidOperationException("This screen session has ended.");
         var (data, payload) = session.ReadClipFile(request.Text("token") ?? "", request.Int("index", -1), request.Long("offset"));
         return new AgentFrame { Id = request.Id, Kind = "res", Op = request.Op, Data = data, Payload = payload };
@@ -127,6 +208,17 @@ public sealed class ScreenPlugin(AgentConfig config)
     // Matgate's connection went away: a screen nobody can see any more stops.
     public void DetachAll(Func<AgentFrame, Task> send)
     {
+        if (_helper)
+        {
+            foreach (var viewer in _viewers.Values.Where(viewer => Equals(viewer.Send, send)).ToList())
+            {
+                _viewers.TryRemove(viewer.Id, out _);
+                _host!.Post("screen.close", new JsonObject { ["session"] = viewer.Id });
+            }
+
+            return;
+        }
+
         ScreenSession? session;
         lock (_gate)
         {
@@ -159,6 +251,192 @@ public sealed class ScreenPlugin(AgentConfig config)
             return _session is not null && _session.Id == id ? _session : null;
         }
     }
+
+    // ---- through the helper ------------------------------------------------------------------------------
+
+    private static Process StartHelper(string arguments)
+    {
+        if (!SessionNative.IsSystemService)
+        {
+            // The tests: a helper of this very user.
+            return SessionNative.StartChild(arguments);
+        }
+
+        var console = SessionNative.ConsoleSession();
+        if (console < 0)
+        {
+            throw new InvalidOperationException("The machine shows no screen right now.");
+        }
+
+        return SessionNative.StartAsSystem(console, arguments);
+    }
+
+    private async Task<JsonObject> OpenInHelperAsync(Viewer viewer)
+    {
+        await _host!.EnsureStartedAsync();
+        var answer = await _host.RequestAsync("screen.open", (JsonObject)viewer.Open.DeepClone(), timeout: TimeSpan.FromSeconds(20));
+        return answer.Data ?? [];
+    }
+
+    private void OnHelperEvent(AgentFrame frame)
+    {
+        if (!_viewers.TryGetValue(frame.Text("session") ?? "", out var viewer))
+        {
+            return;
+        }
+
+        if (frame.Op == "screen.ended")
+        {
+            _viewers.TryRemove(viewer.Id, out _);
+        }
+
+        // In order and at the browser's pace, as in this process.
+        try
+        {
+            viewer.Send(frame).GetAwaiter().GetResult();
+        }
+        catch (Exception exception) when (exception is System.Net.WebSockets.WebSocketException or ObjectDisposedException or OperationCanceledException or InvalidOperationException)
+        {
+        }
+    }
+
+    // The helper ended - usually because the monitor now shows another session (someone signed out, or the
+    // sign-in screen gave way to a desktop). A new helper takes over there, and whoever watched sees it again.
+    private void OnHelperExit()
+    {
+        foreach (var viewer in _viewers.Values)
+        {
+            _ = viewer.Send(Status(viewer.Id, "switching"));
+        }
+
+        if (!_viewers.IsEmpty)
+        {
+            _ = Task.Run(ReopenAsync);
+        }
+    }
+
+    private int _reopening;
+
+    private async Task ReopenAsync()
+    {
+        if (Interlocked.Exchange(ref _reopening, 1) == 1)
+        {
+            return;
+        }
+
+        try
+        {
+            for (var attempt = 0; attempt < 40 && !_viewers.IsEmpty; attempt++)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(attempt == 0 ? 1 : 2));
+                // The newest viewer only: the helper takes one at a time anyway.
+                var viewer = _viewers.Values.LastOrDefault();
+                if (viewer is null)
+                {
+                    return;
+                }
+
+                try
+                {
+                    var opened = await OpenInHelperAsync(viewer);
+                    opened["session"] = viewer.Id;
+                    await viewer.Send(new AgentFrame { Kind = "evt", Op = "screen.ready", Data = opened });
+                    return;
+                }
+                catch (Exception exception) when (exception is InvalidOperationException or IOException or System.ComponentModel.Win32Exception)
+                {
+                    AgentLog.Write("Screen: waiting for the new session - " + exception.Message);
+                }
+            }
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _reopening, 0);
+        }
+    }
+
+    private static AgentFrame Status(string session, string state) => new()
+    {
+        Kind = "evt",
+        Op = "screen.status",
+        Data = new JsonObject { ["session"] = session, ["state"] = state },
+    };
+
+    private sealed class Viewer(string id, Func<AgentFrame, Task> send, JsonObject open)
+    {
+        public string Id { get; } = id;
+
+        public Func<AgentFrame, Task> Send { get; } = send;
+
+        // What the screen was opened with, updated by every change of settings.
+        public JsonObject Open { get; } = open;
+    }
+}
+
+// Input on a thread of its own: it can follow the monitor onto the sign-in screen and back (a thread that owns
+// windows could not), and nothing overtakes anything else.
+internal sealed class InputThread : IInputSink, IDisposable
+{
+    private readonly BlockingCollection<Action<IInputSink>> _queue = new();
+    private readonly IInputSink _sink;
+    private readonly Thread _thread;
+
+    public InputThread(IInputSink sink)
+    {
+        _sink = sink;
+        _thread = new Thread(Run) { IsBackground = true, Name = "Matgate input" };
+        _thread.Start();
+    }
+
+    public void MoveTo(int x, int y) => Add(sink => sink.MoveTo(x, y));
+
+    public void Button(int button, bool down) => Add(sink => sink.Button(button, down));
+
+    public void Wheel(int vertical, int horizontal) => Add(sink => sink.Wheel(vertical, horizontal));
+
+    public void Key(int scanCode, bool extended, bool down) => Add(sink => sink.Key(scanCode, extended, down));
+
+    public void Text(string text) => Add(sink => sink.Text(text));
+
+    private void Add(Action<IInputSink> action)
+    {
+        try
+        {
+            _queue.Add(action);
+        }
+        catch (InvalidOperationException)
+        {
+            // Ended.
+        }
+    }
+
+    private void Run()
+    {
+        var followed = 0L;
+        foreach (var action in _queue.GetConsumingEnumerable())
+        {
+            if (Environment.TickCount64 - followed > 250)
+            {
+                InputDesktop.Follow();
+                followed = Environment.TickCount64;
+            }
+
+            try
+            {
+                action(_sink);
+            }
+            catch (Exception exception) when (exception is not OutOfMemoryException)
+            {
+                AgentLog.Write("Screen input: " + exception.Message);
+            }
+        }
+    }
+
+    public void Dispose()
+    {
+        _queue.CompleteAdding();
+        _thread.Join(TimeSpan.FromSeconds(2));
+    }
 }
 
 internal sealed unsafe class ScreenSession
@@ -173,15 +451,24 @@ internal sealed unsafe class ScreenSession
     private readonly HashSet<(int Code, bool Extended)> _keysDown = [];
     private readonly HashSet<int> _buttonsDown = [];
     private readonly Dictionary<string, Upload> _uploads = [];
-    private readonly IInputSink _input;
+    private readonly ConcurrentDictionary<long, long> _sentAt = new();
+    private readonly InputThread _input;
     private readonly IClipboardBridge _clipboard;
+    private readonly IDisplayControl _display;
+    private Thread? _thread;
     private volatile bool _running = true;
     private volatile bool _keyRequested = true;
     private volatile bool _reconfigure;
+    private volatile bool _resolutionDirty = true;
     private int _monitor;
     private int _maxWidth;
     private string _quality;
     private int _fps;
+    private bool _fpsGiven;
+    private string _resolution;
+    private int _fitWidth;
+    private int _fitHeight;
+    private MonitorInfo? _changedDisplay;
     private long _sent;
     private long _acked;
     private DateTime _lastAck = DateTime.UtcNow;
@@ -190,23 +477,38 @@ internal sealed unsafe class ScreenSession
     private string _clipToken = "";
     private IReadOnlyList<string> _clipFiles = [];
 
-    public ScreenSession(string id, Func<AgentFrame, Task> send, int monitor, int maxWidth, string quality, int fps)
+    // What the statistics count, per second.
+    private long _statFrames;
+    private long _statBytes;
+    private long _statRttTicks;
+    private long _statRttCount;
+    private double _statAgentMs;
+    private string _encoderName = "";
+    private bool _followWarned;
+
+    public ScreenSession(string id, Func<AgentFrame, Task> send, AgentFrame request)
     {
         Id = id;
         Send = send;
-        _monitor = monitor;
-        _maxWidth = maxWidth;
-        _quality = quality;
-        _fps = Math.Clamp(fps, 5, 60);
+        _monitor = request.Int("monitor", 0);
+        _maxWidth = Math.Clamp(request.Int("maxWidth", 2560), 640, 7680);
+        _quality = request.Text("quality") ?? "auto";
+        _fpsGiven = request.Data?["fps"] is not null;
+        _fps = _fpsGiven ? Math.Clamp(request.Int("fps", 30), 5, 60) : FramesFor(_quality);
+        _resolution = request.Text("resolution") ?? "native";
+        _fitWidth = request.Int("fitWidth", 0);
+        _fitHeight = request.Int("fitHeight", 0);
         if (ScreenPlugin.TestMode)
         {
-            _input = new RecordingInput(Debug);
+            _input = new InputThread(new RecordingInput(Debug));
             _clipboard = new RecordingClipboard(Debug);
+            _display = new TestDisplay(Debug);
         }
         else
         {
-            _input = new InputInjector();
+            _input = new InputThread(new InputInjector());
             _clipboard = new WindowsClipboard();
+            _display = new WindowsDisplay();
         }
 
         _clipboard.Changed += OnClipboardChanged;
@@ -218,7 +520,8 @@ internal sealed unsafe class ScreenSession
 
     public MonitorInfo Start()
     {
-        new Thread(Loop) { IsBackground = true, Name = "Matgate screen" }.Start();
+        _thread = new Thread(Loop) { IsBackground = true, Name = "Matgate screen" };
+        _thread.Start();
         if (!_opened.Task.Wait(TimeSpan.FromSeconds(10)))
         {
             Stop("error");
@@ -238,6 +541,13 @@ internal sealed unsafe class ScreenSession
         _running = false;
         _wake.Set();
         ReleaseAll();
+        // The monitor gets its own resolution back before anyone else changes it (a viewer taking over).
+        if (_thread is not null && _thread != Thread.CurrentThread)
+        {
+            _thread.Join(TimeSpan.FromSeconds(3));
+        }
+
+        _input.Dispose();
         _audio?.Dispose();
         _audio = null;
         _clipboard.Changed -= OnClipboardChanged;
@@ -263,7 +573,7 @@ internal sealed unsafe class ScreenSession
     private void Loop()
     {
         IScreenSource? source = null;
-        H264Encoder? encoder = null;
+        IVideoEncoder? encoder = null;
         byte[] picture = [];
         var scale = 1;
         var hasPicture = false;
@@ -271,37 +581,82 @@ internal sealed unsafe class ScreenSession
         var lastEncode = DateTime.MinValue;
         var pointer = new PointerState();
         var unavailable = false;
+        var opened = false;
+        var statClock = Stopwatch.StartNew();
         try
         {
-            try
-            {
-                source = CreateSource(_monitor);
-                _current = source.Monitor;
-                _opened.TrySetResult(source.Monitor);
-            }
-            catch (Exception exception)
-            {
-                _opened.TrySetException(exception);
-                return;
-            }
-
             while (_running)
             {
+                // The source of pictures: made (again) at the start, after the monitor switched desktops or
+                // resolution, and when another monitor was chosen.
+                if (source is null)
+                {
+                    try
+                    {
+                        if (!InputDesktop.Follow() && SessionNative.IsLocalSystem && !_followWarned)
+                        {
+                            // As SYSTEM this should always work; if not, the sign-in and lock screen stay dark.
+                            _followWarned = true;
+                            AgentLog.Write("Screen: could not move to the desktop the monitor shows (sign-in, lock screen, UAC).");
+                        }
+
+                        source = CreateSource(_monitor);
+                    }
+                    catch (Exception exception) when (IsCaptureFailure(exception))
+                    {
+                        if (!opened)
+                        {
+                            _opened.TrySetException(exception);
+                            return;
+                        }
+
+                        // The lock screen or a UAC prompt, for a process that may not see them.
+                        if (!unavailable)
+                        {
+                            unavailable = true;
+                            Emit("screen.status", new JsonObject { ["state"] = "unavailable" });
+                        }
+
+                        _wake.WaitOne(500);
+                        continue;
+                    }
+
+                    if (!opened)
+                    {
+                        opened = true;
+                        _current = source.Monitor;
+                        _opened.TrySetResult(source.Monitor);
+                    }
+                }
+
                 if (_reconfigure)
                 {
                     _reconfigure = false;
-                    if (source.Monitor.Index != _monitor)
-                    {
-                        source.Dispose();
-                        source = CreateSource(_monitor);
-                    }
-
                     encoder?.Dispose();
                     encoder = null;
+                    if (source.Monitor.Index != _monitor)
+                    {
+                        RestoreDisplay();
+                        source.Dispose();
+                        source = null;
+                        _resolutionDirty = true;
+                        continue;
+                    }
                 }
 
-                if (encoder is not null && (encoder.Width != Nv12.Scaled(source.Monitor.Width, source.Monitor.Height, scale).Width
-                    || source.Monitor.Width != _current.Width || source.Monitor.Height != _current.Height))
+                if (_resolutionDirty)
+                {
+                    _resolutionDirty = false;
+                    if (ApplyResolution(source.Monitor))
+                    {
+                        // The monitor has its new mode now: capture afresh.
+                        source.Dispose();
+                        source = null;
+                        continue;
+                    }
+                }
+
+                if (encoder is not null && (source.Monitor.Width != _current.Width || source.Monitor.Height != _current.Height))
                 {
                     // The resolution changed under way.
                     encoder.Dispose();
@@ -311,20 +666,22 @@ internal sealed unsafe class ScreenSession
                 if (encoder is null)
                 {
                     _current = source.Monitor;
-                    scale = _current.Width > _maxWidth ? 2 : 1;
+                    // A resolution chosen for the viewer (fitted or picked) is shown as it is; the machine's own one is
+                    // halved where it is far larger than the viewer's screen.
+                    scale = _current.Width > (_resolution == "native" ? _maxWidth : Math.Max(_maxWidth, 3840)) ? 2 : 1;
                     var (width, height) = Nv12.Scaled(_current.Width, _current.Height, scale);
-                    encoder = new H264Encoder(width, height, _fps, Bitrate(width, height));
+                    encoder = VideoEncoders.Create(width, height, _fps, Bitrate(width, height), (bytes, key) => SendVideo(bytes, key, width, height));
+                    _encoderName = encoder.Name;
                     picture = new byte[Nv12.Size(width, height)];
                     hasPicture = false;
                     _keyRequested = true;
-                    Emit("screen.monitor", new JsonObject
-                    {
-                        ["monitor"] = _current.Index,
-                        ["width"] = _current.Width,
-                        ["height"] = _current.Height,
-                        ["videoWidth"] = width,
-                        ["videoHeight"] = height,
-                    });
+                    EmitMonitor(width, height);
+                }
+
+                if (statClock.ElapsedMilliseconds >= 1000)
+                {
+                    EmitStats(statClock.Elapsed.TotalSeconds);
+                    statClock.Restart();
                 }
 
                 // The browser is behind: wait for it instead of piling up pictures it would show late.
@@ -348,6 +705,7 @@ internal sealed unsafe class ScreenSession
                     Thread.Sleep(slot);
                 }
 
+                var started = Stopwatch.GetTimestamp();
                 Grab grab;
                 try
                 {
@@ -356,23 +714,26 @@ internal sealed unsafe class ScreenSession
                     var (width, height) = (encoder.Width, encoder.Height);
                     grab = source.Next(refine > 0 || _keyRequested ? 100 : 250, pointer, (pixels, pitch) =>
                         Nv12.FromBgra((byte*)pixels, pitch, factor, target, width, height));
-                    if (unavailable && grab != Grab.Lost)
-                    {
-                        unavailable = false;
-                        Emit("screen.status", new JsonObject { ["state"] = "ok" });
-                    }
                 }
-                catch (Exception exception) when (exception is SharpGen.Runtime.SharpGenException or InvalidOperationException or System.Runtime.InteropServices.COMException)
+                catch (Exception exception) when (IsCaptureFailure(exception))
                 {
-                    // The lock screen or a UAC prompt: a desktop this process may not see.
-                    if (!unavailable)
-                    {
-                        unavailable = true;
-                        Emit("screen.status", new JsonObject { ["state"] = "unavailable" });
-                    }
-
-                    Thread.Sleep(500);
+                    source.Dispose();
+                    source = null;
                     continue;
+                }
+
+                if (grab == Grab.Lost)
+                {
+                    // The desktop switched (lock screen, sign-in, UAC) or the mode changed: capture afresh.
+                    source.Dispose();
+                    source = null;
+                    continue;
+                }
+
+                if (unavailable)
+                {
+                    unavailable = false;
+                    Emit("screen.status", new JsonObject { ["state"] = "ok" });
                 }
 
                 SendPointer(pointer);
@@ -394,7 +755,24 @@ internal sealed unsafe class ScreenSession
 
                 var key = _keyRequested;
                 _keyRequested = false;
-                encoder.Encode(picture, key, (bytes, isKey) => SendVideo(bytes, isKey, encoder));
+                try
+                {
+                    if (!encoder.Encode(picture, key))
+                    {
+                        // The graphics card is still busy: this picture is skipped, the next one comes soon.
+                        _keyRequested |= key;
+                        continue;
+                    }
+                }
+                catch (Exception exception) when (encoder is HardwareH264Encoder && exception is not OutOfMemoryException)
+                {
+                    VideoEncoders.HardwareFailed(exception);
+                    encoder.Dispose();
+                    encoder = null;
+                    continue;
+                }
+
+                _statAgentMs += Stopwatch.GetElapsedTime(started).TotalMilliseconds;
                 lastEncode = DateTime.UtcNow;
             }
         }
@@ -407,10 +785,23 @@ internal sealed unsafe class ScreenSession
         {
             encoder?.Dispose();
             source?.Dispose();
+            RestoreDisplay();
+            _opened.TrySetException(new InvalidOperationException("The screen could not be captured."));
         }
     }
 
+    private static bool IsCaptureFailure(Exception exception) =>
+        exception is SharpGen.Runtime.SharpGenException or InvalidOperationException or System.Runtime.InteropServices.COMException;
+
     private static IScreenSource CreateSource(int monitor) => ScreenPlugin.TestMode ? new TestPattern(monitor) : new DesktopCapture(monitor);
+
+    // Fast enough for a mouse that feels like one's own; fewer pictures where data is scarce.
+    private static int FramesFor(string quality) => quality switch
+    {
+        "low" => 20,
+        "medium" => 30,
+        _ => 60,
+    };
 
     // Enough for sharp text at full speed; "low" for a phone on the road.
     private int Bitrate(int width, int height)
@@ -421,20 +812,144 @@ internal sealed unsafe class ScreenSession
             "medium" => 4_000_000,
             _ => 8_000_000,
         };
-        var bitrate = (long)perFullHd * width * height / (1920 * 1080) * _fps / 30;
+        // More pictures need more data, but not twice as much: most of a screen stays as it was.
+        var bitrate = (long)perFullHd * width * height / (1920 * 1080) * (15 + _fps / 2) / 30;
         return (int)Math.Clamp(bitrate, 500_000, 40_000_000);
     }
 
-    private void SendVideo(byte[] bytes, bool key, H264Encoder encoder)
+    private void SendVideo(byte[] bytes, bool key, int width, int height)
     {
         var sequence = Interlocked.Increment(ref _sent);
+        _sentAt[sequence] = Stopwatch.GetTimestamp();
+        Interlocked.Increment(ref _statFrames);
+        Interlocked.Add(ref _statBytes, bytes.Length);
         Emit("screen.video", new JsonObject
         {
             ["seq"] = sequence,
             ["key"] = key,
-            ["width"] = encoder.Width,
-            ["height"] = encoder.Height,
+            ["width"] = width,
+            ["height"] = height,
         }, bytes);
+    }
+
+    private void EmitMonitor(int videoWidth, int videoHeight)
+    {
+        var modes = new JsonArray();
+        try
+        {
+            foreach (var mode in _display.Modes(_current))
+            {
+                modes.Add(Resolution.Text(mode));
+            }
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+        }
+
+        string saved;
+        try
+        {
+            saved = Resolution.Text(_display.Saved(_current));
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            saved = Resolution.Text((_current.Width, _current.Height));
+        }
+
+        Emit("screen.monitor", new JsonObject
+        {
+            ["monitor"] = _current.Index,
+            ["width"] = _current.Width,
+            ["height"] = _current.Height,
+            ["videoWidth"] = videoWidth,
+            ["videoHeight"] = videoHeight,
+            ["modes"] = modes,
+            ["saved"] = saved,
+            ["resolution"] = _resolution,
+        });
+    }
+
+    // Once a second: how many pictures, how much data, how long the way to the browser and back takes.
+    private void EmitStats(double seconds)
+    {
+        var frames = Interlocked.Exchange(ref _statFrames, 0);
+        var bytes = Interlocked.Exchange(ref _statBytes, 0);
+        var rttTicks = Interlocked.Exchange(ref _statRttTicks, 0);
+        var rttCount = Interlocked.Exchange(ref _statRttCount, 0);
+        var agentMs = _statAgentMs;
+        _statAgentMs = 0;
+        Emit("screen.stats", new JsonObject
+        {
+            ["fps"] = Math.Round(frames / seconds, 1),
+            ["kbps"] = (long)(bytes * 8 / 1000 / seconds),
+            ["rtt"] = rttCount > 0 ? Math.Round(rttTicks * 1000.0 / Stopwatch.Frequency / rttCount, 1) : null,
+            ["agentMs"] = frames > 0 ? Math.Round(agentMs / frames, 1) : null,
+            ["encoder"] = _encoderName,
+            ["fpsLimit"] = _fps,
+        });
+    }
+
+    // ---- resolution ----------------------------------------------------------------------------------
+
+    // Sets the monitor to what the viewer wants; true when its mode changed.
+    private bool ApplyResolution(MonitorInfo monitor)
+    {
+        (int Width, int Height)? target;
+        try
+        {
+            target = _resolution switch
+            {
+                "auto" => Resolution.Pick(_display.Modes(monitor), _fitWidth, _fitHeight),
+                "native" => null,
+                _ => Resolution.Parse(_resolution) is { } size && _display.Modes(monitor).Contains(size) ? size : null,
+            };
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            target = null;
+        }
+
+        if (target is null || (_changedDisplay is not null && target == _display.Saved(monitor)))
+        {
+            // As Windows has it saved.
+            if (_changedDisplay is null)
+            {
+                return false;
+            }
+
+            RestoreDisplay();
+            return true;
+        }
+
+        if (target == (monitor.Width, monitor.Height))
+        {
+            return false;
+        }
+
+        if (!_display.Apply(monitor, target.Value.Width, target.Value.Height))
+        {
+            AgentLog.Write($"Screen: the monitor does not take {Resolution.Text(target.Value)}.");
+            return false;
+        }
+
+        _changedDisplay = monitor;
+        return true;
+    }
+
+    private void RestoreDisplay()
+    {
+        if (_changedDisplay is { } monitor)
+        {
+            _changedDisplay = null;
+            try
+            {
+                _display.Restore(monitor);
+            }
+            catch (Exception exception) when (exception is not OutOfMemoryException)
+            {
+                AgentLog.Write("Screen: the resolution could not be put back - " + exception.Message);
+            }
+        }
     }
 
     private int _lastPointerX = int.MinValue;
@@ -462,6 +977,26 @@ internal sealed unsafe class ScreenSession
 
     public void Ack(long sequence)
     {
+        if (sequence > Interlocked.Read(ref _sent))
+        {
+            // Not one of this session's pictures (a browser still counting those of a helper before).
+            return;
+        }
+
+        if (_sentAt.TryRemove(sequence, out var sentAt))
+        {
+            Interlocked.Add(ref _statRttTicks, Stopwatch.GetTimestamp() - sentAt);
+            Interlocked.Increment(ref _statRttCount);
+        }
+
+        if (_sentAt.Count > 32)
+        {
+            foreach (var old in _sentAt.Keys.Where(old => old < sequence))
+            {
+                _sentAt.TryRemove(old, out _);
+            }
+        }
+
         long current;
         do
         {
@@ -486,8 +1021,29 @@ internal sealed unsafe class ScreenSession
     {
         _monitor = frame.Int("monitor", _monitor);
         _maxWidth = Math.Clamp(frame.Int("maxWidth", _maxWidth), 640, 7680);
-        _quality = frame.Text("quality") ?? _quality;
-        _fps = Math.Clamp(frame.Int("fps", _fps), 5, 60);
+        if (frame.Text("quality") is { } quality && quality != _quality)
+        {
+            _quality = quality;
+            if (!_fpsGiven)
+            {
+                _fps = FramesFor(quality);
+            }
+        }
+
+        if (frame.Data?["fps"] is not null)
+        {
+            _fpsGiven = true;
+            _fps = Math.Clamp(frame.Int("fps", _fps), 5, 60);
+        }
+
+        if (frame.Text("resolution") is { } resolution || frame.Data?["fitWidth"] is not null)
+        {
+            _resolution = frame.Text("resolution") ?? _resolution;
+            _fitWidth = frame.Int("fitWidth", _fitWidth);
+            _fitHeight = frame.Int("fitHeight", _fitHeight);
+            _resolutionDirty = true;
+        }
+
         _reconfigure = true;
         _wake.Set();
     }
@@ -541,6 +1097,19 @@ internal sealed unsafe class ScreenSession
                     ReleaseAllLocked();
                     break;
             }
+        }
+    }
+
+    // Ctrl+Alt+Del: only Windows itself may send it, and only for a LocalSystem service.
+    public void SecureAttention()
+    {
+        if (ScreenPlugin.TestMode)
+        {
+            Debug("sas");
+        }
+        else if (!SessionNative.IsLocalSystem || !SessionNative.SendSecureAttention())
+        {
+            Emit("screen.status", new JsonObject { ["state"] = "nocad" });
         }
     }
 
@@ -761,10 +1330,14 @@ internal sealed unsafe class ScreenSession
         _clipboard.SetAsync(content).ContinueWith(task => Pasted(task, upload.Paste));
     }
 
-    // Where pasted files land on the machine; older ones are tidied away.
+    // Where pasted files land on the machine; older ones are tidied away. A helper running as SYSTEM puts them
+    // into the signed-in person's temp folder - their Explorer has to read them.
     private static string ClipboardFolder()
     {
-        var root = Path.Combine(Path.GetTempPath(), "Matgate Agent", "Zwischenablage");
+        var temp = SessionNative.IsLocalSystem && !ScreenPlugin.TestMode
+            ? SessionNative.SignedInUserTemp() ?? throw new InvalidOperationException("Nobody is signed in to paste files for.")
+            : Path.GetTempPath();
+        var root = Path.Combine(temp, "Matgate Agent", "Zwischenablage");
         Directory.CreateDirectory(root);
         foreach (var old in Directory.EnumerateDirectories(root).Where(folder => Directory.GetCreationTimeUtc(folder) < DateTime.UtcNow.AddDays(-1)))
         {
@@ -803,7 +1376,7 @@ internal sealed unsafe class ScreenSession
         {
             Send(new AgentFrame { Kind = "evt", Op = op, Data = data, Payload = payload ?? ReadOnlyMemory<byte>.Empty }).GetAwaiter().GetResult();
         }
-        catch (Exception exception) when (exception is System.Net.WebSockets.WebSocketException or ObjectDisposedException or OperationCanceledException or InvalidOperationException)
+        catch (Exception exception) when (exception is System.Net.WebSockets.WebSocketException or ObjectDisposedException or OperationCanceledException or InvalidOperationException or IOException)
         {
             // Matgate is gone; DetachAll ends the session.
         }

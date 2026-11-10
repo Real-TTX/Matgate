@@ -70,8 +70,8 @@ public sealed class Connection(WebSocket socket, AgentConfig config, string vers
                 "update.begin" => updates.Begin(request),
                 "update.write" => updates.Write(request),
                 "update.apply" => updates.Apply(request, shutdown),
-                "screen.open" => screen.Open(request, SendAsync),
-                "screen.clip.read" => screen.ReadClip(request),
+                "screen.open" => await screen.OpenAsync(request, SendAsync),
+                "screen.clip.read" => await screen.ReadClipAsync(request),
                 _ when request.Op.StartsWith("files.", StringComparison.Ordinal) && files.IsAvailable
                     => await files.HandleAsync(request, cancellationToken),
                 _ => throw new InvalidOperationException("The agent does not offer this."),

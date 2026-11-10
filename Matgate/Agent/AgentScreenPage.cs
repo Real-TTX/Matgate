@@ -19,6 +19,7 @@ public static class AgentScreenPage
             .bar strong { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
             .status { color: #8fa39a; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
             .status.bad { color: #f0a92b; }
+            .stats { color: #8fa39a; flex: 0 0 auto; font-variant-numeric: tabular-nums; white-space: nowrap; }
             button, select { background: #1b2420; border: 1px solid #33413a; border-radius: 6px; color: inherit; cursor: pointer; font: inherit; min-height: 28px; padding: 2px 8px; }
             button:hover, select:hover { background: #24302a; }
             button.icon { align-items: center; display: inline-flex; justify-content: center; min-width: 32px; padding: 2px 6px; }
@@ -41,6 +42,13 @@ public static class AgentScreenPage
             .keys button { flex: 0 0 auto; min-height: 36px; min-width: 44px; }
             @media (pointer: coarse) { .keys { display: flex; } .wide { display: none; } }
             .hidden { display: none !important; }
+            /* Full screen: the picture fills the screen; the bar waits above it and comes down at the top edge, as with RDP. */
+            body.fs .bar { background: rgba(16, 22, 19, .96); border: 1px solid #33413a; border-radius: 0 0 10px 10px; border-top: 0; left: 50%; max-width: calc(100% - 24px); position: absolute; top: 0; transform: translate(-50%, calc(-100% - 2px)); transition: transform .18s ease; z-index: 6; }
+            body.fs .bar.show { transform: translate(-50%, 0); }
+            body.fs .bar strong { max-width: 220px; }
+            #handle { display: none; }
+            body.fs #handle { background: rgba(159, 224, 189, .5); border: 0; border-radius: 0 0 6px 6px; cursor: pointer; display: block; height: 7px; left: 50%; min-height: 0; padding: 0; position: absolute; top: 0; transform: translateX(-50%); width: 72px; z-index: 5; }
+            body.fs .keys { display: none !important; }
         </style>
         </head>
         <body data-server="__SERVER__" data-text="__TEXT__">
@@ -48,12 +56,16 @@ public static class AgentScreenPage
             <button id="home" type="button" class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></button>
             <strong>__TITLE__</strong>
             <span id="status" class="status"></span>
+            <span id="stats" class="stats wide"></span>
             <select id="monitor" class="hidden"></select>
+            <select id="resolution" class="wide"></select>
             <select id="quality" class="wide"></select>
+            <button id="cad" type="button" class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></button>
             <button id="sound" type="button" class="icon"></button>
             <button id="keyboard" type="button" class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg></button>
             <button id="fullscreen" type="button" class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
         </div>
+        <button id="handle" type="button"></button>
         <div id="stage">
             <div id="frame"><canvas id="screen" width="16" height="9"></canvas><img id="pointer" class="hidden" alt=""></div>
             <div id="notice" class="notice"><p id="notice-text"></p><button id="notice-action" type="button" class="hidden"></button></div>
@@ -66,6 +78,7 @@ public static class AgentScreenPage
             <button type="button" data-sticky="1d">Strg</button>
             <button type="button" data-sticky="38">Alt</button>
             <button type="button" data-key="53e">Entf</button>
+            <button type="button" data-cad="1">Strg+Alt+Entf</button>
             <button type="button" data-key="4be">&#8592;</button>
             <button type="button" data-key="48e">&#8593;</button>
             <button type="button" data-key="50e">&#8595;</button>
@@ -85,6 +98,7 @@ public static class AgentScreenPage
             const pointerImage = $('pointer');
             const sink = $('sink');
             const statusLine = $('status');
+            const statsLine = $('stats');
             const notice = $('notice');
             const noticeText = $('notice-text');
             const noticeAction = $('notice-action');
@@ -291,6 +305,7 @@ public static class AgentScreenPage
 
             // ---- connecting -----------------------------------------------------------------------------
             const monitorSelect = $('monitor');
+            const resolutionSelect = $('resolution');
             const qualitySelect = $('quality');
             const quality = localStorage.getItem('matgate.screen.quality') || 'auto';
             [['auto', text.qualityHigh], ['medium', text.qualityMedium], ['low', text.qualityLow]].forEach(([value, label]) => qualitySelect.add(new Option(label, value, false, value === quality)));
@@ -299,6 +314,44 @@ public static class AgentScreenPage
                 localStorage.setItem('matgate.screen.quality', qualitySelect.value);
                 send('screen.config', { quality: qualitySelect.value });
             });
+            // The machine's resolution: adapted to this window (as RDP does), as the machine has it, or a mode of its own.
+            const resolutionKey = 'matgate.screen.resolution.' + server;
+            let resolution = localStorage.getItem(resolutionKey) || 'auto';
+            const fillResolutions = (modes, current) => {
+                const options = [['auto', text.resolutionAuto], ['native', text.resolutionNative], ...(modes || []).map(mode => [mode, mode.replace('x', ' × ')])];
+                resolutionSelect.replaceChildren(...options.map(([value, label]) => new Option(label, value, false, value === current)));
+                if (![...resolutionSelect.options].some(option => option.value === current)) {
+                    resolutionSelect.value = 'auto';
+                }
+            };
+            fillResolutions([], resolution);
+            resolutionSelect.title = text.resolution;
+            // The picture area in the machine's pixels: what "automatic" fits the monitor to.
+            const fitSize = () => {
+                const box = stage.getBoundingClientRect();
+                const ratio = window.devicePixelRatio || 1;
+                return { fitWidth: Math.round(box.width * ratio), fitHeight: Math.round(box.height * ratio) };
+            };
+            let sentFit = { fitWidth: 0, fitHeight: 0 };
+            const sendResolution = () => {
+                sentFit = fitSize();
+                send('screen.config', { resolution, ...sentFit });
+            };
+            resolutionSelect.addEventListener('change', () => {
+                resolution = resolutionSelect.value;
+                localStorage.setItem(resolutionKey, resolution);
+                sendResolution();
+            });
+            let fitTimer = 0;
+            new ResizeObserver(() => {
+                window.clearTimeout(fitTimer);
+                fitTimer = window.setTimeout(() => {
+                    const now = fitSize();
+                    if (resolution === 'auto' && session && (Math.abs(now.fitWidth - sentFit.fitWidth) > 16 || Math.abs(now.fitHeight - sentFit.fitHeight) > 16)) {
+                        sendResolution();
+                    }
+                }, 700);
+            }).observe(stage);
             monitorSelect.title = text.monitor;
             monitorSelect.addEventListener('change', () => send('screen.config', { monitor: Number(monitorSelect.value) }));
 
@@ -313,11 +366,15 @@ public static class AgentScreenPage
                 session = crypto.randomUUID();
                 const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
                 const maxWidth = Math.max(1280, Math.round(Math.max(screen.width, screen.height) * (window.devicePixelRatio || 1)));
+                sentFit = fitSize();
                 const query = new URLSearchParams({
                     session,
                     monitor: localStorage.getItem('matgate.screen.monitor.' + server) || '0',
                     quality: qualitySelect.value,
-                    maxWidth: String(Math.min(2560, maxWidth)),
+                    maxWidth: String(Math.min(3840, maxWidth)),
+                    resolution,
+                    fitWidth: String(sentFit.fitWidth),
+                    fitHeight: String(sentFit.fitHeight),
                 });
                 socket = new WebSocket(`${scheme}//${location.host}/api/agent/${server}/screen-socket?${query}`);
                 socket.binaryType = 'arraybuffer';
@@ -329,6 +386,7 @@ public static class AgentScreenPage
                     handle(message.op, message.data, message.payload);
                 };
                 socket.onclose = () => {
+                    statsLine.textContent = '';
                     releaseAll();
                     stopSound(false);
                     if (ended) {
@@ -345,6 +403,12 @@ public static class AgentScreenPage
                 switch (op) {
                     case 'screen.ready':
                         retry = 0;
+                        if (video) {
+                            // A new helper on the machine (another Windows session): its pictures count from 1 again.
+                            pending = [];
+                            shown = false;
+                            resetVideo();
+                        }
                         setStatus(text.connected);
                         remote.width = data.width;
                         remote.height = data.height;
@@ -357,6 +421,13 @@ public static class AgentScreenPage
                     case 'screen.monitor':
                         remote.width = data.width;
                         remote.height = data.height;
+                        // The monitor's entry shows its size as it is now.
+                        [...monitorSelect.options].filter(option => Number(option.value) === data.monitor)
+                            .forEach(option => option.textContent = `${data.monitor + 1}: ${data.width}×${data.height}`);
+                        if (data.modes) {
+                            fillResolutions(data.modes, resolution);
+                            resolutionSelect.classList.toggle('hidden', data.modes.length < 2);
+                        }
                         monitorSelect.value = String(data.monitor);
                         localStorage.setItem('matgate.screen.monitor.' + server, String(data.monitor));
                         break;
@@ -376,6 +447,13 @@ public static class AgentScreenPage
                     case 'screen.clip':
                         onRemoteClipboard(data, payload);
                         break;
+                    case 'screen.stats':
+                        window.__screen.stats = data;
+                        statsLine.textContent = [data.fps != null ? Math.round(data.fps) + ' ' + text.fps : '', data.rtt != null ? Math.round(data.rtt) + ' ms' : ''].filter(Boolean).join(' · ');
+                        statsLine.title = text.statsTitle
+                            .replace('{fps}', data.fps ?? '-').replace('{limit}', data.fpsLimit ?? '-').replace('{rtt}', data.rtt ?? '-')
+                            .replace('{kbps}', data.kbps ?? '-').replace('{agent}', data.agentMs ?? '-').replace('{encoder}', data.encoder || '-');
+                        break;
                     case 'screen.clip.done':
                         setStatus(text.connected);
                         break;
@@ -390,6 +468,13 @@ public static class AgentScreenPage
                             stopSound(false);
                             setStatus(text.noSound, true);
                         }
+                        else if (data.state === 'switching') {
+                            shown = false;
+                            showNotice(text.switching);
+                        }
+                        else if (data.state === 'nocad') {
+                            setStatus(text.noCad, true);
+                        }
                         else if (data.state === 'clipfailed') {
                             setStatus(text.clipFailed, true);
                         }
@@ -399,6 +484,7 @@ public static class AgentScreenPage
                         break;
                     case 'screen.ended':
                         ended = true;
+                        statsLine.textContent = '';
                         releaseAll();
                         stopSound(false);
                         if (data.reason === 'taken') {
@@ -820,6 +906,10 @@ public static class AgentScreenPage
                     return;
                 }
                 const parse = value => ({ s: parseInt(value.replace('e', ''), 16), e: value.endsWith('e') });
+                if (item.dataset.cad) {
+                    send('screen.sas', {});
+                    return;
+                }
                 if (item.dataset.sticky) {
                     const scan = parse(item.dataset.sticky);
                     if (sticky.has(item.dataset.sticky)) {
@@ -854,6 +944,71 @@ public static class AgentScreenPage
                 }
             });
 
+            const cadButton = $('cad');
+            cadButton.title = text.cad;
+            cadButton.addEventListener('click', () => send('screen.sas', {}));
+
+            // ---- full screen: the whole screen for the picture, the bar comes down at the top edge ---------
+            const bar = document.querySelector('.bar');
+            const barHandle = $('handle');
+            barHandle.title = text.showBar;
+            let barTimer = 0;
+            const showBar = () => {
+                window.clearTimeout(barTimer);
+                bar.classList.add('show');
+            };
+            const hideBarSoon = delay => {
+                window.clearTimeout(barTimer);
+                barTimer = window.setTimeout(() => {
+                    // Not while a list of the bar is open.
+                    if (!bar.contains(document.activeElement) || document.activeElement === document.body) {
+                        bar.classList.remove('show');
+                    }
+                }, delay);
+            };
+            let edgeTimer = 0;
+            window.addEventListener('pointermove', event => {
+                if (!document.body.classList.contains('fs') || event.pointerType === 'touch') {
+                    return;
+                }
+                if (event.clientY <= 2) {
+                    if (!edgeTimer) {
+                        edgeTimer = window.setTimeout(showBar, 250);
+                    }
+                }
+                else {
+                    window.clearTimeout(edgeTimer);
+                    edgeTimer = 0;
+                }
+            });
+            barHandle.addEventListener('pointerenter', showBar);
+            barHandle.addEventListener('click', () => bar.classList.contains('show') ? bar.classList.remove('show') : showBar());
+            bar.addEventListener('pointerenter', showBar);
+            bar.addEventListener('pointerleave', () => hideBarSoon(900));
+            bar.addEventListener('change', () => {
+                sink.focus({ preventScroll: true });
+                hideBarSoon(900);
+            });
+            document.addEventListener('fullscreenchange', () => {
+                const full = !!document.fullscreenElement;
+                document.body.classList.toggle('fs', full);
+                bar.classList.remove('show');
+                fullscreenButton.classList.toggle('on', full);
+                if (!full) {
+                    try {
+                        navigator.keyboard?.unlock?.();
+                    }
+                    catch {
+                    }
+                }
+                else {
+                    // Once, so it is clear where the bar went.
+                    showBar();
+                    hideBarSoon(1600);
+                }
+                layout();
+            });
+
             const fullscreenButton = $('fullscreen');
             fullscreenButton.title = text.fullscreen;
             fullscreenButton.classList.toggle('hidden', !document.fullscreenEnabled);
@@ -862,13 +1017,19 @@ public static class AgentScreenPage
                     await document.exitFullscreen();
                     return;
                 }
-                await document.documentElement.requestFullscreen();
-                // In full screen the browser hands over keys it otherwise keeps (Esc, Ctrl+W, ...).
+                try {
+                    await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
+                }
+                catch {
+                    return;
+                }
+                // In full screen the browser hands over keys it otherwise keeps (Esc, Ctrl+W, Alt+Tab, the Windows key).
                 try {
                     await navigator.keyboard?.lock?.();
                 }
                 catch {
                 }
+                focusKeyboard();
             });
 
             // ---- clipboard: this device -> the machine ---------------------------------------------------

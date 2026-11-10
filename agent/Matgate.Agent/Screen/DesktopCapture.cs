@@ -152,7 +152,13 @@ public sealed unsafe class DesktopCapture : IScreenSource
     {
         if (_duplication is null)
         {
+            var before = (Monitor.Width, Monitor.Height);
             Open(Monitor.Index);
+            if ((Monitor.Width, Monitor.Height) != before)
+            {
+                // Another size now: the picture buffers are made for the old one.
+                return Grab.Lost;
+            }
         }
 
         var result = _duplication!.AcquireNextFrame((uint)timeout, out var info, out var resource);
@@ -324,11 +330,13 @@ public sealed unsafe class TestPattern : IScreenSource
     private DateTime _next = DateTime.UtcNow;
     private bool _shapeSent;
 
+    // Two monitors side by side, as large as TestDisplay has them right now.
     public TestPattern(int monitor)
     {
+        var (width, height) = TestDisplay.Size(monitor == 1 ? 1 : 0);
         Monitor = monitor == 1
-            ? new MonitorInfo(1, "TEST2", 1280, 0, 800, 600, false)
-            : new MonitorInfo(0, "TEST1", 0, 0, 1280, 720, true);
+            ? new MonitorInfo(1, "TEST2", TestDisplay.Size(0).Width, 0, width, height, false)
+            : new MonitorInfo(0, "TEST1", 0, 0, width, height, true);
         _pitch = Monitor.Width * 4;
         _pixels = new byte[_pitch * Monitor.Height];
     }
@@ -339,6 +347,12 @@ public sealed unsafe class TestPattern : IScreenSource
 
     public Grab Next(int timeout, PointerState pointer, Action<nint, int> image)
     {
+        if (TestDisplay.Size(Monitor.Index) != (Monitor.Width, Monitor.Height))
+        {
+            // The "resolution" changed, as DXGI reports it for a real monitor.
+            return Grab.Lost;
+        }
+
         if (!_shapeSent)
         {
             _shapeSent = true;

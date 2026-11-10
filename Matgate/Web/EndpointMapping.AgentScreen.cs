@@ -14,7 +14,7 @@ public static partial class EndpointMapping
 {
     private static readonly HashSet<string> ScreenOpsFromBrowser =
     [
-        "screen.input", "screen.ack", "screen.key", "screen.config", "screen.audio",
+        "screen.input", "screen.ack", "screen.key", "screen.config", "screen.audio", "screen.sas",
         "screen.clip.set", "screen.clip.begin", "screen.clip.chunk", "screen.clip.end",
     ];
 
@@ -84,6 +84,10 @@ public static partial class EndpointMapping
                 ["monitor"] = int.TryParse(query["monitor"], out var monitor) ? monitor : 0,
                 ["maxWidth"] = int.TryParse(query["maxWidth"], out var maxWidth) ? maxWidth : 2560,
                 ["quality"] = query["quality"].ToString() is { Length: > 0 and <= 16 } quality ? quality : "auto",
+                // "auto" (fitted to the browser's picture area), "native" or a mode like "1920x1080".
+                ["resolution"] = query["resolution"].ToString() is { Length: > 0 and <= 16 } resolution ? resolution : "native",
+                ["fitWidth"] = int.TryParse(query["fitWidth"], out var fitWidth) ? Math.Clamp(fitWidth, 0, 16384) : 0,
+                ["fitHeight"] = int.TryParse(query["fitHeight"], out var fitHeight) ? Math.Clamp(fitHeight, 0, 16384) : 0,
             }, cancellationToken: context.RequestAborted);
             browser.Post(new AgentFrame { Kind = "evt", Op = "screen.ready", Data = opened.Data });
 
@@ -222,20 +226,31 @@ public static partial class EndpointMapping
                 reconnect = de ? "Neu verbinden" : "Connect again",
                 taken = de ? "Ein anderes Fenster oder Gerät zeigt diesen Bildschirm jetzt." : "Another window or device shows this screen now.",
                 takeBack = de ? "Wieder hierher holen" : "Bring it back here",
-                unavailable = de ? "Der Rechner zeigt gerade einen geschützten Bildschirm (gesperrt oder eine Administrator-Abfrage). Sobald er wieder normal läuft, geht es hier weiter." : "The machine shows a protected screen right now (locked or an administrator prompt). This continues as soon as it is back.",
+                unavailable = de ? "Der Rechner zeigt gerade einen geschützten Bildschirm (gesperrt oder eine Administrator-Abfrage). Sobald er wieder normal läuft, geht es hier weiter. Läuft der Agent als Systemdienst, ist auch dieser Bildschirm zu sehen." : "The machine shows a protected screen right now (locked or an administrator prompt). This continues as soon as it is back. With the agent running as a system service, this screen is shown too.",
                 error = de ? "Der Bildschirm kann nicht übertragen werden." : "The screen cannot be shared.",
                 noDecoder = de ? "Dieser Browser kann den Bildschirm nicht anzeigen (kein WebCodecs). Bitte einen aktuellen Edge, Chrome, Firefox oder Safari nehmen." : "This browser cannot show the screen (no WebCodecs). Please use a current Edge, Chrome, Firefox or Safari.",
                 overview = de ? "Agent-Übersicht" : "Agent overview",
                 monitor = de ? "Bildschirm" : "Monitor",
                 quality = de ? "Bildqualität" : "Picture quality",
-                qualityHigh = de ? "Hohe Qualität" : "High quality",
-                qualityMedium = de ? "Mittel" : "Medium",
+                qualityHigh = de ? "Flüssig (60 Bilder/s)" : "Smooth (60 fps)",
+                qualityMedium = de ? "Mittel (30 Bilder/s)" : "Medium (30 fps)",
                 qualityLow = de ? "Wenig Daten" : "Low data",
                 soundOn = de ? "Ton einschalten" : "Turn sound on",
                 soundOff = de ? "Ton ausschalten" : "Turn sound off",
                 soundBlocked = de ? "Ton: einmal ins Bild klicken" : "Sound: click into the picture once",
                 noSound = de ? "Der Rechner hat keine Tonausgabe." : "The machine has no sound output.",
                 keyboard = de ? "Tastatur" : "Keyboard",
+                resolution = de ? "Auflösung des Rechners" : "The machine's resolution",
+                resolutionAuto = de ? "Auflösung: an Fenster anpassen" : "Resolution: fit to window",
+                resolutionNative = de ? "Auflösung: wie am Rechner" : "Resolution: as on the machine",
+                cad = de ? "Strg+Alt+Entf senden" : "Send Ctrl+Alt+Del",
+                noCad = de ? "Strg+Alt+Entf geht nur, wenn der Agent als Systemdienst läuft." : "Ctrl+Alt+Del only works when the agent runs as a system service.",
+                switching = de ? "Der Rechner wechselt die Sitzung (Anmeldung oder Abmeldung) - gleich geht es weiter ..." : "The machine is switching sessions (sign-in or sign-out) - one moment ...",
+                showBar = de ? "Leiste einblenden" : "Show the bar",
+                fps = de ? "B/s" : "fps",
+                statsTitle = de
+                    ? "{fps} Bilder/s (höchstens {limit}), Hin und zurück {rtt} ms, {kbps} kbit/s, auf dem Rechner {agent} ms je Bild, Encoder: {encoder}"
+                    : "{fps} fps (at most {limit}), round trip {rtt} ms, {kbps} kbit/s, {agent} ms per picture on the machine, encoder: {encoder}",
                 fullscreen = de ? "Vollbild" : "Full screen",
                 pasting = de ? "Füge ein ..." : "Pasting ...",
                 clipFailed = de ? "Die Zwischenablage des Rechners hat das nicht angenommen." : "The machine's clipboard did not take this.",

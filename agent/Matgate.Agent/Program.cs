@@ -12,7 +12,7 @@ using Matgate.Agent.Setup;
 //
 //   matgate-agent                      double-click: the setup dialog (asks for administrator rights)
 //   matgate-agent run [--config path]  the agent itself (what the service or the logon task starts)
-//   matgate-agent setup [--port 7488] [--firewall|--no-firewall] [--mode user|service]
+//   matgate-agent setup [--port 7488] [--firewall|--no-firewall] [--mode user|system|service]
 //                       [--account .\name|LocalSystem] [--password pw] [--root Name=C:\Path ...]
 //                       [--no-claude] [--powershell] [--no-screen] [--dry-run]
 //   matgate-agent uninstall [--keep-config] [--gui]
@@ -65,6 +65,9 @@ try
                 SetupPreview.Save(args[1]);
                 return 0;
             });
+        case "session-host":
+            // A helper the agent starts in another Windows session (see SessionNative) - never by hand.
+            return await SessionHost.RunAsync(args);
         case "screen-probe":
             // Captures and encodes for a few seconds and prints what came out - for checking a machine.
             return Matgate.Agent.Screen.ScreenProbe.Run(args);
@@ -145,7 +148,16 @@ static int RunSetup(string[] args)
             case "--port": options.Port = int.Parse(Next()); break;
             case "--firewall": options.OpenFirewall = true; break;
             case "--no-firewall": options.OpenFirewall = false; break;
-            case "--mode": options.Mode = Next() == "service" ? "service" : "user"; break;
+            case "--mode":
+                // "system": a LocalSystem service - the screen also at the sign-in screen, programs as the signed-in user.
+                var mode = Next();
+                options.Mode = mode is "service" or "system" ? "service" : "user";
+                if (mode == "system")
+                {
+                    options.Account = "LocalSystem";
+                }
+
+                break;
             case "--account": options.Account = Next(); break;
             case "--password": options.Password = Next(); break;
             case "--no-claude": options.Claude = false; break;
@@ -298,6 +310,7 @@ static async Task RunAgentAsync(string[] args, string version)
         AgentLog.Write($"  token:         {config.Token}");
     }
 
+    UpdatePlugin.TidyUp();
     var files = new FilesPlugin(config.Roots);
     var terminals = new TerminalPlugin(config, files);
     var updates = new UpdatePlugin(config, configPath);

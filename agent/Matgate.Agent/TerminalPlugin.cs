@@ -13,6 +13,7 @@ public sealed class TerminalPlugin
     private readonly AgentConfig _config;
     private readonly FilesPlugin _files;
     private readonly ConcurrentDictionary<string, Session> _sessions = new();
+    private readonly PtyLauncher _launcher = new();
 
     public int Count => _sessions.Count;
     private readonly System.Threading.Timer _reaper;
@@ -63,9 +64,8 @@ public sealed class TerminalPlugin
 
         var terminal = Available.FirstOrDefault(candidate => string.Equals(candidate.Id, plugin, StringComparison.Ordinal))
             ?? throw new InvalidOperationException("This program is not offered by the agent.");
-        var directory = _files.DirectoryFor(request.Text("cwd"))
-            ?? _files.FirstRoot
-            ?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        // Without a folder the program starts in the home folder of whoever it runs as.
+        var directory = _files.DirectoryFor(request.Text("cwd")) ?? _files.FirstRoot;
 
         var command = terminal.Command;
         var variant = request.Text("variant");
@@ -76,7 +76,7 @@ public sealed class TerminalPlugin
             command += " " + chosen.Arguments;
         }
 
-        var pty = new ConPty(command, directory, columns, rows);
+        var pty = _launcher.Start(id, command, directory, columns, rows);
         var session = new Session(id, plugin, pty) { Folder = request.Text("cwd") ?? "" };
         _sessions[id] = session;
         pty.Output += session.OnOutput;
@@ -175,7 +175,7 @@ public sealed class TerminalPlugin
         };
     }
 
-    private sealed class Session(string id, string plugin, ConPty pty)
+    private sealed class Session(string id, string plugin, IPty pty)
     {
         private readonly object _gate = new();
         private readonly Queue<byte[]> _backlog = new();
@@ -186,7 +186,7 @@ public sealed class TerminalPlugin
 
         public string Plugin { get; } = plugin;
 
-        public ConPty Pty { get; } = pty;
+        public IPty Pty { get; } = pty;
 
         public DateTimeOffset Started { get; } = DateTimeOffset.UtcNow;
 

@@ -167,7 +167,7 @@ public sealed class UpdatePlugin(AgentConfig config, string configPath)
         var mode = Arg("--mode");
         var configPath = Arg("--config");
         AgentLog.UseFile(Path.GetDirectoryName(configPath)!);
-        var backup = target + ".bak";
+        string? previous = null;
 
         try
         {
@@ -183,8 +183,10 @@ public sealed class UpdatePlugin(AgentConfig config, string configPath)
                 }
             }
 
-            Retry(() => File.Copy(target, backup, overwrite: true));
-            Retry(() => File.Copy(newExe, target, overwrite: true));
+            // A running program cannot be overwritten - and the tray icon runs from the same file, maybe in
+            // several sessions. It can be renamed, though: the old one moves aside, the new one takes its place.
+            previous = MoveAside(target);
+            Retry(() => File.Copy(newExe, target));
             AgentLog.Write($"Updater: program replaced with {version}");
             Start(target, mode, configPath);
             if (WaitForVersion(port, version, TimeSpan.FromSeconds(120)))
@@ -196,20 +198,59 @@ public sealed class UpdatePlugin(AgentConfig config, string configPath)
 
             AgentLog.Write($"Updater: {version} did not come up - putting the previous version back");
             StopFrom(target);
-            Retry(() => File.Copy(backup, target, overwrite: true));
+            MoveAside(target);
+            Retry(() => File.Move(previous!, target));
             Start(target, mode, configPath);
             return 1;
         }
         catch (Exception exception)
         {
             AgentLog.Write("Updater failed: " + exception.Message);
-            if (File.Exists(backup) && !File.Exists(target))
+            if (previous is not null && File.Exists(previous) && !File.Exists(target))
             {
-                File.Copy(backup, target);
+                File.Move(previous, target);
             }
 
             Start(target, mode, configPath);
             return 1;
+        }
+    }
+
+    // Renames a program that may be running to <name>.bak - or, when an older .bak is still running somewhere
+    // (a tray icon from the last update), to a name of its own. Returns the new name.
+    private static string MoveAside(string path)
+    {
+        var aside = path + ".bak";
+        try
+        {
+            File.Delete(aside);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            aside = $"{path}.old-{DateTime.UtcNow:yyyyMMddHHmmss}";
+        }
+
+        Retry(() => File.Move(path, aside));
+        return aside;
+    }
+
+    // What earlier updates moved aside and nothing runs from any more.
+    public static void TidyUp()
+    {
+        if (Environment.ProcessPath is not { } exe || !CanUpdate())
+        {
+            return;
+        }
+
+        foreach (var old in Directory.EnumerateFiles(Path.GetDirectoryName(exe)!, Path.GetFileName(exe) + ".old-*"))
+        {
+            try
+            {
+                File.Delete(old);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+            }
         }
     }
 

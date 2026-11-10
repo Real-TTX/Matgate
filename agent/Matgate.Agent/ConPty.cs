@@ -9,7 +9,7 @@ namespace Matgate.Agent;
 // A program in a Windows pseudo console (ConPTY): what a terminal needs - raw bytes in, VT sequences
 // out, a size that can change. Programs like Claude Code draw their whole interface with it.
 [SupportedOSPlatform("windows")]
-public sealed class ConPty : IDisposable
+public sealed class ConPty : IPty, IDisposable
 {
     private const uint ExtendedStartupInfoPresent = 0x00080000;
     private const uint CreateUnicodeEnvironment = 0x00000400;

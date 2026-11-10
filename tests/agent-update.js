@@ -133,6 +133,11 @@ let feedServer;
   const appIcon = await page.evaluate(() => [...document.querySelectorAll("#connection-tab-actions button")].some(b => /Agent-Übersicht|Agent overview/.test(b.title || b.getAttribute("aria-label") || "")));
   check("the toolbar has the agent's icon back to its start screen", appIcon, true);
 
+  // A second process from the same file, as the tray icon is (in every signed-in session): a running program
+  // cannot be overwritten, so the update has to move it aside instead. (screen-probe on the test picture holds
+  // the file without showing anything.)
+  const holder = spawn(installed, ["screen-probe", "--test", "--seconds", "150"], { stdio: "ignore", env: { ...process.env, MATGATE_AGENT_SCREEN_TEST: "1" } });
+  await sleep(1500);
   await page.click(".agent-home [data-agent-update]");
   let after = null;
   for (let i = 0; i < 60; i++) {
@@ -140,7 +145,9 @@ let feedServer;
     const now = await status().catch(() => null);
     if (now && now.online && now.version === NEW) { after = now; break; }
   }
-  check("Matgate sent the update and the agent came back as the new version", after && after.version, NEW);
+  check("Matgate sent the update and the agent came back as the new version - while another process still ran the old file", after && after.version, NEW);
+  holder.kill();
+  await sleep(1000);
   check("the new program replaced the old one in place", running(installed), 1);
   await sleep(4000);
   const settled = await page.evaluate(() => ({

@@ -43,11 +43,27 @@ internal static unsafe class ScreenProbe
         var scale = monitor.Width > 2560 ? 2 : 1;
         var (width, height) = Nv12.Scaled(monitor.Width, monitor.Height, scale);
         Console.WriteLine($"monitor {monitor.Name} {monitor.Width}x{monitor.Height}, video {width}x{height}");
-        using var encoder = new H264Encoder(width, height, 30, 8_000_000);
-        var picture = new byte[Nv12.Size(width, height)];
         using var output = outPath is null ? null : File.Create(outPath);
-        var pointer = new PointerState();
         long frames = 0, bytes = 0, keys = 0;
+        if (args.Contains("--software"))
+        {
+            Environment.SetEnvironmentVariable("MATGATE_AGENT_SOFTWARE_ENCODER", "1");
+        }
+
+        using var encoder = VideoEncoders.Create(width, height, 60, 12_000_000, (data, key) =>
+        {
+            Interlocked.Increment(ref frames);
+            Interlocked.Add(ref bytes, data.Length);
+            Interlocked.Add(ref keys, key ? 1 : 0);
+            lock (args)
+            {
+                output?.Write(data);
+            }
+        });
+        Console.WriteLine($"encoder: {encoder.Name}");
+        var picture = new byte[Nv12.Size(width, height)];
+        var pointer = new PointerState();
+        long submitted = 0;
         double convert = 0, encode = 0;
         var clock = Stopwatch.StartNew();
         var first = true;
@@ -62,19 +78,18 @@ internal static unsafe class ScreenProbe
 
             convert += step.Elapsed.TotalMilliseconds;
             step.Restart();
-            encoder.Encode(picture, first, (data, key) =>
+            if (encoder.Encode(picture, first))
             {
-                frames++;
-                bytes += data.Length;
-                keys += key ? 1 : 0;
-                output?.Write(data);
-            });
+                submitted++;
+            }
+
             encode += step.Elapsed.TotalMilliseconds;
             first = false;
         }
 
-        Console.WriteLine($"{frames} frames ({keys} key) in {seconds} s, {bytes / 1024} KB, " +
-            $"capture+convert {convert / Math.Max(1, frames):0.0} ms, encode {encode / Math.Max(1, frames):0.0} ms per frame, pointer shape {(pointer.Shape is null ? "none" : pointer.Shape.Length + " bytes")}");
+        Thread.Sleep(300);
+        Console.WriteLine($"{submitted} pictures in, {frames} frames out ({keys} key) in {seconds} s, {bytes / 1024} KB, " +
+            $"capture+convert {convert / Math.Max(1, submitted):0.0} ms, encode {encode / Math.Max(1, submitted):0.0} ms per picture, pointer shape {(pointer.Shape is null ? "none" : pointer.Shape.Length + " bytes")}");
         return frames > 0 ? 0 : 1;
     }
 }

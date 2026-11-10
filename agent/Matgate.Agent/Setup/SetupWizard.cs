@@ -18,6 +18,7 @@ internal sealed class SetupWizard : Form
     private readonly NumericUpDown _port = new() { Minimum = 1, Maximum = 65535, Value = 7488, Width = 100 };
     private readonly CheckBox _firewall = new() { Text = "Zugriff von anderen Rechnern erlauben (Windows-Firewall)", AutoSize = true, Checked = true };
     private readonly RadioButton _modeUser = new() { Text = "Als angemeldeter Benutzer - startet beim Anmelden", AutoSize = true, Checked = true };
+    private readonly RadioButton _modeSystem = new() { Text = "Als Systemdienst - auch ohne Anmeldung, wie eine Fernwartung", AutoSize = true };
     private readonly RadioButton _modeService = new() { Text = "Als Windows-Dienst unter einem Konto", AutoSize = true };
     private readonly TextBox _account = new() { Width = 260, PlaceholderText = @"Konto: .\name oder LocalSystem" };
     private readonly TextBox _password = new() { Width = 260, UseSystemPasswordChar = true };
@@ -60,7 +61,7 @@ internal sealed class SetupWizard : Form
         StartPosition = FormStartPosition.CenterScreen;
         AutoScaleDimensions = new SizeF(96F, 96F);
         AutoScaleMode = AutoScaleMode.Dpi;
-        ClientSize = new Size(640, 560);
+        ClientSize = new Size(640, 680);
         Font = Brand.BodyFont();
         BackColor = Color.White;
 
@@ -68,9 +69,11 @@ internal sealed class SetupWizard : Form
         {
             _port.Value = _installed.Port;
             _firewall.Checked = _installed.OpenFirewall;
-            _modeService.Checked = _installed.Mode == "service";
-            _modeUser.Checked = !_modeService.Checked;
-            _account.Text = _installed.Account;
+            var system = _installed.Mode == "service" && WindowsNative.IsLocalSystem(_installed.Account);
+            _modeSystem.Checked = system;
+            _modeService.Checked = _installed.Mode == "service" && !system;
+            _modeUser.Checked = _installed.Mode != "service";
+            _account.Text = system ? "" : _installed.Account;
             _tray.Checked = _installed.Tray;
             _autoUpdate.Checked = _installed.AutoUpdate;
             _rootList.AddRange(_installed.Roots);
@@ -94,6 +97,7 @@ internal sealed class SetupWizard : Form
         _cancel.Click += (_, _) => Close();
         AcceptButton = _next;
         _modeUser.CheckedChanged += (_, _) => UpdateModeFields();
+        _modeService.CheckedChanged += (_, _) => UpdateModeFields();
         _account.TextChanged += (_, _) => UpdateModeFields();
 
         _header = new BrandHeader(uninstall ? "Deinstallation" : _installed is null ? "Setup" : "Update");
@@ -195,6 +199,8 @@ internal sealed class SetupWizard : Form
                 content.Controls.Add(Brand.FieldLabel("Der Agent läuft"));
                 content.Controls.Add(_modeUser);
                 content.Controls.Add(Brand.Hint($"Mit den Rechten von {WindowsNative.InteractiveUser()} - Claude Code nutzt deinen Login. Kein Passwort nötig.", 20));
+                content.Controls.Add(_modeSystem);
+                content.Controls.Add(Brand.Hint("Bildschirm auch am Anmelde- und Sperrbildschirm, in Administratorfenstern und mit Strg+Alt+Entf. Programme wie Claude Code laufen trotzdem als der angemeldete Benutzer.", 20));
                 content.Controls.Add(_modeService);
                 var account = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(20, 2, 0, 0) };
                 _account.Width = 230;
@@ -227,7 +233,7 @@ internal sealed class SetupWizard : Form
                 content.Controls.Add(programs);
                 content.Controls.Add(Brand.Hint("Starten im Ordner, der in Matgate offen ist. Claude Code muss hier installiert sein."));
                 content.Controls.Add(_screen);
-                content.Controls.Add(Brand.Hint("Zeigt, was der Monitor zeigt - nur als angemeldeter Benutzer, nicht als Dienst.", 20));
+                content.Controls.Add(Brand.Hint("Zeigt, was der Monitor zeigt - als angemeldeter Benutzer oder als Systemdienst, nicht unter einem anderen Dienstkonto.", 20));
                 RefreshRoots();
                 break;
 
@@ -235,7 +241,7 @@ internal sealed class SetupWizard : Form
                 content.Controls.Add(Brand.Heading("Matgate Agent entfernen"));
                 content.Controls.Add(Brand.Paragraph(_installed is null
                     ? "Der Matgate Agent ist nicht vollständig installiert; was davon da ist, wird entfernt."
-                    : $"Entfernt werden {(_installed.Mode == "service" ? "der Dienst" : "die Anmeldeaufgabe")}, die Firewall-Regel, das Symbol im Infobereich, der Eintrag unter Apps und das Programm in {Installer.ProgramFolder}."));
+                    : $"Entfernt werden {(_installed.Mode == "service" ? "der Dienst" : "die Anmeldeaufgabe")}, die Firewall-Regel, das Symbol im Infobereich, der Eintrag unter Apps und das Programm in {Installer.ProgramFolder}. Eine geänderte Strg+Alt+Entf-Richtlinie wird zurückgesetzt."));
                 content.Controls.Add(_deleteSettings);
                 content.Controls.Add(Brand.Hint($"Ohne Häkchen bleiben sie in {Installer.DataFolder}: eine spätere Installation nimmt dasselbe Token, die Verbindung in Matgate gilt weiter.", 20));
                 content.Controls.Add(new BrandNotice("Die Verbindung in Matgate bleibt bestehen, bis sie dort gelöscht wird.", NoticeTone.Info));
@@ -302,8 +308,8 @@ internal sealed class SetupWizard : Form
         {
             Port = (int)_port.Value,
             OpenFirewall = _firewall.Checked,
-            Mode = _modeService.Checked ? "service" : "user",
-            Account = _account.Text.Trim(),
+            Mode = _modeUser.Checked ? "user" : "service",
+            Account = _modeSystem.Checked ? "LocalSystem" : _account.Text.Trim(),
             Password = _password.Text,
             Tray = _tray.Checked,
             AutoUpdate = _autoUpdate.Checked,

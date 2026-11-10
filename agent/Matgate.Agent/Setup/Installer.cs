@@ -36,7 +36,8 @@ public sealed class SetupOptions
     // Matgate may bring new versions on its own.
     public bool AutoUpdate { get; set; } = true;
 
-    // The screen in Matgate (desktop, sound, clipboard) - works in user mode only.
+    // The screen in Matgate (desktop, sound, clipboard) - in user mode, or as a LocalSystem service (then also
+    // the sign-in screen).
     public bool Screen { get; set; } = true;
 
     // Filled from an existing installation only.
@@ -55,6 +56,9 @@ public static class Installer
     private const string TrayRunValue = "Matgate Agent Tray";
     private const string RunKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
     private const string UninstallKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\MatgateAgent";
+    private const string SystemPolicyKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System";
+    private const string SasPolicy = "SoftwareSASGeneration";
+    private const string SasBefore = "MatgateAgentSasBefore";
 
     public static string ProgramFolder => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), ProductName);
 
@@ -212,8 +216,13 @@ public static class Installer
             WindowsNative.CreateOrUpdateService(ServiceName, ProductName, commandLine,
                 runAccount == "LocalSystem" ? "LocalSystem" : runAccount,
                 runAccount == "LocalSystem" ? "" : options.Password);
-            Run("sc.exe", ["description", ServiceName, "Matgate agent - offers files and programs of this machine to Matgate."], log);
+            Run("sc.exe", ["description", ServiceName, "Matgate agent - offers files, programs and the screen of this machine to Matgate."], log);
             Run("sc.exe", ["failure", ServiceName, "reset=", "86400", "actions=", "restart/10000/restart/60000/restart/60000"], log);
+            if (runAccount == "LocalSystem" && options.Screen)
+            {
+                AllowSecureAttention(log);
+            }
+
             Run("sc.exe", ["start", ServiceName], log);
         }
         else
@@ -273,6 +282,7 @@ public static class Installer
         RemoveLogonTask(log);
         Run("netsh", ["advfirewall", "firewall", "delete", "rule", "name=" + FirewallRule], log, ignoreFailure: true);
         SetTray(false, log);
+        RestoreSecureAttention(log);
         Registry.LocalMachine.DeleteSubKeyTree(UninstallKey, throwOnMissingSubKey: false);
 
         if (!keepConfig && Directory.Exists(DataFolder))
@@ -300,6 +310,50 @@ public static class Installer
         }
 
         log($"{ProductName} removed.");
+    }
+
+    // Ctrl+Alt+Del from the screen: Windows takes it from a service only where the policy SoftwareSASGeneration
+    // allows services (bit 1). What was there before is noted, and uninstall puts it back.
+    private static void AllowSecureAttention(Action<string> log)
+    {
+        using var policy = Registry.LocalMachine.CreateSubKey(SystemPolicyKey);
+        var before = policy.GetValue(SasPolicy) as int?;
+        if (((before ?? 0) & 1) != 0)
+        {
+            return;
+        }
+
+        using (var uninstall = Registry.LocalMachine.CreateSubKey(UninstallKey))
+        {
+            if (uninstall.GetValue(SasBefore) is null)
+            {
+                uninstall.SetValue(SasBefore, before ?? -1, RegistryValueKind.DWord);
+            }
+        }
+
+        policy.SetValue(SasPolicy, (before ?? 0) | 1, RegistryValueKind.DWord);
+        log("  Strg+Alt+Entf aus dem Dienst: erlaubt");
+    }
+
+    private static void RestoreSecureAttention(Action<string> log)
+    {
+        using var uninstall = Registry.LocalMachine.OpenSubKey(UninstallKey);
+        if (uninstall?.GetValue(SasBefore) is not int before)
+        {
+            return;
+        }
+
+        using var policy = Registry.LocalMachine.CreateSubKey(SystemPolicyKey);
+        if (before < 0)
+        {
+            policy.DeleteValue(SasPolicy, throwOnMissingValue: false);
+        }
+        else
+        {
+            policy.SetValue(SasPolicy, before, RegistryValueKind.DWord);
+        }
+
+        log("  Strg+Alt+Entf-Richtlinie: wie vorher");
     }
 
     private static void StopRunning(Action<string> log)
