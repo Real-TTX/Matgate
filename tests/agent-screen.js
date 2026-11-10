@@ -94,6 +94,23 @@ let agent;
     if (tabFrame) {
       for (let i = 0; i < 20 && (await tabFrame.evaluate(() => window.__screen.frames)) < 3; i++) { await sleep(300); }
       check("and shows the picture there", (await tabFrame.evaluate(() => window.__screen.frames)) >= 3, true);
+      // In the shell the page has no bar of its own: Matgate's session toolbar steers it, as for RDP.
+      check("inside the shell the page shows no bar of its own", await tabFrame.evaluate(() => getComputedStyle(document.querySelector(".bar")).display), "none");
+      for (let i = 0; i < 20 && !(await page.evaluate(() => !!document.querySelector("#connection-tab-actions [data-action='resolution']"))); i++) { await sleep(300); }
+      const actions = await page.evaluate(() => [...document.querySelectorAll("#connection-tab-actions [data-action]")].map(b => b.dataset.action));
+      await page.screenshot({ path: path.join(work, "screen-shell.png") });
+      check("the session toolbar carries the screen's actions", ["agent-overview", "fullscreen", "resolution", "sound", "clipboard", "disconnect"].every(a => actions.includes(a)) ? true : actions, true);
+      await page.evaluate(() => { const b = document.querySelector("#connection-tab-actions [data-action='resolution']"); b ? b.click() : document.querySelector("[data-action='more'], .tab-action-overflow-trigger")?.click(); });
+      await sleep(400);
+      const dialog = await page.evaluate(() => [...document.querySelectorAll(".resolution-option")].filter(b => b.offsetParent).map(b => b.textContent));
+      check("its resolution button opens the resolution dialog with the machine's modes", dialog.includes("An Fenster anpassen") || dialog.includes("Fit to window") ? dialog.includes("1920 × 1080") : dialog, true);
+      await page.evaluate(() => [...document.querySelectorAll(".resolution-option")].find(b => /Wie am Rechner|As on the machine/.test(b.textContent))?.click());
+      await sleep(600);
+      check("and a choice there reaches the page", await tabFrame.evaluate(() => window.MatgateScreen.state().resolution), "native");
+      const soundBefore = await tabFrame.evaluate(() => window.MatgateScreen.state().sound);
+      await page.evaluate(() => document.querySelector("#connection-tab-actions [data-action='sound']")?.click());
+      await sleep(800);
+      check("the sound button switches the page's sound", await tabFrame.evaluate(() => window.MatgateScreen.state().sound), !soundBefore);
     }
   }
 
@@ -324,6 +341,48 @@ let agent;
   await sleep(300);
   const transform = await tapPage.evaluate(() => document.getElementById("frame").style.transform);
   check("pinching zooms in", /scale\((?!1\))/.test(transform) ? true : transform, true);
+
+  // --- The touchpad (the phone's default, as for RDP): the screen is one large trackpad.
+  check("a phone starts in touchpad mode", await tapPage.evaluate(() => window.MatgateScreen.state().pointerMode), "touchpad");
+  await tapPage.evaluate(() => { document.getElementById("frame").style.transform = ""; });
+  await tapPage.reload({ waitUntil: "domcontentloaded" });
+  for (let i = 0; i < 30 && (await tapPage.evaluate(() => window.__screen.frames)) < 3; i++) { await sleep(300); }
+  await touchDebug();
+  const padBox = await tapPage.locator("#screen").boundingBox();
+  const px = padBox.x + padBox.width / 2;
+  const py = padBox.y + padBox.height / 2;
+  const lastMove = lines => (lines.filter(l => /^move /.test(l)).pop() || "move -1,-1").replace("move ", "").split(",").map(Number);
+  // A swipe moves the cursor on from where it is - without clicking.
+  for (let step = 0; step <= 6; step++) { await touch(step === 0 ? "pointerdown" : "pointermove", [[1, px + step * 10, py]]); await sleep(30); }
+  await touch("pointerup", [[1, px + 60, py]]);
+  await sleep(500);
+  const swiped = await touchDebug();
+  const [ex, ey] = lastMove(swiped);
+  check("a swipe moves the cursor, without clicking", [ex > 0, swiped.some(l => /^button/.test(l))], [true, false]);
+  check("and the page shows the cursor there", await tapPage.evaluate(() => !document.getElementById("pointer").classList.contains("hidden")), true);
+  // A tap clicks where the cursor is, not where the finger touches (here: the far left edge).
+  await touch("pointerdown", [[1, padBox.x + 3, padBox.y + padBox.height - 3]]);
+  await sleep(60);
+  await touch("pointerup", [[1, padBox.x + 3, padBox.y + padBox.height - 3]]);
+  await sleep(500);
+  const tapped = await touchDebug();
+  check("a tap clicks at the cursor", [lastMove(tapped), tapped.filter(l => /^button/.test(l))], [[ex, ey], ["button 0 down", "button 0 up"]]);
+  await touch("pointerdown", [[1, px - 30, py], [2, px + 30, py]]);
+  await sleep(60);
+  await touch("pointerup", [[1, px - 30, py], [2, px + 30, py]]);
+  await sleep(500);
+  const twoTap = await touchDebug();
+  check("two fingers tapped: the right button, at the cursor", [twoTap.filter(l => /^button/.test(l)), (twoTap.filter(l => /^move /.test(l)).pop() || "").replace("move ", "").split(",").map(Number)[0] === ex],
+    [["button 2 down", "button 2 up"], true]);
+  // Direct touch, as the toolbar's pointer button switches it: a tap clicks where the finger is.
+  await tapPage.evaluate(() => window.MatgateScreen.setPointerMode("direct"));
+  await touch("pointerdown", [[1, padBox.x + 5, padBox.y + 5]]);
+  await sleep(60);
+  await touch("pointerup", [[1, padBox.x + 5, padBox.y + 5]]);
+  await sleep(500);
+  const direct = await touchDebug();
+  const [dx, dy] = (direct.filter(l => /^move /.test(l)).pop() || "move 9999,9999").replace("move ", "").split(",").map(Number);
+  check("direct touch clicks where the finger is", [dx < 40 && dy < 40, direct.filter(l => /^button/.test(l))], [true, ["button 0 down", "button 0 up"]]);
   await tapPage.screenshot({ path: path.join(work, "screen-phone.png") });
   await view.screenshot({ path: path.join(work, "screen-desktop.png") });
   console.log("screenshots in " + work);

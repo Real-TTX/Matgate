@@ -42,6 +42,10 @@ public static class AgentScreenPage
             .keys button { flex: 0 0 auto; min-height: 36px; min-width: 44px; }
             @media (pointer: coarse) { .keys { display: flex; } .wide { display: none; } }
             .hidden { display: none !important; }
+            /* Inside Matgate's shell the session toolbar steers the page, as for an RDP session. */
+            body.embedded .bar { display: none !important; }
+            body.embedded .keys:not(.open) { display: none !important; }
+            .keys.open { display: flex; }
             /* Full screen: the picture fills the screen; the bar waits above it and comes down at the top edge, as with RDP. */
             body.fs .bar { background: rgba(16, 22, 19, .96); border: 1px solid #33413a; border-radius: 0 0 10px 10px; border-top: 0; left: 50%; max-width: calc(100% - 24px); position: absolute; top: 0; transform: translate(-50%, calc(-100% - 2px)); transition: transform .18s ease; z-index: 6; }
             body.fs .bar.show { transform: translate(-50%, 0); }
@@ -106,10 +110,35 @@ public static class AgentScreenPage
             const coarse = matchMedia('(pointer: coarse)').matches;
             const isMac = /Mac|iPhone|iPad/.test(navigator.platform || '');
             window.__screen = { debug: [], frames: 0, audio: 0, clipboard: [], downloads: [] };
+            // Inside Matgate's shell (a page tab): no bar here, the session toolbar there steers this page.
+            const embedded = (() => {
+                try {
+                    return !!(window.parent && window.parent !== window && window.parent.MatgateShowAgent);
+                }
+                catch {
+                    return false;
+                }
+            })();
+            document.body.classList.toggle('embedded', embedded);
+            const notifyShell = () => {
+                try {
+                    window.parent !== window && window.parent.MatgateScreenChanged && window.parent.MatgateScreenChanged();
+                }
+                catch {
+                }
+            };
+            const notifyStats = () => {
+                try {
+                    window.parent !== window && window.parent.MatgateScreenStats && window.parent.MatgateScreenStats();
+                }
+                catch {
+                }
+            };
 
             const setStatus = (value, bad) => {
                 statusLine.textContent = value || '';
                 statusLine.classList.toggle('bad', !!bad);
+                notifyStats();
             };
             const showNotice = (message, action, onAction) => {
                 noticeText.textContent = message;
@@ -281,6 +310,23 @@ public static class AgentScreenPage
             let pointerHot = { x: 0, y: 0 };
             let pointerAt = { x: 0, y: 0, visible: false };
             let touchMode = coarse;
+            // The pointer mode of the shell, shared with RDP sessions: "touchpad" = the screen is one large
+            // trackpad (a finger moves the cursor from where it is, a tap clicks there), "direct" = a tap
+            // clicks where the finger is. Phones start with the touchpad, tablets with direct touch.
+            const pointerModeKey = 'matgate.pointer.mode.v2';
+            let pointerMode = (() => {
+                try {
+                    const stored = localStorage.getItem(pointerModeKey);
+                    if (stored === 'touchpad' || stored === 'direct') {
+                        return stored;
+                    }
+                }
+                catch {
+                }
+                return coarse && Math.min(window.screen.width || 0, window.screen.height || 0) < 640 ? 'touchpad' : 'direct';
+            })();
+            // Where the machine's pointer is, in its pixels - the touchpad moves it on from there.
+            let cursor = null;
             const placePointer = () => {
                 const show = touchMode && pointerAt.visible && pointerUrl && remote.width;
                 pointerImage.classList.toggle('hidden', !show);
@@ -403,6 +449,7 @@ public static class AgentScreenPage
                 switch (op) {
                     case 'screen.ready':
                         retry = 0;
+                        window.setTimeout(notifyShell, 0);
                         if (video) {
                             // A new helper on the machine (another Windows session): its pictures count from 1 again.
                             pending = [];
@@ -428,6 +475,7 @@ public static class AgentScreenPage
                             fillResolutions(data.modes, resolution);
                             resolutionSelect.classList.toggle('hidden', data.modes.length < 2);
                         }
+                        notifyShell();
                         monitorSelect.value = String(data.monitor);
                         localStorage.setItem('matgate.screen.monitor.' + server, String(data.monitor));
                         break;
@@ -439,6 +487,9 @@ public static class AgentScreenPage
                         break;
                     case 'screen.pointer':
                         pointerAt = { x: data.x, y: data.y, visible: !!data.visible };
+                        if (!gesture || gesture.kind !== 'pad') {
+                            cursor = { x: data.x, y: data.y };
+                        }
                         updateCursor();
                         break;
                     case 'screen.audio':
@@ -449,6 +500,7 @@ public static class AgentScreenPage
                         break;
                     case 'screen.stats':
                         window.__screen.stats = data;
+                        window.setTimeout(notifyStats, 0);
                         statsLine.textContent = [data.fps != null ? Math.round(data.fps) + ' ' + text.fps : '', data.rtt != null ? Math.round(data.rtt) + ' ms' : ''].filter(Boolean).join(' · ');
                         statsLine.title = text.statsTitle
                             .replace('{fps}', data.fps ?? '-').replace('{limit}', data.fpsLimit ?? '-').replace('{rtt}', data.rtt ?? '-')
@@ -602,6 +654,66 @@ public static class AgentScreenPage
             const touches = new Map();
             let gesture = null;
             let longPress = 0;
+            let lastTap = { time: 0, x: 0, y: 0 };
+            const ensureCursor = () => {
+                if (!cursor) {
+                    cursor = pointerAt.x || pointerAt.y
+                        ? { x: pointerAt.x, y: pointerAt.y }
+                        : { x: Math.round(remote.width / 2), y: Math.round(remote.height / 2) };
+                }
+                return cursor;
+            };
+            // Zoomed in, the picture follows the cursor so it never leaves the screen.
+            const keepCursorInView = () => {
+                if (zoom <= 1 || !cursor || !remote.width) {
+                    return;
+                }
+                const box = canvas.getBoundingClientRect();
+                const area = stage.getBoundingClientRect();
+                const x = box.left + cursor.x * box.width / remote.width;
+                const y = box.top + cursor.y * box.height / remote.height;
+                const margin = 40;
+                const shiftX = x < area.left + margin ? area.left + margin - x : x > area.right - margin ? area.right - margin - x : 0;
+                const shiftY = y < area.top + margin ? area.top + margin - y : y > area.bottom - margin ? area.bottom - margin - y : 0;
+                if (shiftX || shiftY) {
+                    panX += shiftX;
+                    panY += shiftY;
+                    layout();
+                }
+            };
+            const showCursor = () => {
+                pointerAt = { ...pointerAt, x: cursor.x, y: cursor.y, visible: true };
+                placePointer();
+                keepCursorInView();
+            };
+            let cursorQueued = false;
+            // A finger on the touchpad: the cursor moves by as much, a little faster the quicker the finger is.
+            const moveCursorBy = (dx, dy) => {
+                const at = ensureCursor();
+                const box = canvas.getBoundingClientRect();
+                const factor = box.width ? remote.width / box.width : 1;
+                const speed = 1 + Math.min(2, Math.hypot(dx, dy) / 15);
+                at.x = Math.max(0, Math.min(remote.width - 1, Math.round(at.x + dx * factor * speed)));
+                at.y = Math.max(0, Math.min(remote.height - 1, Math.round(at.y + dy * factor * speed)));
+                if (!cursorQueued) {
+                    cursorQueued = true;
+                    requestAnimationFrame(() => {
+                        cursorQueued = false;
+                        send('screen.input', { t: 'm', x: cursor.x, y: cursor.y });
+                        showCursor();
+                    });
+                }
+            };
+            const buttonAtCursor = (number, down) => {
+                const at = ensureCursor();
+                send('screen.input', { t: 'm', x: at.x, y: at.y });
+                button(number, down);
+            };
+            const clickAtCursor = number => {
+                buttonAtCursor(number, true);
+                button(number, false);
+                showCursor();
+            };
             const tap = (clientX, clientY, number) => {
                 queueMove(clientX, clientY);
                 flushMove();
@@ -623,7 +735,22 @@ public static class AgentScreenPage
                     // A pointer the browser no longer knows: the gesture works without the capture.
                 }
                 window.clearTimeout(longPress);
-                if (touches.size === 1) {
+                if (touches.size === 1 && pointerMode === 'touchpad') {
+                    const now = performance.now();
+                    gesture = { kind: 'pad', moved: false, dragging: false, start: now, x: event.clientX, y: event.clientY };
+                    // Tap, then touch again and move: dragging with the left button, as on a laptop's trackpad.
+                    if (now - lastTap.time < 300 && Math.hypot(event.clientX - lastTap.x, event.clientY - lastTap.y) < 40) {
+                        gesture.dragging = true;
+                        buttonAtCursor(0, true);
+                    }
+                    longPress = window.setTimeout(() => {
+                        if (gesture && gesture.kind === 'pad' && !gesture.moved && !gesture.dragging) {
+                            gesture.kind = 'done';
+                            clickAtCursor(2);
+                        }
+                    }, 550);
+                }
+                else if (touches.size === 1) {
                     gesture = { kind: 'one', moved: false, dragging: false, start: performance.now() };
                     longPress = window.setTimeout(() => {
                         if (gesture && gesture.kind === 'one' && !gesture.moved) {
@@ -636,6 +763,7 @@ public static class AgentScreenPage
                     if (gesture && gesture.dragging) {
                         button(0, false);
                     }
+                    window.clearTimeout(longPress);
                     const [a, b] = [...touches.values()];
                     gesture = {
                         kind: 'two', moved: false, start: performance.now(),
@@ -653,6 +781,20 @@ public static class AgentScreenPage
                 touch.x = event.clientX;
                 touch.y = event.clientY;
                 if (!gesture) {
+                    return;
+                }
+                if (gesture.kind === 'pad') {
+                    const dx = touch.x - gesture.x;
+                    const dy = touch.y - gesture.y;
+                    gesture.x = touch.x;
+                    gesture.y = touch.y;
+                    if (!gesture.moved && Math.hypot(touch.x - touch.startX, touch.y - touch.startY) > 6) {
+                        gesture.moved = true;
+                        window.clearTimeout(longPress);
+                    }
+                    if (gesture.moved) {
+                        moveCursorBy(dx, dy);
+                    }
                     return;
                 }
                 if (gesture.kind === 'one') {
@@ -694,8 +836,11 @@ public static class AgentScreenPage
                         const step = (centerY - (gesture.lastY ?? gesture.centerY)) * 4;
                         gesture.lastY = centerY;
                         if (Math.abs(step) >= 1) {
-                            queueMove(centerX, centerY);
-                            flushMove();
+                            // On the touchpad the cursor stays where it is and scrolls there.
+                            if (pointerMode !== 'touchpad') {
+                                queueMove(centerX, centerY);
+                                flushMove();
+                            }
                             send('screen.input', { t: 'w', dy: Math.round(step), dx: 0 });
                         }
                     }
@@ -708,6 +853,21 @@ public static class AgentScreenPage
                 touches.delete(event.pointerId);
                 window.clearTimeout(longPress);
                 if (!gesture) {
+                    return;
+                }
+                if (gesture.kind === 'pad') {
+                    if (gesture.dragging) {
+                        button(0, false);
+                    }
+                    else if (!gesture.moved && performance.now() - gesture.start < 300) {
+                        clickAtCursor(0);
+                        lastTap = { time: performance.now(), x: event.clientX, y: event.clientY };
+                    }
+                    gesture = null;
+                    return;
+                }
+                if (gesture.kind === 'done') {
+                    gesture = null;
                     return;
                 }
                 if (gesture.kind === 'one') {
@@ -723,8 +883,12 @@ public static class AgentScreenPage
                 else if (gesture.kind === 'two' && touches.size === 0) {
                     // Two fingers, tapped: the right mouse button.
                     if (!gesture.moved && performance.now() - gesture.start < 400) {
-                        const box = stage.getBoundingClientRect();
-                        tap(gesture.centerX, gesture.centerY, 2);
+                        if (pointerMode === 'touchpad') {
+                            clickAtCursor(2);
+                        }
+                        else {
+                            tap(gesture.centerX, gesture.centerY, 2);
+                        }
                     }
                     gesture = null;
                 }
@@ -932,6 +1096,8 @@ public static class AgentScreenPage
                 keyBar.querySelectorAll('[data-sticky]').forEach(button => button.classList.remove('on'));
             });
 
+            sink.addEventListener('focus', notifyShell);
+            sink.addEventListener('blur', notifyShell);
             const keyboardButton = $('keyboard');
             keyboardButton.title = text.keyboard;
             keyboardButton.classList.toggle('hidden', !coarse);
@@ -1146,6 +1312,7 @@ public static class AgentScreenPage
                 soundButton.innerHTML = playing ? SPEAKER_ON : SPEAKER_OFF;
                 soundButton.classList.toggle('on', playing);
                 soundButton.title = playing ? text.soundOff : soundWanted ? text.soundBlocked : text.soundOn;
+                notifyShell();
             };
             const play = (left, right) => {
                 const buffer = audioContext.createBuffer(2, left.length, 48000);
@@ -1255,6 +1422,59 @@ public static class AgentScreenPage
                 paintSound();
             });
             paintSound();
+
+            const optionList = select => [...select.options].map(option => ({ value: option.value, label: option.textContent, active: option.selected }));
+            window.MatgateScreen = {
+                state: () => ({
+                    status: statusLine.textContent,
+                    stats: statsLine.textContent,
+                    statsDetail: statsLine.title,
+                    resolution,
+                    resolutionLabel: resolutionSelect.selectedOptions[0] ? resolutionSelect.selectedOptions[0].textContent : '',
+                    resolutionOptions: optionList(resolutionSelect),
+                    monitors: optionList(monitorSelect),
+                    qualities: optionList(qualitySelect),
+                    sound: !!audioContext,
+                    keyboardOpen: coarse && document.activeElement === sink,
+                    keyBarOpen: keyBar.classList.contains('open'),
+                    pointerMode,
+                    texts: { monitor: text.monitor, quality: text.quality, target: text.target },
+                }),
+                setResolution: value => {
+                    resolutionSelect.value = value;
+                    resolutionSelect.dispatchEvent(new Event('change'));
+                    notifyShell();
+                },
+                setMonitor: value => {
+                    monitorSelect.value = String(value);
+                    monitorSelect.dispatchEvent(new Event('change'));
+                },
+                setQuality: value => {
+                    qualitySelect.value = value;
+                    qualitySelect.dispatchEvent(new Event('change'));
+                },
+                toggleSound: () => soundButton.click(),
+                rightClick: () => clickAtCursor(2),
+                toggleKeyboard: () => keyboardButton.click(),
+                toggleKeyBar: () => {
+                    keyBar.classList.toggle('open');
+                    notifyShell();
+                },
+                pasteText: value => {
+                    setStatus(text.pasting);
+                    send('screen.clip.set', { kind: 'text', paste: true }, encoder.encode(value));
+                },
+                sas: () => send('screen.sas', {}),
+                setPointerMode: mode => {
+                    pointerMode = mode === 'touchpad' ? 'touchpad' : 'direct';
+                },
+                focus: () => {
+                    if (!coarse) {
+                        sink.focus({ preventScroll: true });
+                    }
+                },
+            };
+            notifyShell();
 
             connect();
         })();

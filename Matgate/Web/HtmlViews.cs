@@ -4464,6 +4464,8 @@ public sealed class HtmlViews
         {
             fullscreen = Icon("maximize"),
             terminal = Icon("terminal"),
+            sound = Icon("volume"),
+            soundOff = Icon("volume-off"),
             home = Icon("home"),
             copy = Icon("copy"),
             clipboard = Icon("clipboard"),
@@ -7767,6 +7769,11 @@ public sealed class HtmlViews
                         applyActionOrder();
                         collapseConnectionActions(connectionTabActions);
                     }
+                    else if (shellTab && agentScreenOf(shellTab)) {
+                        addAgentScreenActions(shellTab);
+                        applyActionOrder();
+                        collapseConnectionActions(connectionTabActions);
+                    }
                     else if (shellTab) {
                         const copyUrl = getShellTabCopyUrl(shellTab);
                         if (copyUrl) {
@@ -7780,6 +7787,204 @@ public sealed class HtmlViews
                         }
                     }
                     updateStatusBar();
+                }
+
+                // The screen of an agent's machine, in a page tab: the page brings no bar of its own there - the
+                // session toolbar steers it, the same buttons as for an RDP session (fullscreen, pointer mode,
+                // keyboards, resolution, clipboard, Ctrl+Alt+Del, disconnect). The page answers through
+                // window.MatgateScreen and says when something changed (MatgateScreenChanged).
+                function agentScreenOf(shellTab) {
+                    const match = shellTab ? /^\/agent\/([0-9a-fA-F-]{36})\/screen/.exec(shellTab.url || '') : null;
+                    if (!match) {
+                        return null;
+                    }
+
+                    let api = null;
+                    try {
+                        api = (shellTab.iframe && shellTab.iframe.contentWindow && shellTab.iframe.contentWindow.MatgateScreen) || null;
+                    }
+                    catch {
+                        api = null;
+                    }
+
+                    return { serverId: match[1], api };
+                }
+
+                function activeAgentScreen() {
+                    const shellTab = activeTabId ? null : shellTabs.get(activeShellTabId);
+                    const screen = shellTab ? agentScreenOf(shellTab) : null;
+                    return screen ? { shellTab, ...screen } : null;
+                }
+
+                window.MatgateScreenChanged = () => {
+                    if (activeAgentScreen()) {
+                        updateTabActions();
+                    }
+                };
+                window.MatgateScreenStats = () => {
+                    if (activeAgentScreen()) {
+                        updateStatusBar();
+                    }
+                };
+
+                function addAgentScreenActions(shellTab) {
+                    const screen = agentScreenOf(shellTab);
+                    // Looked up at the time of the click: the page may have loaded (or reloaded) since.
+                    const api = () => agentScreenOf(shellTab)?.api || null;
+                    const state = screen.api ? screen.api.state() : {};
+                    const agentTab = [...tabs.values()].find(candidate => candidate.serverId === screen.serverId && isAgentTab(candidate));
+
+                    addTabAction('agent-overview', createTabActionButton(
+                        (agentTab && agentTab.iconHtml) || actionIcons.home,
+                        agentTexts.overview,
+                        () => window.MatgateShowAgent(screen.serverId),
+                        'tab-action-keep tab-action-app',
+                        true));
+
+                    addTabAction('fullscreen', createTabActionButton(
+                        actionIcons.fullscreen,
+                        uiText.fullscreen || 'Fullscreen',
+                        async () => {
+                            try {
+                                await toggleFullscreen(document.documentElement);
+                            }
+                            catch {
+                                // Ignore fullscreen failures on browsers with partial support.
+                            }
+                            api()?.focus();
+                        },
+                        'tab-action-keep',
+                        true));
+
+                    if (isTouchDevice) {
+                        addTabAction('pointer', createTabActionButton(
+                            actionIcons.pointer,
+                            pointerMode === 'touchpad' ? (uiText.pointerTouchpad || 'Touchpad pointer') : (uiText.pointerDirect || 'Direct touch'),
+                            () => setPointerMode(pointerMode === 'touchpad' ? 'direct' : 'touchpad'),
+                            pointerMode === 'touchpad' ? 'active' : '',
+                            true));
+
+                        addTabAction('rightClick', createTabActionButton(
+                            actionIcons.rightClick,
+                            uiText.rightClick || 'Right click',
+                            () => api()?.rightClick(),
+                            '',
+                            true));
+
+                        const keyboardButton = createTabActionButton(
+                            actionIcons.keyboard,
+                            uiText.showKeyboard || 'Show/hide keyboard',
+                            () => api()?.toggleKeyboard(),
+                            'tab-action-keep' + (state.keyboardOpen ? ' active' : ''),
+                            true);
+                        // The tap must not take the focus from the page's input first.
+                        keyboardButton.addEventListener('mousedown', event => event.preventDefault());
+                        addTabAction('keyboard', keyboardButton);
+
+                        const keysButton = createTabActionButton(
+                            actionIcons.onScreenKeyboard,
+                            uiText.onScreenKeyboard || 'Show/hide on-screen keyboard',
+                            () => api()?.toggleKeyBar(),
+                            'tab-action-keep' + (state.keyBarOpen ? ' active' : ''),
+                            true);
+                        keysButton.addEventListener('mousedown', event => event.preventDefault());
+                        addTabAction('osk', keysButton);
+                    }
+
+                    addTabAction('resolution', createTabActionButton(
+                        actionIcons.resolution,
+                        `${uiText.resolutionLabel || 'Resolution'}: ${state.resolutionLabel || '-'}`,
+                        () => openResolutionDialog(),
+                        state.resolution === 'auto' ? 'active' : '',
+                        true));
+
+                    addTabAction('sound', createTabActionButton(
+                        state.sound ? actionIcons.sound : actionIcons.soundOff,
+                        state.sound ? agentTexts.soundOff : agentTexts.soundOn,
+                        () => api()?.toggleSound(),
+                        state.sound ? 'active' : '',
+                        true));
+
+                    addTabAction('clipboard', createTabActionButton(
+                        actionIcons.clipboard,
+                        uiText.pasteToActiveTab || uiText.clipboard || 'Paste to active tab',
+                        async () => {
+                            try {
+                                const text = await readBrowserClipboard();
+                                if (text) {
+                                    api()?.pasteText(text);
+                                }
+                            }
+                            catch {
+                                // No access to this device's clipboard: Ctrl+V in the picture still works.
+                            }
+                            api()?.focus();
+                        },
+                        '',
+                        true));
+
+                    if (sessionPrefs.ctrlAltDelHotkey) {
+                        addTabAction('cad', createTabActionButton(
+                            actionIcons.systemKeys,
+                            uiText.comboCtrlAltDel || 'Ctrl+Alt+Del',
+                            () => api()?.sas(),
+                            '',
+                            true));
+                    }
+
+                    addTabAction('disconnect', createTabActionButton(
+                        actionIcons.disconnect,
+                        uiText.disconnect || 'Disconnect',
+                        () => closeShellTab(shellTab.id),
+                        'danger tab-action-disconnect'));
+                }
+
+                // The resolution dialog of an RDP session, filled with what the agent's monitor offers.
+                function openScreenResolutionDialog(screen) {
+                    const api = screen.api;
+                    if (!api || !resolutionDialog || !resolutionOptions) {
+                        return;
+                    }
+
+                    // The dialog lives with the connection tabs, which are hidden behind a page tab: it moves to the
+                    // page itself (its rules are global, RDP sessions find it there just as well).
+                    if (resolutionDialog.parentElement !== document.body) {
+                        document.body.appendChild(resolutionDialog);
+                    }
+
+                    const state = api.state();
+                    const option = (label, active, onClick) => {
+                        const button = document.createElement('button');
+                        button.type = 'button';
+                        button.className = 'resolution-option' + (active ? ' active' : '');
+                        button.textContent = label;
+                        button.addEventListener('click', () => {
+                            onClick();
+                            closeResolutionDialog();
+                            api.focus();
+                        });
+                        return button;
+                    };
+                    resolutionOptions.replaceChildren(...(state.resolutionOptions || []).map(item =>
+                        option(item.label, item.value === state.resolution, () => api.setResolution(item.value))));
+                    if (resolutionExtra) {
+                        resolutionExtra.replaceChildren();
+                        const group = (title, items, onPick) => {
+                            if (!items || items.length < 2) {
+                                return;
+                            }
+
+                            const heading = document.createElement('p');
+                            heading.className = 'muted';
+                            heading.textContent = title;
+                            resolutionExtra.appendChild(heading);
+                            items.forEach(item => resolutionExtra.appendChild(option(item.label, item.active, () => onPick(item.value))));
+                        };
+                        group(state.texts?.monitor || 'Monitor', state.monitors, value => api.setMonitor(value));
+                        group(state.texts?.quality || 'Quality', state.qualities, value => api.setQuality(value));
+                    }
+
+                    resolutionDialog.classList.remove('hidden');
                 }
 
                 function createTabActionButton(iconHtml, label, onClick, className = '', iconOnly = false) {
@@ -9856,6 +10061,22 @@ public sealed class HtmlViews
 
                 function updateStatusBar() {
                     const tab = tabs.get(activeTabId);
+                    const screen = tab ? null : activeAgentScreen();
+                    if (screen && screen.api) {
+                        const state = screen.api.state();
+                        statusTitle.textContent = screen.shellTab.title || '';
+                        statusTarget.textContent = state.texts?.target || 'Agent';
+                        statusState.textContent = state.status || ui('ready');
+                        statusLatency.textContent = gatewayLatencyMs === null ? 'Gateway: -' : `Gateway: ${gatewayLatencyMs} ms`;
+                        statusTunnel.textContent = 'Tunnel: Agent';
+                        statusSync.textContent = state.stats || '-';
+                        statusMessage.textContent = state.statsDetail || '-';
+                        if (statusResolution) {
+                            statusResolution.textContent = state.resolutionLabel ? `Screen: ${state.resolutionLabel}` : '';
+                        }
+                        return;
+                    }
+
                     if (!tab) {
                         statusTitle.textContent = ui('newConnection');
                         statusTarget.textContent = '-';
@@ -10547,6 +10768,8 @@ public sealed class HtmlViews
                     updateFailed: agentGerman ? 'Das Update hat nicht geklappt' : 'The update did not work',
                     automaticOn: agentGerman ? 'automatische Updates an' : 'automatic updates on',
                     automaticOff: agentGerman ? 'automatische Updates aus' : 'automatic updates off',
+                    soundOn: agentGerman ? 'Ton einschalten' : 'Turn sound on',
+                    soundOff: agentGerman ? 'Ton ausschalten' : 'Turn sound off',
                 };
 
                 function isAgentTab(tab) {
@@ -12511,6 +12734,7 @@ public sealed class HtmlViews
                     for (const entry of tabs.values()) {
                         entry.pointerMode = pointerMode;
                     }
+                    shellTabs.forEach(entry => agentScreenOf(entry)?.api?.setPointerMode(pointerMode));
                     try {
                         localStorage.setItem(pointerModeStorageKey, pointerMode);
                     }
@@ -12773,6 +12997,12 @@ public sealed class HtmlViews
                 }
 
                 function openResolutionDialog() {
+                    const screen = activeAgentScreen();
+                    if (screen) {
+                        openScreenResolutionDialog(screen);
+                        return;
+                    }
+
                     const tab = tabs.get(activeTabId);
                     if (!resolutionDialog || !resolutionOptions || !tab) {
                         return;
@@ -22036,6 +22266,8 @@ public sealed class HtmlViews
             "arrow-right" => """<path d="m13 5 7 7-7 7"/><path d="M4 12h15"/>""",
             "external-link" => """<path d="M14 3h7v7"/><path d="M10 14 21 3"/><path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/>""",
             "logout" => """<path d="M10 17l5-5-5-5"/><path d="M15 12H3"/><path d="M21 3v18"/>""",
+            "volume" => """<path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/>""",
+            "volume-off" => """<path d="M11 5 6 9H3v6h3l5 4z"/><path d="m22 9-6 6"/><path d="m16 9 6 6"/>""",
             "play" => """<path d="m8 5 11 7-11 7z"/>""",
             "menu" => """<path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/>""",
             "list" => """<path d="M8 7h12"/><path d="M8 12h12"/><path d="M8 17h12"/><path d="M4 7h.01"/><path d="M4 12h.01"/><path d="M4 17h.01"/>""",

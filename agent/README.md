@@ -21,7 +21,10 @@ Windows first. The file plugin runs anywhere .NET runs; terminals use Windows' p
 ## The screen
 
 What the monitor shows, in a tab of Matgate - like AnyDesk rather than RDP: it is the real desktop of
-the signed-in user, not a session of its own, so whoever sits at the machine sees the same.
+the signed-in user, not a session of its own, so whoever sits at the machine sees the same. In Matgate it
+behaves like an RDP session: the same session toolbar (fullscreen, pointer mode, right click, keyboards,
+resolution, sound, paste, Ctrl+Alt+Del, disconnect), the same status bar - the page has no bar of its own
+there (it only shows one when opened on its own, outside Matgate).
 
 - **Picture:** DXGI desktop duplication (only changed pictures are captured), encoded as H.264 in
   low-latency mode (baseline profile, no B-frames, one picture in, one out) and decoded by the browser
@@ -36,10 +39,9 @@ the signed-in user, not a session of its own, so whoever sits at the machine see
   picture may keep a narrow border. "wie am Rechner" leaves the monitor alone; a mode can also be picked by
   hand. The change is temporary: when the viewer leaves (or another one takes over) the monitor gets its
   own mode back, and Windows' saved setting is never touched.
-- **Full screen:** the picture takes the whole screen, the bar disappears upwards and comes down when the
-  mouse rests at the top edge (or through the small handle there) - like the connection bar of RDP. The
-  browser then also hands over keys it otherwise keeps for itself (Esc, Alt+Tab, the Windows key; holding
-  Esc leaves full screen).
+- **Full screen:** Matgate's own, as for RDP - the picture takes the whole screen, the toolbar slides away
+  and comes back through the handle at the top. The browser then also hands over keys it otherwise keeps for
+  itself (Esc, Alt+Tab, the Windows key; holding Esc leaves full screen).
 - **Statistics:** pictures per second and the round trip (agent -> browser -> acknowledgement) in the bar;
   the tooltip adds data rate, time per picture on the machine and which encoder works.
 - **Mouse pointer:** the machine's cursor shape becomes the browser's cursor, so it moves without waiting
@@ -57,9 +59,13 @@ the signed-in user, not a session of its own, so whoever sits at the machine see
 - **Several monitors:** a choice in the bar.
 - **Ctrl+Alt+Del:** a button in the bar (and in a phone's key bar) - for the sign-in screen and the lock
   screen, when the agent runs as a system service.
-- **Phone and tablet:** a tap is a click, a long press the right button, a finger that moves drags, two
-  fingers scroll, pinching zooms; a key bar (Esc, Tab, Windows, Ctrl, Alt, Del, Ctrl+Alt+Del, arrows) and
-  the device's keyboard.
+- **Phone and tablet:** the pointer mode of the toolbar, shared with RDP sessions. *Touchpad* (a phone's
+  default): the screen is one large trackpad - a finger moves the cursor on from where it is (faster when
+  quicker), a tap clicks there, tap and then touch again to drag, two fingers tapped are the right button,
+  two fingers moving scroll; zoomed in, the picture follows the cursor. *Direct touch* (a tablet's default):
+  a tap clicks where the finger is, a long press is the right button, a moving finger drags. Pinching zooms
+  in both. The keyboard buttons open the device's keyboard or a key bar (Esc, Tab, Windows, Ctrl, Alt, Del,
+  Ctrl+Alt+Del, arrows).
 - **One viewer at a time:** a second window takes the screen over; the first says so and can take it back.
 
 Where it works depends on how the agent runs:
