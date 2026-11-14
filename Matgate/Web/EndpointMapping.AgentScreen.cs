@@ -14,7 +14,7 @@ public static partial class EndpointMapping
 {
     private static readonly HashSet<string> ScreenOpsFromBrowser =
     [
-        "screen.input", "screen.ack", "screen.key", "screen.config", "screen.audio", "screen.sas",
+        "screen.input", "screen.ack", "screen.key", "screen.config", "screen.audio", "screen.sas", "screen.auth",
         "screen.clip.set", "screen.clip.begin", "screen.clip.chunk", "screen.clip.end",
     ];
 
@@ -212,13 +212,30 @@ public static partial class EndpointMapping
             return Results.StatusCode(StatusCodes.Status403Forbidden);
         }
 
+        return Results.Content(ScreenPageHtml(context, server!.Name, server.Id, "agent", "/api/agent/" + server.Id), "text/html; charset=utf-8");
+    }
+
+    // The screen page for an agent's machine and for RDP/VNC through the display engine: the same page, only
+    // where its socket and its downloads are differs.
+    private static string ScreenPageHtml(HttpContext context, string title, Guid serverId, string kind, string basePath)
+    {
         var de = HtmlViews.Language(context) == "de";
-        var html = AgentScreenPage.Html
+        return AgentScreenPage.Html
             .Replace("__LANG__", de ? "de" : "en")
-            .Replace("__TITLE__", System.Net.WebUtility.HtmlEncode(server!.Name))
-            .Replace("__SERVER__", server.Id.ToString())
+            .Replace("__TITLE__", System.Net.WebUtility.HtmlEncode(title))
+            .Replace("__SERVER__", serverId.ToString())
+            .Replace("__KIND__", kind)
+            .Replace("__BASE__", basePath)
             .Replace("__TEXT__", System.Net.WebUtility.HtmlEncode(JsonSerializer.Serialize(new
             {
+                authTitle = de ? "Anmelden" : "Sign in",
+                authFailed = de ? "Benutzername oder Passwort waren falsch." : "User name or password was wrong.",
+                username = de ? "Benutzer" : "User name",
+                password = de ? "Passwort" : "Password",
+                domain = de ? "Domäne" : "Domain",
+                signIn = de ? "Anmelden" : "Sign in",
+                cancel = de ? "Abbrechen" : "Cancel",
+                filesUnsupported = de ? "Dateien lassen sich über VNC nicht einfügen - nur Text." : "Files cannot be pasted over VNC - only text.",
                 connecting = de ? "Verbinde ..." : "Connecting ...",
                 connected = de ? "Verbunden" : "Connected",
                 lost = de ? "Verbindung verloren - verbinde neu ..." : "Connection lost - reconnecting ...",
@@ -260,7 +277,6 @@ public static partial class EndpointMapping
                 folder = de ? "Ordner (nicht ladbar)" : "Folder (cannot be downloaded)",
                 close = de ? "Schließen" : "Close",
             })));
-        return Results.Content(html, "text/html; charset=utf-8");
     }
 
     // The browser's side of a screen: frames are queued and sent by one writer, so a slow browser holds up

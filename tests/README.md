@@ -17,6 +17,14 @@ The runner seeds the stack first (`seed.js`): one SSH connection to the stack's 
 and one 180 MB file in the global place, both of which several scripts expect to find. Seeding is
 idempotent and can also be run on its own with `node seed.js`.
 
+Remote sessions have two engines, and both are in the stack. The seeded SSH connection is set to
+**Guacamole**, because the scripts that use it test how a Guacamole session behaves; Matgate's own engine
+(RDP and VNC through the `display` container, SSH in Matgate) is covered by `display.js`, which connects
+to the stack's `desktop` container - xrdp on 3389, TigerVNC on 5901, an xterm in each - and reads there
+with `docker exec` what really arrived. That script waits for a busy remote desktop rather than assuming a
+quiet machine: a resize that takes xrdp a tenth of a second alone takes half a minute beside eighty other
+containers.
+
 The stack serves <http://127.0.0.1:18091>. It is separate from the development stack on purpose:
 the tests create and delete users, places and shares.
 

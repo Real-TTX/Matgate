@@ -28,9 +28,12 @@ public static class AgentTerminalPage
             @media (pointer: coarse) { .keys { display: flex; } }
             .hidden { display: none !important; }
             button.icon { align-items: center; display: inline-flex; justify-content: center; min-width: 32px; padding: 2px 6px; }
+            body.embedded .bar { display: none; }
+            .note { background: #18211d; border: 1px solid #33413a; border-radius: 10px; bottom: 16px; box-shadow: 0 8px 24px rgba(0,0,0,.5); color: #d8e0dc; max-width: min(420px, calc(100% - 32px)); padding: 10px 14px; position: fixed; right: 16px; z-index: 5; }
+            .note.bad { border-color: #f0a92b; color: #f0a92b; }
         </style>
         </head>
-        <body data-server="__SERVER__" data-csrf="__CSRF__" data-text="__TEXT__">
+        <body data-server="__SERVER__" data-csrf="__CSRF__" data-text="__TEXT__" data-kind="__KIND__" data-base="__BASE__" data-font="__FONT__">
         <div class="bar">
             <button id="home" type="button" class="icon" title=""><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></button>
             <strong>__TITLE__</strong>
@@ -50,12 +53,29 @@ public static class AgentTerminalPage
             <button type="button" data-send="1b5b43">&#8594;</button>
             <button type="button" data-send="0d">&#9166;</button>
         </div>
+        <div id="note" class="note hidden"></div>
+        <input id="pick" type="file" multiple class="hidden">
         <script src="/assets/xterm/xterm.js"></script>
         <script src="/assets/xterm/addon-fit.js"></script>
         <script>
         (() => {
             const text = JSON.parse(document.body.dataset.text);
             const server = document.body.dataset.server;
+            // "agent" (a program on an agent's machine) or "ssh"; where the socket is.
+            const kind = document.body.dataset.kind || 'agent';
+            const base = document.body.dataset.base || '/api/agent/' + server;
+            // Inside Matgate's shell the session toolbar steers the page; the bar only shows on its own.
+            const embedded = (() => {
+                try {
+                    return !!(window.parent && window.parent !== window && window.parent.MatgateShowAgent);
+                }
+                catch {
+                    return false;
+                }
+            })();
+            if (embedded && kind === 'ssh') {
+                document.body.classList.add('embedded');
+            }
             const params = new URLSearchParams(location.search);
             const plugin = params.get('plugin') || '';
             // The program's name first: the shell takes the tab's title from here.
@@ -79,7 +99,7 @@ public static class AgentTerminalPage
             const homeButton = document.getElementById('home');
             homeButton.title = text.overview;
             homeButton.setAttribute('aria-label', text.overview);
-            if (!(window.parent && window.parent !== window && window.parent.MatgateShowAgent)) {
+            if (kind !== 'agent' || !(window.parent && window.parent !== window && window.parent.MatgateShowAgent)) {
                 homeButton.classList.add('hidden');
             }
             homeButton.addEventListener('click', () => window.parent.MatgateShowAgent(server));
@@ -94,7 +114,7 @@ public static class AgentTerminalPage
             const term = new TerminalClass({
                 cursorBlink: true,
                 fontFamily: 'Cascadia Mono, Consolas, ui-monospace, monospace',
-                fontSize: matchMedia('(pointer: coarse)').matches ? 12 : 14,
+                fontSize: Number(document.body.dataset.font) || (matchMedia('(pointer: coarse)').matches ? 12 : 14),
                 scrollback: 5000,
                 theme: { background: '#0f1412', foreground: '#d8e0dc', cursor: '#7fd6a8' },
             });
@@ -143,7 +163,7 @@ public static class AgentTerminalPage
                 setStatus(text.connecting);
                 const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
                 const query = new URLSearchParams({ plugin, session, cols: term.cols, rows: term.rows, cwd: params.get('cwd') || '', variant: params.get('variant') || '' });
-                socket = new WebSocket(`${scheme}//${location.host}/api/agent/${server}/terminal-socket?${query}`);
+                socket = new WebSocket(`${scheme}//${location.host}${base}/terminal-socket?${query}`);
                 socket.binaryType = 'arraybuffer';
                 socket.onmessage = event => {
                     if (typeof event.data !== 'string') {
@@ -211,6 +231,100 @@ public static class AgentTerminalPage
                     connect();
                 }
             });
+
+            // ---- files (SSH): pasted, dropped or picked, they go to the server through SFTP - into the home
+            // folder of the login, which is where a new shell starts as well.
+            const note = document.getElementById('note');
+            let noteTimer = 0;
+            const showNote = (value, bad) => {
+                note.textContent = value;
+                note.classList.toggle('bad', !!bad);
+                note.classList.remove('hidden');
+                window.clearTimeout(noteTimer);
+                noteTimer = window.setTimeout(() => note.classList.add('hidden'), bad ? 9000 : 6000);
+            };
+            window.__uploads = [];
+            const uploadFiles = async files => {
+                if (kind !== 'ssh' || !files.length) {
+                    return;
+                }
+                let folder = '';
+                let done = 0;
+                for (const file of files) {
+                    showNote(text.uploading.replace('{name}', file.name || '').replace('{n}', String(done + 1)).replace('{count}', String(files.length)));
+                    let answer = null;
+                    try {
+                        const response = await fetch(base + '/upload?' + new URLSearchParams({ session, name: file.name || 'Datei' }), {
+                            method: 'POST',
+                            credentials: 'same-origin',
+                            headers: { 'X-Matgate-Csrf': document.body.dataset.csrf, 'Content-Type': 'application/octet-stream' },
+                            body: file,
+                        });
+                        answer = await response.json().catch(() => null);
+                        if (!response.ok) {
+                            showNote((answer && answer.error) || text.uploadFailed, true);
+                            return;
+                        }
+                    }
+                    catch {
+                        showNote(text.uploadFailed, true);
+                        return;
+                    }
+                    folder = answer.folder;
+                    window.__uploads.push(answer);
+                    done++;
+                }
+                showNote(text.uploaded.replace('{count}', String(done)).replace('{folder}', folder));
+                term.focus();
+            };
+            // What is on the clipboard are files when there is no page content beside them and any text only
+            // names them (as a file manager copies): a copied table or a picture from a web page stays text.
+            const filesOf = data => {
+                const files = data ? [...data.files] : [];
+                if (!files.length || data.getData('text/html')) {
+                    return [];
+                }
+                const plain = data.getData('text/plain');
+                return !plain || files.every(file => plain.includes(file.name)) ? files : [];
+            };
+            const screenElement = document.getElementById('screen');
+            screenElement.addEventListener('paste', event => {
+                const files = kind === 'ssh' ? filesOf(event.clipboardData) : [];
+                if (files.length) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    uploadFiles(files);
+                }
+            }, true);
+            screenElement.addEventListener('dragover', event => {
+                if (kind === 'ssh') {
+                    event.preventDefault();
+                }
+            });
+            screenElement.addEventListener('drop', event => {
+                if (kind === 'ssh' && event.dataTransfer && event.dataTransfer.files.length) {
+                    event.preventDefault();
+                    uploadFiles([...event.dataTransfer.files]);
+                }
+            });
+            const picker = document.getElementById('pick');
+            picker.addEventListener('change', () => {
+                uploadFiles([...picker.files]);
+                picker.value = '';
+            });
+
+            // The session toolbar's side (SSH): disconnect, connect again, paste.
+            window.MatgateTerminal = {
+                state: () => ({ status: statusLine.textContent, ended, rows: term.rows, cols: term.cols }),
+                disconnect: () => sendControl({ type: 'kill' }),
+                reconnect: () => restartButton.click(),
+                paste: value => {
+                    sendBytes(encoder.encode(value));
+                    term.focus();
+                },
+                pickFiles: () => picker.click(),
+                focus: () => term.focus(),
+            };
 
             connect();
         })();

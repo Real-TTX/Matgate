@@ -1,20 +1,23 @@
-# Matgate, minimal: RDP / VNC / SSH, file connections, native websites.
+# Matgate, minimal - without Guacamole: RDP, VNC and SSH through Matgate's own engine, file connections,
+# native websites. Three small containers.
 #
 #   docker compose -f docker-compose.simple.yml up -d
 #
 # Open http://localhost:8088 - the first start asks you to create the admin account. Nothing to
-# configure: Matgate generates its own keys and hands the shared one to Guacamole.
+# configure: Matgate generates its own keys and shares the one for its display engine with it.
 #
-# Want options (own admin, HTTPS, home DNS)?  ->  docker-compose.yml
-# Want the browser farm on top?               ->  docker-compose.full.yml
+# Want Guacamole as well (a choice per connection) and the usual options?  ->  docker-compose.yml
+# Want the browser farm on top?                                           ->  docker-compose.full.yml
+#
+# Coming from an older copy of this file, which ran Guacamole? Add --remove-orphans once, so its two
+# containers go.
 name: matgate
 
 services:
-  # The single entrance on 8088, and what keeps Guacamole behind the Matgate login: it is reachable
-  # only through here, and only after Matgate has confirmed the session.
+  # The single entrance on 8088; it also compresses what Matgate sends.
   edge:
     image: caddy:2
-    depends_on: [matgate, guacamole]
+    depends_on: [matgate]
     ports:
       - "8088:8088"
     entrypoint:
@@ -24,58 +27,37 @@ services:
         printf "%s\n" \
           ":8088 {" \
           "  encode zstd gzip" \
-          "  handle /guacamole* {" \
-          "    forward_auth matgate:8080 {" \
-          "      uri /internal/guac-authz" \
-          "    }" \
-          "    reverse_proxy guacamole:8080" \
-          "  }" \
-          "  handle {" \
-          "    reverse_proxy matgate:8080" \
-          "  }" \
+          "  reverse_proxy matgate:8080" \
           "}" > /tmp/Caddyfile && exec caddy run --config /tmp/Caddyfile --adapter caddyfile
     restart: unless-stopped
 
   matgate:
     image: ghcr.io/real-ttx/matgate:latest
+    environment:
+      # RDP and VNC go through the display engine below; SSH runs in Matgate itself.
+      MATGATE_DISPLAY_ADDRESS: display:8092
+      # This stack has no Guacamole: every connection opens with Matgate's own engine.
+      MATGATE_GUACAMOLE: "off"
     volumes:
       - ./data:/data
       - matgate-files:/files
       - matgate-secrets:/run/matgate-secrets
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    # Guacamole waits for the shared key, which Matgate writes on first start.
-    healthcheck:
-      test: ["CMD-SHELL", "test -s /run/matgate-secrets/guac.key"]
-      interval: 3s
-      timeout: 3s
-      retries: 20
     restart: unless-stopped
 
-  guacd:
-    image: guacamole/guacd:1.6.0
-    # The same tree as Matgate, at the same path: a session's drive is one folder in here, and the
-    # links inside it have to resolve to the same place in both containers.
+  # Matgate's display engine: connects to RDP servers (FreeRDP) and VNC servers (LibVNC) and sends the
+  # picture to the browser as H.264. It has no port to the outside - only Matgate talks to it, with a key
+  # both read from the secrets volume.
+  display:
+    image: ghcr.io/real-ttx/matgate-display:latest
     volumes:
+      # The same tree as Matgate, at the same path: an RDP session's drive is one folder in here, and the
+      # links inside it have to resolve to the same place in both containers.
       - matgate-files:/files
-    restart: unless-stopped
-
-  guacamole:
-    image: guacamole/guacamole:1.6.0
-    depends_on:
-      guacd: { condition: service_started }
-      matgate: { condition: service_healthy }
-    environment:
-      GUACD_HOSTNAME: guacd
-      GUACD_PORT: "4822"
-      JSON_ENABLED: "true"
-    entrypoint:
-      - /bin/sh
-      - -c
-      - export JSON_SECRET_KEY="$$(cat /run/matgate-secrets/guac.key)"; exec /opt/guacamole/bin/entrypoint.sh
-    volumes:
-      - ./data:/etc/guacamole
       - matgate-secrets:/run/matgate-secrets:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
 volumes:

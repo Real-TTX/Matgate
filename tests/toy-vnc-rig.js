@@ -38,6 +38,8 @@ async function ensureConnection(page) {
       if (el) { el.value = value; el.dispatchEvent(new Event("change", { bubbles: true })); }
     };
     set("name", name); set("protocol", "Vnc"); set("host", "host.docker.internal"); set("port", "5901");
+    // These scripts test how a Guacamole session behaves. (One "Open as" per protocol - all are set.)
+    document.querySelectorAll("[name='engine']").forEach(engine => { engine.value = "guacamole"; });
     document.querySelector("[name='name']").form.requestSubmit();
   }, NAME);
   await sleep(2500);

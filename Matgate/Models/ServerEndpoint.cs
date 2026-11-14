@@ -78,6 +78,11 @@ public sealed class ServerEndpoint
 
     public bool IgnoreCertificate { get; set; } = true;
 
+    // How a remote desktop or a terminal is opened - the connection's sub type, like a website's render mode:
+    // "" = Matgate's own engine (RDP through FreeRDP and VNC through LibVNC in the display engine, SSH in
+    // Matgate itself), "guacamole" = Apache Guacamole.
+    public string Engine { get; set; } = "";
+
     public bool IsEnabled { get; set; } = true;
 
     public string Notes { get; set; } = "";
@@ -107,6 +112,28 @@ public sealed class ServerEndpoint
     {
         return Math.Clamp(fontSize <= 0 ? DefaultTerminalFontSize : fontSize, 8, 24);
     }
+
+    // What really opens this connection here: "matgate", "guacamole" or "" (neither is set up). It is the one
+    // the connection asks for; only when that one is not part of this installation does the other one step in
+    // (RDP and VNC of Matgate's own need the display engine, Guacamole needs its containers).
+    public string EffectiveEngine(bool displayEngineAvailable, bool guacamoleAvailable)
+    {
+        if (!IsGuacamoleProtocol(Protocol))
+        {
+            return "";
+        }
+
+        var ownAvailable = Protocol == ServerProtocol.Ssh || displayEngineAvailable;
+        if (NormalizeEngine(Engine) == "guacamole")
+        {
+            return guacamoleAvailable ? "guacamole" : ownAvailable ? "matgate" : "";
+        }
+
+        return ownAvailable ? "matgate" : guacamoleAvailable ? "guacamole" : "";
+    }
+
+    public static string NormalizeEngine(string? value) =>
+        string.Equals((value ?? "").Trim(), "guacamole", StringComparison.OrdinalIgnoreCase) ? "guacamole" : "";
 
     public static bool IsGuacamoleProtocol(ServerProtocol protocol)
     {

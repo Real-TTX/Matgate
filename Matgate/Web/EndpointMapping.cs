@@ -440,6 +440,8 @@ public static partial class EndpointMapping
     public static void MapMatgateEndpoints(this WebApplication app)
     {
         MapAgentEndpoints(app);
+        MapDisplayEndpoints(app);
+        MapSshEndpoints(app);
         app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
         app.MapMethods("/favicon.svg", new[] { "GET", "HEAD" }, () => Results.Text(FaviconSvg, "image/svg+xml"));
         app.MapMethods("/favicon.ico", new[] { "GET", "HEAD" }, () => Results.Text(FaviconSvg, "image/svg+xml"));
@@ -2430,6 +2432,17 @@ public static partial class EndpointMapping
         if (server is null || !server.IsEnabled || !CanAccessServer(user, server))
         {
             return Results.NotFound(new { error = HtmlViews.Translate(context, "This server is not shared with you.") });
+        }
+
+        // Everything below starts a Guacamole session. An installation without Guacamole gets here only for
+        // what Matgate's own engine cannot open (yet).
+        if (!GuacamoleLauncher.Available)
+        {
+            var german = HtmlViews.Language(context) == "de";
+            var reason = ServerEndpoint.IsWebsiteProtocol(server.Protocol)
+                ? (german ? "Websites in einem entfernten Browser brauchen Guacamole, das hier nicht eingerichtet ist." : "Websites in a remote browser need Guacamole, which is not set up here.")
+                : (german ? "Für diese Verbindung ist hier weder Matgates Display-Engine noch Guacamole eingerichtet." : "Neither Matgate's display engine nor Guacamole is set up here for this connection.");
+            return Results.BadRequest(new { error = reason });
         }
 
         // "via Chromium/Firefox VNC" website: open the page in a browser-farm slot and hand the client
@@ -4933,6 +4946,7 @@ public static partial class EndpointMapping
             storedServer.FileRootPath = updated.FileRootPath;
             storedServer.KeyboardLayout = updated.KeyboardLayout;
             storedServer.TerminalFontSize = updated.TerminalFontSize;
+            storedServer.Engine = updated.Engine;
             storedServer.IgnoreCertificate = updated.IgnoreCertificate;
             storedServer.IsEnabled = updated.IsEnabled;
             storedServer.Notes = updated.Notes;
@@ -5146,6 +5160,7 @@ public static partial class EndpointMapping
                 protocol = stored.Protocol.ToString().ToUpperInvariant(),
                 iconKey,
                 iconHtml = HtmlViews.IconMarkup(iconKey),
+                engine = stored.EffectiveEngine(DisplayBridge.Available, GuacamoleLauncher.Available),
                 target = isWebsite
                     ? stored.WebsiteUrl
                     : $"{stored.Host}:{stored.Port}"
@@ -5550,6 +5565,7 @@ public static partial class EndpointMapping
                 form["keyboardLayout"].ToString(),
                 existing?.KeyboardLayout ?? ServerEndpoint.DefaultKeyboardLayout),
             TerminalFontSize = ServerEndpoint.NormalizeTerminalFontSize(terminalFontSize),
+            Engine = form.ContainsKey("engine") ? ServerEndpoint.NormalizeEngine(form["engine"].ToString()) : existing?.Engine ?? "",
             IgnoreCertificate = IsChecked(form, "ignoreCertificate"),
             IsEnabled = IsChecked(form, "isEnabled"),
             Notes = Clean(form["notes"].ToString(), ""),

@@ -1,0 +1,4 @@
+# These files are copied into Linux images: they keep their line feeds on a Windows checkout too
+# (a Makefile or a shell script with CRLF does not survive there).
+display/** text eol=lf
+tests/desktop/** text eol=lf

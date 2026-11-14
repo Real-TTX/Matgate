@@ -375,11 +375,21 @@ public static partial class EndpointMapping
             return Results.StatusCode(StatusCodes.Status403Forbidden);
         }
 
+        return Results.Content(TerminalPageHtml(context, server!.Name, server.Id, "agent", "/api/agent/" + server.Id, 0), "text/html; charset=utf-8");
+    }
+
+    // The terminal page for an agent's programs and for SSH: the same page, its socket elsewhere.
+    private static string TerminalPageHtml(HttpContext context, string title, Guid serverId, string kind, string basePath, int fontSize)
+    {
         var de = HtmlViews.Language(context) == "de";
-        var html = AgentTerminalPage.Html
+        var ssh = kind == "ssh";
+        return AgentTerminalPage.Html
             .Replace("__LANG__", de ? "de" : "en")
-            .Replace("__TITLE__", System.Net.WebUtility.HtmlEncode(server!.Name))
-            .Replace("__SERVER__", server.Id.ToString())
+            .Replace("__TITLE__", System.Net.WebUtility.HtmlEncode(title))
+            .Replace("__SERVER__", serverId.ToString())
+            .Replace("__KIND__", kind)
+            .Replace("__BASE__", basePath)
+            .Replace("__FONT__", fontSize > 0 ? ServerEndpoint.NormalizeTerminalFontSize(fontSize).ToString() : "0")
             .Replace("__CSRF__", System.Net.WebUtility.HtmlEncode(context.User.FindFirst("csrf")?.Value ?? ""))
             .Replace("__TEXT__", System.Net.WebUtility.HtmlEncode(JsonSerializer.Serialize(new
             {
@@ -387,13 +397,15 @@ public static partial class EndpointMapping
                 connected = de ? "Verbunden" : "Connected",
                 reattached = de ? "Wieder verbunden - die Sitzung lief weiter" : "Reconnected - the session kept running",
                 lost = de ? "Verbindung verloren - verbinde neu ..." : "Connection lost - reconnecting ...",
-                ended = de ? "Programm beendet" : "Program ended",
-                restart = de ? "Neu starten" : "Start again",
-                kill = de ? "Beenden" : "End",
-                killConfirm = de ? "Programm wirklich beenden?" : "Really end the program?",
+                ended = ssh ? (de ? "Verbindung beendet" : "Disconnected") : (de ? "Programm beendet" : "Program ended"),
+                restart = ssh ? (de ? "Neu verbinden" : "Connect again") : (de ? "Neu starten" : "Start again"),
+                kill = ssh ? (de ? "Trennen" : "Disconnect") : (de ? "Beenden" : "End"),
+                killConfirm = ssh ? (de ? "SSH-Verbindung trennen?" : "Disconnect the SSH session?") : (de ? "Programm wirklich beenden?" : "Really end the program?"),
                 overview = de ? "Agent-Übersicht" : "Agent overview",
+                uploading = de ? "Lade hoch ({n}/{count}): {name}" : "Uploading ({n}/{count}): {name}",
+                uploaded = de ? "{count} Datei(en) liegen auf dem Server in {folder}" : "{count} file(s) are on the server in {folder}",
+                uploadFailed = de ? "Die Datei konnte nicht übertragen werden." : "The file could not be transferred.",
             })));
-        return Results.Content(html, "text/html; charset=utf-8");
     }
 
     private static IResult XtermAsset(string file)

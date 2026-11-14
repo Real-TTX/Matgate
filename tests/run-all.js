@@ -43,8 +43,8 @@ const GROUPS = [
       "keyboard-and-dialogs.js"],
   },
   {
-    name: "Group 8 - an agent: updating it from Matgate, its screen",
-    scripts: ["agent-update.js", "agent-screen.js"],
+    name: "Group 8 - an agent (updating it, its screen) and Matgate's own engine for RDP, VNC and SSH",
+    scripts: ["agent-update.js", "agent-screen.js", "display.js"],
   },
 ];
 

@@ -89,9 +89,24 @@ async function seedConnection(page, connectionName) {
     const text = await (await fetch("/", { credentials: "same-origin" })).text();
     const match = text.match(/const availableServers = (\[.*?\]);/s);
     if (!match) { return "no server list"; }
-    return JSON.parse(match[1]).some(s => s.name === name) ? "present" : "missing";
+    const hit = JSON.parse(match[1]).find(s => s.name === name);
+    return !hit ? "missing" : hit.engine === "guacamole" ? "present" : "edit:" + hit.id;
   }, connectionName);
   if (existing === "present") { console.log("connection " + connectionName + ": already there"); return; }
+  if (existing.startsWith("edit:")) {
+    // From before Matgate had an engine of its own: the scripts that use this connection test Guacamole
+    // sessions, so it stays with Guacamole (tests/display.js covers Matgate's own engine).
+    await page.goto(BASE + "/admin/servers/" + existing.slice(5), { waitUntil: "networkidle" });
+    await sleep(600);
+    await page.evaluate(() => {
+      const engines = [...document.querySelectorAll("[name='engine']")];
+      engines.forEach(engine => { engine.value = "guacamole"; });
+      engines[0].form.requestSubmit();
+    }).catch(() => { /* the submit navigated before the call returned */ });
+    await sleep(2000);
+    console.log("connection " + connectionName + ": set to Guacamole");
+    return;
+  }
   if (existing === "no server list") { console.log("connection " + connectionName + ": cannot read the list"); return; }
 
   await page.goto(BASE + "/admin/servers/new", { waitUntil: "networkidle" });
@@ -109,6 +124,8 @@ async function seedConnection(page, connectionName) {
     set("port", "2222");
     set("targetUserName", "demo");
     set("targetPassword", "demo-only-pw");
+    // The scripts that use this connection test Guacamole sessions. (One "Open as" per protocol - all are set.)
+    document.querySelectorAll("[name='engine']").forEach(engine => { engine.value = "guacamole"; });
     document.querySelector("[name='name']").form.requestSubmit();
     return "ok";
   }, connectionName);

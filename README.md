@@ -21,8 +21,10 @@ Your home network is full of things you occasionally need to reach: a Windows bo
 a Linux server over SSH, the NAS share, the router's web UI. Normally that means an RDP client
 here, an SSH client there, a VPN, a bookmark, a password sheet. Matgate puts all of it behind
 **one web UI and one login**: every machine as a tile, every session as a tab, every credential
-stored **encrypted** in one place. For RDP, VNC and SSH it drives Apache Guacamole and `guacd`
-under the hood; files, the website proxy, users, permissions and the UI are Matgate's own.
+stored **encrypted** in one place. RDP and VNC run through Matgate's own display engine (FreeRDP and
+LibVNC, shown as H.264 by the browser itself), SSH in Matgate itself; Apache Guacamole is there as a
+second way to open them, chosen per connection - or left out altogether. Files, the website proxy,
+users, permissions and the UI are Matgate's own.
 
 It is built to sit on a home server in Docker, optionally behind a reverse proxy, and to be
 usable from a laptop or a phone – installable as a PWA.
@@ -30,11 +32,15 @@ usable from a laptop or a phone – installable as a PWA.
 ## At a glance
 
 **Remote sessions**
-- **RDP, VNC and SSH** in the browser through Guacamole, no client install
+- **RDP, VNC and SSH** in the browser, no client install - through **Matgate's own engine** or through
+  **Guacamole**, picked per connection ("Open as"), see [Two engines](#two-engines-for-remote-sessions)
+- RDP with a **clipboard for text, pictures and files** in both directions (Ctrl+V puts files into the
+  Explorer window that is open), **sound**, and a resolution that **follows the window without reconnecting**
+- A password that is not stored is **asked for when connecting**
 - Several sessions open at once as **draggable tabs**, with session restore
 - **Pop a session out into its own window** and re-attach it later (great for multi-monitor)
 - **Real fullscreen / immersive mode** (safe-area aware on iPhone), clipboard sync, a live status bar
-- Per-session **scale** for VNC (Auto / 75% / 50%) so more fits on screen
+- Per-session **scale** for VNC through Guacamole (Auto / 75% / 50%) so more fits on screen
 
 **Files**
 - File gateway for **SFTP, FTP and SMB** – no extra privileges in the container
@@ -119,46 +125,54 @@ Prebuilt images are published to the GitHub Container Registry:
 |---|---|---|
 | `ghcr.io/real-ttx/matgate` | `latest` | the current release |
 | `ghcr.io/real-ttx/matgate` | `0.9.60`, `sha-…` | pinning an exact build |
+| `ghcr.io/real-ttx/matgate-display` | `latest` | Matgate's display engine (RDP and VNC) |
 | `ghcr.io/real-ttx/matgate-browser-farm` | `latest` | the optional browser farm |
 
-Matgate needs Guacamole + `guacd` for RDP/VNC/SSH and a small edge proxy that keeps `/guacamole`
-behind the login. Three ready-made stacks live in this repo — grab one and run it, no build required:
+Remote sessions have two engines: **Matgate's own** (one small container, the display engine, for RDP
+and VNC - SSH needs nothing extra) and **Apache Guacamole** (two containers). A stack can run either or
+both; with both, every connection picks one. A small edge proxy is the single entrance, compresses what
+Matgate sends and keeps `/guacamole` behind the login. Three ready-made stacks live in this repo —
+grab one and run it, no build required:
 
 | File | What you get |
 |---|---|
-| [`docker-compose.simple.yml`](docker-compose.simple.yml) | RDP, VNC, SSH, files and **native** websites — nothing to configure |
-| [`docker-compose.yml`](docker-compose.yml) | the same, plus the options most installs want: own admin, HTTPS, home DNS, pinned keys |
+| [`docker-compose.simple.yml`](docker-compose.simple.yml) | RDP, VNC and SSH through Matgate's own engine, files and **native** websites — **without Guacamole**, nothing to configure |
+| [`docker-compose.yml`](docker-compose.yml) | **both engines** (a choice per connection), plus the options most installs want: own admin, HTTPS, home DNS, pinned keys |
 | [`docker-compose.full.yml`](docker-compose.full.yml) | all of that **plus the browser farm** ("via Chromium / Firefox VNC" websites) |
 
 ```bash
-docker compose -f docker-compose.simple.yml up -d    # minimal
-docker compose up -d                                 # with the usual options
+docker compose -f docker-compose.simple.yml up -d    # minimal, without Guacamole
+docker compose up -d                                 # both engines, with the usual options
 docker compose -f docker-compose.full.yml up -d      # everything, browser farm included
 ```
 
 Open **http://localhost:8088** — the first start shows a **setup wizard** that creates your
-administrator account (username, email, password). Both files are self-contained and use the prebuilt images. **Matgate generates and persists its
-own keys** (the Guacamole key and the at-rest key) into the `matgate-secrets` volume — nothing to
-configure by hand. For reference, the whole `docker-compose.simple.yml`:
+administrator account (username, email, password). All three files are self-contained and use the prebuilt
+images. **Matgate generates and persists its own keys** (the at-rest key and the ones it shares with its
+display engine and with Guacamole) into the `matgate-secrets` volume — nothing to configure by hand. For
+reference, the whole `docker-compose.simple.yml`:
 
 ```yaml
-# Matgate, minimal: RDP / VNC / SSH, file connections, native websites.
+# Matgate, minimal - without Guacamole: RDP, VNC and SSH through Matgate's own engine, file connections,
+# native websites. Three small containers.
 #
 #   docker compose -f docker-compose.simple.yml up -d
 #
 # Open http://localhost:8088 - the first start asks you to create the admin account. Nothing to
-# configure: Matgate generates its own keys and hands the shared one to Guacamole.
+# configure: Matgate generates its own keys and shares the one for its display engine with it.
 #
-# Want options (own admin, HTTPS, home DNS)?  ->  docker-compose.yml
-# Want the browser farm on top?               ->  docker-compose.full.yml
+# Want Guacamole as well (a choice per connection) and the usual options?  ->  docker-compose.yml
+# Want the browser farm on top?                                           ->  docker-compose.full.yml
+#
+# Coming from an older copy of this file, which ran Guacamole? Add --remove-orphans once, so its two
+# containers go.
 name: matgate
 
 services:
-  # The single entrance on 8088, and what keeps Guacamole behind the Matgate login: it is reachable
-  # only through here, and only after Matgate has confirmed the session.
+  # The single entrance on 8088; it also compresses what Matgate sends.
   edge:
     image: caddy:2
-    depends_on: [matgate, guacamole]
+    depends_on: [matgate]
     ports:
       - "8088:8088"
     entrypoint:
@@ -168,58 +182,37 @@ services:
         printf "%s\n" \
           ":8088 {" \
           "  encode zstd gzip" \
-          "  handle /guacamole* {" \
-          "    forward_auth matgate:8080 {" \
-          "      uri /internal/guac-authz" \
-          "    }" \
-          "    reverse_proxy guacamole:8080" \
-          "  }" \
-          "  handle {" \
-          "    reverse_proxy matgate:8080" \
-          "  }" \
+          "  reverse_proxy matgate:8080" \
           "}" > /tmp/Caddyfile && exec caddy run --config /tmp/Caddyfile --adapter caddyfile
     restart: unless-stopped
 
   matgate:
     image: ghcr.io/real-ttx/matgate:latest
+    environment:
+      # RDP and VNC go through the display engine below; SSH runs in Matgate itself.
+      MATGATE_DISPLAY_ADDRESS: display:8092
+      # This stack has no Guacamole: every connection opens with Matgate's own engine.
+      MATGATE_GUACAMOLE: "off"
     volumes:
       - ./data:/data
       - matgate-files:/files
       - matgate-secrets:/run/matgate-secrets
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    # Guacamole waits for the shared key, which Matgate writes on first start.
-    healthcheck:
-      test: ["CMD-SHELL", "test -s /run/matgate-secrets/guac.key"]
-      interval: 3s
-      timeout: 3s
-      retries: 20
     restart: unless-stopped
 
-  guacd:
-    image: guacamole/guacd:1.6.0
-    # The same tree as Matgate, at the same path: a session's drive is one folder in here, and the
-    # links inside it have to resolve to the same place in both containers.
+  # Matgate's display engine: connects to RDP servers (FreeRDP) and VNC servers (LibVNC) and sends the
+  # picture to the browser as H.264. It has no port to the outside - only Matgate talks to it, with a key
+  # both read from the secrets volume.
+  display:
+    image: ghcr.io/real-ttx/matgate-display:latest
     volumes:
+      # The same tree as Matgate, at the same path: an RDP session's drive is one folder in here, and the
+      # links inside it have to resolve to the same place in both containers.
       - matgate-files:/files
-    restart: unless-stopped
-
-  guacamole:
-    image: guacamole/guacamole:1.6.0
-    depends_on:
-      guacd: { condition: service_started }
-      matgate: { condition: service_healthy }
-    environment:
-      GUACD_HOSTNAME: guacd
-      GUACD_PORT: "4822"
-      JSON_ENABLED: "true"
-    entrypoint:
-      - /bin/sh
-      - -c
-      - export JSON_SECRET_KEY="$$(cat /run/matgate-secrets/guac.key)"; exec /opt/guacamole/bin/entrypoint.sh
-    volumes:
-      - ./data:/etc/guacamole
       - matgate-secrets:/run/matgate-secrets:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
 volumes:
@@ -231,15 +224,39 @@ volumes:
 
 After the first admin is created you add your first server and connect.
 
-> `docker-compose.yml` can also build Matgate from this repository instead of pulling the published
-> image — that is what `docker compose up --build -d` does. Ignore it unless you work on Matgate.
+> `docker-compose.yml` can also build Matgate and its display engine from this repository instead of
+> pulling the published images — that is what `docker compose up --build -d` does. Ignore it unless you
+> work on Matgate.
+
+### Two engines for remote sessions
+
+Every RDP, VNC and SSH connection has an **Open as** setting - its sub type, as a website has its render
+mode:
+
+| | **Matgate** (own engine) | **Guacamole** |
+|---|---|---|
+| RDP | FreeRDP 3 in the display engine, the picture as H.264 decoded by the browser (WebCodecs) | guacd and the Guacamole client |
+| RDP clipboard | text, pictures and **files**, both ways: Ctrl+V puts files where the remote desktop has its focus, files copied there are offered for download | text; files through the session's drive |
+| RDP window size | the session follows the window without reconnecting (Display Control) | reconnects at the new size |
+| RDP sound, drive | sound as Opus; the drive `Files` with the file areas | the drive `Files` with the file areas |
+| VNC | LibVNC in the display engine; text clipboard; the desktop is resized to the window where the server can | guacd; per-session scale |
+| SSH | in Matgate itself (SSH.NET, xterm.js); asks for a missing user or password in the terminal; files pasted or dropped go to the home folder by SFTP | Guacamole's terminal; files through its SFTP dialog |
+| Needs | the `display` container for RDP and VNC | the `guacd` and `guacamole` containers |
+
+What a connection asks for is what opens it. Only when that engine is not part of the installation
+does the other one step in - a stack without Guacamole opens everything with Matgate's own, a stack
+without the display engine opens RDP and VNC with Guacamole - and the connection form says so.
+"Via Chromium / Firefox VNC" websites are shown by Guacamole, so they need it (and the browser farm).
+Matgate's own engine needs a browser with WebCodecs: a current Edge, Chrome, Firefox or Safari.
 
 ### Pin your keys (recommended)
 
-Matgate generates two secrets on first start into the `matgate-secrets` volume:
+Matgate generates its secrets on first start into the `matgate-secrets` volume:
 
-- `guac.key` – signs the Guacamole session tokens (**must match** between `matgate` and `guacamole`)
 - `master.key` – encrypts stored device passwords **at rest**
+- `guac.key` – signs the Guacamole session tokens (**must match** between `matgate` and `guacamole`)
+- `display.key` – what Matgate shows its display engine, so that nothing else can ask it for a screen
+  (both read it from the volume; a new one is as good as the old, nothing to pin)
 
 If that volume is ever lost or recreated, new keys are generated and the **stored passwords can no
 longer be decrypted**. To make the keys survive any redeploy, pin the current values into a `.env`
@@ -262,6 +279,8 @@ is 32 hex characters, `MATGATE_SECRET_KEY` is 64.
 |---|---|---|
 | `MATGATE_DATA_DIR` | `/data` | Persistent data directory inside the container |
 | `MATGATE_ADMIN_USER` / `MATGATE_ADMIN_PASSWORD` / `MATGATE_ADMIN_EMAIL` | – | Seed the admin unattended and skip the setup wizard |
+| `MATGATE_DISPLAY_ADDRESS` | – | `host:port` of the display engine, e.g. `display:8092`. Without it, RDP and VNC open with Guacamole |
+| `MATGATE_GUACAMOLE` | on | `off` for a stack without Guacamole: every connection opens with Matgate's own engine |
 | `MATGATE_GUACAMOLE_JSON_SECRET_KEY` | auto | 32 hex chars for Guacamole JSON auth (see *Pin your keys*) |
 | `MATGATE_SECRET_KEY` | auto | 64 hex chars for at-rest encryption of credentials |
 | `MATGATE_REQUIRE_HTTPS` | `false` | Force HTTPS / secure cookies behind a TLS proxy |
@@ -326,16 +345,19 @@ Two things worth knowing:
 
 ### Setup
 
-The shipped compose files give the volume to **both** matgate and guacd, at the same path. Both
-halves are needed: guacd serves the drive from its own filesystem, and matgate assembles the folder it
-serves. If you write your own compose file and skip this, nothing breaks - Matgate notices that the
-tree is not shared and falls back to a scratch folder inside guacd, so file transfer keeps working
-with the `Session` folder alone. The gateway log says which of the two is in use at startup.
+The shipped compose files give the volume to matgate **and** to whatever serves the drive - the display
+engine and guacd -, at the same path. Both halves are needed: the engine serves the drive from its own
+filesystem, and matgate assembles the folder it serves. If you write your own compose file and skip
+this, nothing breaks - Matgate notices that the tree is not shared and a Guacamole session falls back
+to a scratch folder inside guacd, so file transfer keeps working with the `Session` folder alone (a
+session of Matgate's own engine then has the clipboard for files, but no drive). The gateway log says
+which of the two is in use at startup.
 
-Session folders are cleaned up on their own: the browser reports a session as open while its tab
-lives, and a folder goes once it stops reporting. Matgate is never told that a remote session ended -
-the tunnel runs between the browser and Guacamole - so without that report a folder is only removed
-after it has been untouched for long enough that no tab can still be using it.
+Session folders are cleaned up on their own. A session of Matgate's own engine runs through Matgate,
+which removes the folder when the session ends. For a Guacamole session the browser reports it as open
+while its tab lives, and a folder goes once it stops reporting: Matgate is never told that such a
+session ended - the tunnel runs between the browser and Guacamole - so without that report a folder is
+only removed after it has been untouched for long enough that no tab can still be using it.
 
 The encryption keys live **outside** `./data` in the `matgate-secrets` volume, so a stolen `./data`
 backup can't decrypt your device passwords. Back up **both** the data directory and the secrets
@@ -352,8 +374,11 @@ volume (or pin the keys in `.env`, see above).
 ## How it's built
 
 - **ASP.NET Core (.NET 10)**, server-rendered HTML; the client is **plain JavaScript**, no build step
-- **RDP / VNC / SSH** via **Apache Guacamole + guacd**; Matgate mints short-lived, encrypted
-  Guacamole auth tokens per launch
+- **RDP / VNC** by Matgate's **display engine** (`display/`, C: FreeRDP 3, LibVNC, x264, Opus) - one
+  process per session, speaking the screen protocol of the [Matgate agent](agent/README.md), shown by
+  the browser with WebCodecs; **SSH** in-process (SSH.NET) in an xterm.js terminal
+- …or through **Apache Guacamole + guacd**, for which Matgate mints short-lived, encrypted auth tokens
+  per launch
 - File access through in-process **SFTP (SSH.NET)**, **FTP (FluentFTP)** and **SMB (SMBLibrary)**
 - The **browser farm** is a small stdlib-Python control API over a pool of `Xvfb + x11vnc + browser`
   slots – no Docker socket, isolated per Linux user
@@ -362,14 +387,14 @@ volume (or pin the keys in `.env`, see above).
 ## Status
 
 Matgate is an actively developed self-hosted project. Working today: remote sessions with tabs and
-session restore, the file gateway, the native + browser-farm website modes, quick connect, folders
+session restore - through its own engine or Guacamole -, the file gateway, the native + browser-farm website modes, quick connect, folders
 and favorites, workspaces with sharing, network tools, the setup wizard and per-server access
 control, PWA and mobile layout. On the list: TLS polish and further hardening.
 
 ## Development
 
 ```bash
-docker compose up --build -d                     # build this checkout and run it
+docker compose up --build -d                     # build this checkout (Matgate, display engine) and run it
 docker compose -f docker-compose.full.yml up -d  # with the browser farm
 ```
 

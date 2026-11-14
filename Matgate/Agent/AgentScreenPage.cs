@@ -41,6 +41,14 @@ public static class AgentScreenPage
             .keys { border-top: 1px solid #263029; display: none; flex: 0 0 auto; gap: 4px; overflow-x: auto; padding: 4px 6px calc(4px + env(safe-area-inset-bottom)); }
             .keys button { flex: 0 0 auto; min-height: 36px; min-width: 44px; }
             @media (pointer: coarse) { .keys { display: flex; } .wide { display: none; } }
+            .auth { align-items: center; background: rgba(11, 15, 13, .9); display: flex; inset: 0; justify-content: center; padding: 24px; position: absolute; z-index: 4; }
+            .auth form { background: #18211d; border: 1px solid #33413a; border-radius: 12px; display: flex; flex-direction: column; gap: 10px; max-width: 100%; padding: 18px; width: 340px; }
+            .auth h2 { font-size: 16px; margin: 0 0 4px; }
+            .auth label { color: #8fa39a; display: flex; flex-direction: column; font-size: 12px; gap: 4px; }
+            .auth input { background: #0f1412; border: 1px solid #33413a; border-radius: 6px; color: #d8e0dc; font: 14px system-ui, sans-serif; min-height: 32px; padding: 2px 8px; }
+            .auth .bad { color: #f0a92b; margin: 0; }
+            .auth .row { display: flex; gap: 8px; justify-content: flex-end; margin-top: 6px; }
+            .auth button.primary { background: #2f6b50; border-color: #4f8a6c; }
             .hidden { display: none !important; }
             /* Inside Matgate's shell the session toolbar steers the page, as for an RDP session. */
             body.embedded .bar { display: none !important; }
@@ -55,7 +63,7 @@ public static class AgentScreenPage
             body.fs .keys { display: none !important; }
         </style>
         </head>
-        <body data-server="__SERVER__" data-text="__TEXT__">
+        <body data-server="__SERVER__" data-text="__TEXT__" data-kind="__KIND__" data-base="__BASE__">
         <div class="bar">
             <button id="home" type="button" class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></button>
             <strong>__TITLE__</strong>
@@ -74,6 +82,16 @@ public static class AgentScreenPage
             <div id="frame"><canvas id="screen" width="16" height="9"></canvas><img id="pointer" class="hidden" alt=""></div>
             <div id="notice" class="notice"><p id="notice-text"></p><button id="notice-action" type="button" class="hidden"></button></div>
             <div id="toast" class="toast hidden"></div>
+            <div id="auth" class="auth hidden">
+                <form id="auth-form" autocomplete="off">
+                    <h2 id="auth-title"></h2>
+                    <p id="auth-failed" class="bad hidden"></p>
+                    <label id="auth-user-row"><span></span><input id="auth-user" type="text" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+                    <label id="auth-password-row"><span></span><input id="auth-password" type="password" autocomplete="off"></label>
+                    <label id="auth-domain-row"><span></span><input id="auth-domain" type="text" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+                    <div class="row"><button type="submit" class="primary" id="auth-ok"></button><button type="button" id="auth-cancel"></button></div>
+                </form>
+            </div>
         </div>
         <div class="keys" id="keys">
             <button type="button" data-key="01">Esc</button>
@@ -93,6 +111,13 @@ public static class AgentScreenPage
         (() => {
             const text = JSON.parse(document.body.dataset.text);
             const server = document.body.dataset.server;
+            // "agent" (the desktop of an agent's machine) or "display" (RDP/VNC through Matgate's display engine).
+            const kind = document.body.dataset.kind || 'agent';
+            const base = document.body.dataset.base || '/api/agent/' + server;
+            // What the remote clipboard takes: pictures as PNG (agent), as a Windows bitmap (RDP) or not at all (VNC).
+            let clipImage = 'png';
+            let clipFiles = true;
+            let canSound = true;
             const params = new URLSearchParams(location.search);
             const $ = id => document.getElementById(id);
             const stage = $('stage');
@@ -153,7 +178,7 @@ public static class AgentScreenPage
             const homeButton = $('home');
             homeButton.title = text.overview;
             homeButton.setAttribute('aria-label', text.overview);
-            if (!(window.parent && window.parent !== window && window.parent.MatgateShowAgent)) {
+            if (kind !== 'agent' || !(window.parent && window.parent !== window && window.parent.MatgateShowAgent)) {
                 homeButton.classList.add('hidden');
             }
             homeButton.addEventListener('click', () => window.parent.MatgateShowAgent(server));
@@ -335,19 +360,76 @@ public static class AgentScreenPage
                     pointerImage.style.transform = `translate(${pointerAt.x * scale - pointerHot.x}px, ${pointerAt.y * scale - pointerHot.y}px)`;
                 }
             };
-            const onCursor = (data, bytes) => {
+            let cursorSerial = 0;
+            const onCursor = async (data, bytes) => {
+                const serial = ++cursorSerial;
+                let blob = null;
+                if (data.format === 'rgba' && data.width > 0 && data.height > 0 && bytes.length >= data.width * data.height * 4) {
+                    const shape = document.createElement('canvas');
+                    shape.width = data.width;
+                    shape.height = data.height;
+                    shape.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(bytes.subarray(0, data.width * data.height * 4)), data.width, data.height), 0, 0);
+                    blob = await new Promise(resolve => shape.toBlob(resolve, 'image/png'));
+                }
+                else if (data.format !== 'default') {
+                    blob = new Blob([bytes], { type: 'image/png' });
+                }
+                if (serial !== cursorSerial) {
+                    return;
+                }
                 if (pointerUrl) {
                     URL.revokeObjectURL(pointerUrl);
                 }
-                pointerUrl = URL.createObjectURL(new Blob([bytes], { type: 'image/png' }));
+                pointerUrl = blob ? URL.createObjectURL(blob) : '';
                 pointerHot = { x: data.x || 0, y: data.y || 0 };
-                pointerImage.src = pointerUrl;
+                if (pointerUrl) {
+                    pointerImage.src = pointerUrl;
+                }
+                else {
+                    pointerImage.removeAttribute('src');
+                }
                 updateCursor();
             };
             const updateCursor = () => {
                 canvas.style.cursor = !pointerAt.visible ? 'none' : pointerUrl ? `url(${pointerUrl}) ${pointerHot.x} ${pointerHot.y}, default` : 'default';
                 placePointer();
             };
+
+            // ---- signing in: the remote desktop wants credentials the connection did not bring ------------
+            const auth = $('auth');
+            const authFields = { username: $('auth-user'), password: $('auth-password'), domain: $('auth-domain') };
+            $('auth-title').textContent = text.authTitle;
+            $('auth-failed').textContent = text.authFailed;
+            $('auth-user-row').firstElementChild.textContent = text.username;
+            $('auth-password-row').firstElementChild.textContent = text.password;
+            $('auth-domain-row').firstElementChild.textContent = text.domain;
+            $('auth-ok').textContent = text.signIn;
+            $('auth-cancel').textContent = text.cancel;
+            const hideAuth = () => auth.classList.add('hidden');
+            const askCredentials = data => {
+                const need = data.need || ['password'];
+                $('auth-user-row').classList.toggle('hidden', !need.includes('username'));
+                $('auth-domain-row').classList.toggle('hidden', !need.includes('domain'));
+                $('auth-failed').classList.toggle('hidden', !data.failed);
+                authFields.username.value = data.username || '';
+                authFields.domain.value = data.domain || '';
+                authFields.password.value = '';
+                hideNotice();
+                auth.classList.remove('hidden');
+                (need.includes('username') && !authFields.username.value ? authFields.username : authFields.password).focus();
+                window.__screen.auth = (window.__screen.auth || 0) + 1;
+            };
+            $('auth-form').addEventListener('submit', event => {
+                event.preventDefault();
+                send('screen.auth', { username: authFields.username.value, password: authFields.password.value, domain: authFields.domain.value });
+                authFields.password.value = '';
+                hideAuth();
+                showNotice(text.connecting);
+            });
+            $('auth-cancel').addEventListener('click', () => {
+                send('screen.auth', { cancel: true });
+                hideAuth();
+            });
 
             // ---- connecting -----------------------------------------------------------------------------
             const monitorSelect = $('monitor');
@@ -403,6 +485,7 @@ public static class AgentScreenPage
 
             const connect = () => {
                 window.clearTimeout(retryTimer);
+                hideAuth();
                 ended = false;
                 shown = false;
                 resetVideo();
@@ -422,7 +505,7 @@ public static class AgentScreenPage
                     fitWidth: String(sentFit.fitWidth),
                     fitHeight: String(sentFit.fitHeight),
                 });
-                socket = new WebSocket(`${scheme}//${location.host}/api/agent/${server}/screen-socket?${query}`);
+                socket = new WebSocket(`${scheme}//${location.host}${base}/screen-socket?${query}`);
                 socket.binaryType = 'arraybuffer';
                 socket.onmessage = event => {
                     if (typeof event.data === 'string') {
@@ -447,8 +530,15 @@ public static class AgentScreenPage
 
             const handle = (op, data, payload) => {
                 switch (op) {
+                    case 'screen.auth':
+                        askCredentials(data);
+                        break;
                     case 'screen.ready':
                         retry = 0;
+                        hideAuth();
+                        clipImage = data.clipImage || 'png';
+                        clipFiles = data.clipFiles !== false;
+                        canSound = data.audio !== false;
                         window.setTimeout(notifyShell, 0);
                         if (video) {
                             // A new helper on the machine (another Windows session): its pictures count from 1 again.
@@ -486,6 +576,12 @@ public static class AgentScreenPage
                         onCursor(data, payload);
                         break;
                     case 'screen.pointer':
+                        if (data.local) {
+                            // Only whether the pointer shows; where it is, this page knows itself.
+                            pointerAt = { ...pointerAt, visible: !!data.visible };
+                            updateCursor();
+                            break;
+                        }
                         pointerAt = { x: data.x, y: data.y, visible: !!data.visible };
                         if (!gesture || gesture.kind !== 'pad') {
                             cursor = { x: data.x, y: data.y };
@@ -921,24 +1017,56 @@ public static class AgentScreenPage
                 if (isMac && (code === 'MetaLeft' || code === 'MetaRight')) {
                     code = 'ControlLeft';
                 }
+                const ks = keysymOf(event, code);
+                // AltGr pressed with a character: Windows browsers report it as Ctrl+Alt, which must not reach
+                // a VNC server as modifiers of that character.
+                const ag = !!(event.getModifierState && event.getModifierState('AltGraph')) && String(event.key).length === 1;
                 if (code in SCAN) {
-                    return { s: SCAN[code], e: false, code };
+                    return { s: SCAN[code], e: false, code, ks, ag };
                 }
                 if (code in EXTENDED) {
-                    return { s: EXTENDED[code], e: true, code };
+                    return { s: EXTENDED[code], e: true, code, ks, ag };
                 }
                 return null;
             };
+            const KEYSYM = {
+                Backspace: 0xff08, Tab: 0xff09, Enter: 0xff0d, NumpadEnter: 0xff8d, Escape: 0xff1b, Delete: 0xffff, Home: 0xff50, ArrowLeft: 0xff51,
+                ArrowUp: 0xff52, ArrowRight: 0xff53, ArrowDown: 0xff54, PageUp: 0xff55, PageDown: 0xff56, End: 0xff57, Insert: 0xff63,
+                ShiftLeft: 0xffe1, ShiftRight: 0xffe2, ControlLeft: 0xffe3, ControlRight: 0xffe4, AltLeft: 0xffe9, AltRight: 0xffea,
+                MetaLeft: 0xffeb, MetaRight: 0xffec, OSLeft: 0xffeb, OSRight: 0xffec, CapsLock: 0xffe5, NumLock: 0xff7f, ScrollLock: 0xff14,
+                Pause: 0xff13, ContextMenu: 0xff67, PrintScreen: 0xff61, Space: 0x20,
+                F1: 0xffbe, F2: 0xffbf, F3: 0xffc0, F4: 0xffc1, F5: 0xffc2, F6: 0xffc3, F7: 0xffc4, F8: 0xffc5, F9: 0xffc6, F10: 0xffc7, F11: 0xffc8, F12: 0xffc9,
+            };
+            const keysymOf = (event, code) => {
+                const name = String(event.key || '');
+                if (name === 'AltGraph') {
+                    return 0xfe03;
+                }
+                if ([...name].length === 1) {
+                    const point = name.codePointAt(0);
+                    return point < 0x100 ? point : 0x01000000 + point;
+                }
+                return KEYSYM[code] || KEYSYM[name] || 0;
+            };
+            // Keys that come without a keyboard event (the key bar, Ctrl+V after a paste).
+            const KEYSYM_BY_SCAN = { '1': 0xff1b, '15': 0xff09, '14': 0xff08, '28': 0xff0d, '29': 0xffe3, '56': 0xffe9, '83e': 0xffff, '75e': 0xff51, '72e': 0xff52, '80e': 0xff54, '77e': 0xff53, '91e': 0xffeb, '47': 0x76 };
             const keysDown = new Map();
             const key = (scan, down) => {
                 const id = scan.s + (scan.e ? 'e' : '');
+                let ks = scan.ks || KEYSYM_BY_SCAN[id] || 0;
                 if (down) {
-                    keysDown.set(id, scan);
+                    keysDown.set(id, { ...scan, ks });
                 }
-                else if (!keysDown.delete(id)) {
-                    return;
+                else {
+                    // Released as what it was pressed as (Shift may have gone up first: "A" down, "a" up).
+                    const held = keysDown.get(id);
+                    if (!held) {
+                        return;
+                    }
+                    ks = held.ks || ks;
+                    keysDown.delete(id);
                 }
-                send('screen.input', { t: 'k', s: scan.s, e: scan.e, d: down });
+                send('screen.input', { t: 'k', s: scan.s, e: scan.e, d: down, ks, ag: down && !!scan.ag });
             };
             const releaseAll = () => {
                 if (keysDown.size || buttonsDown.size) {
@@ -975,7 +1103,7 @@ public static class AgentScreenPage
                 unlockSound();
                 writePendingClipboard();
                 // The bar's own controls keep their keys (choosing a monitor with the arrow keys).
-                if (event.target instanceof HTMLSelectElement) {
+                if (event.target instanceof HTMLSelectElement || (event.target instanceof Element && event.target.closest('#auth'))) {
                     return;
                 }
                 if (event.isComposing || event.key === 'Process' || event.keyCode === 229) {
@@ -1217,6 +1345,37 @@ public static class AgentScreenPage
                 }
                 send('screen.clip.end', { id });
             };
+            // A picture as a Windows bitmap (CF_DIB: header and pixels, bottom row first) - what RDP's clipboard carries.
+            const toDib = async file => {
+                const image = await createImageBitmap(file);
+                const sheet = document.createElement('canvas');
+                sheet.width = image.width;
+                sheet.height = image.height;
+                const pen = sheet.getContext('2d');
+                pen.fillStyle = '#fff';
+                pen.fillRect(0, 0, sheet.width, sheet.height);
+                pen.drawImage(image, 0, 0);
+                const pixels = pen.getImageData(0, 0, sheet.width, sheet.height).data;
+                const dib = new Uint8Array(40 + pixels.length);
+                const view = new DataView(dib.buffer);
+                view.setUint32(0, 40, true);
+                view.setInt32(4, sheet.width, true);
+                view.setInt32(8, sheet.height, true);
+                view.setUint16(12, 1, true);
+                view.setUint16(14, 32, true);
+                view.setUint32(20, pixels.length, true);
+                for (let y = 0; y < sheet.height; y++) {
+                    const from = (sheet.height - 1 - y) * sheet.width * 4;
+                    const to = 40 + y * sheet.width * 4;
+                    for (let x = 0; x < sheet.width * 4; x += 4) {
+                        dib[to + x] = pixels[from + x + 2];
+                        dib[to + x + 1] = pixels[from + x + 1];
+                        dib[to + x + 2] = pixels[from + x];
+                        dib[to + x + 3] = 255;
+                    }
+                }
+                return new File([dib], 'image.dib', { type: 'application/octet-stream' });
+            };
             document.addEventListener('paste', event => {
                 const held = heldPaste;
                 if (!held && document.activeElement !== sink) {
@@ -1232,7 +1391,15 @@ public static class AgentScreenPage
                 if (files.length) {
                     // One picture without a name of its own is a copied picture, not a copied file.
                     const picture = files.length === 1 && /^image\//.test(files[0].type) && /^image\.\w+$/i.test(files[0].name);
-                    uploadFiles(files, picture ? 'image' : 'files');
+                    if (picture && clipImage === 'dib') {
+                        toDib(files[0]).then(dib => uploadFiles([dib], 'image')).catch(() => setStatus(text.clipFailed, true));
+                    }
+                    else if (picture ? clipImage === 'none' : !clipFiles) {
+                        setStatus(text.filesUnsupported, true);
+                    }
+                    else {
+                        uploadFiles(files, picture ? 'image' : 'files');
+                    }
                     return;
                 }
                 const plain = data ? data.getData('text/plain') : '';
@@ -1273,6 +1440,22 @@ public static class AgentScreenPage
                     pendingClipboard = { kind: 'text', text: decoder.decode(payload) };
                     writePendingClipboard();
                 }
+                else if (data.kind === 'image' && data.format === 'bmp') {
+                    // A browser's clipboard takes PNG only.
+                    createImageBitmap(new Blob([payload], { type: 'image/bmp' })).then(image => {
+                        const sheet = document.createElement('canvas');
+                        sheet.width = image.width;
+                        sheet.height = image.height;
+                        sheet.getContext('2d').drawImage(image, 0, 0);
+                        sheet.toBlob(blob => {
+                            if (blob) {
+                                pendingClipboard = { kind: 'image', blob };
+                                writePendingClipboard();
+                            }
+                        }, 'image/png');
+                    }).catch(() => {
+                    });
+                }
                 else if (data.kind === 'image') {
                     pendingClipboard = { kind: 'image', blob: new Blob([payload], { type: 'image/png' }) };
                     writePendingClipboard();
@@ -1286,7 +1469,7 @@ public static class AgentScreenPage
             // Files copied on the machine: a browser cannot put files on a clipboard, so they are offered for download.
             const showFiles = data => {
                 const rows = (data.files || []).map((file, index) => {
-                    const link = `/api/agent/${server}/screen-clip?` + new URLSearchParams({ session, token: data.token, index: String(index) });
+                    const link = `${base}/screen-clip?` + new URLSearchParams({ session, token: data.token, index: String(index) });
                     return `<li><span>${escapeHtml(file.name)}</span>${file.folder
                         ? `<span class="muted">${escapeHtml(text.folder)}</span>`
                         : `<a href="${link}" download="${escapeHtml(file.name)}" data-download>${escapeHtml(text.download)} (${size(file.size)})</a>`}</li>`;
@@ -1435,10 +1618,12 @@ public static class AgentScreenPage
                     monitors: optionList(monitorSelect),
                     qualities: optionList(qualitySelect),
                     sound: !!audioContext,
+                    canSound,
                     keyboardOpen: coarse && document.activeElement === sink,
                     keyBarOpen: keyBar.classList.contains('open'),
                     pointerMode,
-                    texts: { monitor: text.monitor, quality: text.quality, target: text.target },
+                    kind,
+                    texts: { monitor: text.monitor, quality: text.quality, target: kind === 'agent' ? text.target : 'Matgate' },
                 }),
                 setResolution: value => {
                     resolutionSelect.value = value;

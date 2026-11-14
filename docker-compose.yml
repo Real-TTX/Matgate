@@ -1,12 +1,12 @@
-# Matgate with the options you are likely to want: your own admin, HTTPS behind a proxy, your home
+# Matgate with both engines for remote sessions - its own (RDP, VNC, SSH) and Guacamole, a choice per
+# connection - and the options you are likely to want: your own admin, HTTPS behind a proxy, your home
 # DNS so names like `nas` resolve, and pinned keys. Everything is set through a .env file - copy
-# .env.example if you need any of it; without one the defaults below apply and it behaves like
-# docker-compose.simple.yml.
+# .env.example if you need any of it; without one the defaults below apply.
 #
 #   docker compose up -d
 #
-# Just want it running?          ->  docker-compose.simple.yml
-# Want the browser farm too?     ->  docker-compose.full.yml
+# Just want it running, without Guacamole?   ->  docker-compose.simple.yml
+# Want the browser farm too?                 ->  docker-compose.full.yml
 name: matgate
 
 # Your DNS, so connections can use short names from your network.
@@ -55,6 +55,8 @@ services:
       args:
         MATGATE_VERSION_SUFFIX: ${MATGATE_VERSION_SUFFIX:-}
     environment:
+      # RDP and VNC of Matgate's own engine go through the display engine below; SSH runs in Matgate.
+      MATGATE_DISPLAY_ADDRESS: display:8092
       # Leave the admin values empty and the first start asks you to create the account. Set them to
       # skip that, for an install that has to come up unattended.
       MATGATE_ADMIN_USER: ${MATGATE_ADMIN_USER:-}
@@ -81,6 +83,24 @@ services:
       interval: 3s
       timeout: 3s
       retries: 20
+    restart: unless-stopped
+
+  # Matgate's display engine: connects to RDP servers (FreeRDP) and VNC servers (LibVNC) and sends the
+  # picture to the browser as H.264. It has no port to the outside - only Matgate talks to it, with a key
+  # both read from the secrets volume. Connections that are set to "Guacamole" do not use it.
+  display:
+    <<: *home-dns
+    image: ghcr.io/real-ttx/matgate-display:latest
+    # Only used by `docker compose up --build`, as for matgate above.
+    build:
+      context: .
+      dockerfile: display/Dockerfile
+    volumes:
+      # The same tree as Matgate, at the same path - as for guacd below.
+      - matgate-files:/files
+      - matgate-secrets:/run/matgate-secrets:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
   guacd:

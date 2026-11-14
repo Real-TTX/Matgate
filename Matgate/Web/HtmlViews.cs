@@ -3222,6 +3222,8 @@ public sealed class HtmlViews
         // The protocol's colour dot - so a button in the bar carries the same shade as the card it
         // came from.
         protoColor = ProtocolAccent(server.Protocol),
+        // "matgate" | "guacamole" | "": what opens a remote desktop or terminal here.
+        engine = server.EffectiveEngine(Matgate.Services.DisplayBridge.Available, Matgate.Services.GuacamoleLauncher.Available),
         target = ServerTargetValue(server),
         // "native" | "chromiumvnc" | "firefoxvnc" - farm modes open a VNC session instead of a proxy tab.
         renderMode = server.Protocol == ServerProtocol.Website
@@ -7774,6 +7776,11 @@ public sealed class HtmlViews
                         applyActionOrder();
                         collapseConnectionActions(connectionTabActions);
                     }
+                    else if (shellTab && sshTerminalOf(shellTab)) {
+                        addSshTerminalActions(shellTab);
+                        applyActionOrder();
+                        collapseConnectionActions(connectionTabActions);
+                    }
                     else if (shellTab) {
                         const copyUrl = getShellTabCopyUrl(shellTab);
                         if (copyUrl) {
@@ -7794,7 +7801,7 @@ public sealed class HtmlViews
                 // keyboards, resolution, clipboard, Ctrl+Alt+Del, disconnect). The page answers through
                 // window.MatgateScreen and says when something changed (MatgateScreenChanged).
                 function agentScreenOf(shellTab) {
-                    const match = shellTab ? /^\/agent\/([0-9a-fA-F-]{36})\/screen/.exec(shellTab.url || '') : null;
+                    const match = shellTab ? /^\/(agent|display)\/([0-9a-fA-F-]{36})\/screen/.exec(shellTab.url || '') : null;
                     if (!match) {
                         return null;
                     }
@@ -7807,7 +7814,68 @@ public sealed class HtmlViews
                         api = null;
                     }
 
-                    return { serverId: match[1], api };
+                    return { kind: match[1], serverId: match[2], api };
+                }
+
+                // An SSH terminal of Matgate's own, in a page tab.
+                function sshTerminalOf(shellTab) {
+                    if (!shellTab || !/^\/ssh\/[0-9a-fA-F-]{36}\/terminal/.test(shellTab.url || '')) {
+                        return null;
+                    }
+
+                    try {
+                        return { api: (shellTab.iframe && shellTab.iframe.contentWindow && shellTab.iframe.contentWindow.MatgateTerminal) || null };
+                    }
+                    catch {
+                        return { api: null };
+                    }
+                }
+
+                function addSshTerminalActions(shellTab) {
+                    const api = () => sshTerminalOf(shellTab)?.api || null;
+                    addTabAction('fullscreen', createTabActionButton(
+                        actionIcons.fullscreen,
+                        uiText.fullscreen || 'Fullscreen',
+                        async () => {
+                            try {
+                                await toggleFullscreen(document.documentElement);
+                            }
+                            catch {
+                                // Ignore fullscreen failures on browsers with partial support.
+                            }
+                            api()?.focus();
+                        },
+                        'tab-action-keep',
+                        true));
+                    addTabAction('clipboard', createTabActionButton(
+                        actionIcons.clipboard,
+                        uiText.pasteToActiveTab || uiText.clipboard || 'Paste to active tab',
+                        async () => {
+                            try {
+                                const text = await readBrowserClipboard();
+                                if (text) {
+                                    api()?.paste(text);
+                                }
+                            }
+                            catch {
+                                // No access to this device's clipboard: Ctrl+Shift+V in the terminal still works.
+                            }
+                            api()?.focus();
+                        },
+                        '',
+                        true));
+                    // Files go to the server through SFTP, into the login's home folder.
+                    addTabAction('upload', createTabActionButton(
+                        actionIcons.upload,
+                        uiText.xferUpload || 'Send files to the session',
+                        () => api()?.pickFiles(),
+                        '',
+                        true));
+                    addTabAction('disconnect', createTabActionButton(
+                        actionIcons.disconnect,
+                        uiText.disconnect || 'Disconnect',
+                        () => closeShellTab(shellTab.id),
+                        'danger tab-action-disconnect'));
                 }
 
                 function activeAgentScreen() {
@@ -7834,12 +7902,14 @@ public sealed class HtmlViews
                     const state = screen.api ? screen.api.state() : {};
                     const agentTab = [...tabs.values()].find(candidate => candidate.serverId === screen.serverId && isAgentTab(candidate));
 
-                    addTabAction('agent-overview', createTabActionButton(
-                        (agentTab && agentTab.iconHtml) || actionIcons.home,
-                        agentTexts.overview,
-                        () => window.MatgateShowAgent(screen.serverId),
-                        'tab-action-keep tab-action-app',
-                        true));
+                    if (screen.kind === 'agent') {
+                        addTabAction('agent-overview', createTabActionButton(
+                            (agentTab && agentTab.iconHtml) || actionIcons.home,
+                            agentTexts.overview,
+                            () => window.MatgateShowAgent(screen.serverId),
+                            'tab-action-keep tab-action-app',
+                            true));
+                    }
 
                     addTabAction('fullscreen', createTabActionButton(
                         actionIcons.fullscreen,
@@ -7898,12 +7968,15 @@ public sealed class HtmlViews
                         state.resolution === 'auto' ? 'active' : '',
                         true));
 
-                    addTabAction('sound', createTabActionButton(
-                        state.sound ? actionIcons.sound : actionIcons.soundOff,
-                        state.sound ? agentTexts.soundOff : agentTexts.soundOn,
-                        () => api()?.toggleSound(),
-                        state.sound ? 'active' : '',
-                        true));
+                    // VNC carries no sound.
+                    if (state.canSound !== false) {
+                        addTabAction('sound', createTabActionButton(
+                            state.sound ? actionIcons.sound : actionIcons.soundOff,
+                            state.sound ? agentTexts.soundOff : agentTexts.soundOn,
+                            () => api()?.toggleSound(),
+                            state.sound ? 'active' : '',
+                            true));
+                    }
 
                     addTabAction('clipboard', createTabActionButton(
                         actionIcons.clipboard,
@@ -9250,8 +9323,35 @@ public sealed class HtmlViews
                     fileAreaHost = null;
                 }
 
+                // Matgate's own engine: RDP and VNC as a screen (the display engine), SSH as a terminal - each in
+                // a page tab, steered by the session toolbar. Guacamole shows a connection only when it says so
+                // (or when the display engine is not set up).
+                function ownEnginePath(server) {
+                    if (!server || server.engine !== 'matgate') {
+                        return '';
+                    }
+
+                    const protocol = (server.protocol || '').toUpperCase();
+                    if (protocol === 'RDP' || protocol === 'VNC') {
+                        return '/display/' + encodeURIComponent(server.id) + '/screen';
+                    }
+
+                    return protocol === 'SSH' ? '/ssh/' + encodeURIComponent(server.id) + '/terminal' : '';
+                }
+
                 function openServer(serverId, filePath = '', tabId = '') {
                     const server = findServer(serverId);
+                    const own = ownEnginePath(server);
+                    if (own) {
+                        // A tab of its own every time: two sessions to the same machine are two tabs.
+                        openShellTab(
+                            own + '?tab=' + Math.random().toString(36).slice(2, 10),
+                            server.name || '',
+                            server.iconHtml || '',
+                            (server.protocol || '') + ' ' + (server.target || ''));
+                        return null;
+                    }
+
                     if (server) {
                         return createTab(server, { filePath, tabId });
                     }
@@ -10068,7 +10168,7 @@ public sealed class HtmlViews
                         statusTarget.textContent = state.texts?.target || 'Agent';
                         statusState.textContent = state.status || ui('ready');
                         statusLatency.textContent = gatewayLatencyMs === null ? 'Gateway: -' : `Gateway: ${gatewayLatencyMs} ms`;
-                        statusTunnel.textContent = 'Tunnel: Agent';
+                        statusTunnel.textContent = screen.kind === 'agent' ? 'Tunnel: Agent' : 'Tunnel: Matgate';
                         statusSync.textContent = state.stats || '-';
                         statusMessage.textContent = state.statsDetail || '-';
                         if (statusResolution) {
@@ -14312,7 +14412,19 @@ public sealed class HtmlViews
                 }
 
                 const openedTabs = [];
+                // A connection of Matgate's own engine opens as a page tab and comes back with those; only the
+                // one asked for by ?open= is opened here.
+                let ownEngineOpened = false;
                 for (const tabState of tabStatesToOpen) {
+                    if (ownEnginePath(findServer(tabState.serverId))) {
+                        if (tabState.serverId === initialOpenServerId) {
+                            openServer(tabState.serverId);
+                            ownEngineOpened = true;
+                        }
+
+                        continue;
+                    }
+
                     const tab = openServer(tabState.serverId, tabState.filePath || '', tabState.tabId || '');
                     if (tab) {
                         openedTabs.push(tab);
@@ -14322,7 +14434,10 @@ public sealed class HtmlViews
                 const preferredTab = openedTabs.find(tab => tab.id === restoredWorkspace.activeTabId)
                     || openedTabs.find(tab => tab.serverId === (initialOpenServerId || restoredWorkspace.activeServerId))
                     || openedTabs[0];
-                if (preferredTab) {
+                if (ownEngineOpened) {
+                    // Already at the front.
+                }
+                else if (preferredTab) {
                     activateTab(preferredTab.id);
                 }
                 else {
@@ -21303,6 +21418,7 @@ public sealed class HtmlViews
             <section class="panel server-form-section" data-protocols="rdp">
                 <h2>{{T(context, "RDP settings")}}</h2>
                 <div class="form-grid">
+                    {{EngineSelect(context, server, ServerProtocol.Rdp)}}
                     <label>{{T(context, "RDP keyboard layout")}}
                         <input name="keyboardLayout" list="keyboardLayouts" value="{{A(keyboardLayout)}}" autocomplete="off">
                         <datalist id="keyboardLayouts">
@@ -21318,9 +21434,16 @@ public sealed class HtmlViews
                     <label class="check"><input type="checkbox" name="ignoreCertificate"{{Checked(server?.IgnoreCertificate ?? true)}}> {{T(context, "Ignore RDP certificate")}}</label>
                 </div>
             </section>
+            <section class="panel server-form-section" data-protocols="vnc">
+                <h2>{{(Language(context) == "de" ? "VNC-Einstellungen" : "VNC settings")}}</h2>
+                <div class="form-grid">
+                    {{EngineSelect(context, server, ServerProtocol.Vnc)}}
+                </div>
+            </section>
             <section class="panel server-form-section" data-protocols="ssh">
                 <h2>{{T(context, "SSH settings")}}</h2>
                 <div class="form-grid">
+                    {{EngineSelect(context, server, ServerProtocol.Ssh)}}
                     <label>{{T(context, "SSH font size")}}
                         <input name="terminalFontSize" type="number" min="8" max="24" value="{{terminalFontSize}}">
                     </label>
@@ -21356,6 +21479,60 @@ public sealed class HtmlViews
             </section>
             """;
         return basicSection;
+    }
+
+    // "Open as" for RDP, VNC and SSH - the connection's sub type, as a website has its render mode: Matgate's
+    // own engine or Guacamole. What is not part of this installation is said beside it; the connection then
+    // opens with the other one.
+    private static string EngineSelect(HttpContext context, ServerEndpoint? server, ServerProtocol protocol)
+    {
+        var de = Language(context) == "de";
+        var engine = ServerEndpoint.NormalizeEngine(server?.Engine);
+        var (own, hint) = protocol switch
+        {
+            ServerProtocol.Rdp => ("Matgate (FreeRDP)", de
+                ? "Matgate (FreeRDP): H.264 im Browser, Ton, Zwischenablage für Text, Bilder und Dateien, die Auflösung folgt dem Fenster ohne Neuverbindung. Guacamole: der Guacamole-Client mit Laufwerk und Text-Zwischenablage."
+                : "Matgate (FreeRDP): H.264 in the browser, sound, a clipboard for text, pictures and files, the resolution follows the window without reconnecting. Guacamole: the Guacamole client with a drive and a text clipboard."),
+            ServerProtocol.Vnc => ("Matgate (LibVNC)", de
+                ? "Matgate (LibVNC): H.264 im Browser, Text-Zwischenablage, die Größe des Desktops folgt dem Fenster, wo der Server es kann. Guacamole: der Guacamole-Client."
+                : "Matgate (LibVNC): H.264 in the browser, a text clipboard, the desktop's size follows the window where the server can. Guacamole: the Guacamole client."),
+            _ => ("Matgate (SSH)", de
+                ? "Matgate (SSH): Terminal direkt aus Matgate, fragt fehlende Zugangsdaten im Terminal ab, Dateien per Einfügen oder Ablegen. Guacamole: das Guacamole-Terminal."
+                : "Matgate (SSH): a terminal straight from Matgate, asks for missing credentials in the terminal, files by pasting or dropping. Guacamole: the Guacamole terminal."),
+        };
+
+        var ownAvailable = protocol == ServerProtocol.Ssh || Matgate.Services.DisplayBridge.Available;
+        var note = "";
+        if (!ownAvailable && !Matgate.Services.GuacamoleLauncher.Available)
+        {
+            note = de
+                ? "In dieser Installation ist weder Matgates Display-Engine noch Guacamole eingerichtet - die Verbindung lässt sich so nicht öffnen."
+                : "This installation has neither Matgate's display engine nor Guacamole - the connection cannot be opened like this.";
+        }
+        else if (!ownAvailable)
+        {
+            note = de
+                ? "Matgates Display-Engine gehört nicht zu dieser Installation - die Verbindung öffnet mit Guacamole."
+                : "Matgate's display engine is not part of this installation - the connection opens with Guacamole.";
+        }
+        else if (!Matgate.Services.GuacamoleLauncher.Available)
+        {
+            note = de
+                ? "Guacamole gehört nicht zu dieser Installation - die Verbindung öffnet mit Matgate."
+                : "Guacamole is not part of this installation - the connection opens with Matgate.";
+        }
+
+        var noteHtml = note.Length > 0 ? "<small class=\"muted\" data-engine-note>" + E(note) + "</small>" : "";
+        return $"""
+            <label>{T(context, "Open as")}
+                <select name="engine">
+                    <option value=""{(engine == "" ? " selected" : "")}>{E(own)}</option>
+                    <option value="guacamole"{(engine == "guacamole" ? " selected" : "")}>Guacamole</option>
+                </select>
+                <small class="muted">{E(hint)}</small>
+                {noteHtml}
+            </label>
+            """;
     }
 
     private static string ServerFormScript()

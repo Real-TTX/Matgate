@@ -1,5 +1,6 @@
-# Matgate with everything: the options of docker-compose.yml plus the browser farm, which lets a
-# website be opened inside a throwaway Chromium or Firefox instead of through the reverse proxy.
+# Matgate with everything: both engines for remote sessions (its own and Guacamole) and the options of
+# docker-compose.yml, plus the browser farm, which lets a website be opened inside a throwaway Chromium
+# or Firefox instead of through the reverse proxy.
 #
 #   docker compose -f docker-compose.full.yml up -d
 #
@@ -49,6 +50,8 @@ services:
     environment:
       # Turns the browser farm on. Without it, websites are only offered in "native" mode.
       BrowserFarm__BaseUrl: http://browser-farm:8090
+      # RDP and VNC of Matgate's own engine go through the display engine below; SSH runs in Matgate.
+      MATGATE_DISPLAY_ADDRESS: display:8092
       # Leave the admin values empty and the first start asks you to create the account. Set them to
       # skip that, for an install that has to come up unattended.
       MATGATE_ADMIN_USER: ${MATGATE_ADMIN_USER:-}
@@ -75,6 +78,20 @@ services:
       interval: 3s
       timeout: 3s
       retries: 20
+    restart: unless-stopped
+
+  # Matgate's display engine: connects to RDP servers (FreeRDP) and VNC servers (LibVNC) and sends the
+  # picture to the browser as H.264. It has no port to the outside - only Matgate talks to it, with a key
+  # both read from the secrets volume. Connections that are set to "Guacamole" do not use it.
+  display:
+    <<: *home-dns
+    image: ghcr.io/real-ttx/matgate-display:latest
+    volumes:
+      # The same tree as Matgate, at the same path - as for guacd below.
+      - matgate-files:/files
+      - matgate-secrets:/run/matgate-secrets:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     restart: unless-stopped
 
   guacd:

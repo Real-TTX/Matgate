@@ -9,6 +9,16 @@ public sealed class GuacamoleLauncher
 {
     private static readonly byte[] ZeroIv = new byte[16];
 
+    // Whether this installation has Guacamole at all. A stack without it (Matgate and its display engine
+    // alone) says so with MATGATE_GUACAMOLE=off; connections then open with Matgate's own engine.
+    public static bool Available { get; private set; } = true;
+
+    public static void Configure(IConfiguration configuration)
+    {
+        var value = (Environment.GetEnvironmentVariable("MATGATE_GUACAMOLE") ?? configuration["Guacamole:Enabled"] ?? "").Trim().ToLowerInvariant();
+        Available = value is not ("off" or "false" or "0" or "no" or "disabled");
+    }
+
     private readonly IConfiguration _configuration;
     private readonly JsonDataStore _dataStore;
     private readonly FileShareService _fileShares;

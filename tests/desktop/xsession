@@ -1,0 +1,4 @@
+#!/bin/sh
+# What an RDP session shows: a window manager and one terminal.
+openbox &
+exec xterm -geometry 100x30+20+20 -fa Monospace -fs 11
