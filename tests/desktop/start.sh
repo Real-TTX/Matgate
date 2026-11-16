@@ -10,4 +10,7 @@ su demo -c 'Xtigervnc :1 -geometry 1024x768 -depth 24 -rfbport 5901 -rfbauth ~/.
 sleep 2
 su demo -c 'DISPLAY=:1 openbox >/dev/null 2>&1 &'
 su demo -c 'DISPLAY=:1 xterm -geometry 100x30+20+20 -fa Monospace -fs 11 >/dev/null 2>&1 &'
+# The same desktop as RDP on 3390, behind Network Level Authentication: user "demo" with the password above
+# (its hash is in /etc/winpr/SAM).
+su demo -c 'DISPLAY=:1 freerdp-shadow-cli3 /port:3390 /sec:nla /sam-file:/etc/winpr/SAM >/tmp/shadow.log 2>&1 &'
 exec tail -f /var/log/xrdp.log /var/log/xrdp-sesman.log

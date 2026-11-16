@@ -1,16 +1,16 @@
 # Matgate, minimal - without Guacamole: RDP, VNC and SSH through Matgate's own engine, file connections,
-# native websites. Three small containers.
+# native websites. Two small containers: Matgate and the proxy in front of it.
 #
 #   docker compose -f docker-compose.simple.yml up -d
 #
 # Open http://localhost:8088 - the first start asks you to create the admin account. Nothing to
-# configure: Matgate generates its own keys and shares the one for its display engine with it.
+# configure: Matgate generates its own keys.
 #
 # Want Guacamole as well (a choice per connection) and the usual options?  ->  docker-compose.yml
 # Want the browser farm on top?                                           ->  docker-compose.full.yml
 #
-# Coming from an older copy of this file, which ran Guacamole? Add --remove-orphans once, so its two
-# containers go.
+# Coming from an older copy of this file, which ran Guacamole or a separate display engine? Add
+# --remove-orphans once, so those containers go.
 name: matgate
 
 services:
@@ -34,28 +34,13 @@ services:
   matgate:
     image: ghcr.io/real-ttx/matgate:latest
     environment:
-      # RDP and VNC go through the display engine below; SSH runs in Matgate itself.
-      MATGATE_DISPLAY_ADDRESS: display:8092
-      # This stack has no Guacamole: every connection opens with Matgate's own engine.
+      # This stack has no Guacamole: every connection opens with Matgate's own engine, which is part of
+      # Matgate itself.
       MATGATE_GUACAMOLE: "off"
     volumes:
       - ./data:/data
       - matgate-files:/files
       - matgate-secrets:/run/matgate-secrets
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    restart: unless-stopped
-
-  # Matgate's display engine: connects to RDP servers (FreeRDP) and VNC servers (LibVNC) and sends the
-  # picture to the browser as H.264. It has no port to the outside - only Matgate talks to it, with a key
-  # both read from the secrets volume.
-  display:
-    image: ghcr.io/real-ttx/matgate-display:latest
-    volumes:
-      # The same tree as Matgate, at the same path: an RDP session's drive is one folder in here, and the
-      # links inside it have to resolve to the same place in both containers.
-      - matgate-files:/files
-      - matgate-secrets:/run/matgate-secrets:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped

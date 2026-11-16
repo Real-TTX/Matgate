@@ -21,9 +21,9 @@ Your home network is full of things you occasionally need to reach: a Windows bo
 a Linux server over SSH, the NAS share, the router's web UI. Normally that means an RDP client
 here, an SSH client there, a VPN, a bookmark, a password sheet. Matgate puts all of it behind
 **one web UI and one login**: every machine as a tile, every session as a tab, every credential
-stored **encrypted** in one place. RDP and VNC run through Matgate's own display engine (FreeRDP and
-LibVNC, shown as H.264 by the browser itself), SSH in Matgate itself; Apache Guacamole is there as a
-second way to open them, chosen per connection - or left out altogether. Files, the website proxy,
+stored **encrypted** in one place. RDP, VNC and SSH run through Matgate's own engine - its own RDP and VNC
+clients, written in C# and part of Matgate itself, the picture shown as H.264 by the browser -; Apache
+Guacamole is there as a second way to open them, chosen per connection - or left out altogether. Files, the website proxy,
 users, permissions and the UI are Matgate's own.
 
 It is built to sit on a home server in Docker, optionally behind a reverse proxy, and to be
@@ -125,11 +125,10 @@ Prebuilt images are published to the GitHub Container Registry:
 |---|---|---|
 | `ghcr.io/real-ttx/matgate` | `latest` | the current release |
 | `ghcr.io/real-ttx/matgate` | `0.9.60`, `sha-…` | pinning an exact build |
-| `ghcr.io/real-ttx/matgate-display` | `latest` | Matgate's display engine (RDP and VNC) |
 | `ghcr.io/real-ttx/matgate-browser-farm` | `latest` | the optional browser farm |
 
-Remote sessions have two engines: **Matgate's own** (one small container, the display engine, for RDP
-and VNC - SSH needs nothing extra) and **Apache Guacamole** (two containers). A stack can run either or
+Remote sessions have two engines: **Matgate's own** (part of Matgate itself - nothing extra to run)
+and **Apache Guacamole** (two containers). A stack can run either or
 both; with both, every connection picks one. A small edge proxy is the single entrance, compresses what
 Matgate sends and keeps `/guacamole` behind the login. Three ready-made stacks live in this repo —
 grab one and run it, no build required:
@@ -148,24 +147,24 @@ docker compose -f docker-compose.full.yml up -d      # everything, browser farm 
 
 Open **http://localhost:8088** — the first start shows a **setup wizard** that creates your
 administrator account (username, email, password). All three files are self-contained and use the prebuilt
-images. **Matgate generates and persists its own keys** (the at-rest key and the ones it shares with its
-display engine and with Guacamole) into the `matgate-secrets` volume — nothing to configure by hand. For
+images. **Matgate generates and persists its own keys** (the at-rest key and the one it shares with
+Guacamole) into the `matgate-secrets` volume — nothing to configure by hand. For
 reference, the whole `docker-compose.simple.yml`:
 
 ```yaml
 # Matgate, minimal - without Guacamole: RDP, VNC and SSH through Matgate's own engine, file connections,
-# native websites. Three small containers.
+# native websites. Two small containers: Matgate and the proxy in front of it.
 #
 #   docker compose -f docker-compose.simple.yml up -d
 #
 # Open http://localhost:8088 - the first start asks you to create the admin account. Nothing to
-# configure: Matgate generates its own keys and shares the one for its display engine with it.
+# configure: Matgate generates its own keys.
 #
 # Want Guacamole as well (a choice per connection) and the usual options?  ->  docker-compose.yml
 # Want the browser farm on top?                                           ->  docker-compose.full.yml
 #
-# Coming from an older copy of this file, which ran Guacamole? Add --remove-orphans once, so its two
-# containers go.
+# Coming from an older copy of this file, which ran Guacamole or a separate display engine? Add
+# --remove-orphans once, so those containers go.
 name: matgate
 
 services:
@@ -189,28 +188,13 @@ services:
   matgate:
     image: ghcr.io/real-ttx/matgate:latest
     environment:
-      # RDP and VNC go through the display engine below; SSH runs in Matgate itself.
-      MATGATE_DISPLAY_ADDRESS: display:8092
-      # This stack has no Guacamole: every connection opens with Matgate's own engine.
+      # This stack has no Guacamole: every connection opens with Matgate's own engine, which is part of
+      # Matgate itself.
       MATGATE_GUACAMOLE: "off"
     volumes:
       - ./data:/data
       - matgate-files:/files
       - matgate-secrets:/run/matgate-secrets
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    restart: unless-stopped
-
-  # Matgate's display engine: connects to RDP servers (FreeRDP) and VNC servers (LibVNC) and sends the
-  # picture to the browser as H.264. It has no port to the outside - only Matgate talks to it, with a key
-  # both read from the secrets volume.
-  display:
-    image: ghcr.io/real-ttx/matgate-display:latest
-    volumes:
-      # The same tree as Matgate, at the same path: an RDP session's drive is one folder in here, and the
-      # links inside it have to resolve to the same place in both containers.
-      - matgate-files:/files
-      - matgate-secrets:/run/matgate-secrets:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
     restart: unless-stopped
@@ -224,7 +208,7 @@ volumes:
 
 After the first admin is created you add your first server and connect.
 
-> `docker-compose.yml` can also build Matgate and its display engine from this repository instead of
+> `docker-compose.yml` can also build Matgate from this repository instead of
 > pulling the published images — that is what `docker compose up --build -d` does. Ignore it unless you
 > work on Matgate.
 
@@ -235,19 +219,22 @@ mode:
 
 | | **Matgate** (own engine) | **Guacamole** |
 |---|---|---|
-| RDP | FreeRDP 3 in the display engine, the picture as H.264 decoded by the browser (WebCodecs) | guacd and the Guacamole client |
+| RDP | Matgate's own RDP client (TLS and Network Level Authentication with NTLM), the picture as H.264 decoded by the browser (WebCodecs) | guacd and the Guacamole client |
 | RDP clipboard | text, pictures and **files**, both ways: Ctrl+V puts files where the remote desktop has its focus, files copied there are offered for download | text; files through the session's drive |
 | RDP window size | the session follows the window without reconnecting (Display Control) | reconnects at the new size |
-| RDP sound, drive | sound as Opus; the drive `Files` with the file areas | the drive `Files` with the file areas |
-| VNC | LibVNC in the display engine; text clipboard; the desktop is resized to the window where the server can | guacd; per-session scale |
+| RDP sound, drive | sound; no drive yet | the drive `Files` with the file areas |
+| VNC | Matgate's own VNC client (VNC password, VeNCrypt, Apple Remote Desktop sign-in); text clipboard; the desktop is resized to the window where the server can | guacd; per-session scale |
 | SSH | in Matgate itself (SSH.NET, xterm.js); asks for a missing user or password in the terminal; files pasted or dropped go to the home folder by SFTP | Guacamole's terminal; files through its SFTP dialog |
-| Needs | the `display` container for RDP and VNC | the `guacd` and `guacamole` containers |
+| Needs | nothing - it is part of Matgate | the `guacd` and `guacamole` containers |
 
 What a connection asks for is what opens it. Only when that engine is not part of the installation
-does the other one step in - a stack without Guacamole opens everything with Matgate's own, a stack
-without the display engine opens RDP and VNC with Guacamole - and the connection form says so.
+does the other one step in - a stack without Guacamole opens everything with Matgate's own - and the
+connection form says so.
 "Via Chromium / Firefox VNC" websites are shown by Guacamole, so they need it (and the browser farm).
 Matgate's own engine needs a browser with WebCodecs: a current Edge, Chrome, Firefox or Safari.
+Guacamole remains the way for what Matgate's RDP client does not do yet: a drive in the session,
+terminal servers that hand out Remote Desktop licences, sign-in through Kerberos only, and servers
+that only know the old RDP encryption or the CredSSP scheme from before 2018.
 
 ### Pin your keys (recommended)
 
@@ -255,8 +242,6 @@ Matgate generates its secrets on first start into the `matgate-secrets` volume:
 
 - `master.key` – encrypts stored device passwords **at rest**
 - `guac.key` – signs the Guacamole session tokens (**must match** between `matgate` and `guacamole`)
-- `display.key` – what Matgate shows its display engine, so that nothing else can ask it for a screen
-  (both read it from the volume; a new one is as good as the old, nothing to pin)
 
 If that volume is ever lost or recreated, new keys are generated and the **stored passwords can no
 longer be decrypted**. To make the keys survive any redeploy, pin the current values into a `.env`
@@ -279,7 +264,6 @@ is 32 hex characters, `MATGATE_SECRET_KEY` is 64.
 |---|---|---|
 | `MATGATE_DATA_DIR` | `/data` | Persistent data directory inside the container |
 | `MATGATE_ADMIN_USER` / `MATGATE_ADMIN_PASSWORD` / `MATGATE_ADMIN_EMAIL` | – | Seed the admin unattended and skip the setup wizard |
-| `MATGATE_DISPLAY_ADDRESS` | – | `host:port` of the display engine, e.g. `display:8092`. Without it, RDP and VNC open with Guacamole |
 | `MATGATE_GUACAMOLE` | on | `off` for a stack without Guacamole: every connection opens with Matgate's own engine |
 | `MATGATE_GUACAMOLE_JSON_SECRET_KEY` | auto | 32 hex chars for Guacamole JSON auth (see *Pin your keys*) |
 | `MATGATE_SECRET_KEY` | auto | 64 hex chars for at-rest encryption of credentials |
@@ -345,12 +329,12 @@ Two things worth knowing:
 
 ### Setup
 
-The shipped compose files give the volume to matgate **and** to whatever serves the drive - the display
-engine and guacd -, at the same path. Both halves are needed: the engine serves the drive from its own
+The shipped compose files give the volume to matgate **and** to guacd, which serves the drive of a
+Guacamole session, at the same path. Both halves are needed: guacd serves the drive from its own
 filesystem, and matgate assembles the folder it serves. If you write your own compose file and skip
 this, nothing breaks - Matgate notices that the tree is not shared and a Guacamole session falls back
-to a scratch folder inside guacd, so file transfer keeps working with the `Session` folder alone (a
-session of Matgate's own engine then has the clipboard for files, but no drive). The gateway log says
+to a scratch folder inside guacd, so file transfer keeps working with the `Session` folder alone. A
+session of Matgate's own engine has no drive yet; files go through its clipboard. The gateway log says
 which of the two is in use at startup.
 
 Session folders are cleaned up on their own. A session of Matgate's own engine runs through Matgate,
@@ -374,9 +358,10 @@ volume (or pin the keys in `.env`, see above).
 ## How it's built
 
 - **ASP.NET Core (.NET 10)**, server-rendered HTML; the client is **plain JavaScript**, no build step
-- **RDP / VNC** by Matgate's **display engine** (`display/`, C: FreeRDP 3, LibVNC, x264, Opus) - one
-  process per session, speaking the screen protocol of the [Matgate agent](agent/README.md), shown by
-  the browser with WebCodecs; **SSH** in-process (SSH.NET) in an xterm.js terminal
+- **RDP / VNC** by Matgate's own clients (`Matgate/Display`, C#, written from Microsoft's and the RFB
+  specification), encoded as H.264 with OpenH264 and speaking the screen protocol of the
+  [Matgate agent](agent/README.md), shown by the browser with WebCodecs; **SSH** in-process (SSH.NET) in an
+  xterm.js terminal
 - …or through **Apache Guacamole + guacd**, for which Matgate mints short-lived, encrypted auth tokens
   per launch
 - File access through in-process **SFTP (SSH.NET)**, **FTP (FluentFTP)** and **SMB (SMBLibrary)**
@@ -394,7 +379,7 @@ control, PWA and mobile layout. On the list: TLS polish and further hardening.
 ## Development
 
 ```bash
-docker compose up --build -d                     # build this checkout (Matgate, display engine) and run it
+docker compose up --build -d                     # build this checkout and run it
 docker compose -f docker-compose.full.yml up -d  # with the browser farm
 ```
 

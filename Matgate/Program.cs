@@ -53,8 +53,6 @@ static void EnsureSecretFile(string envName, string fileEnvName, string defaultP
 
 EnsureSecretFile("MATGATE_GUACAMOLE_JSON_SECRET_KEY", "MATGATE_GUACAMOLE_JSON_SECRET_KEY_FILE", "/run/matgate-secrets/guac.key", 16);
 EnsureSecretFile("MATGATE_SECRET_KEY", "MATGATE_SECRET_KEY_FILE", "/run/matgate-secrets/master.key", 32);
-// Shared with the display engine (RDP/VNC): only Matgate may ask it for a remote screen.
-EnsureSecretFile("MATGATE_DISPLAY_KEY", "MATGATE_DISPLAY_KEY_FILE", "/run/matgate-secrets/display.key", 24);
 
 var builder = WebApplication.CreateBuilder(args);
 var configuredDataDirectory = Environment.GetEnvironmentVariable("MATGATE_DATA_DIR")
@@ -158,11 +156,9 @@ builder.Services.AddSingleton<WorkspaceService>();
 builder.Services.AddSingleton<WebsiteProxyService>();
 
 var app = builder.Build();
-// Decides once whether RDP and VNC can use Matgate's own display engine.
-app.Services.GetRequiredService<DisplayBridge>();
 GuacamoleLauncher.Configure(app.Configuration);
-app.Logger.LogInformation("Remote sessions: Matgate's display engine (RDP, VNC) {Display}, Guacamole {Guacamole}.",
-    DisplayBridge.Available ? "at " + app.Services.GetRequiredService<DisplayBridge>().Address : "not set up",
+app.Logger.LogInformation("Remote sessions: Matgate's own engine (RDP, VNC) {Display}, Guacamole {Guacamole}.",
+    DisplayBridge.Available ? "available" : "not available (" + DisplayBridge.UnavailableReason + ")",
     GuacamoleLauncher.Available ? "available" : "switched off");
 
 app.UseForwardedHeaders();

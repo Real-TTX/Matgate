@@ -4,7 +4,9 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <VersionPrefix>0.19.0</VersionPrefix>
+    <!-- The H.264 encoder of Matgate's own display engine is called through function pointers. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <VersionPrefix>0.20.0</VersionPrefix>
   </PropertyGroup>
 
   <ItemGroup>

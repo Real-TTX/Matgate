@@ -79,8 +79,8 @@ public sealed class ServerEndpoint
     public bool IgnoreCertificate { get; set; } = true;
 
     // How a remote desktop or a terminal is opened - the connection's sub type, like a website's render mode:
-    // "" = Matgate's own engine (RDP through FreeRDP and VNC through LibVNC in the display engine, SSH in
-    // Matgate itself), "guacamole" = Apache Guacamole.
+    // "" = Matgate's own engine (its own RDP and VNC clients and SSH, all inside Matgate itself),
+    // "guacamole" = Apache Guacamole.
     public string Engine { get; set; } = "";
 
     public bool IsEnabled { get; set; } = true;
@@ -115,7 +115,8 @@ public sealed class ServerEndpoint
 
     // What really opens this connection here: "matgate", "guacamole" or "" (neither is set up). It is the one
     // the connection asks for; only when that one is not part of this installation does the other one step in
-    // (RDP and VNC of Matgate's own need the display engine, Guacamole needs its containers).
+    // (RDP and VNC of Matgate's own need the H.264 encoder library the image brings along, Guacamole needs
+    // its containers).
     public string EffectiveEngine(bool displayEngineAvailable, bool guacamoleAvailable)
     {
         if (!IsGuacamoleProtocol(Protocol))

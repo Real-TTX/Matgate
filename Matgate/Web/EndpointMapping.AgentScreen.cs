@@ -215,7 +215,7 @@ public static partial class EndpointMapping
         return Results.Content(ScreenPageHtml(context, server!.Name, server.Id, "agent", "/api/agent/" + server.Id), "text/html; charset=utf-8");
     }
 
-    // The screen page for an agent's machine and for RDP/VNC through the display engine: the same page, only
+    // The screen page for an agent's machine and for RDP/VNC through Matgate's own engine: the same page, only
     // where its socket and its downloads are differs.
     private static string ScreenPageHtml(HttpContext context, string title, Guid serverId, string kind, string basePath)
     {

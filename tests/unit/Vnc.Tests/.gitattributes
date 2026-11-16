@@ -1,0 +1,2 @@
+# The scripts run in Linux containers: they keep their line feeds on a Windows checkout too.
+servers/*.sh text eol=lf

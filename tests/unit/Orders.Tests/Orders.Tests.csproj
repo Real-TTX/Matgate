@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Tests for the drawing orders of Matgate's own RDP client (MS-RDPEGDI): the annotated examples of the
+       specification's section 4, the field encoding, every raster operation, and robustness against hostile
+       input. The sources are compiled into this project directly, so the tests reach the internal parts as well.
+
+         dotnet test tests/unit/Orders.Tests -c Release
+
+       The tests need neither Docker nor a server. TestData holds the hex dumps of the annotated examples in
+       MS-RDPEGDI section 4 (4.1 and 4.2), exactly as the specification prints them, one file per dump. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>Matgate.Display.Rdp.Orders.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\..\Matgate\Display\Rdp\Orders\**\*.cs" LinkBase="Orders" />
+    <Compile Include="..\..\..\Matgate\Display\Rdp\Graphics\**\*.cs" LinkBase="Graphics" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="TestData\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
+  </ItemGroup>
+
+</Project>

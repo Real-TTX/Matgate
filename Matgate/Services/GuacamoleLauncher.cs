@@ -9,8 +9,8 @@ public sealed class GuacamoleLauncher
 {
     private static readonly byte[] ZeroIv = new byte[16];
 
-    // Whether this installation has Guacamole at all. A stack without it (Matgate and its display engine
-    // alone) says so with MATGATE_GUACAMOLE=off; connections then open with Matgate's own engine.
+    // Whether this installation has Guacamole at all. A stack without it (Matgate alone) says so with
+    // MATGATE_GUACAMOLE=off; connections then open with Matgate's own engine.
     public static bool Available { get; private set; } = true;
 
     public static void Configure(IConfiguration configuration)

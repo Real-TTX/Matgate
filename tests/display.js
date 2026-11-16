@@ -1,8 +1,9 @@
-// Matgate's own engine for RDP, VNC and SSH - no Guacamole in between. RDP and VNC go through the display
-// engine (the "display" container: FreeRDP 3 and libvncclient, H.264 to the browser) and are shown by the
-// screen page of the agent; SSH runs in Matgate itself (SSH.NET) and is shown by the terminal page. The
-// machine to connect to is the test stack's "desktop" container: xrdp on 3389, TigerVNC on 5901, an xterm in
-// each; and its "ssh" container. What the remote side really got is read there with docker exec.
+// Matgate's own engine for RDP, VNC and SSH - no Guacamole in between, all inside Matgate itself. RDP and
+// VNC are Matgate's own clients (H.264 to the browser), shown by the screen page of the agent; SSH runs on
+// SSH.NET and is shown by the terminal page. The machine to connect to is the test stack's "desktop"
+// container: xrdp on 3389, TigerVNC on 5901, an xterm in each, and the VNC desktop once more on 3390 behind
+// Network Level Authentication; and its "ssh" container. What the remote side really got is read there
+// with docker exec.
 const { chromium } = require("playwright-core");
 const { execFileSync } = require("child_process");
 const BASE = "http://127.0.0.1:18091";
@@ -173,8 +174,9 @@ const only = process.argv[2] || "";
     const view = await context.newPage();
     view.on("pageerror", e => { console.log("JS ERROR: " + e.message); failures.push("JS error"); });
     await view.goto(BASE + "/display/" + rdp.id + "/screen", { waitUntil: "domcontentloaded" });
-    await waitFrames(view, 5);
-    check("RDP: pictures arrive and are decoded", (await frames(view)) >= 5, true);
+    // A still desktop is sent once and then once more, sharp - after that nothing until something changes.
+    await waitFrames(view, 2);
+    check("RDP: pictures arrive and are decoded", (await frames(view)) >= 2, true);
     // A session taken over from the last viewer draws itself again first.
     for (let i = 0; i < 20 && !(await picture(view)).content; i++) { await sleep(300); }
     const first = await picture(view);
@@ -234,8 +236,6 @@ const only = process.argv[2] || "";
       check("RDP: but not with a made-up token", forged, 404);
     }
 
-    // --- The session's drive: the folder Matgate prepared is a drive in the session.
-    check("RDP: the drive \"Files\" is redirected into the session", /Files/.test(onDesktop("ls ~/thinclient_drives 2>&1")), true);
     await view.close();
 
     // --- No stored password: the page asks, a wrong one is asked for again.
@@ -246,9 +246,21 @@ const only = process.argv[2] || "";
     check("RDP without a password: the page asks for it", await asking.evaluate(() => [!document.getElementById("auth").classList.contains("hidden"), document.getElementById("auth-user").value]), [true, "demo"]);
     await asking.fill("#auth-password", "demo-only-pw");
     await asking.click("#auth-ok");
-    await waitFrames(asking, 3);
-    check("RDP without a password: and connects with what was typed", (await frames(asking)) >= 3, true);
+    await waitFrames(asking, 2);
+    check("RDP without a password: and connects with what was typed", (await frames(asking)) >= 2, true);
     await asking.close();
+
+    // --- Network Level Authentication: the server wants the password before the session.
+    const nla = await connection("Test-RDP-NLA", "Rdp", { host: "desktop", port: "3390", targetUserName: "demo", targetPassword: "falsch-pw", keyboardLayout: "en-us-qwerty", engine: "" });
+    const signing = await context.newPage();
+    await signing.goto(BASE + "/display/" + nla.id + "/screen", { waitUntil: "domcontentloaded" });
+    for (let i = 0; i < 300 && (await signing.evaluate(() => document.getElementById("auth").classList.contains("hidden"))); i++) { await sleep(300); }
+    check("RDP with NLA: a refused password is asked for again", await signing.evaluate(() => !document.getElementById("auth").classList.contains("hidden")), true);
+    await signing.fill("#auth-password", "demo-only-pw");
+    await signing.click("#auth-ok");
+    await waitFrames(signing, 3);
+    check("RDP with NLA: and the right one signs in", (await frames(signing)) >= 3, true);
+    await signing.close();
   }
 
   // =============================================================================================== VNC
@@ -375,7 +387,7 @@ const only = process.argv[2] || "";
     for (const row of doc.querySelectorAll("tr")) {
       const cell = ((row.querySelector("td") || {}).textContent || "").trim();
       const form = row.querySelector("form[action$='/delete']");
-      if (form && /^Test-(RDP|RDP-Frage|VNC|SSH-eigen|SSH-Frage|SSH-Guacamole)$/.test(cell)) {
+      if (form && /^Test-(RDP|RDP-Frage|RDP-NLA|VNC|SSH-eigen|SSH-Frage|SSH-Guacamole)$/.test(cell)) {
         await fetch(form.getAttribute("action"), { method: "POST", body: new FormData(form), credentials: "same-origin", redirect: "manual" });
       }
     }

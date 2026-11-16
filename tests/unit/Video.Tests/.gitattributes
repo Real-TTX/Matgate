@@ -1,0 +1,2 @@
+# Run inside a Linux container: a shell script with CRLF does not survive there.
+*.sh text eol=lf

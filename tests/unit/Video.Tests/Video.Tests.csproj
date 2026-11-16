@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Tests for the video part of Matgate's own display engine: BGRX to I420, and I420 to H.264 with OpenH264.
+       The sources are compiled into this project (the engine is not a project of its own), so the tests see
+       the internal types too.
+
+       The encoder needs libopenh264.so.7 (Ubuntu: libopenh264-7); where it is missing - on Windows - those
+       tests are skipped and only the converter and the recorded binary layout are checked. For the whole
+       suite in the image Matgate runs in, see run-in-container.ps1 / run-in-container.sh. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>Matgate.Display.Video.Tests</RootNamespace>
+    <TieredPGO>true</TieredPGO>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\..\Matgate\Display\Video\**\*.cs" LinkBase="Video" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The program that prints the library's layout, and what it printed for the verified versions. -->
+    <None Include="abi\**\*" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.12.0" />
+    <PackageReference Include="xunit.v3" Version="4.0.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="4.0.1" />
+  </ItemGroup>
+
+</Project>

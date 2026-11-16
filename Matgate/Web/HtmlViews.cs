@@ -9323,9 +9323,9 @@ public sealed class HtmlViews
                     fileAreaHost = null;
                 }
 
-                // Matgate's own engine: RDP and VNC as a screen (the display engine), SSH as a terminal - each in
+                // Matgate's own engine: RDP and VNC as a screen, SSH as a terminal - each in
                 // a page tab, steered by the session toolbar. Guacamole shows a connection only when it says so
-                // (or when the display engine is not set up).
+                // (or when its own engine is not available here).
                 function ownEnginePath(server) {
                     if (!server || server.engine !== 'matgate') {
                         return '';
@@ -21490,15 +21490,15 @@ public sealed class HtmlViews
         var engine = ServerEndpoint.NormalizeEngine(server?.Engine);
         var (own, hint) = protocol switch
         {
-            ServerProtocol.Rdp => ("Matgate (FreeRDP)", de
-                ? "Matgate (FreeRDP): H.264 im Browser, Ton, Zwischenablage für Text, Bilder und Dateien, die Auflösung folgt dem Fenster ohne Neuverbindung. Guacamole: der Guacamole-Client mit Laufwerk und Text-Zwischenablage."
-                : "Matgate (FreeRDP): H.264 in the browser, sound, a clipboard for text, pictures and files, the resolution follows the window without reconnecting. Guacamole: the Guacamole client with a drive and a text clipboard."),
-            ServerProtocol.Vnc => ("Matgate (LibVNC)", de
-                ? "Matgate (LibVNC): H.264 im Browser, Text-Zwischenablage, die Größe des Desktops folgt dem Fenster, wo der Server es kann. Guacamole: der Guacamole-Client."
-                : "Matgate (LibVNC): H.264 in the browser, a text clipboard, the desktop's size follows the window where the server can. Guacamole: the Guacamole client."),
-            _ => ("Matgate (SSH)", de
-                ? "Matgate (SSH): Terminal direkt aus Matgate, fragt fehlende Zugangsdaten im Terminal ab, Dateien per Einfügen oder Ablegen. Guacamole: das Guacamole-Terminal."
-                : "Matgate (SSH): a terminal straight from Matgate, asks for missing credentials in the terminal, files by pasting or dropping. Guacamole: the Guacamole terminal."),
+            ServerProtocol.Rdp => ("Matgate", de
+                ? "Matgate: H.264 im Browser, Ton, Zwischenablage für Text, Bilder und Dateien, die Auflösung folgt dem Fenster ohne Neuverbindung. Guacamole: der Guacamole-Client mit Laufwerk und Text-Zwischenablage - auch der Weg zu Terminalservern mit Lizenzen und bei Anmeldung nur über Kerberos."
+                : "Matgate: H.264 in the browser, sound, a clipboard for text, pictures and files, the resolution follows the window without reconnecting. Guacamole: the Guacamole client with a drive and a text clipboard - also the way to terminal servers with licences and where sign-in works through Kerberos only."),
+            ServerProtocol.Vnc => ("Matgate", de
+                ? "Matgate: H.264 im Browser, Text-Zwischenablage, die Größe des Desktops folgt dem Fenster, wo der Server es kann. Guacamole: der Guacamole-Client."
+                : "Matgate: H.264 in the browser, a text clipboard, the desktop's size follows the window where the server can. Guacamole: the Guacamole client."),
+            _ => ("Matgate", de
+                ? "Matgate: Terminal direkt aus Matgate, fragt fehlende Zugangsdaten im Terminal ab, Dateien per Einfügen oder Ablegen. Guacamole: das Guacamole-Terminal."
+                : "Matgate: a terminal straight from Matgate, asks for missing credentials in the terminal, files by pasting or dropping. Guacamole: the Guacamole terminal."),
         };
 
         var ownAvailable = protocol == ServerProtocol.Ssh || Matgate.Services.DisplayBridge.Available;
@@ -21506,14 +21506,14 @@ public sealed class HtmlViews
         if (!ownAvailable && !Matgate.Services.GuacamoleLauncher.Available)
         {
             note = de
-                ? "In dieser Installation ist weder Matgates Display-Engine noch Guacamole eingerichtet - die Verbindung lässt sich so nicht öffnen."
-                : "This installation has neither Matgate's display engine nor Guacamole - the connection cannot be opened like this.";
+                ? "Hier steht weder Matgates eigene Engine für RDP und VNC noch Guacamole zur Verfügung - die Verbindung lässt sich so nicht öffnen."
+                : "Neither Matgate's own engine for RDP and VNC nor Guacamole is available here - the connection cannot be opened like this.";
         }
         else if (!ownAvailable)
         {
             note = de
-                ? "Matgates Display-Engine gehört nicht zu dieser Installation - die Verbindung öffnet mit Guacamole."
-                : "Matgate's display engine is not part of this installation - the connection opens with Guacamole.";
+                ? "Matgates eigene Engine für RDP und VNC steht hier nicht zur Verfügung - die Verbindung öffnet mit Guacamole."
+                : "Matgate's own engine for RDP and VNC is not available here - the connection opens with Guacamole.";
         }
         else if (!Matgate.Services.GuacamoleLauncher.Available)
         {

@@ -2441,7 +2441,7 @@ public static partial class EndpointMapping
             var german = HtmlViews.Language(context) == "de";
             var reason = ServerEndpoint.IsWebsiteProtocol(server.Protocol)
                 ? (german ? "Websites in einem entfernten Browser brauchen Guacamole, das hier nicht eingerichtet ist." : "Websites in a remote browser need Guacamole, which is not set up here.")
-                : (german ? "Für diese Verbindung ist hier weder Matgates Display-Engine noch Guacamole eingerichtet." : "Neither Matgate's display engine nor Guacamole is set up here for this connection.");
+                : (german ? "Für diese Verbindung steht hier weder Matgates eigene Engine noch Guacamole zur Verfügung." : "Neither Matgate's own engine nor Guacamole is available here for this connection.");
             return Results.BadRequest(new { error = reason });
         }
 

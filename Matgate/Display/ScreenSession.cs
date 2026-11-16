@@ -1,0 +1,688 @@
+using System.Diagnostics;
+using System.Text.Json.Nodes;
+using Matgate.Agent;
+using Matgate.Display.Video;
+
+namespace Matgate.Display;
+
+// One remote screen for one viewer: a remote desktop (RDP or VNC) on one side, the browser's screen page on
+// the other. It speaks the screen protocol of the Matgate agent, so the same page shows both: the picture
+// as H.264, the pointer, sound, the clipboard, the resolution of the viewer's window.
+//
+// The picture is paced by the browser: at most three pictures are on their way, each one is acknowledged
+// when it has been decoded. Where the screen stands still, the same picture is encoded again until the
+// encoder says it is sharp - quick pictures while things move, sharp text once they stop. On a slow
+// connection that takes more repeats than on a fast one.
+public sealed class ScreenSession : IScreenHost, IAsyncDisposable
+{
+    private const int MaxInFlight = 3;
+
+    private static readonly string[] Modes =
+    [
+        "3840x2160", "2560x1440", "1920x1200", "1920x1080", "1680x1050", "1600x900",
+        "1440x900", "1366x768", "1280x1024", "1280x800", "1280x720", "1024x768",
+    ];
+
+    private readonly ScreenTarget _target;
+    private readonly IScreenBackend _backend;
+    private readonly ILogger _logger;
+    private readonly CancellationTokenSource _stop = new();
+    private readonly TaskCompletionSource _completion = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly AutoResetEvent _wake = new(false);
+    private readonly object _state = new();
+    private readonly long[] _sentAt = new long[64];
+    private readonly ScreenAudio _audio;
+
+    private Thread? _video;
+    private bool _ready;
+    private int _disposed;
+    private TaskCompletionSource<ScreenCredentials?>? _asking;
+
+    // What the viewer wants.
+    private string _resolution;
+    private int _fitWidth;
+    private int _fitHeight;
+    private int _nativeWidth;
+    private int _nativeHeight;
+    private int _fps = 60;
+    private int _bitratePerFullHd = 8000;
+
+    // The picture. Guarded by _state where the browser's messages and the backend's threads meet the video thread.
+    private H264Encoder? _encoder;
+    private I420Frame? _frame;
+    private bool _reopen;
+    private bool _dirty;
+    private int _dirtyLeft;
+    private int _dirtyTop;
+    private int _dirtyRight;
+    private int _dirtyBottom;
+    private bool _keyRequested = true;
+    // The picture stands still but is not sharp yet.
+    private bool _refine;
+    private const int RefineDelay = 200;
+    private long _lastEncode;
+    private long _sent;
+    private long _acked;
+    private long _lastAck;
+
+    // Statistics, once a second.
+    private long _statStart;
+    private long _statFrames;
+    private long _statBytes;
+    private long _statRtt;
+    private long _statRttCount;
+    private double _statEncodeMs;
+
+    public ScreenSession(ScreenTarget target, Func<ScreenTarget, IScreenHost, IScreenBackend> backend, ILogger logger)
+    {
+        _target = target;
+        _logger = logger;
+        _resolution = target.Resolution;
+        _fitWidth = target.FitWidth;
+        _fitHeight = target.FitHeight;
+        _audio = new ScreenAudio((frame) => Emit("screen.audio", new JsonObject { ["codec"] = "pcm" }, frame));
+        Quality(target.Quality);
+        _backend = backend(target, this);
+    }
+
+    // Everything for the viewer's page: pictures, the pointer, sound, the clipboard, status.
+    public Action<AgentFrame>? OnEvent { get; set; }
+
+    public Guid UserId { get; set; }
+
+    // Ends when the remote desktop went away or the session was closed.
+    public Task Completion => _completion.Task;
+
+    // Connects; the answer is what the page gets as "screen.ready". Throws ScreenException.
+    public async Task<JsonObject> OpenAsync(CancellationToken cancellationToken)
+    {
+        using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, _stop.Token);
+        Log($"connecting to {_target.Host}:{_target.Port}");
+        try
+        {
+            await _backend.ConnectAsync(limit.Token);
+        }
+        catch (ScreenException exception)
+        {
+            Log("failed: " + exception.Message);
+            throw;
+        }
+        catch (OperationCanceledException)
+        {
+            throw new ScreenException("The connection was cancelled.");
+        }
+
+        var width = 0;
+        var height = 0;
+        _backend.WithFrame((_, _, w, h) =>
+        {
+            width = w;
+            height = h;
+        });
+        _nativeWidth = width;
+        _nativeHeight = height;
+        Log($"connected, {width}x{height}");
+
+        var now = Environment.TickCount64;
+        _lastAck = now;
+        _statStart = now;
+        _ready = true;
+        _video = new Thread(VideoLoop) { IsBackground = true, Name = "screen " + _target.Session };
+        _video.Start();
+        _ = Task.Run(RunAsync, CancellationToken.None);
+
+        return new JsonObject
+        {
+            ["session"] = _target.Session,
+            ["monitor"] = 0,
+            ["width"] = width,
+            ["height"] = height,
+            ["monitors"] = new JsonArray(new JsonObject
+            {
+                ["index"] = 0,
+                ["name"] = _backend.Name,
+                ["width"] = width,
+                ["height"] = height,
+                ["primary"] = true,
+            }),
+            // What the clipboard of this protocol takes: pictures as a Windows bitmap, files at all.
+            ["clipImage"] = _backend.ClipImages ? "dib" : "none",
+            ["clipFiles"] = _backend.ClipFiles,
+            ["audio"] = _backend.Sound,
+        };
+    }
+
+    private async Task RunAsync()
+    {
+        string? reason = null;
+        try
+        {
+            reason = await _backend.RunAsync(_stop.Token);
+        }
+        catch (ScreenException exception)
+        {
+            reason = exception.Message;
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            _logger.LogWarning(exception, "A remote screen ended with an error.");
+        }
+
+        Log("ended" + (reason is null ? "" : ": " + reason));
+        var data = new JsonObject();
+        if (reason is not null)
+        {
+            data["message"] = reason;
+        }
+
+        Emit("screen.ended", data);
+        _stop.Cancel();
+        _wake.Set();
+        _completion.TrySetResult();
+    }
+
+    // ---- from the viewer's page ----------------------------------------------------------------------------
+
+    public void Post(string op, JsonObject data, ReadOnlyMemory<byte> payload)
+    {
+        if (op == "screen.auth")
+        {
+            // The answer to a question asked while connecting.
+            var asking = Interlocked.Exchange(ref _asking, null);
+            asking?.TrySetResult(ScreenJson.Flag(data, "cancel")
+                ? null
+                : new ScreenCredentials(ScreenJson.Text(data, "username"), ScreenJson.Text(data, "password"), ScreenJson.Text(data, "domain")));
+            return;
+        }
+
+        if (!_ready || _stop.IsCancellationRequested)
+        {
+            return;
+        }
+
+        switch (op)
+        {
+            case "screen.input":
+                _backend.Input(data);
+                break;
+            case "screen.ack":
+                Acknowledge(ScreenJson.Long(data, "seq"));
+                break;
+            case "screen.key":
+                lock (_state)
+                {
+                    _keyRequested = true;
+                }
+
+                _wake.Set();
+                break;
+            case "screen.config":
+                if (ScreenJson.Has(data, "quality"))
+                {
+                    Quality(ScreenJson.Text(data, "quality"));
+                }
+
+                var resolution = ScreenJson.Has(data, "resolution");
+                if (resolution)
+                {
+                    var wanted = ScreenJson.Text(data, "resolution");
+                    _resolution = wanted.Length is > 0 and <= 16 ? wanted : "auto";
+                }
+
+                _fitWidth = ScreenJson.Int(data, "fitWidth", _fitWidth);
+                _fitHeight = ScreenJson.Int(data, "fitHeight", _fitHeight);
+                if (resolution || ScreenJson.Has(data, "fitWidth"))
+                {
+                    var (width, height) = WantedSize();
+                    if (width > 0)
+                    {
+                        _backend.Resize(width, height);
+                    }
+                }
+
+                break;
+            case "screen.audio":
+                var on = ScreenJson.Flag(data, "on") && _backend.Sound;
+                _audio.Enabled = on;
+                _backend.SoundEnabled(on);
+                break;
+            case "screen.sas":
+                _backend.SecureAttention();
+                break;
+            case "screen.close":
+                _stop.Cancel();
+                _wake.Set();
+                break;
+            default:
+                if (op.StartsWith("screen.clip.", StringComparison.Ordinal))
+                {
+                    _backend.Clip(op, data, payload);
+                }
+
+                break;
+        }
+    }
+
+    // A piece of a file copied on the remote desktop, for a download.
+    public Task<ClipPiece> ClipReadAsync(string token, int index, long offset, CancellationToken cancellationToken)
+    {
+        return _ready
+            ? _backend.ClipReadAsync(token, index, offset, cancellationToken)
+            : Task.FromException<ClipPiece>(new ScreenException("This file is no longer on the remote clipboard."));
+    }
+
+    private void Acknowledge(long sequence)
+    {
+        lock (_state)
+        {
+            if (sequence > _sent || sequence <= _acked)
+            {
+                return;
+            }
+
+            var now = Environment.TickCount64;
+            if (_sent - sequence < _sentAt.Length)
+            {
+                _statRtt += now - _sentAt[sequence % _sentAt.Length];
+                _statRttCount++;
+            }
+
+            _acked = sequence;
+            _lastAck = now;
+        }
+
+        _wake.Set();
+    }
+
+    // Fast enough for a mouse that feels like one's own; fewer pictures where data is scarce.
+    private void Quality(string quality)
+    {
+        var (fps, bitrate) = quality switch
+        {
+            "medium" => (30, 4000),
+            "low" => (20, 1500),
+            _ => (60, 8000),
+        };
+        lock (_state)
+        {
+            if (fps != _fps || bitrate != _bitratePerFullHd)
+            {
+                _fps = fps;
+                _bitratePerFullHd = bitrate;
+                // Made again with the next picture.
+                _reopen = true;
+                _dirty = true;
+            }
+        }
+
+        _wake.Set();
+    }
+
+    // ---- from the backend ----------------------------------------------------------------------------------
+
+    public void Dirty(int x, int y, int width, int height)
+    {
+        lock (_state)
+        {
+            if (!_dirty)
+            {
+                _dirty = true;
+                _dirtyLeft = x;
+                _dirtyTop = y;
+                _dirtyRight = x + width;
+                _dirtyBottom = y + height;
+            }
+            else
+            {
+                _dirtyLeft = Math.Min(_dirtyLeft, x);
+                _dirtyTop = Math.Min(_dirtyTop, y);
+                _dirtyRight = Math.Max(_dirtyRight, x + width);
+                _dirtyBottom = Math.Max(_dirtyBottom, y + height);
+            }
+        }
+
+        _wake.Set();
+    }
+
+    public void Cursor(int hotX, int hotY, int width, int height, ReadOnlySpan<byte> rgba)
+    {
+        var data = new JsonObject { ["x"] = hotX, ["y"] = hotY, ["width"] = width, ["height"] = height, ["format"] = "rgba" };
+        Emit("screen.cursor", data, rgba.ToArray());
+        CursorHidden(false);
+    }
+
+    public void CursorHidden(bool hidden)
+    {
+        Emit("screen.pointer", new JsonObject { ["visible"] = !hidden, ["local"] = true });
+    }
+
+    public void CursorDefault()
+    {
+        Emit("screen.cursor", new JsonObject { ["format"] = "default" });
+        CursorHidden(false);
+    }
+
+    public void Event(string op, JsonObject data, ReadOnlyMemory<byte> payload = default)
+    {
+        Emit(op, data, payload);
+    }
+
+    public void Status(string state, string? message = null)
+    {
+        var data = new JsonObject { ["state"] = state };
+        if (message is not null)
+        {
+            data["message"] = message;
+        }
+
+        Emit("screen.status", data);
+    }
+
+    public async Task<ScreenCredentials?> AskAsync(string[] need, string userName, string domain, bool failed, CancellationToken cancellationToken)
+    {
+        var answer = new TaskCompletionSource<ScreenCredentials?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Interlocked.Exchange(ref _asking, answer)?.TrySetResult(null);
+        Emit("screen.auth", new JsonObject
+        {
+            ["need"] = new JsonArray(need.Select(field => (JsonNode)field).ToArray()),
+            ["username"] = userName,
+            ["domain"] = domain,
+            ["failed"] = failed,
+        });
+        try
+        {
+            return await answer.Task.WaitAsync(TimeSpan.FromMinutes(3), cancellationToken);
+        }
+        catch (TimeoutException)
+        {
+            return null;
+        }
+        finally
+        {
+            Interlocked.CompareExchange(ref _asking, null, answer);
+        }
+    }
+
+    public void Audio(ReadOnlySpan<byte> pcm, int rate, int channels)
+    {
+        _audio.Add(pcm, rate, channels);
+    }
+
+    public (int Width, int Height) WantedSize()
+    {
+        var width = 0;
+        var height = 0;
+        if (_resolution == "auto")
+        {
+            width = _fitWidth;
+            height = _fitHeight;
+        }
+        else if (_resolution == "native")
+        {
+            width = _nativeWidth;
+            height = _nativeHeight;
+        }
+        else
+        {
+            var parts = _resolution.Split('x');
+            if (parts.Length == 2 && int.TryParse(parts[0], out var w) && int.TryParse(parts[1], out var h) && w >= 320 && h >= 200)
+            {
+                width = w;
+                height = h;
+            }
+        }
+
+        if (width <= 0 || height <= 0)
+        {
+            return (0, 0);
+        }
+
+        // What remote desktops and the encoder take: even sizes within sensible bounds.
+        return (Math.Clamp(width, 640, 4096) & ~1, Math.Clamp(height, 480, 2304) & ~1);
+    }
+
+    public void Log(string message)
+    {
+        _logger.LogInformation("screen {Session} ({Protocol} {Host}): {Message}", _target.Session, _target.Protocol, _target.Host, message);
+    }
+
+    private void Emit(string op, JsonObject data, ReadOnlyMemory<byte> payload = default)
+    {
+        OnEvent?.Invoke(new AgentFrame { Kind = "evt", Op = op, Data = data, Payload = payload });
+    }
+
+    // ---- the picture ---------------------------------------------------------------------------------------
+
+    private void VideoLoop()
+    {
+        try
+        {
+            while (!_stop.IsCancellationRequested)
+            {
+                var wait = Tick();
+                if (wait > 0)
+                {
+                    _wake.WaitOne(wait);
+                }
+            }
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            _logger.LogError(exception, "The picture of a remote screen could not be encoded.");
+            Status("error", "The picture could not be encoded.");
+            _stop.Cancel();
+        }
+    }
+
+    // Encodes and sends when it is time; returns how many milliseconds the loop may sleep.
+    private int Tick()
+    {
+        var now = Environment.TickCount64;
+        SendStats(now);
+
+        bool dirty;
+        bool key;
+        bool reopen;
+        int fps;
+        int bitrate;
+        int left;
+        int top;
+        int right;
+        int bottom;
+        lock (_state)
+        {
+            dirty = _dirty;
+            key = _keyRequested;
+            var refineDue = _refine && now - _lastEncode >= RefineDelay;
+            if (!dirty && !key && !refineDue)
+            {
+                return _refine ? (int)Math.Max(1, RefineDelay - (now - _lastEncode)) : 500;
+            }
+
+            // The browser is behind: wait for it instead of piling up pictures it would show late.
+            if (_sent - _acked >= MaxInFlight)
+            {
+                if (now - _lastAck > 3000)
+                {
+                    _acked = _sent;
+                    _keyRequested = true;
+                }
+
+                return 15;
+            }
+
+            var slot = _lastEncode + 1000 / _fps - now;
+            if (slot > 0)
+            {
+                return (int)slot;
+            }
+
+            reopen = _reopen;
+            fps = _fps;
+            bitrate = _bitratePerFullHd;
+            left = _dirtyLeft;
+            top = _dirtyTop;
+            right = _dirtyRight;
+            bottom = _dirtyBottom;
+            _dirty = false;
+            _reopen = false;
+            _keyRequested = false;
+        }
+
+        var started = Stopwatch.GetTimestamp();
+        var opened = false;
+        var failed = false;
+        var took = _backend.WithFrame((pixels, stride, width, height) =>
+        {
+            // H.264 wants even sizes; an odd last row or column is left out.
+            width &= ~1;
+            height &= ~1;
+            if (width < 2 || height < 2)
+            {
+                failed = true;
+                return;
+            }
+
+            if (_encoder is null || reopen || width != _encoder.Width || height != _encoder.Height)
+            {
+                _encoder?.Dispose();
+                _frame?.Dispose();
+                // Sharp text where the screen stands still, a ceiling for the network where it moves.
+                var kbps = Math.Max(500, (int)((long)bitrate * width * height / (1920 * 1080) * (15 + fps / 2) / 30));
+                _encoder = new H264Encoder(width, height, fps, kbps);
+                _frame = new I420Frame(width, height);
+                opened = true;
+                key = true;
+            }
+
+            if (opened)
+            {
+                ColorConverter.BgrxToI420(pixels, stride, _frame!, 0, 0, width, height);
+            }
+            else if (dirty)
+            {
+                // Only what changed: a blinking cursor on a large screen costs next to nothing.
+                var x = Math.Clamp(left, 0, width);
+                var y = Math.Clamp(top, 0, height);
+                var w = Math.Clamp(right, x, width) - x;
+                var h = Math.Clamp(bottom, y, height) - y;
+                if (w > 0 && h > 0)
+                {
+                    ColorConverter.BgrxToI420(pixels, stride, _frame!, x, y, w, h);
+                }
+            }
+        });
+
+        if (!took || failed)
+        {
+            lock (_state)
+            {
+                // Still to do, once there is a picture.
+                _dirty |= dirty;
+                _keyRequested |= key;
+            }
+
+            return 100;
+        }
+
+        var encoder = _encoder!;
+        if (opened)
+        {
+            Emit("screen.monitor", new JsonObject
+            {
+                ["monitor"] = 0,
+                ["width"] = encoder.Width,
+                ["height"] = encoder.Height,
+                ["videoWidth"] = encoder.Width,
+                ["videoHeight"] = encoder.Height,
+                ["modes"] = new JsonArray(Modes.Select(mode => (JsonNode)mode).ToArray()),
+                ["saved"] = $"{_nativeWidth}x{_nativeHeight}",
+                ["resolution"] = _resolution,
+            });
+        }
+
+        // Nothing new is the same picture once more: the encoder spends it on sharpness.
+        var encoded = encoder.Encode(_frame!, key, out var isKey);
+        _refine = !encoder.IsSharp;
+        long sequence;
+        lock (_state)
+        {
+            _lastEncode = now;
+            if (encoded.IsEmpty)
+            {
+                return 1;
+            }
+
+            sequence = ++_sent;
+            _sentAt[sequence % _sentAt.Length] = now;
+            _statFrames++;
+            _statBytes += encoded.Length;
+            _statEncodeMs += Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        }
+
+        // The encoder's buffer is its own; the page gets a copy.
+        Emit(
+            "screen.video",
+            new JsonObject { ["seq"] = sequence, ["key"] = key || isKey, ["width"] = encoder.Width, ["height"] = encoder.Height },
+            encoded.ToArray());
+        return 1;
+    }
+
+    private void SendStats(long now)
+    {
+        JsonObject stats;
+        lock (_state)
+        {
+            var seconds = (now - _statStart) / 1000.0;
+            if (seconds < 1.0)
+            {
+                return;
+            }
+
+            stats = new JsonObject
+            {
+                ["fps"] = Math.Round(_statFrames / seconds, 1),
+                ["kbps"] = (long)(_statBytes * 8 / 1000 / seconds),
+                ["rtt"] = _statRttCount > 0 ? JsonValue.Create(_statRtt / _statRttCount) : null,
+                ["agentMs"] = _statFrames > 0 ? JsonValue.Create(Math.Round(_statEncodeMs / _statFrames, 1)) : null,
+                ["encoder"] = "OpenH264",
+                ["fpsLimit"] = _fps,
+            };
+            _statStart = now;
+            _statFrames = 0;
+            _statBytes = 0;
+            _statRtt = 0;
+            _statRttCount = 0;
+            _statEncodeMs = 0;
+        }
+
+        Emit("screen.stats", stats);
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
+        _stop.Cancel();
+        _wake.Set();
+        Interlocked.Exchange(ref _asking, null)?.TrySetResult(null);
+        // The video thread is inside the encoder at most for one picture.
+        _video?.Join(TimeSpan.FromSeconds(5));
+        try
+        {
+            await _backend.DisposeAsync();
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            _logger.LogDebug(exception, "A remote screen did not close cleanly.");
+        }
+
+        _encoder?.Dispose();
+        _frame?.Dispose();
+        _completion.TrySetResult();
+        // _stop and _wake are left to the garbage collector: the backend's last callbacks may still touch them.
+    }
+}

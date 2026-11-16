@@ -19,9 +19,11 @@ idempotent and can also be run on its own with `node seed.js`.
 
 Remote sessions have two engines, and both are in the stack. The seeded SSH connection is set to
 **Guacamole**, because the scripts that use it test how a Guacamole session behaves; Matgate's own engine
-(RDP and VNC through the `display` container, SSH in Matgate) is covered by `display.js`, which connects
-to the stack's `desktop` container - xrdp on 3389, TigerVNC on 5901, an xterm in each - and reads there
-with `docker exec` what really arrived. That script waits for a busy remote desktop rather than assuming a
+(its own RDP, VNC and SSH clients, all inside Matgate) is covered by `display.js`, which connects to the
+stack's `desktop` container - xrdp on 3389, TigerVNC on 5901, an xterm in each, and the VNC desktop once
+more on 3390 from a server that insists on Network Level Authentication - and reads there with
+`docker exec` what really arrived. The engine's parts have unit tests of their own in `tests/unit`
+(`dotnet test tests/unit/<part>.Tests`). That script waits for a busy remote desktop rather than assuming a
 quiet machine: a resize that takes xrdp a tenth of a second alone takes half a minute beside eighty other
 containers.
 

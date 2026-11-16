@@ -111,7 +111,7 @@ public static class AgentScreenPage
         (() => {
             const text = JSON.parse(document.body.dataset.text);
             const server = document.body.dataset.server;
-            // "agent" (the desktop of an agent's machine) or "display" (RDP/VNC through Matgate's display engine).
+            // "agent" (the desktop of an agent's machine) or "display" (RDP/VNC through Matgate's own engine).
             const kind = document.body.dataset.kind || 'agent';
             const base = document.body.dataset.base || '/api/agent/' + server;
             // What the remote clipboard takes: pictures as PNG (agent), as a Windows bitmap (RDP) or not at all (VNC).
@@ -640,8 +640,11 @@ public static class AgentScreenPage
                             showNotice(text.taken, text.takeBack, connect);
                         }
                         else {
-                            setStatus(text.ended, true);
-                            showNotice(text.ended, text.reconnect, connect);
+                            // A reason from the remote desktop itself ("another connection took over this
+                            // session") says more than "ended".
+                            const why = typeof data.message === 'string' && data.message ? data.message : text.ended;
+                            setStatus(why, true);
+                            showNotice(why, text.reconnect, connect);
                         }
                         socket && socket.close();
                         break;

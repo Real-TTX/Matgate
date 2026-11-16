@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Tests for the picture decoders of Matgate's own RDP client: bitmap updates (uncompressed, Interleaved RLE,
+       RDP 6.0 planar), pointer shapes and NSCodec. The sources are compiled into this project directly, so the
+       tests reach the internal parts as well.
+
+         dotnet test tests/unit/Graphics.Tests -c Release
+
+       The test vectors in TestData were made with FreeRDP's own codecs; harness/ holds the C program that
+       made them and says how to run it. The tests themselves need neither Docker nor FreeRDP.
+
+       The decode speeds are measured by a test of their own that does nothing in a normal run; SpeedTests.cs
+       says how to start it. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>Matgate.Display.Rdp.Graphics.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\..\Matgate\Display\Rdp\Graphics\**\*.cs" LinkBase="Graphics" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="TestData\**" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
+  </ItemGroup>
+
+</Project>

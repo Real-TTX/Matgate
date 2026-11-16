@@ -19,6 +19,12 @@ RUN if [ -n "$MATGATE_VERSION" ]; then \
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
 WORKDIR /app
 
+# The H.264 encoder of Matgate's own engine for RDP and VNC: OpenH264 as the distribution builds it (BSD,
+# about 1 MB). Not libopenh264-cisco7 - that one fetches Cisco's binary at install time.
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libopenh264-7 \
+    && rm -rf /var/lib/apt/lists/*
+
 ARG MATGATE_BUILD_TAG=local
 ARG MATGATE_BUILD_TIME=
 ENV ASPNETCORE_URLS=http://+:8080

@@ -1,0 +1,44 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Tests for the security package of Matgate's own RDP client: MD4, RC4, NTLMv2 with signing and sealing,
+       and CredSSP (Network Level Authentication). The sources are compiled into this project directly, so
+       the tests reach the internal parts as well.
+
+         dotnet test tests/unit/Security.Tests
+
+       That runs everything that needs no network: the examples of the specifications, hostile input, the
+       whole exchange against a fake server, and two exchanges recorded from real servers.
+
+       The tests against real servers are skipped unless these name one ("host" or "host:port"):
+
+         MATGATE_NLA_TEST_HOST          FreeRDP's shadow server      nla-server/Dockerfile
+         MATGATE_NLA_TEST_SECOND_HOST   pyspnego's CredSSP acceptor  nla-server-pyspnego/Dockerfile
+
+       Each Dockerfile says in its first lines how to build and start its server. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>Matgate.Display.Rdp.Security.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\..\Matgate\Display\Rdp\Security\**\*.cs" LinkBase="Security" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The test vectors of RFC 6229, section 2, reduced to their key and key stream lines. -->
+    <EmbeddedResource Include="TestData\rfc6229-rc4.txt" LogicalName="rfc6229-rc4.txt" />
+    <!-- Exchanges recorded from the two test servers, replayed by RecordedExchangeTests. -->
+    <EmbeddedResource Include="TestData\exchange-freerdp.txt" LogicalName="exchange-freerdp.txt" />
+    <EmbeddedResource Include="TestData\exchange-pyspnego-v2.txt" LogicalName="exchange-pyspnego-v2.txt" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
+  </ItemGroup>
+
+</Project>

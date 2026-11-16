@@ -1,5 +1,5 @@
 # The stack the UI tests run against: a complete Matgate behind the same edge proxy as in
-# production, with both engines for remote sessions (its display engine and Guacamole), plus an SSH
+# production, with both ways to open remote sessions (its own engine and Guacamole), plus an SSH
 # host and a Linux desktop (RDP, VNC) to connect to. Separate from the development stack on
 # purpose - the tests create and delete users, places and shares, and they must not do that in
 # anything anyone is working in.
@@ -45,8 +45,6 @@ services:
       # tests/agent-update.js serves its own agent releases (instead of GitHub) on the host.
       MATGATE_AGENT_UPDATE_URL: http://host.docker.internal:17499/
       MATGATE_AGENT_UPDATE_CACHE_SECONDS: "0"
-      # RDP and VNC through Matgate's own display engine (tests/display.js).
-      MATGATE_DISPLAY_ADDRESS: display:8092
     volumes: [mgdata:/data, secrets:/run/matgate-secrets, files:/files]
     healthcheck:
       test: ["CMD-SHELL", "test -s /run/matgate-secrets/guac.key"]
@@ -68,13 +66,6 @@ services:
       JSON_SECRET_KEY_FILE: /run/matgate-secrets/guac.key
       WEBAPP_CONTEXT: guacamole
     volumes: [secrets:/run/matgate-secrets:ro]
-  # Matgate's display engine: RDP and VNC for the browser. It sees the file areas at the same path as
-  # Matgate (the session's drive lives there) and reads the key it shares with Matgate.
-  display:
-    build:
-      context: ..
-      dockerfile: display/Dockerfile
-    volumes: [secrets:/run/matgate-secrets:ro, files:/files]
   # A Linux desktop with RDP (3389) and VNC (5901) to connect to. FUSE lets xrdp take files from the
   # clipboard.
   desktop:

@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- A command-line client for Matgate's own RDP engine: connects, reports what the server negotiated,
+       counts picture updates and can write the framebuffer to a .bmp. For looking at a server by hand, with
+       the arguments: host port user password [seconds] [picture.bmp] [width height].
+
+       The parts of the engine that live in their own folders can be replaced by empty stand-ins, to try the
+       connection sequence alone: -p:Stubs=true for all of them, or -p:StubChannels=true,
+       -p:StubSecurity=true, -p:StubGraphics=true one by one. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>Matgate.Display.Probe</RootNamespace>
+    <Stubs Condition="'$(Stubs)' == ''">false</Stubs>
+    <StubChannels Condition="'$(StubChannels)' == ''">$(Stubs)</StubChannels>
+    <StubSecurity Condition="'$(StubSecurity)' == ''">$(Stubs)</StubSecurity>
+    <StubGraphics Condition="'$(StubGraphics)' == ''">$(Stubs)</StubGraphics>
+    <DefineConstants Condition="'$(StubChannels)' == 'true'">$(DefineConstants);STUB_CHANNELS</DefineConstants>
+    <DefineConstants Condition="'$(StubSecurity)' == 'true'">$(DefineConstants);STUB_SECURITY</DefineConstants>
+    <DefineConstants Condition="'$(StubGraphics)' == 'true'">$(DefineConstants);STUB_GRAPHICS</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\..\Matgate\Display\Rdp\*.cs" LinkBase="Rdp" />
+    <Compile Include="..\..\..\Matgate\Display\Rdp\Orders\**\*.cs" LinkBase="Rdp\Orders" />
+    <Compile Include="..\..\..\Matgate\Display\Rdp\Channels\**\*.cs" LinkBase="Rdp\Channels" Condition="'$(StubChannels)' != 'true'" />
+    <Compile Include="..\..\..\Matgate\Display\Rdp\Security\**\*.cs" LinkBase="Rdp\Security" Condition="'$(StubSecurity)' != 'true'" />
+    <Compile Include="..\..\..\Matgate\Display\Rdp\Graphics\**\*.cs" LinkBase="Rdp\Graphics" Condition="'$(StubGraphics)' != 'true'" />
+  </ItemGroup>
+
+</Project>
