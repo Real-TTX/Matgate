@@ -130,7 +130,9 @@ What it puts where:
 |---|---|
 | Program | `%ProgramFiles%\Matgate Agent\matgate-agent.exe` |
 | Settings, token, certificate, `agent.log` | `%ProgramData%\Matgate Agent` (only SYSTEM, administrators and the agent's account) |
-| Start | task "Matgate Agent" (user mode) or service "MatgateAgent" (service mode, restarts on failure) |
+| Start | task "Matgate Agent" (user mode) or service "Matgate Agent" (service mode, restarts on failure; an installation from 0.7 or older keeps its service "MatgateAgent" until the setup runs again) |
+| Tray icon | autostart value "Matgate Agent Tray" (HKLM Run) and the Start menu entry "Matgate Agent" |
+| Status | the pipe `matgate-agent-status` (state, version, port, started, open terminals - never the token) |
 | Firewall | rule "Matgate Agent" for the port, if allowed |
 | Apps & Features | "Matgate Agent" - the uninstaller |
 
@@ -145,15 +147,40 @@ matgate-agent.exe setup --dry-run      # says what it would do, changes nothing
 
 ## The tray icon
 
-The Matgate mark in the notification area, started at every logon (it can be switched off in the setup).
-Its dot says the state: green - the agent runs; red - installed but not answering; grey - not set up.
-Whether Matgate is connected right now is not shown (Matgate keeps its connection open while idle); who
-connected when is in `agent.log`. Double-click opens *Info*; the menu also has *Verbindungsdaten*
-(host, port, token, fingerprint to copy - for a service this asks for administrator rights), *Einstellungen
-ändern* (the setup again), *Agent neu starten* and *Log-Ordner öffnen*. It only looks at the agent through a
-local pipe without secrets; `matgate-agent status` shows the same in a console.
+The Matgate mark in the notification area, started at every logon (it can be switched off in the setup). It
+follows the desktop rules of the Mat family (MatDesign, areas TRAY and AGENT): the colours are MatUi's tokens
+for Matgate's accent, copied as MatDesktop's token files into `MatDesktop/` (never edited here - copy them
+again with `node tools/matdesktop-copy.js <this folder> --tokens-only` in MatDesign), in the light or dark
+mode of Windows.
+
+Its dot says the state, and the second line of the menu, the tooltip (`Matgate Agent: Läuft`) and Info say it
+in words: green *Läuft* - the agent answers; amber *Wartet* - it is starting or stopping (at sign-in, after
+*Dienst starten*); red *Gestoppt* - installed but not answering; grey *Nicht eingerichtet*. Whether Matgate is
+connected right now is not shown (Matgate keeps its connection open while idle); who connected when is in
+`agent.log`.
+
+A left click opens *Info*, the right click the menu:
+
+| | |
+|---|---|
+| Matgate Agent 0.8.0.17 | the version (disabled) |
+| Läuft | the state (disabled) |
+| **Matgate Agent öffnen** | Info - the agent has no page of its own |
+| Verbindungsdaten … | host, port, password, fingerprint to copy (for a service this asks for administrator rights) |
+| Info … · Einrichten … · Log-Ordner öffnen | Einrichten is the setup again (administrator rights) |
+| Dienst starten … / beenden … / neu starten … | with the shield, whichever applies now; *Agent …* in user mode |
+| Beenden | ends the icon, never the agent |
+
+There is no uninstall in the menu (Settings > Apps does that). The icon only looks at the agent through the
+local pipe `matgate-agent-status`, which carries no secret; `matgate-agent status` shows the same in a
+console. Stopping or restarting the agent leaves every icon running.
 
 ![Info](../docs/images/agent-tray-info.png) ![Connection details](../docs/images/agent-tray-connection.png)
+
+`matgate-agent setup-preview <folder>` draws every window - the setup steps, the update, the uninstall, Info,
+the connection details, the tray menu and the icon in its four states - into PNG files, light and dark, from
+sample data (the computer ANNA-PC, the user Anna, a sample password): nothing of the machine it runs on, so
+the pictures may be published. The ones in `docs/images` are made that way.
 
 ## Updates
 

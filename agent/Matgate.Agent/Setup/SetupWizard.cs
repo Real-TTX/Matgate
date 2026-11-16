@@ -2,35 +2,36 @@ using Matgate.Agent.Ui;
 
 namespace Matgate.Agent.Setup;
 
-// The setup wizard, after MatMon's (Matmon.Setup/SetupForm.cs). Install: Welcome -> Connection -> Content ->
-// Progress -> Finish. Uninstall: Confirm -> Progress -> Finish. The work runs on a background task and
-// reports into the progress page; the window only steers.
+// The one setup window of the agent (SETUP-01): Setup, Update and Uninstall ("Einrichtung", "Update", "Deinstallation") in the same
+// window of a fixed size, with the header (mark, name, mode) and the footer (Version x · channel on the left; the primary action,
+// Back and Cancel on the right). Install: Welcome -> Connection -> Content -> Progress -> Finish. Uninstall: Confirm -> Progress ->
+// Finish. The work runs on a background task and reports into the progress page; the window only steers.
 internal sealed class SetupWizard : Form
 {
     private readonly bool _uninstall;
     private readonly SetupOptions? _installed;
     private readonly BrandHeader _header;
-    private readonly Panel _body = new() { Dock = DockStyle.Fill, Padding = new Padding(28, 22, 28, 12) };
-    private readonly Button _back = Brand.FooterButton("< Zurück");
-    private readonly Button _next = Brand.FooterButton("Weiter >");
-    private readonly Button _cancel = Brand.FooterButton("Abbrechen", gap: 16);
+    private readonly Panel _body = new() { Dock = DockStyle.Fill, Padding = new Padding(28, 20, 28, 8) };
+    private readonly Button _back = Brand.FooterButton("Zurück", width: 96);
+    private readonly Button _next = Brand.FooterButton("Weiter", kind: ButtonKind.Primary);
+    private readonly Button _cancel = Brand.FooterButton("Abbrechen", width: 104);
 
-    private readonly NumericUpDown _port = new() { Minimum = 1, Maximum = 65535, Value = 7488, Width = 100 };
+    private readonly NumericUpDown _port = Brand.Field(new NumericUpDown { Minimum = 1, Maximum = 65535, Value = 7488, Width = 100 });
     private readonly CheckBox _firewall = new() { Text = "Zugriff von anderen Rechnern erlauben (Windows-Firewall)", AutoSize = true, Checked = true };
     private readonly RadioButton _modeUser = new() { Text = "Als angemeldeter Benutzer - startet beim Anmelden", AutoSize = true, Checked = true };
     private readonly RadioButton _modeSystem = new() { Text = "Als Systemdienst - auch ohne Anmeldung, wie eine Fernwartung", AutoSize = true };
-    private readonly RadioButton _modeService = new() { Text = "Als Windows-Dienst unter einem Konto", AutoSize = true };
-    private readonly TextBox _account = new() { Width = 260, PlaceholderText = @"Konto: .\name oder LocalSystem" };
-    private readonly TextBox _password = new() { Width = 260, UseSystemPasswordChar = true };
+    private readonly RadioButton _modeService = new() { Text = "Als Dienst unter einem Konto", AutoSize = true };
+    private readonly TextBox _account = Brand.Field(new TextBox { Width = 260, PlaceholderText = @"Konto: .\name" });
+    private readonly TextBox _password = Brand.Field(new TextBox { Width = 260, UseSystemPasswordChar = true });
     private readonly CheckBox _autoUpdate = new() { Text = "Automatisch aktualisieren - über Matgate, wenn kein Terminal offen ist", AutoSize = true, Checked = true };
     private readonly CheckBox _tray = new() { Text = "Symbol im Infobereich anzeigen (Status, Verbindungsdaten, Log)", AutoSize = true, Checked = true };
-    private readonly ListView _roots = new() { View = View.Details, FullRowSelect = true, HeaderStyle = ColumnHeaderStyle.Nonclickable, Width = 420, Height = 96, BorderStyle = BorderStyle.FixedSingle };
+    private readonly ListView _roots = Brand.Field(new ListView { View = View.Details, FullRowSelect = true, HeaderStyle = ColumnHeaderStyle.Nonclickable, Width = 400, Height = 84, BorderStyle = BorderStyle.FixedSingle });
     private readonly CheckBox _claude = new() { Text = "Claude Code", AutoSize = true, Checked = true };
     private readonly CheckBox _screen = new() { Text = "Bildschirm - den Rechner aus Matgate bedienen, mit Ton und Zwischenablage", AutoSize = true, Checked = true };
     private readonly CheckBox _powerShell = new() { Text = "PowerShell", AutoSize = true };
     private readonly CheckBox _deleteSettings = new() { AutoSize = true, MaximumSize = new Size(Brand.ContentWidth, 0) };
-    private readonly ProgressBar _progress = new() { Style = ProgressBarStyle.Marquee, MarqueeAnimationSpeed = 30, Height = 18, Width = Brand.ContentWidth };
-    private readonly ListBox _log = new() { IntegralHeight = false, BorderStyle = BorderStyle.FixedSingle, Width = Brand.ContentWidth, Height = 200 };
+    private readonly MarqueeBar _progress = new() { Height = 8, Width = Brand.ContentWidth - 8, Margin = new Padding(3, 4, 3, 4) };
+    private readonly ListBox _log = Brand.Field(new ListBox { IntegralHeight = false, HorizontalScrollbar = true, BorderStyle = BorderStyle.FixedSingle, Width = Brand.ContentWidth - 8, Height = 200 });
     private readonly List<AgentRoot> _rootList = [];
     private readonly Stack<Page> _history = new();
 
@@ -49,21 +50,24 @@ internal sealed class SetupWizard : Form
         Finish,
     }
 
-    public SetupWizard(bool uninstall)
+    // installed: what is installed on this machine (Installer.FindExisting), or the sample of setup-preview; null for a first setup.
+    public SetupWizard(bool uninstall, SetupOptions? installed)
     {
         _uninstall = uninstall;
-        _installed = Installer.FindExisting();
+        _installed = installed;
+        var mode = uninstall ? "Deinstallation" : _installed is null ? "Einrichtung" : "Update";
 
-        Text = uninstall ? "Matgate Agent deinstallieren" : $"Matgate Agent {Brand.Version} Setup";
+        Text = $"{Installer.ProductName} – {mode}";
         Icon = Mark.Create(null);
         FormBorderStyle = FormBorderStyle.FixedDialog;
         MaximizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
         AutoScaleDimensions = new SizeF(96F, 96F);
         AutoScaleMode = AutoScaleMode.Dpi;
-        ClientSize = new Size(640, 680);
+        ClientSize = new Size(600, 560);
         Font = Brand.BodyFont();
-        BackColor = Color.White;
+        BackColor = Theme.Surface;
+        ForeColor = Theme.Text;
 
         if (_installed is not null)
         {
@@ -84,14 +88,15 @@ internal sealed class SetupWizard : Form
         }
         else
         {
-            _rootList.Add(new AgentRoot { Name = "Home", Path = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile) });
+            _rootList.Add(new AgentRoot { Name = "Home", Path = Machine.Home });
         }
 
-        _deleteSettings.Text = "Auch die Einstellungen löschen (Token, Zertifikat, freigegebene Ordner)";
+        _deleteSettings.Text = "Auch meine Daten löschen (Token, Zertifikat, freigegebene Ordner, Log)";
         _roots.Columns.Add("Name in Matgate", 130);
-        _roots.Columns.Add("Ordner auf diesem Rechner", 270);
+        _roots.Columns.Add("Ordner auf diesem Rechner", 250);
 
-        var footer = Brand.Footer($"Version {(uninstall ? _installed?.Version ?? Brand.Version : Brand.Version)}", _cancel, _next, _back);
+        // The primary action first, then Back, then Cancel (SETUP-01).
+        var footer = Brand.Footer(AgentVersion.Text, _next, _back, _cancel);
         _back.Click += (_, _) => GoBack();
         _next.Click += (_, _) => Advance();
         _cancel.Click += (_, _) => Close();
@@ -100,7 +105,7 @@ internal sealed class SetupWizard : Form
         _modeService.CheckedChanged += (_, _) => UpdateModeFields();
         _account.TextChanged += (_, _) => UpdateModeFields();
 
-        _header = new BrandHeader(uninstall ? "Deinstallation" : _installed is null ? "Setup" : "Update");
+        _header = new BrandHeader(mode);
         Controls.Add(_body);
         Controls.Add(footer);
         Controls.Add(_header);
@@ -181,34 +186,39 @@ internal sealed class SetupWizard : Form
             case Page.Welcome:
                 content.Controls.Add(Brand.Heading(_installed is null ? "Willkommen" : "Matgate Agent aktualisieren"));
                 content.Controls.Add(Brand.Paragraph(_installed is null
-                    ? "Der Matgate Agent macht diesen Rechner in Matgate erreichbar: seine freigegebenen Ordner im Dateimanager und Programme wie Claude Code in einem Terminal im Browser."
-                    : $"Installiert ist Version {_installed.Version}. Das Update behält Token und Zertifikat - die Verbindung in Matgate bleibt gültig."));
-                content.Controls.Add(Brand.Paragraph("Matgate verbindet sich zu diesem Rechner wie zu einem RDP-Server: mit Host, Port und einem Token, das am Ende angezeigt wird."));
-                content.Controls.Add(new BrandNotice("Für die Installation braucht es Administratorrechte. Programme im Terminal laufen später mit den Rechten des Kontos, unter dem der Agent läuft.", NoticeTone.Info));
+                    ? "Der Matgate Agent macht diesen Rechner in Matgate erreichbar: seine freigegebenen Ordner im Dateimanager, Programme wie Claude Code in einem Terminal im Browser und den Bildschirm."
+                    : $"Installiert ist Version {_installed.Version}, dieses Setup bringt {AgentVersion.Number}. Token und Zertifikat bleiben - die Verbindung in Matgate bleibt gültig."));
+                content.Controls.Add(Brand.Paragraph("Matgate verbindet sich zu diesem Rechner wie zu einem RDP-Server: mit Host, Port und einem Verbindungspasswort, das am Ende angezeigt wird."));
+                content.Controls.Add(Brand.Paragraph($"Das Programm kommt nach {Machine.ProgramFolder}, die Einstellungen nach {Machine.DataFolder}."));
+                content.Controls.Add(new BrandNotice("Für die Installation braucht es einmal Administratorrechte. Programme im Terminal laufen später mit den Rechten des Kontos, unter dem der Agent läuft.", NoticeTone.Info));
                 break;
 
             case Page.Connection:
                 content.Controls.Add(Brand.Heading("Verbindung und Ausführung"));
                 var port = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(0, 0, 0, 2) };
-                port.Controls.Add(new Label { Text = "Port", AutoSize = true, ForeColor = Brand.HeadingColor, Margin = new Padding(0, 6, 10, 0) });
+                port.Controls.Add(new Label { Text = "Port", AutoSize = true, ForeColor = Theme.Text, Margin = new Padding(0, 6, 10, 0) });
                 port.Controls.Add(_port);
                 _firewall.Margin = new Padding(18, 4, 0, 0);
                 port.Controls.Add(_firewall);
                 content.Controls.Add(port);
                 content.Controls.Add(Brand.Hint("Matgate verbindet sich zu diesem Port - wie zu 3389 bei RDP."));
                 content.Controls.Add(Brand.FieldLabel("Der Agent läuft"));
+                _modeUser.Margin = _modeSystem.Margin = new Padding(3, 2, 3, 0);
                 content.Controls.Add(_modeUser);
-                content.Controls.Add(Brand.Hint($"Mit den Rechten von {WindowsNative.InteractiveUser()} - Claude Code nutzt deinen Login. Kein Passwort nötig.", 20));
+                content.Controls.Add(Brand.Hint($"Mit den Rechten von {Machine.User} - Claude Code nutzt deinen Login.", 20));
                 content.Controls.Add(_modeSystem);
-                content.Controls.Add(Brand.Hint("Bildschirm auch am Anmelde- und Sperrbildschirm, in Administratorfenstern und mit Strg+Alt+Entf. Programme wie Claude Code laufen trotzdem als der angemeldete Benutzer.", 20));
-                content.Controls.Add(_modeService);
-                var account = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = new Padding(20, 2, 0, 0) };
-                _account.Width = 230;
-                _password.Width = 180;
+                content.Controls.Add(Brand.Hint("Auch am Anmelde- und Sperrbildschirm, in Administratorfenstern und mit Strg+Alt+Entf. Programme laufen als der angemeldete Benutzer.", 20));
+                // The account and its password on the line of their choice.
+                var account = new FlowLayoutPanel { AutoSize = true, WrapContents = false, Margin = Padding.Empty };
+                _modeService.Margin = new Padding(3, 6, 10, 0);
+                _account.Width = 170;
+                _account.Margin = new Padding(0, 2, 6, 0);
+                _password.Width = 140;
+                _password.Margin = new Padding(0, 2, 0, 0);
                 _password.PlaceholderText = _installed is null ? "Passwort" : "Passwort erneut eingeben";
-                account.Controls.AddRange([_account, _password]);
+                account.Controls.AddRange([_modeService, _account, _password]);
                 content.Controls.Add(account);
-                content.Controls.Add(Brand.Hint("Läuft auch ohne Anmeldung. Das Passwort geht an Windows, der Agent speichert es nicht.", 20));
+                content.Controls.Add(Brand.Hint("Auch ohne Anmeldung. Das Passwort geht an Windows, der Agent speichert es nicht.", 20));
                 content.Controls.Add(_tray);
                 content.Controls.Add(_autoUpdate);
                 UpdateModeFields();
@@ -219,21 +229,23 @@ internal sealed class SetupWizard : Form
                 content.Controls.Add(Brand.FieldLabel("Freigegebene Ordner"));
                 var roots = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, Margin = Padding.Empty };
                 var buttons = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, Margin = new Padding(8, 0, 0, 0) };
-                var add = new Button { Text = "Hinzufügen ...", Size = new Size(112, 30) };
-                var remove = new Button { Text = "Entfernen", Size = new Size(112, 30) };
+                var add = new Button { Text = "Hinzufügen …", Size = new Size(112, 30), Margin = new Padding(0, 0, 0, 6) };
+                var remove = new Button { Text = "Entfernen", Size = new Size(112, 30), Margin = Padding.Empty };
+                Brand.Style(add, ButtonKind.Secondary);
+                Brand.Style(remove, ButtonKind.Secondary);
                 add.Click += (_, _) => AddRoot();
                 remove.Click += (_, _) => RemoveRoot();
                 buttons.Controls.AddRange([add, remove]);
                 roots.Controls.AddRange([_roots, buttons]);
                 content.Controls.Add(roots);
-                content.Controls.Add(Brand.Hint("Nur diese Ordner sind in Matgate sichtbar - auch \"..\" und Verknüpfungen führen nicht hinaus."));
+                content.Controls.Add(Brand.Hint("Nur diese Ordner sieht Matgate - auch „..“ und Verknüpfungen führen nicht hinaus."));
                 content.Controls.Add(Brand.FieldLabel("Programme im Browser-Terminal"));
                 var programs = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight, Margin = Padding.Empty };
                 programs.Controls.AddRange([_claude, _powerShell]);
                 content.Controls.Add(programs);
                 content.Controls.Add(Brand.Hint("Starten im Ordner, der in Matgate offen ist. Claude Code muss hier installiert sein."));
                 content.Controls.Add(_screen);
-                content.Controls.Add(Brand.Hint("Zeigt, was der Monitor zeigt - als angemeldeter Benutzer oder als Systemdienst, nicht unter einem anderen Dienstkonto.", 20));
+                content.Controls.Add(Brand.Hint("Als angemeldeter Benutzer oder als Systemdienst, nicht unter einem anderen Konto.", 20));
                 RefreshRoots();
                 break;
 
@@ -241,9 +253,9 @@ internal sealed class SetupWizard : Form
                 content.Controls.Add(Brand.Heading("Matgate Agent entfernen"));
                 content.Controls.Add(Brand.Paragraph(_installed is null
                     ? "Der Matgate Agent ist nicht vollständig installiert; was davon da ist, wird entfernt."
-                    : $"Entfernt werden {(_installed.Mode == "service" ? "der Dienst" : "die Anmeldeaufgabe")}, die Firewall-Regel, das Symbol im Infobereich, der Eintrag unter Apps und das Programm in {Installer.ProgramFolder}. Eine geänderte Strg+Alt+Entf-Richtlinie wird zurückgesetzt."));
+                    : $"Entfernt werden {(_installed.Mode == "service" ? "der Dienst" : "die Anmeldeaufgabe")}, die Firewall-Regel, das Symbol im Infobereich, der Eintrag unter Apps und das Programm in {Machine.ProgramFolder}. Eine geänderte Strg+Alt+Entf-Richtlinie wird zurückgesetzt."));
                 content.Controls.Add(_deleteSettings);
-                content.Controls.Add(Brand.Hint($"Ohne Häkchen bleiben sie in {Installer.DataFolder}: eine spätere Installation nimmt dasselbe Token, die Verbindung in Matgate gilt weiter.", 20));
+                content.Controls.Add(Brand.Hint($"Ohne Häkchen bleiben sie in {Machine.DataFolder}: eine spätere Installation nimmt dasselbe Token, die Verbindung in Matgate gilt weiter.", 20));
                 content.Controls.Add(new BrandNotice("Die Verbindung in Matgate bleibt bestehen, bis sie dort gelöscht wird.", NoticeTone.Info));
                 break;
 
@@ -262,14 +274,14 @@ internal sealed class SetupWizard : Form
                     {
                         content.Controls.Add(Brand.Paragraph(_deleteSettings.Checked
                             ? "Programm, Einstellungen, Firewall-Regel und Autostart sind entfernt."
-                            : $"Programm, Firewall-Regel und Autostart sind entfernt. Die Einstellungen liegen weiter in {Installer.DataFolder}."));
+                            : $"Programm, Firewall-Regel und Autostart sind entfernt. Die Einstellungen liegen weiter in {Machine.DataFolder}."));
                     }
                     else if (_result is { } result)
                     {
                         content.Controls.Add(result.Listening
                             ? new BrandNotice($"Der Agent läuft und wartet auf Port {result.Port} auf Matgate.", NoticeTone.Success)
-                            : new BrandNotice($"Installiert, aber der Agent antwortet noch nicht auf Port {result.Port}. Das Log liegt in {Installer.DataFolder}.", NoticeTone.Warning));
-                        content.Controls.Add(Brand.Paragraph("In Matgate eine Verbindung vom Typ \"Agent\" anlegen und \"Zertifikat ignorieren\" anhaken:"));
+                            : new BrandNotice($"Installiert, aber der Agent antwortet noch nicht auf Port {result.Port}. Das Log liegt in {Machine.DataFolder}.", NoticeTone.Warning));
+                        content.Controls.Add(Brand.Paragraph("In Matgate eine Verbindung vom Typ „Agent“ anlegen und „Zertifikat ignorieren“ anhaken:"));
                         foreach (var field in ConnectionDetails.Fields(result.Token, result.Fingerprint, result.Port))
                         {
                             content.Controls.Add(field);
@@ -289,17 +301,18 @@ internal sealed class SetupWizard : Form
         _body.Controls.Add(content);
         _body.ResumeLayout();
 
+        // Progress can be neither cancelled nor closed (SETUP-02); Finish has only its one button.
         _back.Visible = page is Page.Connection or Page.Content;
-        _cancel.Visible = page != Page.Finish;
-        _cancel.Enabled = page != Page.Progress;
-        _next.Enabled = page != Page.Progress;
+        _cancel.Visible = page is not (Page.Finish or Page.Progress);
+        _next.Visible = page != Page.Progress;
         _next.Text = page switch
         {
             Page.Content => _installed is null ? "Installieren" : "Aktualisieren",
             Page.Confirm => "Entfernen",
             Page.Finish => "Fertig",
-            _ => "Weiter >",
+            _ => "Weiter",
         };
+        Brand.Style(_next, page == Page.Confirm ? ButtonKind.Danger : ButtonKind.Primary);
     }
 
     private async void Run()
@@ -401,25 +414,32 @@ internal sealed class SetupWizard : Form
         }
     }
 
-    // For the layout preview (setup-preview): a page as it would show.
-    internal void Preview(string page, Installer.Result? result = null)
+    // For the pictures (setup-preview): a page as it would show, with sample results and sample lines of progress.
+    internal void Preview(string page, Installer.Result? result = null, IEnumerable<string>? progress = null)
     {
         _result = result;
+        foreach (var line in progress ?? [])
+        {
+            _log.Items.Add(line);
+        }
+
         Show(Enum.Parse<Page>(page));
     }
 
     private static Control Spacer(int height) => new Panel { Height = height, Width = 1, Margin = Padding.Empty };
 }
 
-// The values Matgate needs, ready to copy - in the wizard's last page and in the tray's window.
+// The values Matgate needs, ready to copy - in the wizard's last page and in the tray's window - and the sentence that the password is
+// the only key to this machine (AGENT-02, AGENT-03).
 internal static class ConnectionDetails
 {
     public static IEnumerable<Control> Fields(string token, string fingerprint, int port)
     {
-        yield return new CopyField("Host", Environment.MachineName);
+        yield return new CopyField("Host", Machine.Name);
         yield return new CopyField("Port", port.ToString());
         yield return new CopyField("Verbindungspasswort", token, monospace: true);
         // 64 hex digits: in two rows of 32, so it fits without scrolling sideways.
         yield return new CopyField("Zertifikat (SHA-256)", fingerprint, monospace: true, wrap: true);
+        yield return new BrandNotice("Das Verbindungspasswort ist der einzige Schlüssel zu diesem Rechner – nur in Matgate eintragen.", NoticeTone.Warning);
     }
 }

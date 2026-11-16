@@ -49,9 +49,15 @@ public sealed class SetupOptions
 // Features" - and uninstall takes every one of them away again.
 public static class Installer
 {
+    // The names of an agent of the Mat family (AGENT-01): service and display name "Matgate Agent", the program matgate-agent.exe, the
+    // tray's autostart value "Matgate Agent Tray", the data in %ProgramData%\Matgate Agent, the status pipe matgate-agent-status
+    // (AgentStatus), the Start menu and Installed apps "Matgate Agent".
     public const string ProductName = "Matgate Agent";
     private const string TaskName = "Matgate Agent";
-    private const string ServiceName = "MatgateAgent";
+    public const string ServiceName = "Matgate Agent";
+    // The name of the service up to version 0.7. An installation from then keeps it until the setup runs again, which replaces it;
+    // until then start, stop and restart find it under this name.
+    private const string LegacyServiceName = "MatgateAgent";
     private const string FirewallRule = "Matgate Agent";
     private const string TrayRunValue = "Matgate Agent Tray";
     private const string RunKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Run";
@@ -208,6 +214,7 @@ public static class Installer
         if (service)
         {
             RemoveLogonTask(log);
+            RemoveLegacyService(log);
             if (runAccount != "LocalSystem")
             {
                 WindowsNative.GrantServiceLogonRight(runAccount);
@@ -251,8 +258,48 @@ public static class Installer
         return new Result(config.Token, fingerprint, options.Port, listening);
     }
 
-    // For the tray's "restart": the service, or the logon task, stopped and started again.
-    public static bool Restart(Action<string> log)
+    // The service of this installation: "Matgate Agent", or "MatgateAgent" of an installation of version 0.7 or older; null in user
+    // mode or when there is none.
+    public static string? InstalledServiceName()
+    {
+        foreach (var name in new[] { ServiceName, LegacyServiceName })
+        {
+            try
+            {
+                using var controller = new System.ServiceProcess.ServiceController(name);
+                _ = controller.Status;
+                return name;
+            }
+            catch (InvalidOperationException)
+            {
+                // No service by that name.
+            }
+        }
+
+        return null;
+    }
+
+    // What the service is doing right now (the tray shows a service that starts or stops as waiting); null without a service.
+    public static System.ServiceProcess.ServiceControllerStatus? ServiceStatus()
+    {
+        if (InstalledServiceName() is not { } name)
+        {
+            return null;
+        }
+
+        try
+        {
+            using var controller = new System.ServiceProcess.ServiceController(name);
+            return controller.Status;
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
+    // The tray's "Dienst starten ...": the service, or the logon task.
+    public static bool Start(Action<string> log)
     {
         var mode = FindExisting()?.Mode;
         if (mode is null)
@@ -261,10 +308,9 @@ public static class Installer
             return false;
         }
 
-        StopRunning(log);
         if (mode == "service")
         {
-            Run("sc.exe", ["start", ServiceName], log);
+            Run("sc.exe", ["start", InstalledServiceName() ?? ServiceName], log);
         }
         else
         {
@@ -273,6 +319,23 @@ public static class Installer
 
         return true;
     }
+
+    // The tray's "Dienst beenden ...": the agent stops, the icons in the notification area keep running and show it stopped (AGENT-04
+    // the other way round: stopping the service never takes the tray with it).
+    public static bool Stop(Action<string> log)
+    {
+        if (FindExisting() is null)
+        {
+            log("The agent is not installed.");
+            return false;
+        }
+
+        StopRunning(log, keepTrays: true);
+        return true;
+    }
+
+    // The tray's "Dienst neu starten ...": stopped and started again.
+    public static bool Restart(Action<string> log) => Stop(log) && Start(log);
 
     public static void Uninstall(bool keepConfig, Action<string> log)
     {
@@ -356,14 +419,41 @@ public static class Installer
         log("  Strg+Alt+Entf-Richtlinie: wie vorher");
     }
 
-    private static void StopRunning(Action<string> log)
+    // Stops the service (and waits for it: "sc stop" only asks), the logon task and whatever else runs from the program folder - the
+    // icons in the notification area too, unless keepTrays (they run from the same file, and a setup has to replace it).
+    private static void StopRunning(Action<string> log, bool keepTrays = false)
     {
-        Run("sc.exe", ["stop", ServiceName], log, ignoreFailure: true, quiet: true);
+        foreach (var name in new[] { ServiceName, LegacyServiceName })
+        {
+            try
+            {
+                using var controller = new System.ServiceProcess.ServiceController(name);
+                if (controller.Status != System.ServiceProcess.ServiceControllerStatus.Stopped)
+                {
+                    if (controller.CanStop)
+                    {
+                        controller.Stop();
+                    }
+
+                    controller.WaitForStatus(System.ServiceProcess.ServiceControllerStatus.Stopped, TimeSpan.FromSeconds(30));
+                }
+            }
+            catch (Exception exception) when (exception is InvalidOperationException or System.ServiceProcess.TimeoutException or System.ComponentModel.Win32Exception)
+            {
+                // No such service, or it did not stop in time: what still runs is ended below.
+            }
+        }
+
         Run("schtasks", ["/End", "/TN", TaskName], log, ignoreFailure: true, quiet: true);
         foreach (var process in Process.GetProcessesByName("matgate-agent"))
         {
             try
             {
+                if (keepTrays && WindowsNative.CommandLine(process.Id) is { } commandLine && commandLine.TrimEnd().EndsWith(" tray", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+
                 if (process.Id != Environment.ProcessId && (process.MainModule?.FileName ?? "").StartsWith(ProgramFolder, StringComparison.OrdinalIgnoreCase))
                 {
                     process.Kill(entireProcessTree: true);
@@ -376,10 +466,24 @@ public static class Installer
         }
     }
 
+    // The service of version 0.7 and older goes before the new one is made: both have the display name "Matgate Agent", which Windows
+    // takes only once - and a service that is deleted stays until nobody holds it open any more.
+    private static void RemoveLegacyService(Action<string> log)
+    {
+        Run("sc.exe", ["delete", LegacyServiceName], log, ignoreFailure: true, quiet: true);
+        for (var i = 0; i < 40 && System.ServiceProcess.ServiceController.GetServices().Any(s => s.ServiceName.Equals(LegacyServiceName, StringComparison.OrdinalIgnoreCase)); i++)
+        {
+            Thread.Sleep(250);
+        }
+    }
+
     private static void RemoveService(Action<string> log)
     {
-        Run("sc.exe", ["stop", ServiceName], log, ignoreFailure: true, quiet: true);
-        Run("sc.exe", ["delete", ServiceName], log, ignoreFailure: true, quiet: true);
+        foreach (var name in new[] { ServiceName, LegacyServiceName })
+        {
+            Run("sc.exe", ["stop", name], log, ignoreFailure: true, quiet: true);
+            Run("sc.exe", ["delete", name], log, ignoreFailure: true, quiet: true);
+        }
     }
 
     private static void RemoveLogonTask(Action<string> log)
@@ -495,9 +599,9 @@ public static class Installer
     private static void WriteUninstallEntry(SetupOptions options, string runAccount)
     {
         using var key = Registry.LocalMachine.CreateSubKey(UninstallKey);
-        var version = typeof(Installer).Assembly.GetName().Version?.ToString(3) ?? "0";
         key.SetValue("DisplayName", ProductName);
-        key.SetValue("DisplayVersion", version);
+        // The four parts, as everywhere else (SETUP-07).
+        key.SetValue("DisplayVersion", AgentVersion.Number);
         key.SetValue("Publisher", "Matgate");
         key.SetValue("DisplayIcon", InstalledExe + ",0");
         key.SetValue("InstallLocation", ProgramFolder);

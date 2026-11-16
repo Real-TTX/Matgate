@@ -209,4 +209,54 @@ internal static class WindowsNative
 
     [DllImport("advapi32.dll")]
     private static extern bool CloseServiceHandle(IntPtr handle);
+
+    // The command line of another process (to tell the icon in the notification area - "matgate-agent.exe tray" - from the agent that
+    // runs from the same file), or null when it cannot be read.
+    public static string? CommandLine(int processId)
+    {
+        const uint QueryLimitedInformation = 0x1000;
+        const int ProcessCommandLineInformation = 60;
+        var process = OpenProcess(QueryLimitedInformation, false, processId);
+        if (process == IntPtr.Zero)
+        {
+            return null;
+        }
+
+        try
+        {
+            NtQueryInformationProcess(process, ProcessCommandLineInformation, IntPtr.Zero, 0, out var length);
+            if (length <= 0)
+            {
+                return null;
+            }
+
+            var buffer = Marshal.AllocHGlobal(length);
+            try
+            {
+                if (NtQueryInformationProcess(process, ProcessCommandLineInformation, buffer, length, out _) != 0)
+                {
+                    return null;
+                }
+
+                // A UNICODE_STRING: the length in bytes, the maximum length, then (aligned) the pointer to the characters.
+                var bytes = (ushort)Marshal.ReadInt16(buffer);
+                var text = Marshal.ReadIntPtr(buffer, IntPtr.Size);
+                return text == IntPtr.Zero ? null : Marshal.PtrToStringUni(text, bytes / 2);
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(buffer);
+            }
+        }
+        finally
+        {
+            CloseHandle(process);
+        }
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern IntPtr OpenProcess(uint access, bool inheritHandle, int processId);
+
+    [DllImport("ntdll.dll")]
+    private static extern int NtQueryInformationProcess(IntPtr process, int informationClass, IntPtr information, int length, out int returnLength);
 }
