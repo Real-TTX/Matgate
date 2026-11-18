@@ -1,5 +1,7 @@
 #!/bin/sh
-rm -f /var/run/xrdp/*.pid /tmp/.X*-lock
+# Nothing of an earlier run: a container that is restarted keeps /tmp, and with the old sockets in it the
+# RDP session would get another display than :10 - which is where the tests look.
+rm -f /var/run/xrdp/*.pid /tmp/.X*-lock /tmp/.X11-unix/X*
 mkdir -p /run/dbus /var/run/xrdp
 dbus-daemon --system --fork 2>/dev/null
 /usr/sbin/xrdp-sesman

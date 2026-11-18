@@ -102,8 +102,14 @@ let agent;
       check("the session toolbar carries the screen's actions", ["agent-overview", "fullscreen", "resolution", "sound", "clipboard", "disconnect"].every(a => actions.includes(a)) ? true : actions, true);
       await page.evaluate(() => { const b = document.querySelector("#connection-tab-actions [data-action='resolution']"); b ? b.click() : document.querySelector("[data-action='more'], .tab-action-overflow-trigger")?.click(); });
       await sleep(400);
+      const firstChoices = await page.evaluate(() => [...document.querySelectorAll(".resolution-option")].filter(b => b.offsetParent).map(b => b.textContent));
+      check("its resolution button opens the resolution dialog: fit to window with a scale first, no list of sizes in the way",
+        [/An Fenster anpassen|Fit to window/.test(firstChoices[0] || ""), firstChoices.includes("1920 × 1080"), await page.evaluate(() => [...document.querySelectorAll(".resolution-scale-preset")].filter(b => b.offsetParent).length)], [true, false, 6]);
+      // The machine's modes are behind a button.
+      await page.evaluate(() => document.querySelector("[data-fixed-sizes]").click());
+      await sleep(200);
       const dialog = await page.evaluate(() => [...document.querySelectorAll(".resolution-option")].filter(b => b.offsetParent).map(b => b.textContent));
-      check("its resolution button opens the resolution dialog with the machine's modes", dialog.includes("An Fenster anpassen") || dialog.includes("Fit to window") ? dialog.includes("1920 × 1080") : dialog, true);
+      check("and the machine's modes behind a button", dialog.includes("An Fenster anpassen") || dialog.includes("Fit to window") ? dialog.includes("1920 × 1080") : dialog, true);
       await page.evaluate(() => [...document.querySelectorAll(".resolution-option")].find(b => /Wie am Rechner|As on the machine/.test(b.textContent))?.click());
       await sleep(600);
       check("and a choice there reaches the page", await tabFrame.evaluate(() => window.MatgateScreen.state().resolution), "native");

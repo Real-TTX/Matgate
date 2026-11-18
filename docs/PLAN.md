@@ -1,6 +1,7 @@
 # Matgate – Plan zum Weitermachen
 
-Stand: 2026-11-18, Version 0.21.0 (Agent 0.9.0), auf `main` zusammengeführt und als `v0.21.0` markiert. Geschrieben als Übergabe an eine andere Sitzung.
+Stand: 2026-11-18, Version 0.21.1 (Agent 0.9.0). 0.21.0 ist auf `main`, als `v0.21.0` markiert und läuft auf ve-docker-1
+(matgate.schmoldt.it); 0.21.1 (Skalierung und Tastatur am Telefon) liegt nur im Arbeitsverzeichnis. Geschrieben als Übergabe an eine andere Sitzung.
 
 ## Wo wir stehen
 
@@ -111,6 +112,46 @@ Stellen genannt - bei Gelegenheit nachfragen, ob der Umbau trifft, was ihn gest�
 Vorgehen für das Review: Bereich für Bereich mit dem Nutzer (Startseite/Tabs, Verbindung anlegen und
 bearbeiten, Sitzung am Telefon, Sitzung am Desktop, Dateien), je Bereich Befunde sammeln, dann
 gebündelt beheben und mit einem Skript unter `tests/` absichern.
+
+## Sitzung am Telefon: Skalierung und Tastatur (Meldung vom 2026-11-18, 0.21.1)
+
+Der Nutzer: „warum habe ich nicht meine 50 % Scale ... wieso muss ich meine Auflösung angeben“, und vor
+allem: „wenn die Tastatur aufgeht, ist sie einfach vor dem Bildschirm“ - man kam nicht mehr an das,
+was dahinter liegt.
+
+- **Skalierung statt Auflösung** (`AgentScreenPage.cs`): „An Fenster anpassen“ hat einen Maßstab
+  (25-300 %, je Verbindung in `matgate.screen.scale.<id>`). 100 % = ein Pixel des Rechners je Punkt der
+  Seite, 50 % = doppelt so großer Bildschirm, verkleinert gezeigt, 150 % = kleinerer, vergrößert.
+  Vorher hieß „anpassen“ Gerätepixel - am Telefon 1170 x 2532. Vorgabe: was die Verbindung als
+  Guacamole-Sitzung hatte (`fit50`), sonst am Telefon 50 %, am Tablet 100 %, am Rechner Gerätepixel
+  (wie bisher). Im Dialog der Sitzungsleiste zuerst: Stufen 50-200 %, Regler, „Auflösung des
+  Rechners: B x H“; die festen Auflösungen liegen hinter einem Knopf.
+- **Mindestgröße** in `ScreenSession.WantedSize`: 320 x 200 statt 640 x 480, und in der Form, die
+  gewünscht war (ein hochkant gehaltenes Telefon wurde sonst nur in der Breite angehoben).
+- **Tastatur des Geräts:** Eine Sitzung der eigenen Engine ist eine eigene Seite im Tab und erfuhr
+  nicht, dass die Tastatur offen ist. Die Hülle sagt es ihr jetzt (`updatePageKeyboardInset` ->
+  `window.MatgateKeyboardInset(px)`; allein geöffnet misst die Seite selbst). Die Seite endet über der
+  Tastatur: die Tastenleiste sitzt direkt darauf (auch ohne dass man sie einschaltet), das Bild behält
+  seine Größe und wird mit zwei Fingern verschoben bzw. folgt dem Zeiger; am Ende der Ansicht wird
+  auf dem Rechner gescrollt. Option im Dialog „Auflösung an die Tastatur anpassen“
+  (`matgate.screen.keyboard.resize`): dann bekommt der Rechner eine Auflösung, die über die
+  Tastatur passt. Die Terminalseite endet ebenfalls über der Tastatur (sie verliert Zeilen, wie ein
+  Terminal, dessen Fenster kleiner wird).
+- **Tastenleiste:** größere Knöpfe, klarer Druck- und Haltezustand.
+- Test: `tests/screen-scale.js` (32 Prüfungen, iPhone-Tastatur nachgestellt über `visualViewport`).
+  Falle dabei: Mausrad über dem leeren Test-Desktop lässt openbox die Arbeitsfläche wechseln - das
+  Terminal ist dann „weg“ und alle VNC-Tests schlagen fehl; `tests/desktop/start.sh` räumt jetzt auch
+  alte X-Sockets weg (nach `docker restart` lag die RDP-Sitzung sonst auf :11 statt :10).
+- **Nicht am echten Gerät geprüft** - weder iPhone noch Android. Android meldet die Tastatur über
+  `navigator.virtualKeyboard`; ob das in der Hülle ankommt, wenn das Eingabefeld im Tab-Dokument
+  liegt, ist offen.
+- **Offen, Diktat:** Der Nutzer hat am 2026-11-18 diktierten Text gezeigt, der mehrfach ankam
+  (Korrekturen wurden angehängt statt ersetzt). Unklar, ob über Matgate und in welche Sitzung/welches
+  Programm - nachfragen. Verdacht für Terminal-Programme mit eigener Eingabezeile (Claude Code):
+  viele Rücktasten und der neue Text kommen in einem Stück an und werden dort als Einfügung
+  behandelt; dann hülfe, die Rücktasten einzeln mit kleinem Abstand zu schicken.
+- Was noch gehen würde: dem Windows-Rechner bei RDP einen Skalierungsfaktor mitgeben
+  (DesktopScaleFactor), dann wäre das Bild groß UND scharf; der eigene RDP-Client sendet keinen.
 
 ## Eigene Engine: unscharf beim Scrollen (Meldung vom 2026-11-18)
 

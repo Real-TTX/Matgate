@@ -44,7 +44,11 @@ const GROUPS = [
   },
   {
     name: "Group 8 - an agent (updating it, its screen) and Matgate's own engine for RDP, VNC and SSH",
-    scripts: ["agent-update.js", "agent-screen.js", "display.js", "text-input.js", "key-bar.js", "connection-form.js"],
+    scripts: ["agent-update.js", "agent-screen.js", "display.js", "text-input.js"],
+  },
+  {
+    name: "Group 9 - the key bar, the scale and the keyboard of a session, the connection form",
+    scripts: ["key-bar.js", "screen-scale.js", "connection-form.js"],
   },
 ];
 

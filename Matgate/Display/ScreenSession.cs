@@ -408,6 +408,12 @@ public sealed class ScreenSession : IScreenHost, IAsyncDisposable
         _audio.Add(pcm, rate, channels);
     }
 
+    // The smallest and the largest screen a session is asked for.
+    private const int MinWidth = 320;
+    private const int MinHeight = 200;
+    private const int MaxWidth = 4096;
+    private const int MaxHeight = 2304;
+
     public (int Width, int Height) WantedSize()
     {
         var width = 0;
@@ -437,8 +443,13 @@ public sealed class ScreenSession : IScreenHost, IAsyncDisposable
             return (0, 0);
         }
 
-        // What remote desktops and the encoder take: even sizes within sensible bounds.
-        return (Math.Clamp(width, 640, 4096) & ~1, Math.Clamp(height, 480, 2304) & ~1);
+        // What remote desktops and the encoder take: even sizes within sensible bounds - and in the shape
+        // that was asked for. A phone held upright asks for a narrow, tall screen; bringing only its width up
+        // to a minimum would give a picture that no longer fills the window.
+        var grow = Math.Max(1.0, Math.Max(MinWidth / (double)width, MinHeight / (double)height));
+        var shrink = Math.Min(1.0, Math.Min(MaxWidth / (width * grow), MaxHeight / (height * grow)));
+        var scaled = grow * shrink;
+        return (Math.Clamp((int)Math.Round(width * scaled), MinWidth, MaxWidth) & ~1, Math.Clamp((int)Math.Round(height * scaled), MinHeight, MaxHeight) & ~1);
     }
 
     public void Log(string message)

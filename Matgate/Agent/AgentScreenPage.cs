@@ -14,7 +14,7 @@ public static class AgentScreenPage
         <title>__TITLE__</title>
         <style>
             html, body { background: #0b0f0d; color: #d8e0dc; height: 100%; margin: 0; overflow: hidden; }
-            body { display: flex; flex-direction: column; font: 13px system-ui, sans-serif; }
+            body { box-sizing: border-box; display: flex; flex-direction: column; font: 13px system-ui, sans-serif; }
             .bar { align-items: center; border-bottom: 1px solid #263029; display: flex; flex: 0 0 auto; gap: 6px; min-height: 36px; padding: 0 8px; }
             .bar strong { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
             .status { color: #8fa39a; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -38,8 +38,15 @@ public static class AgentScreenPage
             .toast li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
             .toast a { color: #9fe0bd; white-space: nowrap; }
             .toast .muted { color: #8fa39a; }
-            .keys { border-top: 1px solid #263029; display: none; flex: 0 0 auto; gap: 4px; overflow-x: auto; padding: 4px 6px calc(4px + env(safe-area-inset-bottom)); }
-            .keys button { flex: 0 0 auto; min-height: 36px; min-width: 44px; }
+            .keys { background: #101613; border-top: 1px solid #263029; display: none; flex: 0 0 auto; gap: 6px; overflow-x: auto; overscroll-behavior-x: contain; padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); scrollbar-width: none; }
+            .keys::-webkit-scrollbar { display: none; }
+            .keys button { background: linear-gradient(#26322c, #1b2420); border-color: #3a4a42; border-radius: 9px; box-shadow: 0 1px 0 rgba(0, 0, 0, .45); flex: 0 0 auto; font-size: 14px; font-weight: 600; min-height: 40px; min-width: 46px; padding: 2px 11px; }
+            .keys button:active { background: #2f6b50; border-color: #4f8a6c; transform: translateY(1px); }
+            .keys button.on { background: #2f6b50; border-color: #7fd6a8; color: #fff; }
+            /* On top of the device's keyboard there is no safe area left to keep clear. */
+            .keys.kb { padding-bottom: 6px; }
+            /* Inside the shell the bar comes with the device's keyboard, without being asked for. */
+            body.embedded .keys.kb:not(.none) { display: flex !important; }
             @media (pointer: coarse) { .keys { display: flex; } .wide { display: none; } }
             .auth { align-items: center; background: rgba(11, 15, 13, .9); display: flex; inset: 0; justify-content: center; padding: 24px; position: absolute; z-index: 4; }
             .auth form { background: #18211d; border: 1px solid #33413a; border-radius: 12px; display: flex; flex-direction: column; gap: 10px; max-width: 100%; padding: 18px; width: 340px; }
@@ -240,11 +247,29 @@ public static class AgentScreenPage
             let zoom = 1;
             let panX = 0;
             let panY = 0;
+            // How much of the page's bottom the device's keyboard covers, in CSS pixels: told by the shell
+            // (an embedded page cannot see the keyboard) or measured by the page itself.
+            let keyboardInset = 0;
+            // An option: the machine's resolution follows the room the keyboard leaves. Without it the picture
+            // keeps its size and the keyboard only takes part of the view - the rest is reached by moving it.
+            let keyboardResize = localStorage.getItem('matgate.screen.keyboard.resize') === '1';
+            const keepsSize = () => keyboardInset > 0 && !(keyboardResize && resolution === 'auto');
+            // The picture area as it is without the keyboard. With the keyboard up it loses more than the
+            // keyboard's height - the key bar comes along -, so the size to keep is remembered, not computed.
+            let rest = { width: 0, height: 0 };
+            const restHeight = box => {
+                if (keyboardInset === 0) {
+                    rest = { width: box.width, height: box.height };
+                    return box.height;
+                }
+                return rest.height && Math.abs(rest.width - box.width) < 1 ? rest.height : box.height + keyboardInset;
+            };
             const layout = () => {
                 const width = canvas.width;
                 const height = canvas.height;
                 const box = stage.getBoundingClientRect();
-                const fit = Math.min(box.width / width, box.height / height) || 1;
+                const full = restHeight(box);
+                const fit = Math.min(box.width / width, (keepsSize() ? full : box.height) / height) || 1;
                 const shownWidth = width * fit;
                 const shownHeight = height * fit;
                 frameBox.style.width = shownWidth + 'px';
@@ -470,11 +495,33 @@ public static class AgentScreenPage
             };
             fillResolutions([], resolution);
             resolutionSelect.title = text.resolution;
-            // The picture area in the machine's pixels: what "automatic" fits the monitor to.
+            // "Fit to window" has a scale: at 100 % one pixel of the machine is one of this page, at 50 % the
+            // machine's screen is twice as large as the window and shown at half size (more fits), at 150 % it
+            // is smaller and shown enlarged (everything bigger). Nobody has to know a resolution for that.
+            const scaleKey = 'matgate.screen.scale.' + server;
+            const defaultScale = () => {
+                // What this connection had as a Guacamole session ("fit 50 %").
+                try {
+                    const before = /^fit(\d+)?$/.exec((JSON.parse(localStorage.getItem('matgate.display.res.v3') || '{}') || {})[server] || '');
+                    if (before) {
+                        return Number(before[1] || 100);
+                    }
+                }
+                catch {
+                }
+                // A phone's screen at one to one is a very small desktop; a computer shows the machine's pixels as its own.
+                return coarse ? (Math.min(window.innerWidth, window.innerHeight) < 600 ? 50 : 100) : Math.round(100 / (window.devicePixelRatio || 1));
+            };
+            const clampScale = value => Math.min(300, Math.max(25, Math.round(Number(value) || 100)));
+            let scale = clampScale(localStorage.getItem(scaleKey) || defaultScale());
+            // The picture area in the machine's pixels: what "fit to window" asks the machine for. The room the
+            // keyboard takes still counts, unless the resolution is to follow the keyboard.
             const fitSize = () => {
                 const box = stage.getBoundingClientRect();
-                const ratio = window.devicePixelRatio || 1;
-                return { fitWidth: Math.round(box.width * ratio), fitHeight: Math.round(box.height * ratio) };
+                const factor = scale / 100;
+                const full = restHeight(box);
+                const height = keyboardInset > 0 && !keyboardResize ? full : box.height;
+                return { fitWidth: Math.round(box.width / factor), fitHeight: Math.round(height / factor) };
             };
             let sentFit = { fitWidth: 0, fitHeight: 0 };
             const sendResolution = () => {
@@ -790,15 +837,22 @@ public static class AgentScreenPage
                 }
                 return cursor;
             };
-            // Zoomed in, the picture follows the cursor so it never leaves the screen.
+            // Whether the picture is larger than what is seen of it: zoomed in, or the keyboard is up.
+            const viewOverflows = () => {
+                const box = canvas.getBoundingClientRect();
+                const area = stage.getBoundingClientRect();
+                return box.width > area.width + 1 || box.height > area.height + 1;
+            };
+            // Then the picture follows the cursor, so it never leaves what is seen.
             const keepCursorInView = () => {
-                if (zoom <= 1 || !cursor || !remote.width) {
+                const at = cursor || (pointerAt.x || pointerAt.y ? pointerAt : null);
+                if (!at || !remote.width || !viewOverflows()) {
                     return;
                 }
                 const box = canvas.getBoundingClientRect();
                 const area = stage.getBoundingClientRect();
-                const x = box.left + cursor.x * box.width / remote.width;
-                const y = box.top + cursor.y * box.height / remote.height;
+                const x = box.left + at.x * box.width / remote.width;
+                const y = box.top + at.y * box.height / remote.height;
                 const margin = 40;
                 const shiftX = x < area.left + margin ? area.left + margin - x : x > area.right - margin ? area.right - margin - x : 0;
                 const shiftY = y < area.top + margin ? area.top + margin - y : y > area.bottom - margin ? area.bottom - margin - y : 0;
@@ -960,8 +1014,19 @@ public static class AgentScreenPage
                         layout();
                     }
                     else if (gesture.moved) {
-                        const step = (centerY - (gesture.lastY ?? gesture.centerY)) * 4;
+                        const moved = centerY - (gesture.lastY ?? gesture.centerY);
+                        const step = moved * 4;
                         gesture.lastY = centerY;
+                        // The picture is taller than what is seen of it (the keyboard is up): two fingers move
+                        // the view first, and scroll on the machine once the view is at its end.
+                        if (viewOverflows() && Math.abs(moved) >= 1) {
+                            const before = panY;
+                            panY += moved;
+                            layout();
+                            if (Math.abs(panY - before) >= 1) {
+                                return;
+                            }
+                        }
                         if (Math.abs(step) >= 1) {
                             // On the touchpad the cursor stays where it is and scrolls there.
                             if (pointerMode !== 'touchpad') {
@@ -1395,6 +1460,52 @@ public static class AgentScreenPage
                 textBoundary();
                 dropSticky(true);
             };
+            // ---- the device's keyboard ---------------------------------------------------------------
+            // It lies over the bottom of the page. The page ends above it: the key bar sits on top of the
+            // keyboard, and the picture is what is left - at its size, with the view moved to where the cursor
+            // is, or (the option) at a resolution that fits the room.
+            const applyKeyboardInset = value => {
+                const inset = Math.max(0, Math.round(Number(value) || 0));
+                if (inset === keyboardInset) {
+                    return;
+                }
+                keyboardInset = inset;
+                document.body.style.paddingBottom = inset ? inset + 'px' : '';
+                keyBar.classList.toggle('kb', inset > 0);
+                layout();
+                keepCursorInView();
+                notifyShell();
+            };
+            window.MatgateKeyboardInset = applyKeyboardInset;
+            if (!embedded) {
+                // On its own the page sees the keyboard itself. Android reports its rectangle (and is told to
+                // lay the keyboard over the page instead of resizing it); iOS shrinks the visual viewport.
+                try {
+                    if ('virtualKeyboard' in navigator) {
+                        navigator.virtualKeyboard.overlaysContent = true;
+                        navigator.virtualKeyboard.addEventListener('geometrychange', () => measureKeyboard());
+                    }
+                }
+                catch {
+                }
+                const measureKeyboard = () => {
+                    const keyboard = navigator.virtualKeyboard;
+                    const view = window.visualViewport;
+                    let inset = 0;
+                    if (keyboard && keyboard.boundingRect && keyboard.boundingRect.height > 0) {
+                        inset = window.innerHeight - keyboard.boundingRect.top;
+                    }
+                    else if (view && window.innerHeight - (view.offsetTop + view.height) > 120) {
+                        inset = window.innerHeight - (view.offsetTop + view.height);
+                    }
+                    applyKeyboardInset(inset);
+                };
+                if (window.visualViewport) {
+                    window.visualViewport.addEventListener('resize', measureKeyboard);
+                    window.visualViewport.addEventListener('scroll', measureKeyboard);
+                }
+            }
+
             barButtons.forEach(button => {
                 const item = document.createElement('button');
                 item.type = 'button';
@@ -1917,17 +2028,47 @@ public static class AgentScreenPage
                     canSound,
                     keyboardOpen: coarse && document.activeElement === sink,
                     keyBarOpen: keyBar.classList.contains('open'),
+                    scale,
+                    fit: fitSize(),
+                    keyboardResize,
+                    keyboardInset,
+                    touch: coarse,
                     canWindows,
                     windowsOpen: windowsOpen(),
                     windowOnly,
                     windows: windowList,
                     pointerMode,
                     kind,
-                    texts: { monitor: text.monitor, quality: text.quality, target: kind === 'agent' ? text.target : 'Matgate' },
+                    texts: { monitor: text.monitor, quality: text.quality, target: kind === 'agent' ? text.target : 'Matgate', scale: text.scale, remoteSize: text.resolution, keyboardResize: text.keyboardResize, keyboardResizeHint: text.keyboardResizeHint, fixedSizes: text.fixedSizes },
                 }),
                 setResolution: value => {
                     resolutionSelect.value = value;
                     resolutionSelect.dispatchEvent(new Event('change'));
+                    notifyShell();
+                },
+                // A scale belongs to "fit to window": choosing one chooses that as well.
+                setScale: value => {
+                    scale = clampScale(value);
+                    localStorage.setItem(scaleKey, String(scale));
+                    resolution = 'auto';
+                    resolutionSelect.value = 'auto';
+                    localStorage.setItem(resolutionKey, resolution);
+                    sendResolution();
+                    notifyShell();
+                },
+                // What the machine would be asked for at this scale - for a control that shows it before it is set.
+                fitAt: value => {
+                    const now = fitSize();
+                    const factor = clampScale(value) / scale;
+                    return { fitWidth: Math.round(now.fitWidth / factor), fitHeight: Math.round(now.fitHeight / factor) };
+                },
+                setKeyboardResize: on => {
+                    keyboardResize = !!on;
+                    localStorage.setItem('matgate.screen.keyboard.resize', keyboardResize ? '1' : '0');
+                    layout();
+                    if (resolution === 'auto') {
+                        sendResolution();
+                    }
                     notifyShell();
                 },
                 setMonitor: value => {

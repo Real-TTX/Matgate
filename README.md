@@ -40,6 +40,9 @@ usable from a laptop or a phone – installable as a PWA.
 - Several sessions open at once as **draggable tabs**, with session restore
 - **Pop a session out into its own window** and re-attach it later (great for multi-monitor)
 - **Real fullscreen / immersive mode** (safe-area aware on iPhone), clipboard sync, a live status bar
+- **A scale instead of a resolution**: "fit to window" at 50 %, 100 %, 150 % ... - a larger desktop shown
+  smaller, or a smaller one shown larger; on a phone the **device keyboard** leaves the picture reachable (it
+  keeps its size and is moved with two fingers, or the resolution follows the keyboard)
 - On phones and tablets a **key bar of your own** under every session: the keys a phone's keyboard does not
   have (Esc, Tab, Ctrl, Alt, the arrows) and your own shortcuts (Ctrl+C, Ctrl+V, ...), set up under
   Account -> Key bar - which buttons, in which order, for desktops, terminals or both

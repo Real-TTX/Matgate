@@ -279,6 +279,12 @@ public static partial class EndpointMapping
                 download = de ? "Herunterladen" : "Download",
                 folder = de ? "Ordner (nicht ladbar)" : "Folder (cannot be downloaded)",
                 close = de ? "Schließen" : "Close",
+                scale = de ? "Skalierung" : "Scale",
+                fixedSizes = de ? "Feste Auflösung" : "A fixed resolution",
+                keyboardResize = de ? "Auflösung an die Tastatur anpassen" : "Fit the resolution to the keyboard",
+                keyboardResizeHint = de
+                    ? "An: der Rechner bekommt eine Auflösung, die über die Tastatur passt. Aus: das Bild bleibt, wie es ist - mit zwei Fingern verschieben, es folgt dem Zeiger."
+                    : "On: the machine gets a resolution that fits above the keyboard. Off: the picture stays as it is - move it with two fingers, it follows the pointer.",
                 windows = de ? "Fenster" : "Windows",
                 wholeScreen = de ? "Ganzer Bildschirm" : "The whole screen",
                 onlyWindow = de ? "Nur das gewählte Fenster zeigen" : "Show the chosen window only",

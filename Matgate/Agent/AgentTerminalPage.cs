@@ -15,7 +15,7 @@ public static class AgentTerminalPage
         <link rel="stylesheet" href="/assets/xterm/xterm.css">
         <style>
             html, body { background: #0f1412; color: #d8e0dc; height: 100%; margin: 0; overflow: hidden; }
-            body { display: flex; flex-direction: column; font: 13px system-ui, sans-serif; }
+            body { box-sizing: border-box; display: flex; flex-direction: column; font: 13px system-ui, sans-serif; }
             .bar { align-items: center; border-bottom: 1px solid #263029; display: flex; gap: 8px; min-height: 34px; padding: 0 8px; }
             .bar strong { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
             .status { color: #8fa39a; flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -23,12 +23,16 @@ public static class AgentTerminalPage
             button { background: #1b2420; border: 1px solid #33413a; border-radius: 6px; color: inherit; cursor: pointer; font: inherit; min-height: 28px; padding: 2px 10px; }
             button:hover { background: #24302a; }
             #screen { flex: 1 1 auto; min-height: 0; padding: 4px 0 0 6px; }
-            .keys { border-top: 1px solid #263029; display: none; gap: 4px; overflow-x: auto; padding: 4px 6px calc(4px + env(safe-area-inset-bottom)); }
-            .keys button { flex: 0 0 auto; min-height: 36px; min-width: 44px; }
+            .keys { background: #101613; border-top: 1px solid #263029; display: none; flex: 0 0 auto; gap: 6px; overflow-x: auto; overscroll-behavior-x: contain; padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); scrollbar-width: none; }
+            .keys::-webkit-scrollbar { display: none; }
+            .keys button { background: linear-gradient(#26322c, #1b2420); border-color: #3a4a42; border-radius: 9px; box-shadow: 0 1px 0 rgba(0, 0, 0, .45); flex: 0 0 auto; font-size: 14px; font-weight: 600; min-height: 40px; min-width: 46px; padding: 2px 11px; }
+            .keys button:active { background: #2f6b50; border-color: #4f8a6c; transform: translateY(1px); }
+            /* On top of the device's keyboard there is no safe area left to keep clear. */
+            .keys.kb { padding-bottom: 6px; }
             @media (pointer: coarse) { .keys { display: flex; } }
             /* Someone who removed every button has no bar. */
             .keys.none { display: none !important; }
-            button.on { border-color: #4f8a6c; color: #9fe0bd; }
+            .keys button.on { background: #2f6b50; border-color: #7fd6a8; color: #fff; }
             .hidden { display: none !important; }
             button.icon { align-items: center; display: inline-flex; justify-content: center; min-width: 32px; padding: 2px 6px; }
             body.embedded .bar { display: none; }
@@ -210,6 +214,48 @@ public static class AgentTerminalPage
             });
 
             term.onData(data => sendBytes(encoder.encode(withSticky(data))));
+
+            // ---- the device's keyboard ---------------------------------------------------------------
+            // It lies over the bottom of the page. The page ends above it: the key bar sits on top of the
+            // keyboard and the terminal has the rows that are left - as a terminal does whose window shrinks.
+            let keyboardInset = 0;
+            const applyKeyboardInset = value => {
+                const inset = Math.max(0, Math.round(Number(value) || 0));
+                if (inset === keyboardInset) {
+                    return;
+                }
+                keyboardInset = inset;
+                document.body.style.paddingBottom = inset ? inset + 'px' : '';
+                keyBar.classList.toggle('kb', inset > 0);
+            };
+            // Inside the shell, the shell says so: an embedded page cannot see the keyboard.
+            window.MatgateKeyboardInset = applyKeyboardInset;
+            if (window.parent === window) {
+                try {
+                    if ('virtualKeyboard' in navigator) {
+                        navigator.virtualKeyboard.overlaysContent = true;
+                        navigator.virtualKeyboard.addEventListener('geometrychange', () => measureKeyboard());
+                    }
+                }
+                catch {
+                }
+                const measureKeyboard = () => {
+                    const keyboard = navigator.virtualKeyboard;
+                    const view = window.visualViewport;
+                    let inset = 0;
+                    if (keyboard && keyboard.boundingRect && keyboard.boundingRect.height > 0) {
+                        inset = window.innerHeight - keyboard.boundingRect.top;
+                    }
+                    else if (view && window.innerHeight - (view.offsetTop + view.height) > 120) {
+                        inset = window.innerHeight - (view.offsetTop + view.height);
+                    }
+                    applyKeyboardInset(inset);
+                };
+                if (window.visualViewport) {
+                    window.visualViewport.addEventListener('resize', measureKeyboard);
+                    window.visualViewport.addEventListener('scroll', measureKeyboard);
+                }
+            }
             term.onBinary(data => sendBytes(Uint8Array.from(data, c => c.charCodeAt(0))));
             term.onResize(size => sendControl({ type: 'resize', cols: size.cols, rows: size.rows }));
             new ResizeObserver(() => fit.fit()).observe(document.getElementById('screen'));

@@ -5558,7 +5558,36 @@ public sealed class HtmlViews
                         document.body.style.overflow = '';
                     }
                     updateSessionKeyboardShift();
+                    updatePageKeyboardInset();
                 };
+                // A page tab (a session of Matgate's own engine, a terminal) is a document of its own: it cannot
+                // see the device's keyboard, which lay over its bottom - the key bar and the lower part of the
+                // picture with it. The page is told how much the keyboard covers, and ends above it.
+                function updatePageKeyboardInset() {
+                    let entry = null;
+                    try {
+                        entry = activeTabId ? null : shellTabs.get(activeShellTabId);
+                    }
+                    catch {
+                        // The tabs are not set up yet.
+                        return;
+                    }
+                    const frame = entry && entry.panel ? entry.panel.querySelector('iframe') : null;
+                    if (!frame) {
+                        return;
+                    }
+                    const top = keyboardCoverTopY(null);
+                    const inset = top === null ? 0 : Math.max(0, Math.round(frame.getBoundingClientRect().bottom - top));
+                    try {
+                        const inner = frame.contentWindow;
+                        if (inner && typeof inner.MatgateKeyboardInset === 'function') {
+                            inner.MatgateKeyboardInset(inset);
+                        }
+                    }
+                    catch {
+                        // A page that is not Matgate's own.
+                    }
+                }
                 updateViewportHeight();
                 window.addEventListener('resize', updateViewportHeight, { passive: true });
                 window.addEventListener('orientationchange', updateViewportHeight);
@@ -6347,6 +6376,14 @@ public sealed class HtmlViews
                             // Ignore wiring failures in embedded documents.
                         }
 
+                        // A page that loaded while the keyboard is up learns of it now.
+                        try {
+                            updatePageKeyboardInset();
+                        }
+                        catch {
+                            // Ignore wiring failures in embedded documents.
+                        }
+
                         // Keep the tab header + stored URL in sync when the user navigates INSIDE the
                         // embedded page (back links, in-page links) - otherwise the tab title goes stale.
                         try {
@@ -6439,6 +6476,7 @@ public sealed class HtmlViews
                     });
 
                     shellTabs.get(tabId)?.button.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+                    updatePageKeyboardInset();
 
                     updateTabActions();
                     saveTabOrder();
@@ -8555,10 +8593,117 @@ public sealed class HtmlViews
                         });
                         return button;
                     };
-                    resolutionOptions.replaceChildren(...(state.resolutionOptions || []).map(item =>
+                    // "Fit to window" and its scale come first - that is what nearly everyone wants, and nobody
+                    // should have to pick a resolution by its numbers. The machine's own size and the fixed sizes
+                    // follow below, the list of those behind a button.
+                    const choices = state.resolutionOptions || [];
+                    const others = choices.filter(item => item.value !== 'auto');
+                    resolutionOptions.replaceChildren(...choices.filter(item => item.value === 'auto').map(item =>
                         option(item.label, item.value === state.resolution, () => api.setResolution(item.value))));
                     if (resolutionExtra) {
                         resolutionExtra.replaceChildren();
+                        // The scale of "fit to window": a few steps to tap and a slider for everything between.
+                        // Nobody has to know a resolution - the note says which one it comes to.
+                        if (typeof api.setScale === 'function') {
+                            const box = document.createElement('div');
+                            box.className = 'resolution-scale';
+                            const head = document.createElement('label');
+                            head.className = 'resolution-scale-head';
+                            const name = document.createElement('span');
+                            name.textContent = state.texts?.scale || uiText.scaleLabel || 'Scale';
+                            const value = document.createElement('strong');
+                            const slider = document.createElement('input');
+                            slider.type = 'range';
+                            slider.className = 'resolution-scale-slider';
+                            slider.min = '25';
+                            slider.max = '300';
+                            slider.step = '5';
+                            slider.value = String(state.scale || 100);
+                            head.append(name, value);
+                            head.appendChild(slider);
+                            const presets = document.createElement('div');
+                            presets.className = 'resolution-scale-presets';
+                            const note = document.createElement('p');
+                            note.className = 'muted resolution-scale-note';
+                            const show = () => {
+                                const percent = Number(slider.value);
+                                value.textContent = percent + ' %';
+                                const size = api.fitAt(percent);
+                                note.textContent = (state.texts?.remoteSize || uiText.scaleNote || 'Resolution') + ': ' + size.fitWidth + ' × ' + size.fitHeight;
+                                presets.querySelectorAll('button').forEach(item => item.classList.toggle('active', state.resolution === 'auto' && Number(item.dataset.scale) === percent));
+                            };
+                            [50, 75, 100, 125, 150, 200].forEach(percent => {
+                                const item = document.createElement('button');
+                                item.type = 'button';
+                                item.className = 'resolution-scale-preset';
+                                item.dataset.scale = String(percent);
+                                item.textContent = percent + ' %';
+                                item.addEventListener('click', () => {
+                                    api.setScale(percent);
+                                    closeResolutionDialog();
+                                    api.focus();
+                                });
+                                presets.appendChild(item);
+                            });
+                            slider.addEventListener('input', show);
+                            // The machine is asked once the finger lets go: every step on the way would be a
+                            // resolution of its own.
+                            slider.addEventListener('change', () => {
+                                api.setScale(Number(slider.value));
+                                state.resolution = 'auto';
+                                show();
+                            });
+                            show();
+                            box.append(head, presets, note);
+                            resolutionExtra.appendChild(box);
+                        }
+                        // A phone or tablet: what the device's keyboard does to the picture.
+                        if (state.touch && typeof api.setKeyboardResize === 'function') {
+                            const toggle = document.createElement('button');
+                            toggle.type = 'button';
+                            toggle.className = 'resolution-toggle' + (state.keyboardResize ? ' active' : '');
+                            toggle.dataset.keyboardResize = state.keyboardResize ? '1' : '0';
+                            const label = document.createElement('span');
+                            label.textContent = state.texts?.keyboardResize || 'Fit the resolution to the keyboard';
+                            const stateText = document.createElement('span');
+                            stateText.className = 'resolution-toggle-state';
+                            stateText.textContent = state.keyboardResize ? (uiText.onLabel || 'On') : (uiText.offLabel || 'Off');
+                            toggle.append(label, stateText);
+                            toggle.addEventListener('click', () => {
+                                api.setKeyboardResize(!state.keyboardResize);
+                                openScreenResolutionDialog(screen);
+                            });
+                            resolutionExtra.appendChild(toggle);
+                            const hint = document.createElement('p');
+                            hint.className = 'muted resolution-scale-note';
+                            hint.textContent = state.texts?.keyboardResizeHint || '';
+                            resolutionExtra.appendChild(hint);
+                        }
+                        // The machine's own size, and the fixed ones behind a button (open when one of them is set).
+                        others.filter(item => item.value === 'native').forEach(item =>
+                            resolutionExtra.appendChild(option(item.label, item.value === state.resolution, () => api.setResolution(item.value))));
+                        const fixed = others.filter(item => item.value !== 'native');
+                        if (fixed.length) {
+                            const chosen = fixed.some(item => item.value === state.resolution);
+                            const list = document.createElement('div');
+                            list.className = 'resolution-fixed-list';
+                            list.hidden = !chosen;
+                            fixed.forEach(item => list.appendChild(option(item.label, item.value === state.resolution, () => api.setResolution(item.value))));
+                            const opener = document.createElement('button');
+                            opener.type = 'button';
+                            opener.className = 'resolution-toggle' + (chosen ? ' active' : '');
+                            opener.dataset.fixedSizes = '1';
+                            const openerLabel = document.createElement('span');
+                            openerLabel.textContent = state.texts?.fixedSizes || 'A fixed resolution';
+                            const openerState = document.createElement('span');
+                            openerState.className = 'resolution-toggle-state';
+                            openerState.textContent = chosen ? (state.resolutionLabel || '') : '...';
+                            opener.append(openerLabel, openerState);
+                            opener.addEventListener('click', () => {
+                                list.hidden = !list.hidden;
+                            });
+                            resolutionExtra.append(opener, list);
+                        }
                         const group = (title, items, onPick) => {
                             if (!items || items.length < 2) {
                                 return;
@@ -17055,6 +17200,11 @@ public sealed class HtmlViews
                     .resolution-scale-head { align-items: center; display: grid; font-weight: 600; gap: 6px 10px; grid-template-columns: 1fr auto; }
                     .resolution-scale-slider { accent-color: var(--accent); background: transparent; border: 0; grid-column: 1 / -1; min-height: 32px; padding: 0; width: 100%; }
                     .resolution-scale-note { font-size: 12px; margin: 0; }
+                    .resolution-fixed-list { display: grid; gap: 8px; }
+                    .resolution-fixed-list[hidden] { display: none; }
+                    .resolution-scale-presets { display: grid; gap: 6px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+                    .resolution-scale-preset { justify-content: center; min-height: 40px; }
+                    .resolution-scale-preset.active { border-color: var(--accent); color: var(--accent); }
                     .resolution-scale-apply { justify-content: center; width: 100%; }
                     /* What happened to files pasted into a session, over the picture and long enough to read. */
                     .session-note {
