@@ -33,6 +33,7 @@ public static class AgentTerminalPage
             /* Below the bar nothing has to stay clear on top of the device's keyboard - nor inside the shell,
                which keeps the safe area of the screen clear itself (the bar had a gap taller than its buttons). */
             .keys.kb, body.in-shell .keys { padding-bottom: 6px; }
+            .keys .keys-setup { align-items: center; background: transparent; border-color: transparent; color: var(--kb-text, #8fa39a); display: inline-flex; justify-content: center; opacity: .7; padding: 2px 8px; }
             @media (pointer: coarse) { .keys { display: flex; } }
             /* Someone who removed every button has no bar. */
             .keys.none { display: none !important; }
@@ -231,6 +232,26 @@ public static class AgentTerminalPage
                 item.addEventListener('click', () => pressBarButton(button, item));
                 keyBar.appendChild(item);
             });
+            // The bar is the user's own (Account -> Key bar): its last button leads there. Only inside the
+            // shell, which has a place to open that page in.
+            if (barButtons.length) {
+                try {
+                    if (window.parent !== window && typeof window.parent.MatgateOpenShellTab === 'function') {
+                        const setup = document.createElement('button');
+                        setup.type = 'button';
+                        setup.className = 'keys-setup';
+                        setup.title = text.keyBarSetup;
+                        setup.setAttribute('aria-label', text.keyBarSetup);
+                        setup.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-2.9-1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0-1.2-2.9H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.2-2.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 2.9-1.2V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0 1.2 2.9H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>';
+                        setup.addEventListener('mousedown', event => event.preventDefault());
+                        setup.addEventListener('click', () => window.parent.MatgateOpenShellTab('/account?tab=keys', text.keyBarSetup));
+                        keyBar.appendChild(setup);
+                    }
+                }
+                catch {
+                    // Not inside the shell.
+                }
+            }
 
             term.onData(data => sendBytes(encoder.encode(withSticky(data))));
 

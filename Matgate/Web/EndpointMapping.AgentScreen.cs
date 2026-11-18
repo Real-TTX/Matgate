@@ -250,6 +250,7 @@ public static partial class EndpointMapping
                 error = de ? "Der Bildschirm kann nicht übertragen werden." : "The screen cannot be shared.",
                 noDecoder = de ? "Dieser Browser kann den Bildschirm nicht anzeigen (kein WebCodecs). Bitte einen aktuellen Edge, Chrome, Firefox oder Safari nehmen." : "This browser cannot show the screen (no WebCodecs). Please use a current Edge, Chrome, Firefox or Safari.",
                 overview = de ? "Agent-Übersicht" : "Agent overview",
+                keyBarSetup = de ? "Tastenleiste einrichten" : "Set up the key bar",
                 monitor = de ? "Bildschirm" : "Monitor",
                 quality = de ? "Bildqualität" : "Picture quality",
                 qualityHigh = de ? "Flüssig (60 Bilder/s)" : "Smooth (60 fps)",

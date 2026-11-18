@@ -5131,7 +5131,7 @@ public sealed class HtmlViews
                 </div>
             <div id="connection-tab-actions" class="tab-actions" aria-label="{{A(T(context, "Actions for the active tab"))}}"></div>
             </div>
-            <button id="immersive-handle" type="button" class="immersive-handle" aria-label="{{A(Language(context) == "de" ? "Steuerung ein-/ausblenden" : "Show/hide controls")}}" title="{{A(Language(context) == "de" ? "Steuerung ein-/ausblenden" : "Show/hide controls")}}">{{Icon("chevron-down")}}</button>
+            <button id="immersive-handle" type="button" class="immersive-handle" data-hint="{{A(Language(context) == "de" ? "Leiste zurückholen: oben antippen - oder mit drei Fingern ins Bild tippen" : "Bring the bar back: tap the top edge - or tap the picture with three fingers")}}" aria-label="{{A(Language(context) == "de" ? "Steuerung ein-/ausblenden" : "Show/hide controls")}}" title="{{A(Language(context) == "de" ? "Steuerung ein-/ausblenden" : "Show/hide controls")}}">{{Icon("chevron-down")}}</button>
             <div id="shell-page-panels" class="shell-page-panels">
             <section id="home-view" class="app-view session-page multi-session-page active">
                 <div id="session-deck" class="session-deck">
@@ -7535,21 +7535,57 @@ public sealed class HtmlViews
                     immersiveBarTimer = window.setTimeout(() => {
                         document.documentElement.classList.remove('immersive-bar-open');
                         immersiveBarTimer = null;
+                        showImmersiveHint();
                     }, 6000);
                 }
 
+                // The first time the bar goes away after full screen was entered, a note says how it comes
+                // back - on a phone nothing else on the screen gives that away.
+                let immersiveHintDue = false;
+                let immersiveHintTimer = null;
+                function showImmersiveHint() {
+                    if (!immersiveHintDue || !immersiveHandle || !isTouchDevice || !document.documentElement.classList.contains('session-immersive')) {
+                        return;
+                    }
+                    immersiveHintDue = false;
+                    let hint = document.getElementById('immersive-hint');
+                    if (!hint) {
+                        hint = document.createElement('div');
+                        hint.id = 'immersive-hint';
+                        hint.className = 'immersive-hint';
+                        hint.setAttribute('role', 'status');
+                        document.body.appendChild(hint);
+                    }
+                    hint.textContent = immersiveHandle.dataset.hint || '';
+                    hint.classList.add('show');
+                    window.clearTimeout(immersiveHintTimer);
+                    immersiveHintTimer = window.setTimeout(() => hint.classList.remove('show'), 4500);
+                }
+                // From a page tab (a session of Matgate's own engine): three fingers tapped on the picture.
+                // Touches inside that page never reach this document, so the page asks.
+                window.MatgateToggleControls = () => {
+                    if (!document.documentElement.classList.contains('session-immersive')) {
+                        return false;
+                    }
+                    toggleImmersiveBar();
+                    return true;
+                };
+
                 function openImmersiveBar() {
                     document.documentElement.classList.add('immersive-bar-open');
+                    document.getElementById('immersive-hint')?.classList.remove('show');
                     scheduleImmersiveBarHide();
                 }
 
                 function closeImmersiveBar() {
                     clearImmersiveBarTimer();
                     document.documentElement.classList.remove('immersive-bar-open');
+                    document.getElementById('immersive-hint')?.classList.remove('show');
                 }
 
                 function flashImmersiveBar() {
                     // Show briefly on entry, then let the auto-hide timer tuck it away.
+                    immersiveHintDue = true;
                     openImmersiveBar();
                 }
 
@@ -19107,6 +19143,32 @@ public sealed class HtmlViews
                     html.session-immersive .immersive-handle:hover::before,
                     html.session-immersive .immersive-handle:active::before { background: #fff; }
                     html.session-immersive .immersive-handle .icon { height: 14px; width: 14px; transition: transform .2s ease; }
+                    /* A finger needs more than a mouse: a taller strip under the notch, and a grabber that reads
+                       as one. */
+                    @media (pointer: coarse) {
+                        html.session-immersive .immersive-handle { background: linear-gradient(to bottom, rgba(18, 20, 18, .8), rgba(18, 20, 18, .35) 70%, rgba(18, 20, 18, 0)); height: calc(36px + env(safe-area-inset-top)); padding-bottom: 8px; }
+                        html.session-immersive .immersive-handle::before { height: 5px; width: 52px; }
+                        html.session-immersive .immersive-handle .icon { height: 18px; width: 18px; }
+                    }
+                    /* How the bar comes back, said once when it goes. */
+                    .immersive-hint {
+                        background: rgba(18, 20, 18, .88);
+                        border-radius: 12px;
+                        bottom: calc(24px + env(safe-area-inset-bottom));
+                        color: #fff;
+                        font-size: 14px;
+                        left: 50%;
+                        max-width: min(420px, calc(100vw - 32px));
+                        opacity: 0;
+                        padding: 10px 14px;
+                        pointer-events: none;
+                        position: fixed;
+                        text-align: center;
+                        transform: translateX(-50%);
+                        transition: opacity .25s ease;
+                        z-index: 70;
+                    }
+                    .immersive-hint.show { opacity: 1; }
                     /* While the toolbar is revealed it carries its own controls (incl. the fullscreen
                        exit) and auto-hides on inactivity, so the reveal strip just gets out of the way. */
                     html.session-immersive.immersive-bar-open .immersive-handle {

@@ -1,7 +1,7 @@
 # Matgate – Plan zum Weitermachen
 
-Stand: 2026-11-18, Version 0.21.2 (Agent 0.9.0): auf `main`, als `v0.21.2` markiert und auf ve-docker-1
-(matgate.schmoldt.it) ausgerollt. Geschrieben als Übergabe an eine andere Sitzung.
+Stand: 2026-11-18, Version 0.21.3 (Agent 0.9.0) auf `main` und als `v0.21.3` markiert; auf ve-docker-1
+(matgate.schmoldt.it) läuft 0.21.2 - 0.21.3 wartet auf das Einspielen (trennt laufende Sitzungen). Geschrieben als Übergabe an eine andere Sitzung.
 
 ## Wo wir stehen
 
@@ -140,7 +140,14 @@ was dahinter liegt.
 - **Tastenleiste (0.21.2):** In der Hülle trägt sie die Farben der App (`--kb-*`, aus dem Thema der Hülle
   gelesen) wie die Bildschirmtastatur dort, und hat keinen Sicherheitsrand mehr unter sich - den zieht die
   Hülle schon ab; vorher war der Leerraum unter den Knöpfen höher als die Knöpfe (Meldung des Nutzers).
-- Test: `tests/screen-scale.js` (32 Prüfungen, iPhone-Tastatur nachgestellt über `visualViewport`).
+- **Vollbild am Telefon (0.21.3):** Der Nutzer kam in der installierten App nicht mehr an die Leiste. Bei
+  einer Sitzung der eigenen Engine erreichen Berührungen die Hülle nicht (eigenes Dokument im Tab): drei
+  Finger ins Bild getippt holen die Leiste (`toggleControls` -> `window.parent.MatgateToggleControls`), der
+  Streifen oben ist für Finger höher, und beim ersten Verschwinden der Leiste sagt ein Hinweis, wie sie
+  zurückkommt (`#immersive-hint`).
+- **Zahnrad am Ende der Tastenleiste (0.21.3):** führt zu Konto -> Tastenleiste - der Nutzer fragte nach
+  einer einstellbaren Leiste, obwohl es sie schon gab.
+- Test: `tests/screen-scale.js` (41 Prüfungen, iPhone-Tastatur nachgestellt über `visualViewport`).
   Falle dabei: Mausrad über dem leeren Test-Desktop lässt openbox die Arbeitsfläche wechseln - das
   Terminal ist dann „weg“ und alle VNC-Tests schlagen fehl; `tests/desktop/start.sh` räumt jetzt auch
   alte X-Sockets weg (nach `docker restart` lag die RDP-Sitzung sonst auf :11 statt :10).
@@ -154,6 +161,18 @@ was dahinter liegt.
   behandelt; dann hülfe, die Rücktasten einzeln mit kleinem Abstand zu schicken.
 - Was noch gehen würde: dem Windows-Rechner bei RDP einen Skalierungsfaktor mitgeben
   (DesktopScaleFactor), dann wäre das Bild groß UND scharf; der eigene RDP-Client sendet keinen.
+
+## Wunsch: serverseitige Sitzungen (2026-11-18, nicht begonnen)
+
+Der Nutzer: „Können wir serverseitige Sitzungen einbauen? Wenn man den Browser lädt bzw. neu lädt, dass
+dann alles immer wieder da ist - als Option.“ Heute: Die Hülle merkt sich ihre Tabs im Browser
+(`saveShellTabs`) und verbindet beim Laden neu; Agent-Terminals laufen auf dem Agent weiter; eine
+RDP-, VNC- oder SSH-Sitzung der eigenen Engine endet mit ihrer Verbindung zum Browser. Vorschlag, noch
+nicht bestätigt: (1) Matgate hält die Sitzung nach dem Abreißen eine einstellbare Zeit offen und der
+Browser hängt sich mit der Sitzungskennung wieder an (`ScreenSession` bzw. die SSH-Sitzung brauchen
+dafür einen Betrachter, der wechseln kann - beim Agent-Bildschirm gibt es das schon), (2) die Liste der
+offenen Tabs liegt je Benutzer auf dem Server statt im Browser, damit auch ein anderes Gerät sie sieht.
+Offene Fragen an den Nutzer: wie lange halten, welche Sitzungsarten, auch geräteübergreifend?
 
 ## Eigene Engine: unscharf beim Scrollen (Meldung vom 2026-11-18)
 

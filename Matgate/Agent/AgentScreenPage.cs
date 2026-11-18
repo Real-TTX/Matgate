@@ -48,6 +48,7 @@ public static class AgentScreenPage
             /* Below the bar nothing has to stay clear on top of the device's keyboard - nor inside the shell,
                which keeps the safe area of the screen clear itself (the bar had a gap taller than its buttons). */
             .keys.kb, body.in-shell .keys { padding-bottom: 6px; }
+            .keys .keys-setup { align-items: center; background: transparent; border-color: transparent; color: var(--kb-text, #8fa39a); display: inline-flex; justify-content: center; opacity: .7; padding: 2px 8px; }
             /* Inside the shell the bar comes with the device's keyboard, without being asked for. */
             body.embedded .keys.kb:not(.none) { display: flex !important; }
             @media (pointer: coarse) { .keys { display: flex; } .wide { display: none; } }
@@ -971,6 +972,12 @@ public static class AgentScreenPage
                         centerX: (a.x + b.x) / 2, centerY: (a.y + b.y) / 2, panX, panY,
                     };
                 }
+                else if (touches.size === 3) {
+                    // Three fingers, tapped: the controls - in full screen the bar is away, and a picture that
+                    // fills the screen leaves no other place to ask for it.
+                    window.clearTimeout(longPress);
+                    gesture = { kind: 'three', moved: false, start: gesture ? gesture.start : performance.now() };
+                }
             });
             stage.addEventListener('pointermove', event => {
                 const touch = touches.get(event.pointerId);
@@ -981,6 +988,12 @@ public static class AgentScreenPage
                 touch.x = event.clientX;
                 touch.y = event.clientY;
                 if (!gesture) {
+                    return;
+                }
+                if (gesture.kind === 'three') {
+                    if (Math.hypot(touch.x - touch.startX, touch.y - touch.startY) > 14) {
+                        gesture.moved = true;
+                    }
                     return;
                 }
                 if (gesture.kind === 'pad') {
@@ -1057,6 +1070,22 @@ public static class AgentScreenPage
                     }
                 }
             });
+            // The controls of the session: the shell's toolbar when the page is inside it, its own bar otherwise.
+            const toggleControls = () => {
+                window.__screen.controls = (window.__screen.controls || 0) + 1;
+                try {
+                    if (embedded && typeof window.parent.MatgateToggleControls === 'function') {
+                        window.parent.MatgateToggleControls();
+                        return;
+                    }
+                }
+                catch {
+                }
+                const own = document.querySelector('.bar');
+                if (document.body.classList.contains('fs') && own) {
+                    own.classList.toggle('show');
+                }
+            };
             const endTouch = event => {
                 if (!touches.has(event.pointerId)) {
                     return;
@@ -1079,6 +1108,15 @@ public static class AgentScreenPage
                 }
                 if (gesture.kind === 'done') {
                     gesture = null;
+                    return;
+                }
+                if (gesture.kind === 'three') {
+                    if (touches.size === 0) {
+                        if (!gesture.moved && performance.now() - gesture.start < 600) {
+                            toggleControls();
+                        }
+                        gesture = null;
+                    }
                     return;
                 }
                 if (gesture.kind === 'one') {
@@ -1536,6 +1574,26 @@ public static class AgentScreenPage
                 item.addEventListener('click', () => pressBarButton(button, item));
                 keyBar.appendChild(item);
             });
+            // The bar is the user's own (Account -> Key bar): its last button leads there. Only inside the
+            // shell, which has a place to open that page in.
+            if (barButtons.length) {
+                try {
+                    if (window.parent !== window && typeof window.parent.MatgateOpenShellTab === 'function') {
+                        const setup = document.createElement('button');
+                        setup.type = 'button';
+                        setup.className = 'keys-setup';
+                        setup.title = text.keyBarSetup;
+                        setup.setAttribute('aria-label', text.keyBarSetup);
+                        setup.innerHTML = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-2.9-1.2l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0-1.2-2.9H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.2-2.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 2.9-1.2V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 2.9 1.2l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0 1.2 2.9H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>';
+                        setup.addEventListener('pointerdown', event => event.preventDefault());
+                        setup.addEventListener('click', () => window.parent.MatgateOpenShellTab('/account?tab=keys', text.keyBarSetup));
+                        keyBar.appendChild(setup);
+                    }
+                }
+                catch {
+                    // Not inside the shell.
+                }
+            }
 
             sink.addEventListener('focus', notifyShell);
             sink.addEventListener('blur', notifyShell);

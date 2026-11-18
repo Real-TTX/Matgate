@@ -120,6 +120,10 @@ const near = (a, b, tolerance) => Math.abs(a - b) <= tolerance;
     Object.defineProperty(visual, "height", { configurable: true, get: () => (seen.height === null ? window.innerHeight : seen.height) });
     Object.defineProperty(visual, "offsetTop", { configurable: true, get: () => seen.top });
     window.__visual = (height, top) => { seen.height = height; seen.top = top || 0; visual.dispatchEvent(new Event("resize")); };
+    // And it has no full screen for a page.
+    for (const name of ["requestFullscreen", "webkitRequestFullscreen", "webkitEnterFullscreen"]) {
+      try { Object.defineProperty(Element.prototype, name, { value: undefined, configurable: true }); } catch { /* not there anyway */ }
+    }
   });
   const shell = await phone.newPage();
   shell.on("pageerror", e => { console.log("JS ERROR: " + e.message); failures.push("JS error"); });
@@ -259,6 +263,53 @@ const near = (a, b, tolerance) => Math.abs(a - b) <= tolerance;
   await shell.evaluate(() => window.__visual(null, 0));
   check("without the keyboard it has the full size again", await pictureIs(frame, phoneStage[0] / 0.75, phoneStage[1] / 0.75, 6), true);
   await frame.evaluate(() => window.MatgateScreen.setKeyboardResize(false));
+
+  // --- Full screen on a phone: the bar goes away, and there has to be a way to get it back. An iPhone has
+  // no real full screen for a page, so the shell's own applies (the bar slides out of the way).
+  const chrome = () => shell.evaluate(() => ({
+    full: document.documentElement.classList.contains("session-immersive"),
+    bar: document.documentElement.classList.contains("immersive-bar-open"),
+    hint: !!document.querySelector("#immersive-hint.show"),
+  }));
+  const threeFingers = () => frame.evaluate(async () => {
+    const stage = document.getElementById("stage");
+    const box = stage.getBoundingClientRect();
+    const fire = (type, id, x) => stage.dispatchEvent(new PointerEvent(type, { pointerId: id, pointerType: "touch", clientX: box.left + x, clientY: box.top + 200, bubbles: true, cancelable: true, isPrimary: id === 1 }));
+    [1, 2, 3].forEach(id => fire("pointerdown", id, 60 + id * 60));
+    await new Promise(r => setTimeout(r, 80));
+    [1, 2, 3].forEach(id => fire("pointerup", id, 60 + id * 60));
+  });
+  await shell.evaluate(() => {
+    const find = () => document.querySelector("#connection-tab-actions [data-action='fullscreen'], .tab-action-overflow-panel [data-action='fullscreen']");
+    find().click();
+  });
+  await sleep(500);
+  check("full screen: the bar is shown once, so it is clear where it went", await chrome(), { full: true, bar: true, hint: false });
+  await sleep(6400);
+  check("then it goes - and a note says how it comes back", await chrome(), { full: true, bar: false, hint: true });
+  check("the note names both ways", await shell.evaluate(() => /three fingers|drei Fingern/.test(document.getElementById("immersive-hint").textContent)), true);
+  await threeFingers();
+  await sleep(300);
+  check("three fingers tapped on the picture bring the bar back", (await chrome()).bar, true);
+  await threeFingers();
+  await sleep(300);
+  check("and send it away again", (await chrome()).bar, false);
+  check("the strip at the top is large enough for a finger, and on top of the picture", await shell.evaluate(() => {
+    const handle = document.getElementById("immersive-handle");
+    const hit = document.elementFromPoint(window.innerWidth / 2, 20);
+    return [handle.getBoundingClientRect().height >= 36, hit === handle || handle.contains(hit)];
+  }), [true, true]);
+  await shell.touchscreen.tap(PHONE.width / 2, 20);
+  await sleep(300);
+  check("a tap on it brings the bar back as well", (await chrome()).bar, true);
+  await shell.evaluate(() => document.querySelector("#connection-tab-actions [data-action='fullscreen'], .tab-action-overflow-panel [data-action='fullscreen']").click());
+  await sleep(400);
+  check("and from the bar, full screen ends", await chrome(), { full: false, bar: false, hint: false });
+
+  // --- The key bar is the user's own: its last button leads to where it is set up.
+  await frame.evaluate(() => document.querySelector("#keys .keys-setup").click());
+  await sleep(1200);
+  check("the last button of the key bar opens its settings in a tab", await shell.evaluate(() => [...document.querySelectorAll(".shell-page-panel iframe")].some(f => /\/account\?tab=keys/.test(f.src))), true);
   await shell.close();
 
   // --- What a connection had as a Guacamole session is where it starts.

@@ -403,6 +403,7 @@ public static partial class EndpointMapping
                 kill = ssh ? (de ? "Trennen" : "Disconnect") : (de ? "Beenden" : "End"),
                 killConfirm = ssh ? (de ? "SSH-Verbindung trennen?" : "Disconnect the SSH session?") : (de ? "Programm wirklich beenden?" : "Really end the program?"),
                 overview = de ? "Agent-Übersicht" : "Agent overview",
+                keyBarSetup = de ? "Tastenleiste einrichten" : "Set up the key bar",
                 uploading = de ? "Lade hoch ({n}/{count}): {name}" : "Uploading ({n}/{count}): {name}",
                 uploaded = de ? "{count} Datei(en) liegen auf dem Server in {folder}" : "{count} file(s) are on the server in {folder}",
                 uploadFailed = de ? "Die Datei konnte nicht übertragen werden." : "The file could not be transferred.",
