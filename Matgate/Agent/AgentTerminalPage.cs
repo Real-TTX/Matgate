@@ -23,16 +23,19 @@ public static class AgentTerminalPage
             button { background: #1b2420; border: 1px solid #33413a; border-radius: 6px; color: inherit; cursor: pointer; font: inherit; min-height: 28px; padding: 2px 10px; }
             button:hover { background: #24302a; }
             #screen { flex: 1 1 auto; min-height: 0; padding: 4px 0 0 6px; }
-            .keys { background: #101613; border-top: 1px solid #263029; display: none; flex: 0 0 auto; gap: 6px; overflow-x: auto; overscroll-behavior-x: contain; padding: 6px 8px calc(6px + env(safe-area-inset-bottom)); scrollbar-width: none; }
+            /* The key bar wears the colours of the application - taken from the shell when the page is inside it
+               (the user's theme, as the on-screen keyboard there), this page's dark ones otherwise. */
+            .keys { background: var(--kb-panel, #101613); border-top: 1px solid var(--kb-line, #263029); display: none; flex: 0 0 auto; gap: 5px; overflow-x: auto; overscroll-behavior-x: contain; padding: 6px 6px calc(6px + env(safe-area-inset-bottom)); scrollbar-width: none; }
             .keys::-webkit-scrollbar { display: none; }
-            .keys button { background: linear-gradient(#26322c, #1b2420); border-color: #3a4a42; border-radius: 9px; box-shadow: 0 1px 0 rgba(0, 0, 0, .45); flex: 0 0 auto; font-size: 14px; font-weight: 600; min-height: 40px; min-width: 46px; padding: 2px 11px; }
-            .keys button:active { background: #2f6b50; border-color: #4f8a6c; transform: translateY(1px); }
-            /* On top of the device's keyboard there is no safe area left to keep clear. */
-            .keys.kb { padding-bottom: 6px; }
+            .keys button { background: var(--kb-key, #1f2a25); border: 1px solid var(--kb-line, #33413a); border-radius: 8px; box-shadow: none; color: var(--kb-text, #d8e0dc); flex: 0 0 auto; font-size: 15px; font-weight: 500; min-height: 40px; min-width: 44px; padding: 2px 12px; touch-action: manipulation; }
+            .keys button:hover { background: var(--kb-key, #1f2a25); }
+            .keys button:active, .keys button.on { background: var(--kb-accent, #2f6b50); border-color: var(--kb-accent, #4f8a6c); color: var(--kb-on, #fff); }
+            /* Below the bar nothing has to stay clear on top of the device's keyboard - nor inside the shell,
+               which keeps the safe area of the screen clear itself (the bar had a gap taller than its buttons). */
+            .keys.kb, body.in-shell .keys { padding-bottom: 6px; }
             @media (pointer: coarse) { .keys { display: flex; } }
             /* Someone who removed every button has no bar. */
             .keys.none { display: none !important; }
-            .keys button.on { background: #2f6b50; border-color: #7fd6a8; color: #fff; }
             .hidden { display: none !important; }
             button.icon { align-items: center; display: inline-flex; justify-content: center; min-width: 32px; padding: 2px 6px; }
             body.embedded .bar { display: none; }
@@ -72,6 +75,22 @@ public static class AgentTerminalPage
             })();
             if (embedded && kind === 'ssh') {
                 document.body.classList.add('embedded');
+            }
+            document.body.classList.toggle('in-shell', embedded);
+            if (embedded) {
+                // Inside the shell the key bar wears the application's colours, whatever theme the user chose.
+                try {
+                    const colours = getComputedStyle(window.parent.document.documentElement);
+                    [['--kb-panel', '--panel'], ['--kb-key', '--surface-2'], ['--kb-line', '--line'], ['--kb-text', '--text'], ['--kb-accent', '--accent'], ['--kb-on', '--bg']].forEach(([own, from]) => {
+                        const value = colours.getPropertyValue(from).trim();
+                        if (value) {
+                            document.documentElement.style.setProperty(own, value);
+                        }
+                    });
+                }
+                catch {
+                    // The page's own colours stay.
+                }
             }
             const params = new URLSearchParams(location.search);
             const plugin = params.get('plugin') || '';

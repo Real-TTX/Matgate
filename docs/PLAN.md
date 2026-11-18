@@ -1,7 +1,7 @@
 # Matgate – Plan zum Weitermachen
 
-Stand: 2026-11-18, Version 0.21.1 (Agent 0.9.0). 0.21.0 ist auf `main`, als `v0.21.0` markiert und läuft auf ve-docker-1
-(matgate.schmoldt.it); 0.21.1 (Skalierung und Tastatur am Telefon) liegt nur im Arbeitsverzeichnis. Geschrieben als Übergabe an eine andere Sitzung.
+Stand: 2026-11-18, Version 0.21.2 (Agent 0.9.0): auf `main`, als `v0.21.2` markiert und auf ve-docker-1
+(matgate.schmoldt.it) ausgerollt. Geschrieben als Übergabe an eine andere Sitzung.
 
 ## Wo wir stehen
 
@@ -137,7 +137,9 @@ was dahinter liegt.
   (`matgate.screen.keyboard.resize`): dann bekommt der Rechner eine Auflösung, die über die
   Tastatur passt. Die Terminalseite endet ebenfalls über der Tastatur (sie verliert Zeilen, wie ein
   Terminal, dessen Fenster kleiner wird).
-- **Tastenleiste:** größere Knöpfe, klarer Druck- und Haltezustand.
+- **Tastenleiste (0.21.2):** In der Hülle trägt sie die Farben der App (`--kb-*`, aus dem Thema der Hülle
+  gelesen) wie die Bildschirmtastatur dort, und hat keinen Sicherheitsrand mehr unter sich - den zieht die
+  Hülle schon ab; vorher war der Leerraum unter den Knöpfen höher als die Knöpfe (Meldung des Nutzers).
 - Test: `tests/screen-scale.js` (32 Prüfungen, iPhone-Tastatur nachgestellt über `visualViewport`).
   Falle dabei: Mausrad über dem leeren Test-Desktop lässt openbox die Arbeitsfläche wechseln - das
   Terminal ist dann „weg“ und alle VNC-Tests schlagen fehl; `tests/desktop/start.sh` räumt jetzt auch
