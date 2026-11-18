@@ -37,6 +37,9 @@ services:
       # This stack has no Guacamole: every connection opens with Matgate's own engine, which is part of
       # Matgate itself.
       MATGATE_GUACAMOLE: "off"
+      # Host names for websites, like *.web.example.com (see "Websites under an address of their own" in
+      # the README). Empty: websites open under a path of Matgate's own address.
+      MATGATE_WEBSITE_HOST: ${MATGATE_WEBSITE_HOST:-}
     volumes:
       - ./data:/data
       - matgate-files:/files

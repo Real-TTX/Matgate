@@ -58,7 +58,16 @@ usable from a laptop or a phone – installable as a PWA.
 - **Preview** for images, video, audio, PDF and text
 
 **Websites**
-- **Native reverse-proxy** mode for internal admin UIs (router, NAS, …)
+- **Native** mode for internal admin UIs (router, NAS, hypervisor …): Matgate fetches the pages, the
+  browser never talks to the device itself
+- Optionally each website **under an address of its own** (`<label>.web.example.com`): the application
+  runs unchanged - also the ones that read their own address or send the browser to `/login`, which
+  no proxy under a path can show - and stays out of Matgate's origin
+  ([how to set it up](#websites-under-an-address-of-their-own))
+- A website's **name and password** in the connection: sent where a page asks the browser for them
+  (Basic), used to sign in to Proxmox
+- **Quick connect without an address is a browser**: a tab with an address bar, every site reached
+  through Matgate
 - **"via Chromium / Firefox VNC"** fallback: the page opens in a real browser on an optional
   **browser farm** and is streamed over VNC – for pages the plain proxy can't render. Kiosk by
   default, auto-sized to your window, with smart-reconnect on resize
@@ -279,8 +288,42 @@ is 32 hex characters, `MATGATE_SECRET_KEY` is 64.
 | `MATGATE_GUACAMOLE_JSON_SECRET_KEY` | auto | 32 hex chars for Guacamole JSON auth (see *Pin your keys*) |
 | `MATGATE_SECRET_KEY` | auto | 64 hex chars for at-rest encryption of credentials |
 | `MATGATE_REQUIRE_HTTPS` | `false` | Force HTTPS / secure cookies behind a TLS proxy |
+| `MATGATE_WEBSITE_HOST` | – | Host names for websites, like `*.web.example.com` - see *Websites under an address of their own* |
 | `MATGATE_DNS_SERVER` / `MATGATE_DNS_SEARCH` | – | Point the containers at your home DNS so `nas`, `pc-terminal`, … resolve |
 | `BrowserFarm__BaseUrl` | `http://browser-farm:8090` | Where the optional browser farm lives |
+
+## Websites under an address of their own
+
+A natively opened website is fetched by Matgate and handed to the browser. There are two ways to do that.
+
+**Under a path of Matgate's address** (`https://matgate.example.com/website/<id>/…/proxy/`) is what works
+with nothing but the one host name Matgate has. Every address in the pages is rewritten to fit. That is
+enough for pages that only link to themselves. It cannot work for an application that reads its own
+address - one that takes its route from the path, or sends the browser to `/login` at the root: the
+root is Matgate's, and a page cannot be told otherwise. UniFi is one of those.
+
+**Under a host name of its own** (`https://<label>.web.example.com/`) the website's paths are its own,
+its cookies and storage are the browser's own for that address, and nothing in it has to be rewritten.
+Its scripts also run in an origin that is not Matgate's. It needs three things, once, for all websites:
+
+1. A **wildcard DNS** record that points to the same place as Matgate's own name: `*.web.example.com`.
+2. A **certificate** for that wildcard, and a **route in your reverse proxy** that sends those names to
+   Matgate, host name unchanged. One route, not one per website.
+3. `MATGATE_WEBSITE_HOST=*.web.example.com` - the pattern, with the `*` where Matgate puts a label of
+   20 letters and digits. `web-*.example.com` works too, and so does `*.example.com` when the wildcard
+   you already have catches everything that has no route of its own.
+
+The names must belong to the **same site** as Matgate's own (the same registered domain: `matgate.example.com`
+and `*.web.example.com`). A browser keeps cookies for a framed page only within one site; where it does
+not, the shell notices and falls back to the path. Locally `*.mg.localhost` with Matgate opened as
+`http://mg.localhost:8088` works without any DNS.
+
+Who gets in: the label says which user and which connection, and a cookie for that one host name -
+handed out against a one-time ticket by the shell - says that the browser is that user's. Signing out,
+deleting the connection or switching the account off closes the address. A connection reaches its own
+machine only (also under another port, as after a redirect from http to https); a quick-connect tab is a
+browser and reaches whatever its user types. With only one host name Matgate keeps working as before; a
+connection can also ask for the path explicitly ("Open under Matgate's own address").
 
 ## Data & persistence
 

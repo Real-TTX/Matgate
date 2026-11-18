@@ -67,6 +67,16 @@ public sealed class ServerEndpoint
     // For Website servers: how it is opened (native proxy vs. a browser-farm VNC session).
     public WebsiteRenderMode WebsiteRenderMode { get; set; } = WebsiteRenderMode.Native;
 
+    // For a natively shown website: always under a path of Matgate's own address, even where websites can
+    // have a host name of their own (MATGATE_WEBSITE_HOST). For the rare page that worked the old way only.
+    public bool WebsitePathMode { get; set; }
+
+    // A website tab that is a browser: any address may be typed into it and followed from it. Only ever
+    // set on quick-connect endpoints (which exist in memory, for someone who may quick-connect) - never read
+    // from a form or a file.
+    [System.Text.Json.Serialization.JsonIgnore]
+    public bool WebsiteBrowse { get; set; }
+
     // For browser-farm (Chromium/Firefox VNC) websites: show the browser's own toolbar (address bar,
     // tabs) instead of the default clean full-screen kiosk view. Only relevant when WebsiteRenderMode
     // is a VNC mode.
@@ -168,6 +178,31 @@ public sealed class ServerEndpoint
         };
     }
 
+    // A website's address as it is stored: what was written, with https in front where no scheme was
+    // given - and nothing else. The path stays as it is; "/admin" is not "/admin/" to every website.
+    public static string CleanWebsiteUrl(string? value, string? fallback = "")
+    {
+        var cleaned = (value ?? "").Trim();
+        if (string.IsNullOrWhiteSpace(cleaned))
+        {
+            cleaned = (fallback ?? "").Trim();
+        }
+
+        if (string.IsNullOrWhiteSpace(cleaned))
+        {
+            return "";
+        }
+
+        if (!cleaned.Contains("://", StringComparison.Ordinal))
+        {
+            cleaned = $"https://{cleaned}";
+        }
+
+        return Uri.TryCreate(cleaned, UriKind.Absolute, out var uri) ? uri.ToString() : "";
+    }
+
+    // The address as the proxy under a path needs it: a directory to resolve the page's links against,
+    // so a path without a file name gets its slash.
     public static string NormalizeWebsiteUrl(string? value, string? fallback = "")
     {
         var cleaned = (value ?? "").Trim();

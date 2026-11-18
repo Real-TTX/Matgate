@@ -57,6 +57,9 @@ services:
       MATGATE_ADMIN_EMAIL: ${MATGATE_ADMIN_EMAIL:-}
       # Turn on once TLS is terminated in front of Matgate: secure-only cookies, HSTS, redirect.
       MATGATE_REQUIRE_HTTPS: ${MATGATE_REQUIRE_HTTPS:-false}
+      # Host names for websites, like *.web.example.com (see "Websites under an address of their own" in
+      # the README). Empty: websites open under a path of Matgate's own address.
+      MATGATE_WEBSITE_HOST: ${MATGATE_WEBSITE_HOST:-}
       # Keys: set them to pin your own, otherwise Matgate generates them on first start and keeps
       # them in the matgate-secrets volume. The at-rest key lives there rather than in ./data, so a
       # stolen data backup alone cannot decrypt stored device passwords.

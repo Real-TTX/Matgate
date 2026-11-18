@@ -145,6 +145,7 @@ builder.Services.AddSingleton<EphemeralServerStore>();
 builder.Services.AddSingleton<BrowserFarmClient>();
 builder.Services.AddSingleton<DisplayBridge>();
 builder.Services.AddSingleton<ShellStateStore>();
+builder.Services.AddSingleton<WebsiteSiteService>();
 builder.Services.AddSingleton<BrowserFarmSessionManager>();
 builder.Services.AddHostedService<BrowserFarmReaper>();
 builder.Services.AddSingleton<NetworkToolsService>();
@@ -240,6 +241,8 @@ if (requireHttps)
     app.UseHttpsRedirection();
 }
 app.UseWebSockets();
+// A website under a host name of its own is answered here, whole: it never meets Matgate's own routes.
+app.UseWebsiteSites();
 app.UseRateLimiter();
 
 // First-run setup gate: while NO user exists at all, every page routes to the setup wizard,

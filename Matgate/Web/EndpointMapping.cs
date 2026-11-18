@@ -445,6 +445,7 @@ public static partial class EndpointMapping
         MapKeyBarEndpoints(app);
         MapFolderEndpoints(app);
         MapKeptSessionEndpoints(app);
+        MapWebsiteSiteEndpoints(app);
         app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
         app.MapMethods("/favicon.svg", new[] { "GET", "HEAD" }, () => Results.Text(FaviconSvg, "image/svg+xml"));
         app.MapMethods("/favicon.ico", new[] { "GET", "HEAD" }, () => Results.Text(FaviconSvg, "image/svg+xml"));
@@ -982,6 +983,13 @@ public static partial class EndpointMapping
                 user,
                 HtmlViews.Translate(context, "Invalid request"),
                 HtmlViews.Translate(context, "The form has expired.")), "text/html");
+        }
+
+        if (user is not null)
+        {
+            // Signed out: the websites this user had open under host names of their own are closed to every
+            // browser that still holds their cookie.
+            context.RequestServices.GetRequiredService<WebsiteSiteService>().ForgetUser(user.Id);
         }
 
         await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
@@ -4988,6 +4996,7 @@ public static partial class EndpointMapping
             storedServer.WebsiteUrl = updated.WebsiteUrl;
             storedServer.WebsiteRenderMode = updated.WebsiteRenderMode;
             storedServer.WebsiteFarmToolbar = updated.WebsiteFarmToolbar;
+            storedServer.WebsitePathMode = updated.WebsitePathMode;
             storedServer.UserName = updated.UserName;
             storedServer.Domain = updated.Domain;
             storedServer.FileRootPath = updated.FileRootPath;
@@ -5051,6 +5060,7 @@ public static partial class EndpointMapping
         }, context.RequestAborted);
 
         websiteProxy.ForgetServer(id);
+        context.RequestServices.GetRequiredService<WebsiteSiteService>().ForgetServer(id);
         await configWriter.SynchronizeAsync(context.RequestAborted);
         return Results.Redirect(ServerFormTarget(context, ServerFormReturn(form["return"])));
     }
@@ -5164,7 +5174,16 @@ public static partial class EndpointMapping
 
         var isWebsite = ServerEndpoint.IsWebsiteProtocol(protocol);
         var target = (form["host"].ToString() ?? "").Trim();
-        if (string.IsNullOrWhiteSpace(target))
+        // A website without an address is a browser: a tab with an address bar to type into. That needs
+        // either host names for websites, or the browser farm (a real browser, shown as a picture).
+        var blankBrowser = isWebsite && string.IsNullOrWhiteSpace(target);
+        var farmBrowser = blankBrowser && !WebsiteSiteService.Available;
+        if (farmBrowser && !context.RequestServices.GetRequiredService<BrowserFarmClient>().IsConfigured)
+        {
+            return Results.BadRequest(new { error = HtmlViews.Translate(context, "A browser without an address needs host names for websites (MATGATE_WEBSITE_HOST) or the browser farm. Please enter an address.") });
+        }
+
+        if (string.IsNullOrWhiteSpace(target) && !blankBrowser)
         {
             return Results.BadRequest(new { error = HtmlViews.Translate(context, "Please enter a target.") });
         }
@@ -5183,7 +5202,12 @@ public static partial class EndpointMapping
 
         var server = new ServerEndpoint
         {
-            Name = target,
+            Name = blankBrowser ? "Browser" : target,
+            // Whoever may quick-connect may open any address - so a website opened this way is a browser:
+            // its address bar takes any address, and its links are followed through Matgate.
+            WebsiteBrowse = isWebsite,
+            WebsiteRenderMode = farmBrowser ? WebsiteRenderMode.ChromiumVnc : WebsiteRenderMode.Native,
+            WebsiteFarmToolbar = farmBrowser,
             Protocol = protocol,
             Host = isWebsite ? "" : target,
             Port = port,
@@ -5191,7 +5215,7 @@ public static partial class EndpointMapping
             Password = form["password"].ToString() ?? "",
             Domain = (form["domain"].ToString() ?? "").Trim(),
             FileRootPath = (form["fileRoot"].ToString() ?? "").Trim(),
-            WebsiteUrl = isWebsite ? target : "",
+            WebsiteUrl = !isWebsite ? "" : farmBrowser ? "about:blank" : target,
             Notes = HtmlViews.Translate(context, "Quick connect")
         };
 
@@ -5208,6 +5232,7 @@ public static partial class EndpointMapping
                 iconKey,
                 iconHtml = HtmlViews.IconMarkup(iconKey),
                 engine = stored.EffectiveEngine(DisplayBridge.Available, GuacamoleLauncher.Available),
+                renderMode = isWebsite ? stored.WebsiteRenderMode.ToString().ToLowerInvariant() : "native",
                 target = isWebsite
                     ? stored.WebsiteUrl
                     : $"{stored.Host}:{stored.Port}"
@@ -5579,7 +5604,7 @@ public static partial class EndpointMapping
             : existing?.TerminalFontSize ?? ServerEndpoint.DefaultTerminalFontSize;
         var now = DateTimeOffset.UtcNow;
         var websiteUrl = protocol == ServerProtocol.Website
-            ? ServerEndpoint.NormalizeWebsiteUrl(form["websiteUrl"].ToString(), existing?.WebsiteUrl ?? existing?.Host ?? "")
+            ? ServerEndpoint.CleanWebsiteUrl(form["websiteUrl"].ToString(), existing?.WebsiteUrl ?? existing?.Host ?? "")
             : existing?.WebsiteUrl ?? "";
         var websiteRenderMode = protocol == ServerProtocol.Website
             ? (form["websiteRenderMode"].ToString().ToLowerInvariant() switch
@@ -5605,6 +5630,7 @@ public static partial class EndpointMapping
             WebsiteUrl = websiteUrl,
             WebsiteRenderMode = websiteRenderMode,
             WebsiteFarmToolbar = protocol == ServerProtocol.Website && IsChecked(form, "websiteFarmToolbar"),
+            WebsitePathMode = protocol == ServerProtocol.Website && IsChecked(form, "websitePathMode"),
             UserName = Clean(form["targetUserName"].ToString(), ""),
             Password = form["targetPassword"].ToString(),
             Domain = Clean(form["domain"].ToString(), ""),

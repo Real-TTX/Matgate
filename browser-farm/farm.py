@@ -530,7 +530,9 @@ class Handler(BaseHTTPRequestHandler):
         data = self._read_json()
         if self.path == "/acquire":
             url = (data.get("url") or "").strip()
-            if not (url.startswith("http://") or url.startswith("https://")):
+            # "about:blank": a browser with no page yet (quick connect without an address) - the user
+            # types where to go into its own address bar.
+            if not (url.startswith("http://") or url.startswith("https://") or url == "about:blank"):
                 self._send(400, {"error": "invalid_url"})
                 return
             try:

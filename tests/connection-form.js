@@ -71,9 +71,9 @@ const RENAMED = "Test-Ordner neu";
   await page.click("[data-protocol-option='Ssh']");
   check("and follows the kind of connection", await page.getAttribute("[data-port-input]", "placeholder"), "22");
   await page.click("[data-protocol-option='Website']");
-  check("a website has an address instead of host and port, and no sign-in", await page.evaluate(() => [
+  check("a website has an address instead of host and port - and a sign-in, for the pages that ask the browser for one", await page.evaluate(() => [
     document.querySelector("[name='host']").closest("label").hidden, document.querySelector("[name='websiteUrl']").closest("label").hidden,
-    document.querySelector("[name='targetUserName']").closest("section").hidden]), [true, false, true]);
+    document.querySelector("[name='targetUserName']").closest("section").hidden]), [true, false, false]);
   await page.click("[data-protocol-option='Ssh']");
   await page.click("[data-more-toggle]");
   check("the button opens the rest, with what belongs to this kind", await page.evaluate(() => [
@@ -190,6 +190,22 @@ const RENAMED = "Test-Ordner neu";
   check("no dialog of the browser was involved", browserDialogs, []);
 
   // ============================================================================================ from the home page
+  // The folders have to be on the home page for this: home-page.js switches that section off for this
+  // user and leaves it that way.
+  await page.goto(BASE + "/account?tab=home", { waitUntil: "networkidle" });
+  await sleep(500);
+  if (await page.evaluate(() => {
+    const list = document.getElementById("home-order-list");
+    const box = list && Array.from(list.children).find(i => i.dataset.orderKey === "folders")?.querySelector("[data-order-visible]");
+    if (!box || box.checked) { return false; }
+    box.checked = true;
+    box.dispatchEvent(new Event("change", { bubbles: true }));
+    return true;
+  })) {
+    await sleep(300);
+    await page.evaluate(() => document.querySelector("[name='homeSections']").form.requestSubmit()).catch(() => { });
+    await sleep(1500);
+  }
   await page.goto(BASE + "/", { waitUntil: "networkidle" });
   await sleep(1200);
   const formFrame = async pattern => {

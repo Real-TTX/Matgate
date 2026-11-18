@@ -3901,7 +3901,7 @@ public sealed class HtmlViews
                     <input type="hidden" name="protocol" value="{{A(firstProtocol)}}" data-home2-qc-proto-input>
                     <label class="home2-qc-label">
                         <span data-home2-qc-hostlabel>{{(de ? "Host" : "Host")}}</span>
-                        <input name="host" required autocomplete="off" spellcheck="false" data-home2-qc-host placeholder="{{A(de ? "z. B. 192.168.1.10" : "e.g. 192.168.1.10")}}">
+                        <input name="host" required autocomplete="off" spellcheck="false" data-home2-qc-host data-web-placeholder="{{A(de ? "https://…  (leer: Browser zum freien Surfen)" : "https://…  (empty: a browser to surf with)")}}" placeholder="{{A(de ? "z. B. 192.168.1.10" : "e.g. 192.168.1.10")}}">
                     </label>
                     <div class="home2-qc-grid2">
                         <label class="home2-qc-label" data-home2-qc-field="port">
@@ -5002,6 +5002,7 @@ public sealed class HtmlViews
             websiteProxy = T(context, "Website proxy"),
             websiteOpening = T(context, "Opening website"),
             websiteLoaded = T(context, "Website loaded"),
+            websiteAddressHint = Language(context) == "de" ? "Adresse eingeben und Enter drücken" : "Type an address and press Enter",
             forward = T(context, "Forward"),
             openInNewTab = T(context, "Open in new tab"),
             waiting = Language(context) == "de" ? "Wartet" : "Waiting",
@@ -6227,7 +6228,9 @@ public sealed class HtmlViews
                                 qcHostLabel.textContent = isWeb ? 'URL' : originalHostLabel;
                             }
                             if (qcHostInput) {
-                                qcHostInput.placeholder = isWeb ? 'https://…' : (isDav ? 'nas.local  /  https://nas.local/dav' : originalHostPlaceholder);
+                                // A website without an address is a browser: a tab to type addresses into.
+                                qcHostInput.required = !isWeb;
+                                qcHostInput.placeholder = isWeb ? (qcHostInput.dataset.webPlaceholder || 'https://…') : (isDav ? 'nas.local  /  https://nas.local/dav' : originalHostPlaceholder);
                             }
                             if (qcPortInput) {
                                 qcPortInput.value = isWeb ? '' : (defaultPorts[value] || '');
@@ -9452,18 +9455,43 @@ public sealed class HtmlViews
                                 return;
                             }
 
-                            try {
-                                updateWebsiteLocation(tab.id, tab.websiteUi.frame.contentWindow.location.href);
+                            if (tab.site) {
+                                // Another origin: the page says itself where it is (see the message handler).
                             }
-                            catch {
-                                updateWebsiteLocation(tab.id, tab.target || '');
+                            else {
+                                try {
+                                    updateWebsiteLocation(tab.id, tab.websiteUi.frame.contentWindow.location.href);
+                                }
+                                catch {
+                                    updateWebsiteLocation(tab.id, tab.target || '');
+                                }
                             }
 
                             hideOverlay(tab);
                             setStatus(tab, ui('ready'));
                             updateStatusBar();
                         });
+                        tab.websiteUi.address.addEventListener('keydown', event => {
+                            if (event.key === 'Enter' && tab.site) {
+                                event.preventDefault();
+                                navigateWebsiteTab(tab, tab.websiteUi.address.value.trim());
+                            }
+                            else if (event.key === 'Escape' && tab.site) {
+                                tab.websiteUi.address.value = tab.displayUrl || '';
+                                tab.websiteUi.address.blur();
+                            }
+                        });
+                        tab.websiteUi.address.addEventListener('focus', () => {
+                            if (tab.site) {
+                                tab.websiteUi.address.select();
+                            }
+                        });
                         tab.websiteUi.backButton.addEventListener('click', () => {
+                            if (tab.site) {
+                                tellWebsiteSite(tab, { go: 'back' });
+                                return;
+                            }
+
                             try {
                                 tab.websiteUi.frame.contentWindow.history.back();
                             }
@@ -9472,6 +9500,11 @@ public sealed class HtmlViews
                             }
                         });
                         tab.websiteUi.forwardButton.addEventListener('click', () => {
+                            if (tab.site) {
+                                tellWebsiteSite(tab, { go: 'forward' });
+                                return;
+                            }
+
                             try {
                                 tab.websiteUi.frame.contentWindow.history.forward();
                             }
@@ -9480,6 +9513,20 @@ public sealed class HtmlViews
                             }
                         });
                         tab.websiteUi.reloadButton.addEventListener('click', () => {
+                            if (tab.site) {
+                                if (tab.site.live) {
+                                    tellWebsiteSite(tab, { go: 'reload' });
+                                }
+                                else if (tab.displayUrl) {
+                                    // A page that does not answer (an error page, a download): asked for anew.
+                                    requestWebsiteSite(tab, tab.displayUrl)
+                                        .then(data => data.available && data.url && showWebsiteSite(tab, data))
+                                        .catch(() => { });
+                                }
+
+                                return;
+                            }
+
                             try {
                                 tab.websiteUi.frame.contentWindow.location.reload();
                             }
@@ -9488,6 +9535,21 @@ public sealed class HtmlViews
                             }
                         });
                         tab.websiteUi.openButton.addEventListener('click', () => {
+                            if (tab.site) {
+                                // A window first, while the click still counts; its address when it is known.
+                                const opened = window.open('about:blank', '_blank');
+                                requestWebsiteSite(tab, tab.displayUrl || '').then(data => {
+                                    if (opened && data.available && data.url) {
+                                        opened.opener = null;
+                                        opened.location.href = data.url;
+                                    }
+                                    else if (opened) {
+                                        opened.close();
+                                    }
+                                }).catch(() => opened && opened.close());
+                                return;
+                            }
+
                             const nextTabId = newTabId();
                             const current = tab.websiteUi.frame?.contentWindow?.location?.href
                                 || tab.websiteUi.frame?.src
@@ -12361,12 +12423,214 @@ public sealed class HtmlViews
                         return;
                     }
 
+                    // Where the frame points is asked for: a host name of the website's own where Matgate has
+                    // them, the path under Matgate's address otherwise (and for a connection that wants it).
+                    const generation = tab.websiteGeneration = (tab.websiteGeneration || 0) + 1;
+                    requestWebsiteSite(tab).then(data => {
+                        if (!tabs.has(tab.id) || tab.websiteGeneration !== generation) {
+                            return;
+                        }
+
+                        if (data.available && !tab.sitePathOnly) {
+                            showWebsiteSite(tab, data);
+                        }
+                        else {
+                            showWebsitePathMode(tab);
+                        }
+                    }).catch(() => {
+                        if (tabs.has(tab.id) && tab.websiteGeneration === generation) {
+                            showWebsitePathMode(tab);
+                        }
+                    });
+                }
+
+                // ---- a website under a host name of its own ----------------------------------------------
+                // The frame is another origin then: the shell cannot look into it. The page's script (see
+                // WebsiteSiteService) says where it is, and takes back, forward and reload as messages.
+                // No top navigation: a page inside the frame must not replace Matgate.
+                const websiteFrameSandbox = 'allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals allow-pointer-lock allow-presentation';
+
+                async function requestWebsiteSite(tab, address = '') {
+                    const response = await fetch(`/api/website/${tab.serverId}/site${address ? '?url=' + encodeURIComponent(address) : ''}`, {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: { 'X-Matgate-Csrf': csrfToken }
+                    });
+                    let data = null;
+                    try {
+                        data = await response.json();
+                    }
+                    catch {
+                        data = null;
+                    }
+
+                    if (!response.ok) {
+                        throw new Error((data && data.error) || ui('connectionStartFailed'));
+                    }
+
+                    return data || { available: false };
+                }
+
+                function showWebsitePathMode(tab) {
+                    tab.site = null;
+                    const frame = tab.websiteUi.frame;
+                    frame.removeAttribute('sandbox');
+                    tab.websiteUi.address.readOnly = true;
                     const proxyUrl = `/website/${tab.serverId}/${tab.id}/proxy/`;
                     tab.currentUrl = proxyUrl;
                     tab.displayUrl = buildWebsiteDisplayUrl(tab, proxyUrl);
                     tab.websiteUi.address.value = tab.displayUrl;
-                    tab.websiteUi.frame.src = proxyUrl;
+                    frame.src = proxyUrl;
                 }
+
+                function showWebsiteSite(tab, data) {
+                    const frame = tab.websiteUi.frame;
+                    tab.site = {
+                        origin: data.origin || '',
+                        target: data.target || '',
+                        hosts: data.hosts || '',
+                        browse: !!data.browse,
+                        live: false,
+                        attempts: tab.site ? tab.site.attempts : 0
+                    };
+                    tab.websiteUi.address.readOnly = false;
+                    tab.websiteUi.address.placeholder = uiText.websiteAddressHint || '';
+                    frame.setAttribute('sandbox', websiteFrameSandbox);
+                    if (!data.url) {
+                        // A browser with no page yet: the address bar is where it starts.
+                        tab.currentUrl = '';
+                        tab.displayUrl = '';
+                        tab.websiteUi.address.value = '';
+                        frame.src = 'about:blank';
+                        hideOverlay(tab);
+                        setStatus(tab, ui('ready'));
+                        tab.websiteUi.address.focus();
+                        return;
+                    }
+
+                    tab.currentUrl = data.address || data.target || '';
+                    tab.displayUrl = tab.currentUrl;
+                    tab.websiteUi.address.value = tab.displayUrl;
+                    frame.src = data.url;
+                }
+
+                function tellWebsiteSite(tab, message) {
+                    try {
+                        tab.websiteUi.frame.contentWindow.postMessage({ matgateSite: 1, ...message }, tab.site.origin);
+                    }
+                    catch {
+                        // No page to tell.
+                    }
+                }
+
+                // What was typed into the address bar. Within the page's own website the frame just goes there;
+                // anything else is asked for - a browser tab may go anywhere, a connection only to its own machine.
+                async function navigateWebsiteTab(tab, typed) {
+                    if (!typed || !tab.site) {
+                        return;
+                    }
+
+                    try {
+                        const wanted = new URL(typed);
+                        if (tab.site.live && tab.site.target && wanted.origin.toLowerCase() === tab.site.target.toLowerCase()) {
+                            tellWebsiteSite(tab, { go: 'to', path: wanted.pathname + wanted.search + wanted.hash });
+                            tab.websiteUi.frame.focus();
+                            return;
+                        }
+                    }
+                    catch {
+                        // Not a complete address: the server makes one of it.
+                    }
+
+                    try {
+                        const data = await requestWebsiteSite(tab, typed);
+                        if (data.available && data.url) {
+                            setStatus(tab, ui('loading'));
+                            showWebsiteSite(tab, data);
+                            tab.websiteUi.frame.focus();
+                        }
+                    }
+                    catch (error) {
+                        flashStatus(tab, error instanceof Error ? error.message : String(error));
+                        tab.websiteUi.address.select();
+                    }
+                }
+
+                function isWebsiteSiteOrigin(tab, origin) {
+                    try {
+                        const host = new URL(origin).hostname;
+                        const parts = (tab.site.hosts || '').split('*');
+                        return parts.length === 2
+                            && host.length > parts[0].length + parts[1].length
+                            && host.startsWith(parts[0])
+                            && host.endsWith(parts[1]);
+                    }
+                    catch {
+                        return false;
+                    }
+                }
+
+                window.addEventListener('message', event => {
+                    const data = event.data;
+                    if (!data || data.matgateSite !== 1) {
+                        return;
+                    }
+
+                    const tab = Array.from(tabs.values()).find(candidate =>
+                        candidate.websiteUi && candidate.site && candidate.websiteUi.frame.contentWindow === event.source);
+                    if (!tab || !isWebsiteSiteOrigin(tab, event.origin)) {
+                        return;
+                    }
+
+                    if (data.denied) {
+                        tab.site.live = false;
+                        tab.site.attempts += 1;
+                        if (tab.site.attempts <= 1) {
+                            // The address ran out (Matgate was restarted, the user signed out elsewhere): a fresh one.
+                            requestWebsiteSite(tab, tab.displayUrl || '')
+                                .then(next => next.available && next.url ? showWebsiteSite(tab, next) : showWebsitePathMode(tab))
+                                .catch(() => showWebsitePathMode(tab));
+                        }
+                        else if (!tab.site.browse) {
+                            // This browser does not keep the website's sign-in under its own host name (it treats
+                            // the host as a stranger to Matgate's): the path under Matgate's address works there.
+                            tab.sitePathOnly = true;
+                            showWebsitePathMode(tab);
+                        }
+
+                        return;
+                    }
+
+                    if (data.left) {
+                        tab.site.live = false;
+                        return;
+                    }
+
+                    tab.site.origin = event.origin;
+                    tab.site.live = true;
+                    tab.site.attempts = 0;
+                    if (typeof data.href === 'string' && data.href) {
+                        try {
+                            tab.site.target = new URL(data.href).origin;
+                        }
+                        catch {
+                            // Keep what was known.
+                        }
+
+                        tab.currentUrl = data.href;
+                        tab.displayUrl = data.href;
+                        if (document.activeElement !== tab.websiteUi.address) {
+                            tab.websiteUi.address.value = data.href;
+                        }
+
+                        tab.lastSyncAt = Date.now();
+                        tab.lastMessage = uiText.websiteLoaded || 'Website loaded';
+                    }
+
+                    hideOverlay(tab);
+                    setStatus(tab, ui('ready'));
+                    updateStatusBar();
+                });
 
                 async function loadFilePath(tab, path) {
                     if (!tab || !tab.fileUi) {
@@ -22346,16 +22610,19 @@ public sealed class HtmlViews
                         <span class="muted">{{(de ? " - doppelklicken, Installieren; das Setup zeigt danach Port, Token und Fingerabdruck." : " - double-click, Install; the setup then shows port, token and fingerprint.")}}</span></p>
                 </div>
             </section>
-            <section class="panel server-form-section" data-protocols="rdp,vnc,ssh,sftp,ftp,smb,webdav,agent">
+            <section class="panel server-form-section" data-protocols="rdp,vnc,ssh,sftp,ftp,smb,webdav,agent,website">
                 <h2>{{(de ? "Anmeldung" : "Sign-in")}}</h2>
+                <p class="muted conn-lead" data-protocols="website">{{(de
+                    ? "Nur nötig, wenn die Seite Name und Passwort im Dialog des Browsers verlangt, oder für Proxmox (dort meldet Matgate damit an). Die meisten Oberflächen haben ihre eigene Anmeldeseite - dann bleibt das leer."
+                    : "Only needed when the page asks for name and password in the browser's own dialog, or for Proxmox (Matgate signs in with them there). Most applications have a sign-in page of their own - leave this empty then.")}}</p>
                 <p class="muted conn-lead" data-protocols="rdp,vnc,ssh">{{(de
                     ? "Was hier leer bleibt, fragt Matgate beim Verbinden ab."
                     : "Whatever stays empty here, Matgate asks for when connecting.")}}</p>
                 <div class="conn-grid">
-                    <label data-protocols="rdp,ssh,sftp,ftp,smb,webdav">{{(de ? "Benutzer" : "User")}}
+                    <label data-protocols="rdp,ssh,sftp,ftp,smb,webdav,website">{{(de ? "Benutzer" : "User")}}
                         <input name="targetUserName" value="{{A(server?.UserName)}}" autocomplete="off" autocapitalize="off" spellcheck="false">
                     </label>
-                    <label data-protocols="rdp,vnc,ssh,sftp,ftp,smb,webdav">{{(de ? "Passwort" : "Password")}}
+                    <label data-protocols="rdp,vnc,ssh,sftp,ftp,smb,webdav,website">{{(de ? "Passwort" : "Password")}}
                         <input name="targetPassword" type="password" autocomplete="new-password" placeholder="{{A(passwordPlaceholder)}}">
                     </label>
                     <!-- An agent has no user, only the token its setup shows. -->
@@ -22435,6 +22702,14 @@ public sealed class HtmlViews
                         </label>
                     </div>
                     <div class="conn-grid" data-protocols="website">
+                        <label class="check conn-wide"><input type="checkbox" name="websitePathMode"{{Checked(server?.WebsitePathMode ?? false)}}> {{(de ? "Unter Matgates eigener Adresse öffnen (der alte Weg) – nur Nativ" : "Open under Matgate's own address (the old way) – native only")}}</label>
+                        <p class="muted conn-wide">{{(Matgate.Services.WebsiteSiteService.Available
+                            ? (de
+                                ? $"Nativ geöffnete Websites bekommen hier eine eigene Adresse ({Matgate.Services.WebsiteSiteService.PatternText}) und laufen dort unverändert. Der Haken ist nur für Seiten gedacht, die so nicht gehen."
+                                : $"Natively opened websites get an address of their own here ({Matgate.Services.WebsiteSiteService.PatternText}) and run there unchanged. Tick this only for a page that does not work that way.")
+                            : (de
+                                ? "Diese Installation hat keine eigenen Adressen für Websites (MATGATE_WEBSITE_HOST): nativ geöffnete Seiten laufen unter Matgates Adresse und werden dafür umgeschrieben. Oberflächen, die ihre eigene Adresse auswerten (UniFi und andere), gehen so nicht - dafür gibt es die eigenen Adressen oder „via … VNC“."
+                                : "This installation has no addresses of their own for websites (MATGATE_WEBSITE_HOST): natively opened pages run under Matgate's address and are rewritten for it. Applications that read their own address (UniFi and others) do not work that way - that is what the addresses of their own, or \"via … VNC\", are for."))}}</p>
                         <label class="check conn-wide"><input type="checkbox" name="websiteFarmToolbar"{{Checked(server?.WebsiteFarmToolbar ?? false)}}> {{(de ? "Browser-Bedienleiste zeigen (sonst Kiosk-Vollbild) – nur VNC-Modi" : "Show browser toolbar (otherwise kiosk fullscreen) – VNC modes only")}}</label>
                         <label class="check conn-wide"><input type="checkbox" name="ignoreCertificate"{{Checked(server?.IgnoreCertificate ?? true)}}> {{T(context, "Ignore certificate")}}</label>
                     </div>

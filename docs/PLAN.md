@@ -1,7 +1,7 @@
 # Matgate – Plan zum Weitermachen
 
-Stand: 2026-11-18, Version 0.22.0 (Agent 0.9.0) auf `main` und als `v0.22.0` markiert; auf ve-docker-1
-(matgate.schmoldt.it) läuft 0.21.4 - 0.22.0 wartet auf das Einspielen (trennt laufende Sitzungen, nur
+Stand: 2026-11-18, Version 0.23.0 (Agent 0.9.0) auf `main` und als `v0.23.0` markiert; auf ve-docker-1
+(matgate.schmoldt.it) läuft 0.22.0 - 0.23.0 wartet auf das Einspielen (trennt laufende Sitzungen, nur
 auf ausdrücklichen Wunsch). Geschrieben als Übergabe an eine andere Sitzung.
 
 ## Wo wir stehen
@@ -108,7 +108,7 @@ Stellen genannt - bei Gelegenheit nachfragen, ob der Umbau trifft, was ihn gest�
   Decoder macht dasselbe Bild), aber nicht abschließend geprüft.
 - **`docker-compose.simple.yml`** braucht den Caddy (`edge`) nur noch fürs Komprimieren. Mit
   Kompression in Matgate selbst wäre es ein einziger Container.
-- **ve-docker-1** (matgate.schmoldt.it) läuft auf 0.21.4; Ablauf des Einspielens steht im Gedächtnis
+- **ve-docker-1** (matgate.schmoldt.it) läuft auf 0.22.0; Ablauf des Einspielens steht im Gedächtnis
   (`production-deploy`).
 
 Vorgehen für das Review: Bereich für Bereich mit dem Nutzer (Startseite/Tabs, Verbindung anlegen und
@@ -200,6 +200,58 @@ dann alles immer wieder da ist - als Option.“, bestätigt mit „Sitzung pro U
   ihrem Tab. (3) Die Dauer gilt ab dem Abreißen und wird beim Verbindungsaufbau der Seite gelesen; eine
   geänderte Dauer gilt für Seiten, die danach verbinden. (4) Nicht am echten Windows-Server und nicht
   am echten Telefon geprüft (RDP im Teststapel ist xrdp).
+
+## Websites unter eigener Adresse (0.23.0, Wunsch vom 2026-11-18)
+
+Der Nutzer: „Kannst du das Website-Feature mit dem Proxy nochmal überarbeiten und besser machen“, dazu
+„bei Quick-Connect mit Website einen Browser ohne URL starten, wo ich einfach surfen kann über den Proxy“.
+
+- **Das Grundproblem des alten Wegs** (`WebsiteProxyService`, Pfad `/website/<id>/<tab>/proxy/`): Eine
+  Oberfläche, die ihre eigene Adresse auswertet oder nach `/login` an der Wurzel schickt (UniFi, SLZB),
+  kann unter einem Pfad nicht laufen - `location` lässt sich nicht fälschen. Der Weg bleibt als Rückfall.
+- **Neu: eigene Hostnamen** (`WebsiteSiteService`, `EndpointMapping.WebsiteSites.cs`). Mit
+  `MATGATE_WEBSITE_HOST=*.web.example.com` bekommt jede Website `<Label>.web…`; das Label (20 Zeichen
+  a-z2-7) ist ein Hash aus Benutzer, Verbindung und Ziel-Origin, also stabil (der Browser behält
+  Anmeldung und Einstellungen der Seite). Die Middleware `UseWebsiteSites` beantwortet solche Hosts
+  ganz, vor Anmeldung und Routing. Nichts wird umgeschrieben außer: `Location`, `Set-Cookie`
+  (Domain weg), CSP ohne `frame-ancestors`, absolute Adressen des echten Hosts in Link-Attributen,
+  und ein kleines Skript `/__matgate/site.js` in ganzen Seiten.
+- **Zutritt:** Die Hülle holt per `POST /api/website/{id}/site` eine Adresse mit Einmal-Ticket
+  (`/__matgate/enter?t=…&to=…`, 60 s); die setzt das Cookie `Matgate-Site` nur für diesen Host
+  (HttpOnly, wird nie an die Website weitergegeben, kann von ihr nicht gesetzt werden). Je Anfrage wird
+  geprüft, dass Benutzer und Verbindung noch gelten. Abmelden (`ForgetUser`), Löschen/Ändern der
+  Verbindung (`ForgetServer`, Signatur) schließen die Adresse.
+- **Hülle:** Der Rahmen ist dann ein fremder Origin (sandbox ohne Top-Navigation). Das Seitenskript
+  meldet Adresse und Titel per `postMessage` und nimmt Zurück/Vor/Neu laden/Gehe-zu entgegen; die
+  Adressleiste ist editierbar. Meldet die Seite „kein Zutritt“, holt die Hülle einmal eine neue Adresse
+  und fällt danach auf den Pfad-Weg zurück (Browser behält das Cookie nicht: Matgate und Website-Host
+  sind nicht dieselbe Site).
+- **Andere Adressen:** derselbe Rechner unter anderem Schema/Port (http→https) bekommt einen eigenen
+  Hostnamen und wird per Ticket betreten (`Location`, Links über `/__matgate/go?u=`). Fremde Hosts:
+  bei einer Verbindung öffnet der Link einen eigenen Browser-Tab; in einem **Browser-Tab**
+  (`ServerEndpoint.WebsiteBrowse`, nur Quick-Connect, nur im Speicher) läuft alles über Matgate weiter.
+- **Quick-Connect ohne Adresse = Browser:** mit eigenen Hostnamen ein leerer Tab mit Adressleiste; ohne
+  sie ein Chromium der Browser-Farm mit Bedienleiste auf `about:blank` (dafür nimmt `farm.py` jetzt
+  `about:blank` an - das Farm-Image muss mit aktualisiert werden); ohne beides bleibt die Adresse Pflicht.
+- **Anmeldung für die Seite:** Das Formular hat jetzt Benutzer/Passwort auch für Websites. Sie gehen
+  bei `401 Basic` mit; bei Proxmox (`pvemanagerlib.js`/`proxmox-backup-gui.js` in der Seite) holt
+  Matgate einmal das Ticket und setzt `PVEAuthCookie`/`PBSAuthCookie`.
+- **Adresse wie geschrieben:** Gespeichert wird ohne angehängten Schrägstrich (`CleanWebsiteUrl`);
+  der Pfad-Weg normalisiert weiter selbst.
+- **Verbindung:** Haken „Unter Matgates eigener Adresse öffnen“ (`WebsitePathMode`) erzwingt den alten Weg.
+- **Test:** `tests/website.js` (61 Prüfungen) gegen `tests/site/server.js` (Dienst `site`/`other` im
+  Teststapel, `MATGATE_WEBSITE_HOST=*.mg.localhost`, Matgate als `http://mg.localhost:18091`).
+- **Nicht geprüft / offen:** echte Geräte (UniFi, Synology, Proxmox samt Konsole/noVNC, SLZB) - nur
+  die Testseite; der Farm-Browser ohne Adresse (keine Farm im Teststapel); Safari/iPhone. Auf
+  ve-docker-1 fehlen die Route im Matcad (Wildcard `*.schmoldt.it` und Zertifikat sind da, jede
+  unbekannte Subdomain antwortet 503 „no upstream“) und die Variable im Stack - Entscheidung des Nutzers.
+- **Bekannte Grenzen:** (1) Unter-Ressourcen fremder Hosts lädt der Browser direkt, nicht über Matgate
+  (auch im Browser-Tab). (2) Skripte, die mit einer vollen Adresse des echten Hosts *navigieren*
+  (`location.href = 'http://gerät/…'`), verlassen die Website; `fetch`/XHR/WebSocket/Links sind
+  abgedeckt. (3) Website-Hosts sind dieselbe Site wie Matgate: eine bösartige Seite könnte per Skript ein
+  Cookie für die gemeinsame Domain setzen. Matgates Anmelde-Cookie mit `__Host-`-Präfix wäre die
+  Antwort darauf (meldet alle einmal ab) - nicht gemacht. (4) Der alte Pfad-Weg ist unverändert, mit
+  allen bekannten Schwächen. (5) `Clear-Site-Data` der Website wird verworfen (träfe Matgates Cookie).
 
 ## Eigene Engine: unscharf beim Scrollen (Meldung vom 2026-11-18)
 

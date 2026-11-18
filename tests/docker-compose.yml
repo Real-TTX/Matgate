@@ -47,6 +47,10 @@ services:
       MATGATE_AGENT_UPDATE_CACHE_SECONDS: "0"
       # tests/kept-sessions.js: a session without a browser runs out after seconds, not minutes.
       MATGATE_KEEP_SESSION_SECONDS: "12"
+      # tests/website.js: websites get host names of their own. *.localhost is this machine in every
+      # browser, and <label>.mg.localhost is the same site as mg.localhost - which is where that test
+      # opens Matgate (a frame keeps its cookies only within one site).
+      MATGATE_WEBSITE_HOST: "*.mg.localhost"
     volumes: [mgdata:/data, secrets:/run/matgate-secrets, files:/files]
     healthcheck:
       test: ["CMD-SHELL", "test -s /run/matgate-secrets/guac.key"]
@@ -82,6 +86,14 @@ services:
       USER_PASSWORD: demo-only-pw
       PASSWORD_ACCESS: "true"
       SUDO_ACCESS: "false"
+  # A website to show through Matgate (tests/site/server.js): "site" and, as a second host name, "other".
+  site:
+    image: node:22-alpine
+    command: ["node", "/site/server.js"]
+    volumes: ["./site:/site:ro"]
+    networks:
+      default:
+        aliases: [other]
 volumes: { mgdata: , secrets: , files: }
 # A fixed subnet, because Docker's default pools run out on a machine with many stacks
 # ("all predefined address pools have been fully subnetted"). Change it if 10.253.81.0/24 is
