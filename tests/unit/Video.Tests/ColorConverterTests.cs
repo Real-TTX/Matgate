@@ -218,6 +218,71 @@ public sealed unsafe class ColorConverterTests
         frame.MarkChanged();
         Assert.Equal(version + 1, frame.Version);
         Assert.Equal(64 * 32, frame.ChangedPixels);
+
+        // All of it may be different now.
+        Assert.True(frame.TakeChanged(version, out var left, out var top, out var right, out var bottom));
+        Assert.Equal((0, 0, 64, 32), (left, top, right, bottom));
+    }
+
+    [Fact]
+    public void TheFrameKnowsWhereItChanged()
+    {
+        const int Width = 160;
+        const int Height = 64;
+        var source = new byte[Width * 4 * Height];
+        new Random(4).NextBytes(source);
+        using var frame = new I420Frame(Width, Height);
+
+        // Nothing yet.
+        Assert.False(frame.TakeChanged(frame.Version, out _, out _, out _, out _));
+
+        // One rectangle, with the even edges the converter gives it: 3..13 becomes 2..14, 5..7 becomes 4..8.
+        var seen = frame.Version;
+        ColorConverter.BgrxToI420(source, Width * 4, frame, 3, 5, 10, 2);
+        Assert.True(frame.TakeChanged(seen, out var left, out var top, out var right, out var bottom));
+        Assert.Equal((2, 4, 14, 8), (left, top, right, bottom));
+
+        // Taken is taken; and the same pixels once more are no change.
+        seen = frame.Version;
+        Assert.False(frame.TakeChanged(seen, out _, out _, out _, out _));
+        ColorConverter.BgrxToI420(source, Width * 4, frame, 3, 5, 10, 2);
+        Assert.False(frame.TakeChanged(seen, out _, out _, out _, out _));
+
+        // Two rectangles far apart: the smallest rectangle around both. What lies outside the picture is cut off.
+        ColorConverter.BgrxToI420(source, Width * 4, frame, 100, 40, 20, 10);
+        ColorConverter.BgrxToI420(source, Width * 4, frame, 30, 20, 4, 4);
+        ColorConverter.BgrxToI420(source, Width * 4, frame, 150, 60, 500, 500);
+        Assert.True(frame.TakeChanged(seen, out left, out top, out right, out bottom));
+        Assert.Equal((30, 20, Width, Height), (left, top, right, bottom));
+
+        // Someone who did not see the picture when the changes were taken last cannot be told where it
+        // changed since he looked: for him it is all of it, and for whoever asks after him as well.
+        var mine = frame.Version;
+        ColorConverter.BgrxToI420(source, Width * 4, frame, 60, 0, 8, 8);
+        Assert.True(frame.TakeChanged(mine - 1, out left, out top, out right, out bottom));
+        Assert.Equal((0, 0, Width, Height), (left, top, right, bottom));
+        Assert.True(frame.TakeChanged(mine, out left, out top, out right, out bottom));
+        Assert.Equal((0, 0, Width, Height), (left, top, right, bottom));
+        Assert.False(frame.TakeChanged(frame.Version, out _, out _, out _, out _));
+    }
+
+    [Fact]
+    public void APictureIsCopiedWithoutCountingAsChanged()
+    {
+        var source = new byte[64 * 4 * 32];
+        new Random(6).NextBytes(source);
+        using var frame = new I420Frame(64, 32);
+        using var copy = new I420Frame(64, 32);
+        ColorConverter.BgrxToI420(source, 64 * 4, frame, 0, 0, 64, 32);
+        copy.CopyFrom(frame);
+        Assert.True(frame.Y.SequenceEqual(copy.Y));
+        Assert.True(frame.U.SequenceEqual(copy.U));
+        Assert.True(frame.V.SequenceEqual(copy.V));
+        Assert.Equal(0, copy.Version);
+        Assert.Equal(0, copy.ChangedPixels);
+
+        using var other = new I420Frame(64, 34);
+        Assert.Throws<ArgumentException>(() => other.CopyFrom(frame));
     }
 
     [Fact]

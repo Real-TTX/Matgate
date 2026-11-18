@@ -76,6 +76,19 @@ internal static class Pictures
         }
     }
 
+    // The same for one part of the screen - a window with a page in it: the page is as wide as that part, and
+    // nothing outside of it is drawn.
+    public static void ScrollPart(byte[] page, byte[] target, int width, int left, int top, int partWidth, int partHeight, int offset)
+    {
+        var stride = partWidth * 4;
+        var rows = page.Length / stride;
+        for (var y = 0; y < partHeight; y++)
+        {
+            var from = ((y + offset) % rows + rows) % rows;
+            page.AsSpan(from * stride, stride).CopyTo(target.AsSpan(((top + y) * width + left) * 4, stride));
+        }
+    }
+
     // A desktop background: a soft gradient, which a codec renders with visible steps if it is too coarse.
     public static byte[] Desktop(int width, int height)
     {

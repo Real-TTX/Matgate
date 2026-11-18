@@ -62,6 +62,14 @@ internal sealed unsafe class Recording : IDisposable
 
     public double ConvertMilliseconds { get; private set; }
 
+    // The recording's clock, in milliseconds: when the picture encoded last was encoded.
+    public double Now => _now;
+
+    // How long the session would wait before it encodes a picture in which this many pixels are new: its own
+    // pace, or longer where the encoder asks for it.
+    public double Interval(long changedPixels) =>
+        Math.Max(1000.0 / FramesPerSecond, Encoder.SuggestedInterval(changedPixels));
+
     // Converts the given part of Source into the frame - the whole screen without arguments.
     public void Show(int x = 0, int y = 0, int width = int.MaxValue, int height = int.MaxValue)
     {
@@ -92,6 +100,17 @@ internal sealed unsafe class Recording : IDisposable
         var picture = new EncodedPicture(Pictures.Count, unit.Length, isKey, Encoder.LastQuantiser, Encoder.LastBlock, Encoder.IsSharp, AnnexB.NalTypes(unit.Span), elapsed, _now);
         Pictures.Add(picture);
         return picture;
+    }
+
+    // Decodes the stream with ffmpeg and compares one rectangle of every picture with what went in: the luma
+    // PSNR in dB of that part alone (99 where it came back exactly).
+    public List<double> DecodeAndCompare(int left, int top, int width, int height)
+    {
+        _stream.Flush();
+        _reference.Flush();
+        var decodedPath = Path.Combine(_folder, "decoded.yuv");
+        Ffmpeg.Decode(StreamPath, decodedPath);
+        return Compare(ReferencePath, decodedPath, Width, Height, left, top, width, height);
     }
 
     // The highest bit rate (kbit/s) of any stretch of the given length, among the pictures from first on.
@@ -140,7 +159,10 @@ internal sealed unsafe class Recording : IDisposable
         return Ffmpeg.Probe(StreamPath);
     }
 
-    public static List<double> Compare(string referencePath, string decodedPath, int width, int height)
+    public static List<double> Compare(string referencePath, string decodedPath, int width, int height) =>
+        Compare(referencePath, decodedPath, width, height, 0, 0, width, height);
+
+    public static List<double> Compare(string referencePath, string decodedPath, int width, int height, int left, int top, int partWidth, int partHeight)
     {
         var luma = width * height;
         var size = luma * 3 / 2;
@@ -159,13 +181,16 @@ internal sealed unsafe class Recording : IDisposable
             reference.ReadExactly(expected);
             decoded.ReadExactly(actual);
             long squares = 0;
-            for (var i = 0; i < luma; i++)
+            for (var y = top; y < top + partHeight; y++)
             {
-                var difference = expected[i] - actual[i];
-                squares += difference * difference;
+                for (var i = y * width + left; i < y * width + left + partWidth; i++)
+                {
+                    var difference = expected[i] - actual[i];
+                    squares += difference * difference;
+                }
             }
 
-            result.Add(squares == 0 ? 99 : 10 * Math.Log10(255.0 * 255.0 * luma / squares));
+            result.Add(squares == 0 ? 99 : 10 * Math.Log10(255.0 * 255.0 * partWidth * partHeight / squares));
         }
 
         return result;

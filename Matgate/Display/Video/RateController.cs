@@ -32,6 +32,29 @@ internal readonly record struct Coarseness(int Quantiser, int Block);
 // Coarseness is one scale. Up to FinestMosaic it is H.264's quantiser. Some pictures do not get smaller that
 // way - text scrolled faster than the encoder can follow costs as much at 46 as at 34, and more at 51 - so
 // above it the picture is averaged over blocks of 4, 8 and 16 pixels before it is coded, which always helps.
+// The encoder does that only where the picture changed; the scale still speaks of the whole picture, which is
+// then at most as coarse as it says.
+//
+// There is a second way to make the pictures fit: fewer of them. Up to Readable the controller prefers many
+// pictures - a little coarser is hard to see in motion. From there on text gets hard to read, so before it
+// goes further it asks the caller to leave more time between the pictures (Interval): every picture then has
+// more flowing in for it. Only when twenty pictures a second are still too many does the picture get coarser
+// than that.
+//
+// Fewer pictures only help where the encoder does not follow the motion. It follows a page of text that
+// scrolls by up to about 18 rows from one picture to the next, and such a picture is small; beyond that it
+// codes the page almost from nothing, and then it hardly matters how far the page moved (measured at
+// 1920 x 1080 and quantiser 34: 29 kbit for 6 rows, 128 for 18, 1667 for 30, 2299 for 54, 2658 for 90 and
+// for 162; a key frame there takes about 2690). So a third of the pictures takes about half the bits where
+// the encoder has lost the motion - and several times the bits where it still follows, because waiting is
+// what makes it lose it. The caller is therefore only asked to wait while the pictures at its own pace cost
+// at least half of what coding their changed part from nothing costs.
+//
+// Between those two there is motion the encoder loses at first and finds again: a steady scroll by 50 rows a
+// picture costs 2429 kbit for the first pictures and 151 after ninety of them - if they keep coming at that
+// distance. By 150 rows, which is what waiting makes of it, it never finds it. Waiting therefore does not go
+// on for ever: when the bucket has filled up meanwhile, it is spent on the caller's own pace, and if the
+// pictures get small there, nobody is asked to wait any more (see ScrollCostTests for the measurements).
 internal sealed class RateController
 {
     // Six steps of the scale halve the bits of a picture that follows the quantiser (every six quantisers
@@ -58,6 +81,23 @@ internal sealed class RateController
     // What a picture may overdraw the bucket by when it is expected to be large: a quarter of a bucket.
     private const double ExpectedDebt = 0.25;
 
+    // The coarsest at which small text is still read without effort. Beyond it the caller is asked for fewer
+    // pictures before the pictures get coarser.
+    internal const int Readable = 34;
+
+    // The longest the caller is asked to leave between two pictures: twenty a second still look like motion.
+    internal const int LongestInterval = 50;
+
+    // A picture that is waited for is expected to take this much less than what flows in meanwhile: what it
+    // turns out larger by is no debt then, and a debt that is there gets paid.
+    private const double IntervalMargin = 1.25;
+
+    // From this part of what coding it from nothing costs, a change counts as one the encoder does not follow.
+    private const double Unfollowed = 0.5;
+
+    // How full the bucket has to be for the caller's own pace to be tried again while it is asked to wait.
+    private const double PaceCredit = 0.8;
+
     // A key frame's size at each step of the scale, relative to the floor's 22: measured on screens of text
     // and of pictures. They shrink far less than the quantiser step grows.
     private static readonly (int Level, double Size)[] KeySizes =
@@ -67,6 +107,10 @@ internal sealed class RateController
 
     private readonly double _bitsPerMillisecond;
     private readonly double _capacity;
+
+    // The caller's own pace, and what flows in between two pictures at it.
+    private readonly double _paceMilliseconds;
+    private readonly double _paceInflow;
     private readonly int _floor;
     private double _bucket;
     private long _last = long.MinValue;
@@ -76,6 +120,23 @@ internal sealed class RateController
 
     // What a picture that changed everywhere takes at the floor, in bits - if it followed the quantiser.
     private double _changeBits;
+
+    // What coding the whole picture from nothing takes at 22: what the last key frame said, or more where a
+    // change has cost more since - the screen may hold more by now than it did then. Or less: every time the
+    // screen comes to rest a part of it is forgotten.
+    private double _scratchBits;
+
+    // What the last change at the caller's own pace would have taken at 22 had it been the whole picture and
+    // shrunk with the quantiser as a key frame does: close to _scratchBits where the encoder did not follow
+    // the motion, a small part of it where it did.
+    private double _paceCost;
+
+    // Whether the caller was asked to wait for the picture that comes next, or for the one being coded.
+    private bool _asked;
+    private bool _waited;
+
+    // Whether the bucket is being spent on the caller's own pace, where it would otherwise be asked to wait.
+    private bool _atPace = true;
 
     // How coarse the picture the viewer has is, and how the last one was coded.
     private int _picture = Top;
@@ -88,9 +149,11 @@ internal sealed class RateController
     private double _refine;
     private double _lastBits;
 
-    public RateController(int width, int height, int maxKilobitsPerSecond, int floor)
+    public RateController(int width, int height, int framesPerSecond, int maxKilobitsPerSecond, int floor)
     {
         _bitsPerMillisecond = maxKilobitsPerSecond * Margin;
+        _paceMilliseconds = 1000.0 / framesPerSecond;
+        _paceInflow = _paceMilliseconds * _bitsPerMillisecond;
         _capacity = maxKilobitsPerSecond * 1000.0 * BucketSeconds;
         _bucket = _capacity;
         _floor = floor;
@@ -99,6 +162,7 @@ internal sealed class RateController
         // One bit a pixel: a screen with a fair amount of text on it. The first key frame says what it really is.
         _keyBits = (double)width * height;
         _changeBits = _keyBits / 8;
+        _scratchBits = _keyBits;
     }
 
     // Whether the viewer's picture is as sharp as it gets: encoding the same picture again changes nothing.
@@ -109,14 +173,25 @@ internal sealed class RateController
     public Coarseness Choose(PictureKind kind, double share, long now)
     {
         var inflow = 0.0;
+        var flowed = 0.0;
         if (_last != long.MinValue)
         {
-            inflow = Math.Min(Math.Max(0, now - _last) * _bitsPerMillisecond, _capacity - _bucket);
+            // What flowed since the last picture, and what of it the bucket still held.
+            flowed = Math.Max(0, now - _last) * _bitsPerMillisecond;
+            inflow = Math.Min(flowed, _capacity - _bucket);
             _bucket += inflow;
         }
 
         _last = now;
         _kind = kind;
+        _waited = _asked;
+        _asked = false;
+        if (kind != PictureKind.Changed)
+        {
+            // Whatever moves next starts at the caller's pace, on what the bucket holds.
+            _atPace = true;
+        }
+
         _share = Math.Clamp(share, 0.001, 1.0);
         switch (kind)
         {
@@ -135,16 +210,72 @@ internal sealed class RateController
 
                 // Whatever moved before has stopped; what moves next need not be like it.
                 _changeBits *= 0.5;
+                if (_repeats == 1)
+                {
+                    // Nor need the screen hold as much as it did: what it was seen to cost at the most is
+                    // forgotten slowly, and learnt again from the first picture that costs more.
+                    _scratchBits *= 0.8;
+                }
+
                 break;
 
             default:
                 _repeats = 0;
-                _level = Changed(inflow);
+                _level = Changed(inflow, flowed);
                 break;
         }
 
         _refine = RefineBits(_level);
         return Scale(_level);
+    }
+
+    // How many milliseconds the caller should let pass between the last picture and the next, if that part of
+    // the picture (0..1) is new in it; 0 when the caller's own pace will do.
+    //
+    // Only while things move and the pictures are already as coarse as text takes: until then the bucket pays
+    // for a burst at full pace, and the controller makes the pictures coarser as it always did. From then on
+    // the wait is what lets enough flow in for a picture like the last ones at Readable. A small change is
+    // expected to be small and never waits.
+    //
+    // The caller asks right before it decides about a picture: the answer given last is what the controller
+    // takes the picture to have waited for.
+    public int Interval(double share)
+    {
+        _asked = false;
+        if (_lastKind != PictureKind.Changed || _level < Readable || !WorthWaitingFor(share))
+        {
+            return 0;
+        }
+
+        // Waiting is what keeps the encoder from finding the motion again, should it be one it can follow
+        // after all. So whenever the bucket has filled up while waiting, it is spent on the caller's own
+        // pace: either the pictures get small - then there is nothing to wait for any more - or the bucket is
+        // empty after a moment and the waiting goes on.
+        if (_bucket < 0)
+        {
+            _atPace = false;
+        }
+        else if (_bucket >= PaceCredit * _capacity)
+        {
+            _atPace = true;
+        }
+
+        if (_atPace)
+        {
+            return 0;
+        }
+
+        // The last picture was no finer than Readable, so one like it costs at least as much there - which
+        // is nearer the truth than the estimate while that is still learning what this motion costs.
+        var bits = ReadableBits(share);
+        if (_share >= 0.02)
+        {
+            bits = Math.Max(bits, _lastBits * Math.Clamp(share, 0.001, 1.0) / _share);
+        }
+
+        var interval = Math.Min(LongestInterval, IntervalMargin * bits / _bitsPerMillisecond);
+        _asked = interval > _paceMilliseconds;
+        return _asked ? (int)Math.Ceiling(interval) : 0;
     }
 
     // The picture just chosen for did not fit into the library's output buffer and is coded once more from
@@ -173,6 +304,7 @@ internal sealed class RateController
         {
             case PictureKind.Key:
                 _keyBits = bits / KeySize(_level);
+                _scratchBits = _keyBits;
 
                 // Until a change says otherwise, a change of the whole picture is taken to cost a quarter of a
                 // key frame: more than text takes, less than noise - which then overdraws the bucket once and
@@ -208,12 +340,29 @@ internal sealed class RateController
                         // Up halfway at once (it may have been a single unusual picture), down slowly.
                         var change = (bits - _refine) / (_share * Gain(_level));
                         _changeBits = change > _changeBits ? 0.5 * (_changeBits + change) : Math.Max(change, 0.7 * _changeBits);
+
+                        // Whether the encoder follows the motion shows in the pictures the caller did not
+                        // wait for: waiting itself makes them cost what coding from nothing does. A mosaic
+                        // says nothing about it - there is so little left to code that following saves
+                        // next to nothing.
+                        if (_level <= FinestMosaic)
+                        {
+                            var scratch = (bits - _refine) / (_share * KeySize(_level));
+                            _scratchBits = Math.Max(_scratchBits, scratch);
+                            if (!_waited)
+                            {
+                                _paceCost = scratch;
+                            }
+                        }
                     }
 
                     _picture = _level;
                 }
-                else if (_level < _picture)
+                else if (_level < _picture || _level > FinestMosaic)
                 {
+                    // A small change coded more coarsely than the rest leaves the picture as a whole what it
+                    // was - unless it is a mosaic: that has to be made sharp again however small it is, so
+                    // the picture counts as coarse until it has been.
                     _picture = _level;
                 }
 
@@ -224,8 +373,9 @@ internal sealed class RateController
         _lastBits = bits;
     }
 
-    // A picture in which something moved. Where the last one was coded is where this one starts.
-    private int Changed(double inflow)
+    // A picture in which something moved. Where the last one was coded is where this one starts. inflow is
+    // what the bucket took in since then, flowed what it would have taken had it not been full.
+    private int Changed(double inflow, double flowed)
     {
         var level = Step(Math.Max(_floor, _level));
         var moving = _lastKind == PictureKind.Changed;
@@ -235,14 +385,23 @@ internal sealed class RateController
             // was too large - if it follows the quantiser. If it does not, the next picture says so.
             var deep = _bucket < -DeepDebt * _capacity;
             var steps = Math.Clamp((int)Math.Ceiling(6 * Math.Log2(_lastBits / Math.Max(inflow, 1))), 1, deep ? 12 : 6);
-            level = Step(Math.Min(Top, level + steps));
+            var coarser = Step(Math.Min(Top, level + steps));
+
+            // Not past Readable in one go: from there on the caller is asked to wait, and whether that is
+            // enough shows with the next picture.
+            level = level < Readable ? Math.Min(coarser, Readable) : coarser;
         }
-        else if (level > _floor && _bucket >= 0 && (!moving || _lastBits <= 0.7 * inflow))
+        else if (level > _floor && _bucket >= 0 && (!moving || _lastBits <= 0.7 * flowed))
         {
-            // Room to spare: one step finer, if the bucket pays for sharpening the whole picture by it.
+            // Room to spare: one step finer, if the bucket pays for sharpening the whole picture by it. Room
+            // is measured by what flowed, not by what the bucket took of it: a full bucket takes in no more
+            // than the last picture took out, and small pictures would look as large as the inflow for
+            // ever. Not finer than Readable while pictures like this one only fit there because the caller
+            // waits for them: more pictures come before finer ones.
             var finer = level <= FinestMosaic ? level - 1 : level - 6;
             var budget = Math.Max(0.5 * _bucket, Math.Min(inflow, _bucket));
-            if (ChangeBits(finer) + RefineBits(finer) <= budget)
+            var waiting = finer < Readable && WorthWaitingFor(_share);
+            if (ChangeBits(finer) + RefineBits(finer) <= budget && !waiting)
             {
                 level = finer;
             }
@@ -284,6 +443,15 @@ internal sealed class RateController
 
     // What the changed part of the picture is expected to cost at this step.
     private double ChangeBits(int level) => _changeBits * _share * Gain(level);
+
+    // What a picture is expected to cost at Readable (or at the floor, where that is coarser) if this part
+    // of it is new.
+    private double ReadableBits(double share) => _changeBits * Math.Clamp(share, 0.001, 1.0) * Gain(Math.Max(_floor, Readable));
+
+    // Whether a picture in which this part is new is one to wait for: at the caller's own pace it does not
+    // fit at Readable, and the encoder has lost the motion, so that waiting costs no more than it brings.
+    private bool WorthWaitingFor(double share) =>
+        _paceCost >= Unfollowed * _scratchBits && IntervalMargin * ReadableBits(share) > _paceInflow;
 
     // What sharpening the viewer's picture to this step costs: about the difference between a key frame
     // there and a key frame as coarse as the picture is now, and a quarter more.
