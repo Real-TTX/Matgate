@@ -54,6 +54,16 @@ internal sealed record H264EncoderOptions
 // rate the caller allows. The caller makes a still picture sharp by encoding the same frame again - a frame
 // nothing was written to since the last call - until IsSharp says there is nothing left to gain.
 //
+// Where even the coarsest quantiser is not enough, the picture is coded as a mosaic (see RateController) - but
+// only where it changed. What the library is given then is a picture of the encoder's own: the frame, with
+// the rectangle that changed averaged over blocks and everything else left exactly as the library saw it
+// before. The library codes nothing for what it has seen already, so a toolbar or a second window stays as
+// sharp as it was while a page next to it scrolls faster than the connection carries; and when the frame
+// itself is encoded again, only the part that was a mosaic has to be made sharp.
+//
+// Before the pictures get hard to read, the encoder asks for fewer of them: SuggestedInterval says how long
+// the caller should wait before a picture in which that much is new.
+//
 // One encoder is used by one thread at a time; any number of encoders work side by side.
 public sealed unsafe class H264Encoder : IDisposable
 {
@@ -74,7 +84,16 @@ public sealed unsafe class H264Encoder : IDisposable
     private readonly Func<long> _clock;
     private void* _encoder;
     private FrameBitstream* _output;
-    private I420Frame? _mosaic;
+
+    // What the library is given in place of the frame while pictures are coded as a mosaic, and whether the
+    // picture coded last was this one. If it was the frame itself, this one is out of date.
+    private I420Frame? _shown;
+    private bool _shownIsLast;
+
+    // For every macroblock of _shown, the size of the blocks it is averaged over (0: it is the frame's), and
+    // how many of them are averaged at all.
+    private byte[]? _blocks;
+    private int _mosaicMacroblocks;
     private byte[] _buffer = new byte[64 * 1024];
     private long _frames;
     private int _quantiser;
@@ -116,7 +135,7 @@ public sealed unsafe class H264Encoder : IDisposable
         _quantiser = options.MinQp;
         if (options.LibraryRateControl == RateControlMode.Off)
         {
-            _rate = new RateController(width, height, maxKilobitsPerSecond, options.MinQp);
+            _rate = new RateController(width, height, framesPerSecond, maxKilobitsPerSecond, options.MinQp);
         }
 
         _encoder = OpenH264.CreateEncoder();
@@ -152,7 +171,8 @@ public sealed unsafe class H264Encoder : IDisposable
     // True when the picture the viewer has is as sharp as this encoder makes it: encoding the same frame
     // once more would change nothing. After a change or a key frame it is false until the picture has been
     // encoded again often enough - once or twice where the bit rate is generous, more often where it is not.
-    public bool IsSharp => _rate?.IsSharp ?? true;
+    // Never while any part of what the viewer has is a mosaic.
+    public bool IsSharp => (_rate?.IsSharp ?? true) && _mosaicMacroblocks == 0;
 
     // The quantiser and the kind of the picture encoded last - for tests and statistics.
     internal int LastQuantiser { get; private set; }
@@ -161,11 +181,32 @@ public sealed unsafe class H264Encoder : IDisposable
 
     internal FrameType LastFrameType { get; private set; }
 
+    // For tests: what the library was given for the picture encoded last where that was not the frame itself,
+    // the rectangle of it that was averaged anew for that picture (empty: none), and how many macroblocks of
+    // what the viewer has are a mosaic.
+    internal I420Frame? LastShown => _shownIsLast ? _shown : null;
+
+    internal (int Left, int Top, int Right, int Bottom) LastMosaic { get; private set; }
+
+    internal int MosaicMacroblocks => _mosaicMacroblocks;
+
     // Whether a picture of this size can be encoded at all. A caller with a larger desktop has to scale it.
     public static bool Supports(int width, int height) =>
         width >= MinSize && height >= MinSize && width <= MaxSize && height <= MaxSize
         && (width & 1) == 0 && (height & 1) == 0
         && Macroblocks(width, height) <= MaxMacroblocks;
+
+    // How many milliseconds the caller should let pass between the picture encoded last and the next one, if
+    // in that one this many pixels are new; 0 when the caller's own pace will do. While the screen changes
+    // faster than the connection carries, fewer pictures that can be read are better than many that cannot:
+    // the wait is never longer than twenty pictures a second take, and a small change - a cursor, a letter
+    // typed - is never asked to wait. It is advice for pictures in which something changed; a key frame and
+    // the repeats that make a still picture sharp keep the caller's timing.
+    public int SuggestedInterval(long changedPixels)
+    {
+        ObjectDisposedException.ThrowIf(_encoder == null, this);
+        return _rate?.Interval(Math.Clamp((double)changedPixels / ((long)Width * Height), 0.0, 1.0)) ?? 0;
+    }
 
     // One picture in, one access unit out: Annex B with start codes, and SPS and PPS in front of every key
     // frame. The memory is valid until the next call. The encoder has copied the picture when this returns,
@@ -183,6 +224,14 @@ public sealed unsafe class H264Encoder : IDisposable
         var known = ReferenceEquals(frame, _lastFrame);
         var unchanged = known && frame.Version == _lastVersion;
         var share = known ? Math.Min(1.0, (double)(frame.ChangedPixels - _lastChangedPixels) / ((long)Width * Height)) : 1.0;
+
+        // Where the frame differs from what this encoder saw of it last; all of a frame it has not seen.
+        var changed = new Area(0, 0, 0, 0);
+        if (frame.TakeChanged(known ? _lastVersion : -1, out var left, out var top, out var right, out var bottom))
+        {
+            changed = new Area(left, top, right, bottom);
+        }
+
         _lastFrame = frame;
         _lastVersion = frame.Version;
         _lastChangedPixels = frame.ChangedPixels;
@@ -192,6 +241,14 @@ public sealed unsafe class H264Encoder : IDisposable
         if (forceKey && _frames > 0)
         {
             Check(OpenH264.ForceIntraFrame(_encoder), "force a key frame");
+        }
+
+        // A key frame codes every part of the picture anew, and its size is reckoned for a picture that is
+        // coarse everywhere.
+        var whole = new Area(0, 0, Width, Height);
+        if (kind == PictureKind.Key)
+        {
+            changed = whole;
         }
 
         var coarseness = new Coarseness(_quantiser, 1);
@@ -209,7 +266,7 @@ public sealed unsafe class H264Encoder : IDisposable
             SetQuantiser(coarseness.Quantiser);
         }
 
-        var result = EncodeFrame(frame, coarseness.Block);
+        var result = EncodeFrame(frame, coarseness.Block, changed);
         if (result == OpenH264.ResultOutOfMemory)
         {
             // A picture that would come out larger than it is raw does not fit into the library's output
@@ -218,7 +275,7 @@ public sealed unsafe class H264Encoder : IDisposable
             coarseness = _rate?.Coarser() ?? new Coarseness(Math.Min(51, _quantiser + 12), 1);
             _quantiser = coarseness.Quantiser;
             Initialize();
-            Check(EncodeFrame(frame, coarseness.Block), "encode the picture");
+            Check(EncodeFrame(frame, coarseness.Block, whole), "encode the picture");
         }
         else
         {
@@ -327,14 +384,19 @@ public sealed unsafe class H264Encoder : IDisposable
         Check(OpenH264.SetOption(_encoder, EncoderOption.DataFormat, &format), "set the picture format");
     }
 
-    private int EncodeFrame(I420Frame frame, int block)
+    private int EncodeFrame(I420Frame frame, int block, Area changed)
     {
         var input = frame;
         if (block > 1)
         {
-            _mosaic ??= new I420Frame(Width, Height);
-            Mosaic.Render(frame, _mosaic, block);
-            input = _mosaic;
+            input = Coarse(frame, block, changed);
+        }
+        else
+        {
+            // The frame itself: whatever was a mosaic is coded from the real picture now.
+            _shownIsLast = false;
+            _mosaicMacroblocks = 0;
+            LastMosaic = default;
         }
 
         SourcePicture picture = default;
@@ -349,6 +411,81 @@ public sealed unsafe class H264Encoder : IDisposable
         picture.PicHeight = Height;
         picture.TimeStamp = _frames * 1000 / _framesPerSecond;
         return OpenH264.EncodeFrame(_encoder, &picture, _output);
+    }
+
+    // The picture the library is given when the frame is to be coded as a mosaic of blocks of this size: the
+    // picture it was given last, with the rectangle that changed since averaged over such blocks. Nothing
+    // else is touched - with one exception: what is still averaged over larger blocks from an earlier picture
+    // is averaged over these now, so that nothing the viewer has is coarser than the rate controller believes
+    // (it reckons the whole picture as coarse as the last one was coded).
+    private I420Frame Coarse(I420Frame frame, int block, Area changed)
+    {
+        var columns = (Width + Mosaic.Grid - 1) / Mosaic.Grid;
+        var rows = (Height + Mosaic.Grid - 1) / Mosaic.Grid;
+        _shown ??= new I420Frame(Width, Height);
+        _blocks ??= new byte[columns * rows];
+        if (!_shownIsLast)
+        {
+            // The library saw the frame itself last. Outside of what changed since, the frame still is that
+            // picture, and inside it does not matter.
+            _shown.CopyFrom(frame);
+            _blocks.AsSpan().Clear();
+            _mosaicMacroblocks = 0;
+            _shownIsLast = true;
+        }
+
+        // What changed, widened to whole macroblocks: the library codes by them, and they are a grid of the
+        // blocks of every size, so a block is cut the same way in every picture.
+        var firstColumn = Math.Clamp(changed.Left / Mosaic.Grid, 0, columns);
+        var firstRow = Math.Clamp(changed.Top / Mosaic.Grid, 0, rows);
+        var lastColumn = Math.Clamp((changed.Right + Mosaic.Grid - 1) / Mosaic.Grid, firstColumn, columns);
+        var lastRow = Math.Clamp((changed.Bottom + Mosaic.Grid - 1) / Mosaic.Grid, firstRow, rows);
+        LastMosaic = default;
+        if (firstColumn < lastColumn && firstRow < lastRow)
+        {
+            Render(frame, block, firstColumn, firstRow, lastColumn, lastRow);
+            LastMosaic = (firstColumn * Mosaic.Grid, firstRow * Mosaic.Grid, Math.Min(Width, lastColumn * Mosaic.Grid), Math.Min(Height, lastRow * Mosaic.Grid));
+        }
+
+        // The frame has not changed there since those macroblocks were averaged, so it is still what they
+        // show.
+        for (var row = 0; row < rows && _mosaicMacroblocks > 0; row++)
+        {
+            var line = _blocks.AsSpan(row * columns, columns);
+            for (var column = 0; column < columns; column++)
+            {
+                if (line[column] <= block)
+                {
+                    continue;
+                }
+
+                var end = column + 1;
+                while (end < columns && line[end] > block)
+                {
+                    end++;
+                }
+
+                Render(frame, block, column, row, end, row + 1);
+                column = end;
+            }
+        }
+
+        return _shown;
+    }
+
+    // Averages these macroblocks of the frame into _shown and notes it.
+    private void Render(I420Frame frame, int block, int firstColumn, int firstRow, int lastColumn, int lastRow)
+    {
+        Mosaic.Render(
+            frame, _shown!, block,
+            firstColumn * Mosaic.Grid, firstRow * Mosaic.Grid, Math.Min(Width, lastColumn * Mosaic.Grid), Math.Min(Height, lastRow * Mosaic.Grid));
+        var columns = (Width + Mosaic.Grid - 1) / Mosaic.Grid;
+        for (var row = firstRow; row < lastRow; row++)
+        {
+            var line = _blocks.AsSpan(row * columns + firstColumn, lastColumn - firstColumn);
+            _mosaicMacroblocks += line.Count((byte)0);
+            line.Fill((byte)block);
+        }
     }
 
     // With the library's rate control off, every picture is coded with the layer's quantiser. Changing it
@@ -434,7 +571,12 @@ public sealed unsafe class H264Encoder : IDisposable
             _output = null;
         }
 
-        _mosaic?.Dispose();
-        _mosaic = null;
+        _shown?.Dispose();
+        _shown = null;
+        _shownIsLast = false;
+        _mosaicMacroblocks = 0;
     }
+
+    // A rectangle of the picture; nothing when Right is not beyond Left.
+    private readonly record struct Area(int Left, int Top, int Right, int Bottom);
 }

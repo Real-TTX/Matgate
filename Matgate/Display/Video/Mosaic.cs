@@ -7,15 +7,55 @@ namespace Matgate.Display.Video;
 // The rate controller's last resort: the picture with every block of n by n pixels replaced by its average.
 // A picture like that costs a fraction of the bits whatever is in it - which a coarser quantiser does not
 // achieve for everything (see RateController). It is ugly, and it is only shown while the screen changes faster
-// than the connection can carry; the moment it stands still the real picture is encoded again.
+// than the connection can carry, and only where it changes (see H264Encoder); the moment it stands still the
+// real picture is encoded again.
 internal static unsafe class Mosaic
 {
+    // The grid every rectangle is rendered on: the encoder's macroblocks, which the blocks of every size
+    // divide evenly.
+    public const int Grid = 16;
+
     // block is 4, 8 or 16 luma pixels; a chroma sample covers two of them, so its blocks are half as wide.
-    public static void Render(I420Frame source, I420Frame target, int block)
+    public static void Render(I420Frame source, I420Frame target, int block) =>
+        Render(source, target, block, 0, 0, source.Width, source.Height);
+
+    // The same for one rectangle of the picture; whatever of the target lies outside it stays what it is. The
+    // rectangle begins on the grid and ends on it or at the edge of the picture, so a block comes out the
+    // same whichever rectangle it is rendered with.
+    public static void Render(I420Frame source, I420Frame target, int block, int left, int top, int right, int bottom)
     {
-        Plane(source.PointerY, source.StrideY, target.PointerY, target.StrideY, source.Width, source.Height, block);
-        Plane(source.PointerU, source.StrideU, target.PointerU, target.StrideU, source.Width / 2, source.Height / 2, block / 2);
-        Plane(source.PointerV, source.StrideV, target.PointerV, target.StrideV, source.Width / 2, source.Height / 2, block / 2);
+        if (block is not (4 or 8 or 16))
+        {
+            throw new ArgumentOutOfRangeException(nameof(block), block, "A mosaic has blocks of 4, 8 or 16 pixels.");
+        }
+
+        if (target.Width != source.Width || target.Height != source.Height)
+        {
+            throw new ArgumentException($"The picture is {source.Width} x {source.Height}, the target {target.Width} x {target.Height}.", nameof(target));
+        }
+
+        if (left < 0 || left >= right || right > source.Width || left % Grid != 0 || (right % Grid != 0 && right != source.Width))
+        {
+            throw new ArgumentOutOfRangeException(nameof(left), $"{left}..{right} is not a run of whole macroblocks in a picture {source.Width} wide.");
+        }
+
+        if (top < 0 || top >= bottom || bottom > source.Height || top % Grid != 0 || (bottom % Grid != 0 && bottom != source.Height))
+        {
+            throw new ArgumentOutOfRangeException(nameof(top), $"{top}..{bottom} is not a run of whole macroblocks in a picture {source.Height} high.");
+        }
+
+        // The sides of a picture are even, so half of every edge is where the chroma planes have it.
+        var width = right - left;
+        var height = bottom - top;
+        Plane(
+            source.PointerY + (nint)top * source.StrideY + left, source.StrideY,
+            target.PointerY + (nint)top * target.StrideY + left, target.StrideY, width, height, block);
+        Plane(
+            source.PointerU + (nint)(top / 2) * source.StrideU + left / 2, source.StrideU,
+            target.PointerU + (nint)(top / 2) * target.StrideU + left / 2, target.StrideU, width / 2, height / 2, block / 2);
+        Plane(
+            source.PointerV + (nint)(top / 2) * source.StrideV + left / 2, source.StrideV,
+            target.PointerV + (nint)(top / 2) * target.StrideV + left / 2, target.StrideV, width / 2, height / 2, block / 2);
     }
 
     private static void Plane(byte* source, int sourceStride, byte* target, int targetStride, int width, int height, int block)

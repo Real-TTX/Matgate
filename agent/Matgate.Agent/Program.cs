@@ -16,6 +16,10 @@ using Matgate.Agent.Setup;
 //                       [--account .\name|LocalSystem] [--password pw] [--root Name=C:\Path ...]
 //                       [--no-claude] [--powershell] [--no-screen] [--dry-run]
 //   matgate-agent uninstall [--keep-config] [--gui]
+//   matgate-agent tray                 the icon in the notification area (started at sign-in)
+//   matgate-agent start|stop|restart   the service or the logon task (administrator rights; what the tray asks for)
+//   matgate-agent status [--port n]    what the tray sees
+//   matgate-agent setup-preview <dir>  every window as a picture, from sample data
 //   matgate-agent --version
 var command = args.FirstOrDefault() ?? "";
 if (args.Length > 0)
@@ -50,15 +54,23 @@ try
             return Sta(() =>
             {
                 Application.EnableVisualStyles();
+                Matgate.Agent.Ui.Theme.FollowSystem();
                 Matgate.Agent.Ui.ConnectionWindow.TryShow(modal: true);
                 return 0;
             });
         case "apply-update":
             return UpdatePlugin.Run(args);
+        case "start":
+            // The tray's "Dienst starten ..." (elevated): the service, or the logon task.
+            return Installer.Start(Console.WriteLine) ? 0 : 1;
+        case "stop":
+            // The tray's "Dienst beenden ..." (elevated). The tray itself keeps running and shows the agent stopped.
+            return Installer.Stop(Console.WriteLine) ? 0 : 1;
         case "restart":
             return Installer.Restart(Console.WriteLine) ? 0 : 1;
         case "setup-preview":
-            // Draws the dialogs into image files without showing them - for checking the layout.
+            // Draws every window into image files without showing them, from sample data (ANNA-PC) - for checking the
+            // layout and for pictures that may be published.
             return Sta(() =>
             {
                 Application.EnableVisualStyles();
@@ -74,7 +86,7 @@ try
         case "status":
             // What the tray icon sees, for a console.
             var portIndex = Array.IndexOf(args, "--port");
-            var status = AgentStatus.Query(portIndex > 0 && portIndex + 1 < args.Length ? int.Parse(args[portIndex + 1]) : Installer.FindExisting()?.Port ?? 7488);
+            var status = portIndex > 0 && portIndex + 1 < args.Length ? AgentStatus.Query(int.Parse(args[portIndex + 1])) : AgentStatus.QueryInstalled();
             Console.WriteLine(status is null ? "The agent is not running." : System.Text.Json.JsonSerializer.Serialize(status));
             return status is null ? 1 : 0;
         case "write-icon":
@@ -133,7 +145,8 @@ static int RunSetupDialog()
     Application.EnableVisualStyles();
     Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
     Application.SetCompatibleTextRenderingDefault(false);
-    Application.Run(new SetupWizard(uninstall: false));
+    Matgate.Agent.Ui.Theme.FollowSystem();
+    Application.Run(new SetupWizard(uninstall: false, Installer.FindExisting()));
     return 0;
 }
 
@@ -195,7 +208,7 @@ static int RunSetup(string[] args)
     if (!options.DryRun)
     {
         Console.WriteLine();
-        Console.WriteLine($"In Matgate: connection type Agent, host {Environment.MachineName}, port {result.Port}, \"ignore certificate\".");
+        Console.WriteLine($"In Matgate: connection type Agent, host {Machine.Name}, port {result.Port}, \"ignore certificate\".");
         Console.WriteLine($"  connection password: {result.Token}");
         Console.WriteLine($"  certificate SHA-256: {result.Fingerprint}");
     }
@@ -237,7 +250,8 @@ static int RunUninstall(string[] args)
     Application.EnableVisualStyles();
     Application.SetCompatibleTextRenderingDefault(false);
     Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
-    Application.Run(new SetupWizard(uninstall: true));
+    Matgate.Agent.Ui.Theme.FollowSystem();
+    Application.Run(new SetupWizard(uninstall: true, Installer.FindExisting()));
     if (args.Contains("--relaunched"))
     {
         Process.Start(new ProcessStartInfo("cmd.exe", $"/c ping -n 3 127.0.0.1 >nul & del /f /q \"{Environment.ProcessPath}\"") { CreateNoWindow = true, UseShellExecute = false });
@@ -316,12 +330,13 @@ static async Task RunAgentAsync(string[] args, string version)
     var updates = new UpdatePlugin(config, configPath);
     var screen = new Matgate.Agent.Screen.ScreenPlugin(config);
     AgentStatus.Port = config.Port;
+    AgentStatus.Installed = string.Equals(Path.GetFullPath(configPath), Path.GetFullPath(Installer.ConfigPath), StringComparison.OrdinalIgnoreCase);
     AgentStatus.Mode = Microsoft.Extensions.Hosting.WindowsServices.WindowsServiceHelpers.IsWindowsService() ? "service" : "user";
     AgentStatus.OpenTerminals = () => terminals.Count;
     var tokenBytes = Encoding.UTF8.GetBytes(config.Token.Trim());
 
     var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { ContentRootPath = AppContext.BaseDirectory });
-    builder.Host.UseWindowsService(options => options.ServiceName = "MatgateAgent");
+    builder.Host.UseWindowsService(options => options.ServiceName = Installer.ServiceName);
     builder.Logging.SetMinimumLevel(LogLevel.Warning);
     builder.WebHost.ConfigureKestrel(options =>
     {

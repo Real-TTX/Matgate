@@ -2,6 +2,7 @@ using System.Diagnostics;
 
 namespace Matgate.Agent.Screen;
 
+// screen-probe --windows lists the windows a viewer would be offered (programs and sizes, no titles).
 // screen-probe [--test] [--seconds N] [--out file.h264]: captures and encodes like a viewer would and prints
 // the numbers - whether this machine can share its screen, and how fast. The real desktop is never written
 // to a file; --out only works with --test (the generated picture).
@@ -29,6 +30,23 @@ internal static unsafe class ScreenProbe
             Thread.Sleep(500);
             clipboard.Dispose();
             Console.WriteLine("clipboard watcher: ok");
+            return 0;
+        }
+
+        if (args.Contains("--windows"))
+        {
+            // The windows a viewer would be offered: the program and the size of each, and where it would be
+            // cut out of the monitor - not their titles, which say what someone is working on.
+            IWindowList windows = args.Contains("--test") ? new TestWindowList(_ => { }) : new WindowsWindowList();
+            var list = windows.List();
+            Console.WriteLine($"windows: {list.Count}");
+            foreach (var window in list)
+            {
+                var bounds = windows.Bounds(window.Id);
+                var place = bounds is { } found ? $"{found.Width}x{found.Height} at {found.Left},{found.Top}" : "no place";
+                Console.WriteLine($"  {(window.App.Length > 0 ? window.App : "?")}: {place}{(window.Active ? ", in front" : "")}{(window.Minimized ? ", minimised" : "")}, title of {window.Title.Length} characters");
+            }
+
             return 0;
         }
 

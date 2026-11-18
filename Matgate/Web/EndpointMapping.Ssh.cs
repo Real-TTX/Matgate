@@ -127,13 +127,13 @@ public static partial class EndpointMapping
 
     private static async Task<IResult> SshTerminalPageAsync(Guid id, HttpContext context, JsonDataStore store)
     {
-        var (server, result, _) = await RequireSshAsync(id, context, store);
+        var (server, result, user) = await RequireSshAsync(id, context, store);
         if (result is not null)
         {
             return result;
         }
 
-        return Results.Content(TerminalPageHtml(context, server!.Name, server.Id, "ssh", "/api/ssh/" + server.Id, server.TerminalFontSize), "text/html; charset=utf-8");
+        return Results.Content(TerminalPageHtml(context, user!, server!.Name, server.Id, "ssh", "/api/ssh/" + server.Id, server.TerminalFontSize), "text/html; charset=utf-8");
     }
 
     private static async Task SshTerminalSocketAsync(Guid id, HttpContext context, JsonDataStore store)

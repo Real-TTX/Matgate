@@ -1,31 +1,34 @@
 using System.Diagnostics;
 using Matgate.Agent.Setup;
+using Microsoft.Win32;
 
 namespace Matgate.Agent.Ui;
 
-// The icon in the notification area, after MatMon's agent tray: a separate process in the signed-in
-// user's session (the agent may run as a service in session 0 and cannot show anything). It only LOOKS
-// at the agent (the status pipe) and opens windows; it never talks to Matgate.
+// The icon in the notification area, as every tray of the Mat family (TRAY-01 ... TRAY-05): a separate process in the signed-in user's
+// session (the agent may run as a service in session 0 and cannot show anything). It only LOOKS at the agent (the status pipe, which
+// carries no secret), opens windows and asks - with administrator rights - for the agent to start, stop or restart; it never talks to
+// Matgate. Quitting it ends the icon, never the agent (AGENT-04).
 internal sealed class TrayApplication : ApplicationContext
 {
     private const string MutexName = @"Local\MatgateAgentTray";
     // A second start (the Start menu entry while the icon runs) asks the running one to show Info.
     private const string ShowInfoEventName = @"Local\MatgateAgentTrayShowInfo";
 
-    private enum State
-    {
-        NotInstalled,
-        Running,
-        Stopped,
-    }
+    // How long a start is given before a silent agent counts as stopped: at sign-in the agent and this icon start together, and a
+    // service that was just asked to start needs a moment too.
+    private static readonly TimeSpan StartGrace = TimeSpan.FromSeconds(90);
 
     private readonly NotifyIcon _icon;
-    private readonly Dictionary<State, Icon> _icons;
+    private readonly Dictionary<AgentState, Icon> _icons;
     private readonly System.Windows.Forms.Timer _timer = new() { Interval = 4000 };
-    private readonly ToolStripMenuItem _stateItem = new() { Enabled = false };
+    private readonly ContextMenuStrip _menu = new();
     private InfoWindow? _info;
     private AgentStatus.Snapshot? _status;
-    private State _state = State.NotInstalled;
+    private SetupOptions? _installed;
+    private AgentState _state = AgentState.NotSetUp;
+    private string _detail = "";
+    private DateTime _waitUntil = DateTime.UtcNow + StartGrace;
+    private static Font? _bold;
 
     // The program file as it was when the icon started: an update puts a new one there (see UpdatePlugin), and
     // the icon then starts again from it - otherwise it would show the old version until the next sign-in.
@@ -47,32 +50,23 @@ internal sealed class TrayApplication : ApplicationContext
 
     private TrayApplication()
     {
-        _icons = Enum.GetValues<State>().ToDictionary(state => state, state => Mark.Create(state switch
+        var size = SystemInformation.SmallIconSize.Width;
+        _icons = Enum.GetValues<AgentState>().ToDictionary(state => state, state => Mark.Create(state, size));
+        _menu.Opening += (_, _) => BuildMenu();
+        _icon = new NotifyIcon { ContextMenuStrip = _menu, Icon = _icons[_state], Text = _state.Tooltip(), Visible = true };
+        // TRAY-03: on Windows a left click runs the default item (Open), the right click opens the menu.
+        _icon.MouseClick += (_, e) =>
         {
-            State.Running => Brand.Ok,
-            State.Stopped => Brand.Error,
-            _ => Brand.Neutral,
-        }));
-
-        var menu = new ContextMenuStrip();
-        var info = new ToolStripMenuItem("Info ...", null, (_, _) => ShowInfo());
-        info.Font = new Font(menu.Font, FontStyle.Bold);
-        menu.Items.Add(new ToolStripMenuItem($"Matgate Agent {Brand.Version}") { Enabled = false });
-        menu.Items.Add(_stateItem);
-        menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add(info);
-        menu.Items.Add(new ToolStripMenuItem("Verbindungsdaten ...", null, (_, _) => ShowConnectionDetails()));
-        menu.Items.Add(new ToolStripMenuItem("Einstellungen ändern ...", null, (_, _) => Launch([], elevated: true)));
-        menu.Items.Add(new ToolStripMenuItem("Agent neu starten", null, (_, _) => Launch(["restart"], elevated: true)));
-        menu.Items.Add(new ToolStripMenuItem("Log-Ordner öffnen", null, (_, _) => OpenLogFolder()));
-        menu.Items.Add(new ToolStripSeparator());
-        menu.Items.Add(new ToolStripMenuItem("Symbol ausblenden", null, (_, _) => ExitThread()));
-
-        _icon = new NotifyIcon { ContextMenuStrip = menu, Icon = _icons[_state], Text = "Matgate Agent", Visible = true };
-        _icon.DoubleClick += (_, _) => ShowInfo();
+            if (e.Button == MouseButtons.Left)
+            {
+                Open();
+            }
+        };
+        SystemEvents.UserPreferenceChanged += OnPreferenceChanged;
         _timer.Tick += (_, _) => Refresh();
         _timer.Start();
         Refresh();
+        BuildMenu();
     }
 
     public static void Run()
@@ -88,6 +82,7 @@ internal sealed class TrayApplication : ApplicationContext
         Application.EnableVisualStyles();
         Application.SetCompatibleTextRenderingDefault(false);
         Application.SetHighDpiMode(HighDpiMode.PerMonitorV2);
+        Theme.FollowSystem();
         var tray = new TrayApplication();
         var ui = SynchronizationContext.Current ?? new WindowsFormsSynchronizationContext();
         new Thread(() =>
@@ -108,21 +103,23 @@ internal sealed class TrayApplication : ApplicationContext
         {
             mutex.ReleaseMutex();
             mutex.Dispose();
-            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(Environment.ProcessPath!, "tray") { UseShellExecute = false });
+            Process.Start(new ProcessStartInfo(Environment.ProcessPath!, "tray") { UseShellExecute = false });
         }
     }
 
     private void Refresh()
     {
-        _status = AgentStatus.Query(Installer.FindExisting()?.Port ?? 7488);
-        _state = _status switch
+        _installed = Installer.FindExisting();
+        _status = AgentStatus.QueryInstalled();
+        (_state, _detail) = Describe(_status, _installed, _installed?.Mode == "service" ? Installer.ServiceStatus() : null, DateTime.UtcNow < _waitUntil);
+        if (_state == AgentState.Running)
         {
-            not null => State.Running,
-            null when File.Exists(Installer.InstalledExe) => State.Stopped,
-            _ => State.NotInstalled,
-        };
+            // Seen running: from now on silence means stopped, not starting.
+            _waitUntil = DateTime.MinValue;
+        }
+
         _icon.Icon = _icons[_state];
-        if (_state == State.Running && StartedFrom != default && Stamp() is var now && now != default && now != StartedFrom)
+        if (_state == AgentState.Running && StartedFrom != default && Stamp() is var now && now != default && now != StartedFrom)
         {
             _restart = true;
             _icon.Visible = false;
@@ -130,64 +127,188 @@ internal sealed class TrayApplication : ApplicationContext
             return;
         }
 
-        var (title, _) = Describe();
-        _stateItem.Text = title;
         // The tooltip is limited to 127 characters.
-        _icon.Text = ("Matgate Agent - " + title)[..Math.Min(127, 16 + title.Length)];
+        var tooltip = _state.Tooltip();
+        _icon.Text = tooltip[..Math.Min(127, tooltip.Length)];
         if (_info is { Visible: true })
         {
-            _info.Show(Color(), Describe(), Rows());
+            _info.Show(_state, _detail, Rows());
         }
     }
 
-    private Color Color() => _state switch
+    // The state and the one sentence that explains it (TRAY-02, TRAY-05). Amber is a start or a stop under way - a service that is
+    // starting or stopping, or a start that was asked for a moment ago.
+    internal static (AgentState State, string Detail) Describe(AgentStatus.Snapshot? status, SetupOptions? installed,
+        System.ServiceProcess.ServiceControllerStatus? service, bool starting)
     {
-        State.Running => Brand.Ok,
-        State.Stopped => Brand.Error,
-        _ => Brand.Neutral,
-    };
-
-    private (string Title, string Detail) Describe() => _state switch
-    {
-        // Whether Matgate is connected right now is left out on purpose: Matgate keeps its connection open
-        // while idle, so "connected" said nothing. Who connected when is in the log.
-        State.Running => ("Läuft", $"Bereit für Matgate auf Port {_status!.Port}. Wer sich wann verbunden hat, steht im Log."),
-        State.Stopped => ("Agent läuft nicht", "Installiert, antwortet aber nicht. \"Agent neu starten\" im Menü, oder das Log ansehen."),
-        _ => ("Nicht eingerichtet", "Das Setup richtet den Agent ein: matgate-agent.exe doppelklicken."),
-    };
-
-    private IReadOnlyList<KeyValuePair<string, string>> Rows()
-    {
-        var installed = Installer.FindExisting();
-        var rows = new List<KeyValuePair<string, string>> { new("Rechner", Environment.MachineName) };
-        if (_status is not null || installed is not null)
+        var noun = installed?.Mode == "service" ? "Dienst" : "Agent";
+        if (status is not null)
         {
-            rows.Add(new("Port", (_status?.Port ?? installed?.Port ?? 0).ToString()));
+            // Whether Matgate is connected right now is left out on purpose: Matgate keeps its connection open while idle, so
+            // "connected" said nothing. Who connected when is in the log.
+            return (AgentState.Running, $"Bereit für Matgate auf Port {status.Port}. Wer sich wann verbunden hat, steht im Log.");
+        }
+
+        if (installed is null && !File.Exists(Installer.InstalledExe))
+        {
+            return (AgentState.NotSetUp, "Der Agent ist auf diesem Rechner nicht eingerichtet. „Einrichten …“ im Menü richtet ihn ein.");
+        }
+
+        var port = installed?.Port ?? 7488;
+        switch (service)
+        {
+            case System.ServiceProcess.ServiceControllerStatus.StartPending or System.ServiceProcess.ServiceControllerStatus.ContinuePending:
+                return (AgentState.Waiting, $"Der Dienst startet gerade und ist gleich auf Port {port} bereit.");
+            case System.ServiceProcess.ServiceControllerStatus.StopPending or System.ServiceProcess.ServiceControllerStatus.PausePending:
+                return (AgentState.Waiting, "Der Dienst wird gerade beendet.");
+        }
+
+        if (starting)
+        {
+            return (AgentState.Waiting, $"Der {noun} startet gerade und ist gleich auf Port {port} bereit.");
+        }
+
+        return service == System.ServiceProcess.ServiceControllerStatus.Running
+            ? (AgentState.Stopped, "Der Dienst läuft, antwortet aber nicht. „Dienst neu starten …“ im Menü, oder das Log ansehen.")
+            : (AgentState.Stopped, $"Installiert, aber der {noun} läuft nicht. „{noun} starten …“ im Menü, oder das Log ansehen.");
+    }
+
+    // The menu in the order of TRAY-01: name and version, the state (both disabled); Open (bold, the default); the agent's own item;
+    // Info, Set up, Open log folder; the actions of the service with the shield; Quit, last. "Install update …" is left out: the
+    // agent has no update that waits - Matgate brings and applies it. There is no Uninstall (Installed apps does that, SETUP-04).
+    private void BuildMenu() => Fill(_menu, _state, _installed, _installed is not null || File.Exists(Installer.InstalledExe), new TrayActions(
+        Open, ShowConnectionDetails, ShowInfo, () => Launch([], elevated: true), OpenLogFolder, Control, ExitThread));
+
+    internal static void Fill(ContextMenuStrip menu, AgentState state, SetupOptions? installed, bool set, TrayActions act)
+    {
+        foreach (var item in menu.Items.Cast<ToolStripItem>().ToList())
+        {
+            item.Dispose();
+        }
+
+        menu.Items.Clear();
+        menu.Items.Add(new ToolStripMenuItem($"{Installer.ProductName} {AgentVersion.Number}") { Enabled = false });
+        menu.Items.Add(new ToolStripMenuItem(state.Word()) { Enabled = false });
+        menu.Items.Add(new ToolStripSeparator());
+        var open = new ToolStripMenuItem($"{Installer.ProductName} öffnen", null, (_, _) => act.Open());
+        // The default item in bold (the font of the menu, kept for the next time it opens).
+        _bold ??= new Font(menu.Font, FontStyle.Bold);
+        open.Font = _bold;
+        menu.Items.Add(open);
+        if (set)
+        {
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.Add(new ToolStripMenuItem("Verbindungsdaten …", null, (_, _) => act.ConnectionDetails()));
+        }
+
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(new ToolStripMenuItem("Info …", null, (_, _) => act.Info()));
+        menu.Items.Add(new ToolStripMenuItem("Einrichten …", Brand.Shield(), (_, _) => act.SetUp()));
+        if (set)
+        {
+            menu.Items.Add(new ToolStripMenuItem("Log-Ordner öffnen", null, (_, _) => act.LogFolder()));
+        }
+
+        var services = ServiceItems(state, installed, act).ToList();
+        if (services.Count > 0)
+        {
+            menu.Items.Add(new ToolStripSeparator());
+            menu.Items.AddRange([.. services]);
+        }
+
+        menu.Items.Add(new ToolStripSeparator());
+        menu.Items.Add(new ToolStripMenuItem("Beenden", null, (_, _) => act.Quit()));
+    }
+
+    // Start, stop, restart - in that order, each with the shield: they ask for administrator rights. Only what applies now: start a
+    // stopped agent, stop or restart a running one. In user mode the agent is a task at sign-in, not a service, and says so.
+    private static IEnumerable<ToolStripMenuItem> ServiceItems(AgentState state, SetupOptions? installed, TrayActions act)
+    {
+        if (installed is null)
+        {
+            yield break;
+        }
+
+        var noun = installed.Mode == "service" ? "Dienst" : "Agent";
+        if (state is AgentState.Stopped)
+        {
+            yield return new ToolStripMenuItem($"{noun} starten …", Brand.Shield(), (_, _) => act.Service("start"));
+        }
+
+        if (state is AgentState.Running or AgentState.Waiting)
+        {
+            yield return new ToolStripMenuItem($"{noun} beenden …", Brand.Shield(), (_, _) => act.Service("stop"));
+            yield return new ToolStripMenuItem($"{noun} neu starten …", Brand.Shield(), (_, _) => act.Service("restart"));
+        }
+    }
+
+    private void Control(string command)
+    {
+        if (Launch([command], elevated: true) && command != "stop")
+        {
+            _waitUntil = DateTime.UtcNow + StartGrace;
+            Refresh();
+        }
+    }
+
+    // "Matgate Agent öffnen": the agent has no page of its own and does not know the address of the Matgate that connects to it, so it
+    // opens Info (TRAY-01: the window, or the web page, or Info).
+    private void Open() => ShowInfo();
+
+    private IReadOnlyList<KeyValuePair<string, string>> Rows() => InfoRows(_status, _installed);
+
+    // The facts of Info (TRAY-05): machine, port, mode, started, version, terminals, data folder. Never the token (AGENT-03).
+    internal static IReadOnlyList<KeyValuePair<string, string>> InfoRows(AgentStatus.Snapshot? status, SetupOptions? installed)
+    {
+        var rows = new List<KeyValuePair<string, string>> { new("Rechner", Machine.Name) };
+        if (status is not null || installed is not null)
+        {
+            rows.Add(new("Port", (status?.Port ?? installed?.Port ?? 0).ToString()));
         }
 
         if (installed is not null)
         {
-            rows.Add(new("Modus", installed.Mode == "service" ? $"als Dienst ({installed.Account})" : "als angemeldeter Benutzer"));
+            rows.Add(new("Modus", installed.Mode != "service"
+                ? "als angemeldeter Benutzer"
+                : WindowsNative.IsLocalSystem(installed.Account) ? "als Systemdienst" : $"als Dienst unter {installed.Account}"));
         }
 
-        if (_status is not null)
+        if (status is not null)
         {
-            rows.Add(new("Gestartet", $"{_status.Started:dd.MM.yyyy HH:mm} Uhr"));
-            rows.Add(new("Version", _status.Version));
-            // Worth knowing before "Agent neu starten" - a restart ends them.
-            rows.Add(new("Terminals", _status.Terminals == 0 ? "keine offen" : $"{_status.Terminals} offen"));
+            rows.Add(new("Gestartet", $"{status.Started:dd.MM.yyyy HH:mm} Uhr"));
+            rows.Add(new("Version", AgentVersion.Value(status.Version)));
+            // Worth knowing before a restart - it ends them.
+            rows.Add(new("Terminals", status.Terminals == 0 ? "keine offen" : $"{status.Terminals} offen"));
         }
 
-        rows.Add(new("Einstellungen", Installer.DataFolder));
+        rows.Add(new("Datenordner", Machine.DataFolder));
         return rows;
     }
 
     private void ShowInfo()
     {
         _info ??= new InfoWindow(ShowConnectionDetails, OpenLogFolder);
-        _info.Show(Color(), Describe(), Rows());
+        _info.Show(_state, _detail, Rows());
         _info.Show();
         _info.Activate();
+    }
+
+    // The system switched between light and dark: the next windows take the new mode, an open Info is drawn again in it.
+    private void OnPreferenceChanged(object? sender, UserPreferenceChangedEventArgs e)
+    {
+        if (Theme.SystemIsDark() == Theme.IsDark)
+        {
+            return;
+        }
+
+        Theme.FollowSystem();
+        var wasOpen = _info is { Visible: true };
+        _info?.Dispose();
+        _info = null;
+        if (wasOpen)
+        {
+            ShowInfo();
+        }
     }
 
     private void ShowConnectionDetails()
@@ -207,7 +328,8 @@ internal sealed class TrayApplication : ApplicationContext
         }
     }
 
-    private static void Launch(string[] arguments, bool elevated)
+    // False when the administrator prompt was declined.
+    private static bool Launch(string[] arguments, bool elevated)
     {
         var exe = File.Exists(Installer.InstalledExe) ? Installer.InstalledExe : Environment.ProcessPath!;
         var info = new ProcessStartInfo(exe) { UseShellExecute = true, Verb = elevated ? "runas" : "" };
@@ -219,15 +341,18 @@ internal sealed class TrayApplication : ApplicationContext
         try
         {
             Process.Start(info);
+            return true;
         }
         catch (System.ComponentModel.Win32Exception)
         {
             // UAC declined.
+            return false;
         }
     }
 
     protected override void ExitThreadCore()
     {
+        SystemEvents.UserPreferenceChanged -= OnPreferenceChanged;
         _timer.Stop();
         _icon.Visible = false;
         _icon.Dispose();
@@ -236,27 +361,34 @@ internal sealed class TrayApplication : ApplicationContext
     }
 }
 
-// "Info": the state, what the agent is and does, and the way to the connection details.
+// What the items of the tray menu do (TrayApplication.Fill); setup-preview draws the menu with actions that do nothing.
+internal sealed record TrayActions(Action Open, Action ConnectionDetails, Action Info, Action SetUp, Action LogFolder, Action<string> Service, Action Quit)
+{
+    public static TrayActions None { get; } = new(() => { }, () => { }, () => { }, () => { }, () => { }, _ => { }, () => { });
+}
+
+// "Info", the one window of the tray (TRAY-05): the state as a dot, a word and a sentence, the facts, and the footer with the version,
+// the way to the connection details, the log folder and Close.
 internal sealed class InfoWindow : BrandWindow
 {
     private const int KeyWidth = 140;
     private readonly StateLine _state = new();
     private readonly TableLayoutPanel _rows = new() { ColumnCount = 2, AutoSize = true, AutoSizeMode = AutoSizeMode.GrowAndShrink, Margin = new Padding(0, 6, 0, 0) };
-    private Color? _iconColor;
+    private AgentState? _iconState;
 
-    public InfoWindow(Action connectionDetails, Action logFolder) : base("Matgate Agent - Info", "Info")
+    public InfoWindow(Action connectionDetails, Action logFolder) : base($"{Installer.ProductName} – Info", "Info")
     {
         _rows.ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, KeyWidth));
         _rows.ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        var close = Brand.FooterButton("Schließen", width: 96, gap: 16);
-        close.Click += (_, _) => Hide();
         var details = Brand.FooterButton("Verbindungsdaten", width: 140);
         details.Click += (_, _) => connectionDetails();
         var log = Brand.FooterButton("Log-Ordner", width: 104);
         log.Click += (_, _) => logFolder();
+        var close = Brand.FooterButton("Schließen", width: 96);
+        close.Click += (_, _) => Hide();
         CancelButton = close;
         Content.Controls.AddRange([_state, _rows]);
-        Complete(close, details, log);
+        Complete(details, log, close);
     }
 
     protected override void OnFormClosing(FormClosingEventArgs e)
@@ -270,21 +402,29 @@ internal sealed class InfoWindow : BrandWindow
         base.OnFormClosing(e);
     }
 
-    public void Show(Color color, (string Title, string Detail) state, IReadOnlyList<KeyValuePair<string, string>> rows)
+    public void Show(AgentState state, string detail, IReadOnlyList<KeyValuePair<string, string>> rows)
     {
-        _state.Set(color, state.Title, state.Detail);
-        if (_iconColor != color)
+        _state.Set(state, detail);
+        if (_iconState != state)
         {
-            _iconColor = color;
-            Icon = Mark.Create(color);
+            _iconState = state;
+            var previous = Icon;
+            Icon = Mark.Create(state);
+            previous?.Dispose();
         }
 
+        // Drawn again every few seconds while Info is open: the labels of the last time go, not only out of the table.
         _rows.SuspendLayout();
+        foreach (var label in _rows.Controls.Cast<Control>().ToList())
+        {
+            label.Dispose();
+        }
+
         _rows.Controls.Clear();
         foreach (var (key, value) in rows)
         {
-            _rows.Controls.Add(new Label { Text = key, AutoSize = true, ForeColor = Brand.Muted, Margin = new Padding(0, 4, 12, 4) });
-            _rows.Controls.Add(new Label { Text = value, AutoSize = true, ForeColor = Brand.TextColor, MaximumSize = new Size(Brand.ContentWidth - KeyWidth, 0), Margin = new Padding(0, 4, 0, 4) });
+            _rows.Controls.Add(new Label { Text = key, AutoSize = true, ForeColor = Theme.Muted, Margin = new Padding(0, 4, 12, 4) });
+            _rows.Controls.Add(new Label { Text = value, AutoSize = true, ForeColor = Theme.Text, MaximumSize = new Size(Brand.ContentWidth - KeyWidth, 0), Margin = new Padding(0, 4, 0, 4) });
         }
 
         _rows.ResumeLayout();
@@ -292,25 +432,25 @@ internal sealed class InfoWindow : BrandWindow
     }
 }
 
-// Host, port, token, fingerprint - what Matgate needs, ready to copy.
+// Host, port, password, fingerprint - what Matgate needs, ready to copy (AGENT-02), with the sentence that the password is the only key
+// (AGENT-03).
 internal sealed class ConnectionWindow : BrandWindow
 {
-    private ConnectionWindow(AgentConfig config, string fingerprint) : base("Matgate Agent - Verbindungsdaten", "Verbindung")
+    private ConnectionWindow(AgentConfig config, string fingerprint) : base($"{Installer.ProductName} – Verbindungsdaten", "Verbindungsdaten")
     {
-        Content.Controls.Add(Brand.Paragraph("In Matgate eine Verbindung vom Typ \"Agent\" anlegen, diese Werte eintragen und \"Zertifikat ignorieren\" anhaken."));
+        Content.Controls.Add(Brand.Paragraph("In Matgate eine Verbindung vom Typ „Agent“ anlegen, diese Werte eintragen und „Zertifikat ignorieren“ anhaken."));
         foreach (var field in ConnectionDetails.Fields(config.Token, fingerprint, config.Port))
         {
             Content.Controls.Add(field);
         }
 
-        Content.Controls.Add(new BrandNotice("Das Token ist der einzige Schlüssel zu diesem Rechner - nur in Matgate eintragen.", NoticeTone.Warning));
-        var close = Brand.FooterButton("Schließen", width: 96, gap: 16);
+        var close = Brand.FooterButton("Schließen", width: 96);
         close.Click += (_, _) => Close();
         CancelButton = close;
         Complete(close);
     }
 
-    internal static ConnectionWindow Preview() => new(new AgentConfig { Port = 7488, Token = "q3Vx9Lk2-example-token-Rt7mWp" }, "B6A1A74FF49B59E48728364E704707897F3C88F02CCAA3EAD9237DFE224BA135");
+    internal static ConnectionWindow Preview() => new(new AgentConfig { Port = 7488, Token = SetupPreview.SampleToken }, SetupPreview.SampleFingerprint);
 
     // False when the settings cannot be read with the current rights.
     public static bool TryShow(bool modal = false)
@@ -320,7 +460,7 @@ internal sealed class ConnectionWindow : BrandWindow
             var path = File.Exists(Installer.ConfigPath) ? Installer.ConfigPath : Path.Combine(AppContext.BaseDirectory, "matgate-agent.json");
             if (!File.Exists(path))
             {
-                MessageBox.Show("Der Agent ist noch nicht eingerichtet.", "Matgate Agent", MessageBoxButtons.OK, MessageBoxIcon.Information);
+                MessageBox.Show("Der Agent ist noch nicht eingerichtet.", Installer.ProductName, MessageBoxButtons.OK, MessageBoxIcon.Information);
                 return true;
             }
 

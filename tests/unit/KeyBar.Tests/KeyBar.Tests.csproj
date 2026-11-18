@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Tests for the key bar's one translation (Matgate/Models/KeyBar.cs): what a button's keys are on the
+       screen page (scan codes, keysyms, text), in a terminal (bytes) and in a Guacamole session (keysyms),
+       and what may be stored as a button at all. The sources are compiled into this project directly.
+
+         dotnet test tests/unit/KeyBar.Tests
+
+       How the buttons behave in a session - held modifiers, the clipboard, the text field of a phone - is
+       the subject of tests/key-bar.js, against real servers. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>Matgate.Models.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\..\Matgate\Models\KeyBar.cs" LinkBase="Models" />
+    <Compile Include="..\..\..\Matgate\Models\MatgateUser.cs" LinkBase="Models" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.5" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>

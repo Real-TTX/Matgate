@@ -261,7 +261,11 @@ public sealed class UpdatePlugin(AgentConfig config, string configPath)
             // Windows restarts the service on its own (failure actions); asking it as well does no harm.
             try
             {
-                Process.Start(new ProcessStartInfo("sc.exe", "start MatgateAgent") { UseShellExecute = false, CreateNoWindow = true })?.WaitForExit(10000);
+                // "Matgate Agent", or "MatgateAgent" of an installation from version 0.7 or older that an update reaches.
+                var start = new ProcessStartInfo("sc.exe") { UseShellExecute = false, CreateNoWindow = true };
+                start.ArgumentList.Add("start");
+                start.ArgumentList.Add(Setup.Installer.InstalledServiceName() ?? Setup.Installer.ServiceName);
+                Process.Start(start)?.WaitForExit(10000);
             }
             catch (System.ComponentModel.Win32Exception)
             {

@@ -171,10 +171,10 @@ const onDesktop = (command, display) => {
   await insert(remote, "sleep 300");
   await insert(remote, "\n");
   await sleep(800);
-  await remote.evaluate(() => document.querySelector("#keys [data-sticky='1d']").click());
+  await remote.evaluate(() => document.querySelector("#keys [data-id='ctrl']").click());
   await insert(remote, "c");
   await sleep(500);
-  check("RDP: Ctrl lets go after the one key", await remote.evaluate(() => document.querySelector("#keys [data-sticky='1d']").classList.contains("on")), false);
+  check("RDP: Ctrl lets go after the one key", await remote.evaluate(() => document.querySelector("#keys [data-id='ctrl']").classList.contains("on")), false);
   await insert(remote, "echo frei > /tmp/ti-e.txt");
   await insert(remote, "\n");
   check("RDP: Ctrl from the key bar plus a typed c interrupts the command", await arrived("/tmp/ti-e.txt", ":10"), "frei");
@@ -240,7 +240,7 @@ const onDesktop = (command, display) => {
   await insert(term, "sleep 300");
   await insert(term, "\n");
   await sleep(600);
-  await term.evaluate(() => document.querySelector("#keys [data-send='03']").click());
+  await term.evaluate(() => document.querySelector("#keys [data-id='ctrl-c']").click());
   await insert(term, "echo frei > /tmp/ti-v.txt");
   await insert(term, "\n");
   check("SSH: the key bar still interrupts", await sshFile("/tmp/ti-v.txt"), "frei");

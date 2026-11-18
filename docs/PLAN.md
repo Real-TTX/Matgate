@@ -1,6 +1,6 @@
 # Matgate – Plan zum Weitermachen
 
-Stand: 2026-11-18, Version 0.20.1. Geschrieben als Übergabe an eine andere Claude-Sitzung.
+Stand: 2026-11-18, Version 0.21.0 (Agent 0.9.0), auf `main` zusammengeführt und als `v0.21.0` markiert. Geschrieben als Übergabe an eine andere Sitzung.
 
 ## Wo wir stehen
 
@@ -12,6 +12,10 @@ Stand: 2026-11-18, Version 0.20.1. Geschrieben als Übergabe an eine andere Clau
   Prinzip: Das versteckte Textfeld behält seinen Text; zum Server geht nur der Unterschied
   (Rücktasten, dann neuer Text). Das Feld wird nie unter der Tastatur geleert, nur nach 2 s Ruhe.
   Test: `tests/text-input.js` (14 Prüfungen, spielt iPhone-Diktat und Android-Tastatur nach).
+- **0.21.0:** Konfigurierbare Tastenleiste (Aufgabe 1, siehe unten) - ein Modell je Benutzer, eine
+  Übersetzung in `Matgate/Models/KeyBar.cs`, Konto -> Tastenleiste. Dazu: Verbindungsformular und Ordnerverwaltung neu (Aufgabe 2), und der
+  Agent (0.9.0) kennt die Fenster des Rechners und macht aus einem getippten Buchstaben bei gehaltenem
+  Strg/Alt/Win ein Tastenkürzel.
 - **Nicht am echten Gerät geprüft:** iPhone-Diktat, Android (Gboard), ein echter Windows-RDP-Server.
   Alles ist nur gegen den Teststapel geprüft (xrdp, FreeRDP-Server mit NLA, TigerVNC, OpenSSH).
 
@@ -34,52 +38,66 @@ Stand: 2026-11-18, Version 0.20.1. Geschrieben als Übergabe an eine andere Clau
 - Patches an den großen C#-Dateien mit eingebettetem JavaScript: Node-Skript mit exakten Ankern
   (Beispiele liegen nicht im Repo; Muster: Datei lesen, `split(anchor).length === 2` prüfen, ersetzen).
 
-## Aufgabe 1: Konfigurierbare Tastenleiste (vom Nutzer gewünscht)
+## Aufgabe 1: Konfigurierbare Tastenleiste - erledigt (0.21.0)
 
-Wunsch: Auf iOS und Android eigene Knöpfe einblenden – Strg, Alt, Strg+C, Strg+V und so weiter –,
-und alles soll einstellbar sein.
+Was es jetzt gibt:
 
-Was es heute gibt (drei getrennte, fest verdrahtete Leisten):
+- **Modell:** `MatgateUser.KeyBar` (Liste von `KeyBarButton { Id, Label, Keys, Sticky, Scope }`).
+  `null` = Vorgabe (`KeyBar.Defaults()`), leere Liste = keine Leiste. `Scope` = überall / nur Desktop
+  (RDP, VNC, Agent-Bildschirm) / nur Terminal (SSH, Agent-Programme).
+- **Eine Übersetzung** in `Matgate/Models/KeyBar.cs`: `ForScreen` (Scancode + Keysym; ein Zeichen geht
+  als Text `t: 'u'`, damit das Tastaturlayout des Zielrechners entscheidet), `ForTerminal` (Bytes wie
+  xterm, je Knopf alle 8 Kombinationen mit haltenden Zusatztasten, dazu die Folge für den
+  Anwendungsmodus der Pfeiltasten), `ForGuacamole` (Keysyms).
+- **Konto:** Reiter `/account?tab=keys` (Liste, Reihenfolge je einen Platz, Zurücksetzen) und Unterseite
+  `/account/keys/new` bzw. `/account/keys/{id}`; Endpunkte in `EndpointMapping.KeyBar.cs`.
+- **Seiten:** `data-keys` am `<body>` von Bildschirm- und Terminalseite; in der Hülle `keyBarButtons`,
+  dort ist die Leiste die oberste Reihe der Bildschirmtastatur (`buildSessionOsk`).
+- **Sonderfälle:** Strg+V liest die Zwischenablage dieses Geräts (`navigator.clipboard.readText`) und
+  fügt sie ein, ohne Zugriff geht nur die Taste; Strg+Alt+Entf geht als `screen.sas`.
+- **Tests:** `tests/unit/KeyBar.Tests` (57), `tests/key-bar.js` (53 Prüfungen: Konto, VNC, RDP, SSH,
+  Guacamole), dazu sieben Prüfungen in `tests/agent-screen.js`.
 
-| Wo | Datei | Form |
-|---|---|---|
-| Bildschirmseite (RDP, VNC, Agent) | `AgentScreenPage.cs`, `<div id="keys">` | `data-key="<Scancode hex>[e]"`, `data-sticky` für Strg/Alt |
-| Terminalseite (SSH, Agent) | `AgentTerminalPage.cs`, `<div class="keys" id="keys">` | `data-send="<Bytes hex>"` |
-| Guacamole-Sitzungen | `HtmlViews.cs`, `buildSessionOsk` (ab etwa Zeile 7227) | Keysyms über `client.sendKeyEvent` |
+Offen dazu: am echten iPhone/Android ansehen (vor allem Strg+V - iOS fragt beim Lesen der Zwischenablage
+mit einer eigenen "Einfügen"-Blase nach); eine Änderung gilt erst für neu geöffnete Sitzungen.
 
-Vorschlag:
-
-1. **Ein Modell** je Benutzer: Liste von Knöpfen `{ label, keys: ["Ctrl","C"], sticky: bool }`,
-   gespeichert an `MatgateUser` (neues Feld, z. B. `KeyBar`), mit einer Vorgabe
-   (Esc, Tab, Strg, Alt, Win, Entf, Pfeile, Strg+C, Strg+V, Strg+Alt+Entf).
-   `sticky` = bleibt für die nächste Taste gedrückt (wie heute Strg/Alt).
-2. **Eine Übersetzung** der Tastennamen in drei Ziele:
-   - Scancodes für die Bildschirmseite (Tabellen `SCAN`/`EXTENDED` stehen dort schon),
-   - Keysyms für Guacamole,
-   - Bytes fürs Terminal (Strg+Buchstabe = Steuerzeichen, Pfeile = Escape-Folgen, Alt = ESC davor).
-3. **Einstellungsseite** im Konto (`/account`), als Liste mit Unterseite je Knopf (UI-Regel: CRUD =
-   Liste + Unterseiten), Reihenfolge änderbar, „Auf Vorgabe zurücksetzen“.
-   Strg+V ist ein Sonderfall: In der Bildschirmseite soll er die Zwischenablage dieses Geräts
-   einfügen (`window.MatgateScreen.pasteText` bzw. der vorhandene Einfügen-Weg), nicht nur die Taste senden.
-4. **Ausliefern:** Die Seiten bekommen die Liste als JSON im `data-`Attribut und bauen die Leiste
-   daraus; die festen Knöpfe im HTML entfallen. In der Hülle (Guacamole) ersetzt die Liste die obere
-   Reihe der Bildschirmtastatur.
-5. **Wichtig für die Texteingabe:** Ein Knopf der Leiste ist eine Grenze – danach `textBoundary()`
-   (Bildschirmseite) bzw. `boundary()` (Terminalseite) aufrufen, wie es die heutigen Knöpfe tun.
-   Sticky-Tasten lösen sich nach dem nächsten getippten Zeichen (`typeText` macht das schon).
-6. **Test:** neues `tests/key-bar.js` – Knopf anlegen, in RDP/VNC/SSH drücken, Wirkung auf dem
-   Test-Desktop lesen (Muster in `tests/text-input.js`).
-
-## Aufgabe 2: Review „fühlt sich nicht gut an“ (vom Nutzer gewünscht, noch unscharf)
+## Aufgabe 2: Review „fühlt sich nicht gut an“
 
 Der Nutzer will die Verbindungsverwaltung überarbeitet und die Software durchgesehen haben
-(„Bugs raus, Feinheiten passen nicht“). **Zuerst nachfragen, was konkret stört** – drei bis fünf
-Beispiele mit Gerät und Verbindungsart reichen, sonst wird es Raten. Was beim letzten Umbau
-aufgefallen ist und sicher dazugehört:
+(„Bugs raus, Feinheiten passen nicht“). Am 2026-11-18 genannt: **Verbindungen anlegen und bearbeiten,
+der Dialog ist unübersichtlich; Ordnerverwaltung. Die Startseite ist „relativ hübsch“** (sie ist das
+Vorbild für das Aussehen).
 
-- **Agent-Bildschirm:** getippter Buchstabe bei gehaltenem Strg/Alt aus der Leiste kommt als Zeichen
-  an, nicht als Tastenkürzel. Für RDP ist das gelöst (`RdpBackend.KeyOf`), für VNC wirkt es von
-  selbst; im Agent (`agent/Matgate.Agent/Screen`, Eingabe `t: 'u'`) fehlt es.
+### Erledigt am 2026-11-18 (in 0.21.0)
+
+- **Verbindungsformular** (`HtmlViews.ServerFields`, Seiten `ServerCreate`/`ServerDetail`): eine Spalte
+  (`.conn-page`, 880 px), Reihenfolge Art → Ziel (Name, Host, Port) → Anmeldung (Benutzer, Passwort,
+  Domäne) → Einordnung (Ordner, Sichtbarkeit, Symbol, Aktiv) → „Weitere Einstellungen“ (zugeklappt:
+  Öffnen als, Tastaturlayout, Zertifikat, Schriftgröße, Startpfad, Notizen; offen, wenn dort etwas
+  gesetzt ist). Das Symbol ist eingeklappt, der Port zeigt die Vorgabe der Art, das Passwortfeld sagt
+  „gespeichert“/„keins gespeichert“. Speichern/Zurück/Löschen kleben unten. Die Seite heißt
+  „Neue Verbindung“ bzw. „Verbindung“ wie auf der Startseite.
+- **Rücksprung:** Von der Startseite geöffnet (`?return=home`) schließt sich der Tab nach Speichern,
+  Zurück oder Löschen wieder (`/admin/servers/done` ruft `window.parent.MatgateCloseShellTabOf`), und
+  die Startseite liest die Verbindungen neu. Aus der Verwaltung geht es zurück in deren Liste.
+- **Ordner:** bleiben der Name, den die Verbindungen tragen (`ServerFolders` in `Matgate/Models`) -
+  aber: im Formular eine Auswahl der vorhandenen Ordner plus „Neuer Ordner ...“ statt Freitext; das
+  Ordnersymbol gehört dem Ordner (wer dazukommt, übernimmt es). Verwaltung unter
+  `/admin?tab=folders` mit Unterseite je Ordner (`/admin/folders/new`, `/admin/folders/edit?name=`):
+  Name, Symbol, welche Verbindungen darin liegen; „Ordner auflösen“ lässt die Verbindungen stehen.
+  Endpunkte in `EndpointMapping.Folders.cs`. Von der Startseite führt „Ordner verwalten“ dorthin.
+- WebDAV ohne Port nahm 3389; jetzt 443.
+- Test: `tests/connection-form.js` (38 Prüfungen).
+
+Noch nicht angesehen aus dem Review: Sitzung am Telefon, Sitzung am Desktop, Dateien, der
+Quick-Connect-Dialog (sah beim Durchsehen ordentlich aus). Der Nutzer hat nur die oben genannten
+Stellen genannt - bei Gelegenheit nachfragen, ob der Umbau trifft, was ihn gestört hat.
+
+### Was sonst noch dazugehört
+
+- ~~Agent-Bildschirm: getippter Buchstabe bei gehaltenem Strg/Alt kam als Zeichen an.~~ Erledigt mit
+  Agent 0.8.1 (`InputInjector.Shortcut`: `VkKeyScanEx` im Layout des Vordergrundfensters). Am echten
+  Windows-Desktop noch nicht ausprobiert, nur im Testmodus des Agents.
 - **Guacamole-Sitzungen** haben eine eigene, ältere Fassung der Text-Differenz (`HtmlViews.cs`, um
   Zeile 10700, `oskInput`) ohne Platzhalter für die Rücktaste. Auf denselben Stand bringen.
 - **RDP, eigene Engine – was fehlt:** Laufwerk in der Sitzung, Terminalserver-Lizenzen, Kerberos,
@@ -93,6 +111,57 @@ aufgefallen ist und sicher dazugehört:
 Vorgehen für das Review: Bereich für Bereich mit dem Nutzer (Startseite/Tabs, Verbindung anlegen und
 bearbeiten, Sitzung am Telefon, Sitzung am Desktop, Dateien), je Bereich Befunde sammeln, dann
 gebündelt beheben und mit einem Skript unter `tests/` absichern.
+
+## Eigene Engine: unscharf beim Scrollen (Meldung vom 2026-11-18)
+
+Der Nutzer: „beim Scrollen manchmal sehr unscharf - der ganze Bildschirm, auch Bereiche, die sich nicht
+geändert haben“. Ursache: Über Quantisierer 46 mittelte die Notstufe (`Mosaic`) das GANZE Bild in
+Blöcke von 4/8/16 Pixeln. Geändert in `Matgate/Display/Video` und `ScreenSession.Tick()`:
+
+- **Mosaik nur im geänderten Bereich.** `I420Frame` merkt sich das Rechteck der Änderungen; der Encoder
+  hält `_shown` (was die Bibliothek zuletzt bekam) und mittelt nur dieses Rechteck (auf Makroblöcke
+  erweitert). `IsSharp` wird erst wahr, wenn kein Makroblock mehr Mosaik ist.
+- **Erst weniger Bilder, dann gröber.** `H264Encoder.SuggestedInterval` / `RateController.Interval`:
+  Ab Quantisierer 34 (`Readable`) wartet ein Bild mit viel Neuem bis zu 50 ms (also bis herunter auf
+  20 Bilder/s) statt gröber zu werden - nur wenn der Encoder der Bewegung nicht folgt. Kleine
+  Änderungen (Zeiger, Tippen) warten nie.
+- Gemessen (1920x1080, 12 Mbit/s, erzeugte Textseite, `tests/unit/Video.Tests/ScrollingTests.cs`):
+  stehender Text neben einer scrollenden Fläche blieb bei 47,3 dB (vorher bis 18,1 dB); eine Sekunde
+  Scrollen 26-36 dB ohne Mosaik (vorher 19-26 dB mit Mosaik). Suite im Container: 118 von 118.
+- **Bekannter Preis:** ein gleichmäßiges, schnelles Scrollen von mehr als etwa einer Sekunde ist rund
+  3 s lang schlechter als ohne Warten (33 statt 40-43 dB), bis der Encoder wieder im vollen Takt ist.
+- **Nicht am echten Windows-Server geprüft.** Der Teststapel (xrdp, kleines xterm) lastet den Encoder
+  beim Scrollen nicht aus (0,1-0,5 Mbit/s) - dort ist nur belegt, dass nichts gebrochen ist
+  (`tests/display.js` 49 von 49).
+- **Der eigentliche Hebel, noch nicht gezogen:** OpenH264 im Modus `ScreenContentRealTime` kostet beim
+  Scrollen 5- bis 20-mal weniger Bits bei gleicher Qualität, braucht bei 1080p aber 14-44 ms je Bild
+  (statt 8-17 ms). Eine einzige Messung; braucht eine eigene Bewertung (die Vorgabe „Kamera“ war
+  gemessen gewählt). Ein ganzer Schirm dichter Text, schnell gescrollt, bleibt bei 12 Mbit/s auch
+  jetzt schwer lesbar - dafür bräuchte es diesen Modus oder eine höhere Obergrenze.
+
+## Agent: Fenster des Rechners (Wunsch vom 2026-11-18, erledigt mit Agent 0.9.0)
+
+„Wie eine externe Steuerung“: Der Agent meldet seine Fenster (was Alt+Tab dort anbietet), ein Tipp holt
+eines nach vorn, und mit „Nur das gewählte Fenster zeigen“ ist dieses Fenster das ganze Bild und
+bleibt es, wenn es verschoben oder in der Größe geändert wird.
+
+- Agent: `Screen/WindowList.cs` (`IWindowList`, echte Liste über `EnumWindows`, Vordergrund über
+  `AttachThreadInput`/`SwitchToThisWindow`; `TestWindowList` für den Testmodus), in
+  `ScreenSession` die Ereignisse `screen.windows` (Liste) und `screen.window { id, only }`, der
+  Ausschnitt `_crop` (`UpdateCrop`/`Fit`): das Bild ist der Platz des Fensters auf dem Monitor, mit
+  geraden Seiten; Maus und Zeiger rechnen den Ausschnitt ein. Eine neue Größe gilt erst, wenn sie
+  300 ms steht (ein Encoder wird nicht je Bild neu gebaut).
+- Matgate: beide Ereignisse stehen auf der Liste dessen, was ein Browser schicken darf
+  (`EndpointMapping.AgentScreen.cs`); die Liste selbst gehört der Bildschirmseite (`#windows` in
+  `AgentScreenPage.cs`, am Telefon ein Blatt von unten), die Sitzungsleiste hat nur den Knopf.
+- Grenzen: Was das Fenster auf dem Rechner verdeckt, verdeckt es auch im Bild (es wird der Platz auf
+  dem Monitor gezeigt, kein eigenes Fensterbild). Fenster mit Administratorrechten lassen sich im
+  Benutzermodus nicht bedienen (wie bisher). Symbole der Fenster gibt es nicht.
+- Tests: 14 Prüfungen in `tests/agent-screen.js`; `matgate-agent screen-probe --windows` listet die
+  echten Fenster (Programme und Größen, keine Titel) - auf diesem Rechner 14 Stück.
+- Der auf dem Entwicklungsrechner installierte Agent wurde von Hand auf 0.9.0.0 gebracht
+  (Aufgabe stoppen, exe tauschen, Aufgabe starten). Am echten Desktop über Matgate noch nicht
+  ausprobiert: Fenster nach vorn holen und das Zuschneiden.
 
 ## Aufgabe 3: Agent für Linux und macOS (Frage des Nutzers)
 

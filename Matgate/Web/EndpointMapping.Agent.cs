@@ -375,11 +375,11 @@ public static partial class EndpointMapping
             return Results.StatusCode(StatusCodes.Status403Forbidden);
         }
 
-        return Results.Content(TerminalPageHtml(context, server!.Name, server.Id, "agent", "/api/agent/" + server.Id, 0), "text/html; charset=utf-8");
+        return Results.Content(TerminalPageHtml(context, user!, server!.Name, server.Id, "agent", "/api/agent/" + server.Id, 0), "text/html; charset=utf-8");
     }
 
     // The terminal page for an agent's programs and for SSH: the same page, its socket elsewhere.
-    private static string TerminalPageHtml(HttpContext context, string title, Guid serverId, string kind, string basePath, int fontSize)
+    private static string TerminalPageHtml(HttpContext context, MatgateUser user, string title, Guid serverId, string kind, string basePath, int fontSize)
     {
         var de = HtmlViews.Language(context) == "de";
         var ssh = kind == "ssh";
@@ -391,6 +391,7 @@ public static partial class EndpointMapping
             .Replace("__BASE__", basePath)
             .Replace("__FONT__", fontSize > 0 ? ServerEndpoint.NormalizeTerminalFontSize(fontSize).ToString() : "0")
             .Replace("__CSRF__", System.Net.WebUtility.HtmlEncode(context.User.FindFirst("csrf")?.Value ?? ""))
+            .Replace("__KEYS__", System.Net.WebUtility.HtmlEncode(KeyBar.TerminalJson(user, de)))
             .Replace("__TEXT__", System.Net.WebUtility.HtmlEncode(JsonSerializer.Serialize(new
             {
                 connecting = de ? "Verbinde ..." : "Connecting ...",

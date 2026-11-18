@@ -23,7 +23,8 @@ Remote sessions have two engines, and both are in the stack. The seeded SSH conn
 stack's `desktop` container - xrdp on 3389, TigerVNC on 5901, an xterm in each, and the VNC desktop once
 more on 3390 from a server that insists on Network Level Authentication - and reads there with
 `docker exec` what really arrived. The engine's parts have unit tests of their own in `tests/unit`
-(`dotnet test tests/unit/<part>.Tests`). That script waits for a busy remote desktop rather than assuming a
+(`dotnet test tests/unit/<part>.Tests`); so has the key bar's translation of a button's keys into scan codes,
+terminal bytes and keysyms (`KeyBar.Tests`), while `key-bar.js` presses the buttons in real sessions. That script waits for a busy remote desktop rather than assuming a
 quiet machine: a resize that takes xrdp a tenth of a second alone takes half a minute beside eighty other
 containers.
 

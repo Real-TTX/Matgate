@@ -1,42 +1,53 @@
 using System.Drawing.Drawing2D;
 using System.Runtime.InteropServices;
+using Matgate.Agent.Setup;
 
 namespace Matgate.Agent.Ui;
 
-// The window chrome of the agent's windows, after MatMon's (Matmon.Agent/Tray/BrandChrome.cs): a header
-// with the mark beside the name, a white body that grows with its content, a grey bar with the version
-// on the left and the buttons on the right, headings, paragraphs and tinted notices.
+// The window chrome of the agent's windows, the one of the Mat family's WinForms trays and setups (AGENT-05): a header with the mark
+// beside the name, a body that grows with its content, a footer with the version on the left and the buttons on the right, headings,
+// paragraphs and notices. Every colour comes from Theme (the tokens), in the light or dark mode of the system.
 internal static class Brand
 {
-    public static readonly Color Ink = Color.FromArgb(0x0F, 0x1B, 0x2D);
-    public static readonly Color HeadingColor = Color.FromArgb(0x1B, 0x26, 0x38);
-    public static readonly Color TextColor = Color.FromArgb(0x3A, 0x45, 0x55);
-    public static readonly Color Muted = Color.FromArgb(0x5B, 0x67, 0x78);
-    public static readonly Color FooterBack = Color.FromArgb(0xF4, 0xF6, 0xF9);
-    public static readonly Color Line = Color.FromArgb(0xE3, 0xE8, 0xEF);
-    public static readonly Color Accent = Color.FromArgb(0x17, 0x6B, 0x5B);
-
-    // The tray's states.
-    public static readonly Color Ok = Color.FromArgb(0x3F, 0xC4, 0x7A);
-    public static readonly Color Warning = Color.FromArgb(0xF2, 0xB1, 0x3C);
-    public static readonly Color Error = Color.FromArgb(0xE5, 0x4B, 0x5E);
-    public static readonly Color Neutral = Color.FromArgb(0x9A, 0xA4, 0xB1);
-
-    public const int ContentWidth = 560;
+    public const int ContentWidth = 544;
 
     public static Font BodyFont() => new("Segoe UI", 9.5f);
 
-    public static string Version => typeof(Brand).Assembly.GetName().Version?.ToString(3) ?? "0";
-
-    // A button for the bar: a fixed size and one margin rule, so all of them sit on one line.
-    public static Button FooterButton(string text, int width = 112, int gap = 8) => new()
+    // A button of the footer: one height, one margin rule, so all of them sit on one line.
+    public static Button FooterButton(string text, int width = 112, ButtonKind kind = ButtonKind.Secondary)
     {
-        Text = text,
-        Size = new Size(width, 32),
-        Margin = new Padding(gap, 0, 0, 0),
-    };
+        var button = new Button
+        {
+            Text = text,
+            Size = new Size(width, 32),
+            Margin = new Padding(8, 0, 0, 0),
+        };
+        Style(button, kind);
+        return button;
+    }
 
-    // The bar: the note (version) on the left, the buttons on the right - the first one rightmost.
+    // The flat look of the toolkit: the primary action filled with the accent, the danger action in red, every other button the
+    // surface with a line around it. Nothing lifts on hover; it only gets a step darker.
+    public static void Style(Button button, ButtonKind kind)
+    {
+        var (back, fore, line, hover, down) = kind switch
+        {
+            ButtonKind.Primary => (Theme.Accent, Theme.OnAccent, Theme.Accent, Theme.AccentHover, Theme.AccentActive),
+            ButtonKind.Danger => (Theme.Danger, Theme.OnDanger, Theme.Danger, ControlPaint.Dark(Theme.Danger, 0.05f), ControlPaint.Dark(Theme.Danger, 0.1f)),
+            _ => (Theme.Surface, Theme.Text, Theme.LineStrong, Theme.Surface2, Theme.Surface3),
+        };
+        button.FlatStyle = FlatStyle.Flat;
+        button.UseVisualStyleBackColor = false;
+        button.BackColor = back;
+        button.ForeColor = fore;
+        button.FlatAppearance.BorderSize = 1;
+        button.FlatAppearance.BorderColor = line;
+        button.FlatAppearance.MouseOverBackColor = hover;
+        button.FlatAppearance.MouseDownBackColor = down;
+    }
+
+    // The footer: the version on the left; the buttons on the right in the order given, left to right (the primary action first,
+    // then Back, then Cancel - SETUP-01; Info: Log folder, then Close).
     public static Panel Footer(string note, params Button[] buttons)
     {
         var row = new FlowLayoutPanel
@@ -44,14 +55,20 @@ internal static class Brand
             Dock = DockStyle.Right,
             AutoSize = true,
             AutoSizeMode = AutoSizeMode.GrowAndShrink,
-            FlowDirection = FlowDirection.RightToLeft,
+            FlowDirection = FlowDirection.LeftToRight,
             WrapContents = false,
             Padding = Padding.Empty,
             Margin = Padding.Empty,
+            BackColor = Theme.FooterBack,
         };
         row.Controls.AddRange(buttons);
-        var label = new Label { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true, ForeColor = Muted, Text = note };
-        var footer = new Panel { Dock = DockStyle.Bottom, Padding = new Padding(20, 13, 16, 13), Height = 58, BackColor = FooterBack };
+        var label = new Label { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true, ForeColor = Theme.Muted, Text = note };
+        var footer = new Panel { Dock = DockStyle.Bottom, Padding = new Padding(28, 13, 20, 13), Height = 58, BackColor = Theme.FooterBack };
+        footer.Paint += (_, e) =>
+        {
+            using var line = new Pen(Theme.FooterLine);
+            e.Graphics.DrawLine(line, 0, 0, footer.Width, 0);
+        };
         footer.Controls.Add(label);
         footer.Controls.Add(row);
         return footer;
@@ -62,16 +79,16 @@ internal static class Brand
         Text = text,
         AutoSize = true,
         Font = new Font("Segoe UI Semibold", 14f),
-        ForeColor = HeadingColor,
-        Margin = new Padding(0, 0, 0, 12),
+        ForeColor = Theme.Text,
+        Margin = new Padding(0, 0, 0, 8),
     };
 
-    public static Label Paragraph(string text, Color? color = null, int width = ContentWidth) => new()
+    public static Label Paragraph(string text, int width = ContentWidth) => new()
     {
         Text = text,
         AutoSize = true,
         MaximumSize = new Size(width, 0),
-        ForeColor = color ?? TextColor,
+        ForeColor = Theme.Text,
         Margin = new Padding(0, 0, 0, 10),
     };
 
@@ -79,7 +96,8 @@ internal static class Brand
     {
         Text = text,
         AutoSize = true,
-        ForeColor = HeadingColor,
+        ForeColor = Theme.Text,
+        Font = new Font("Segoe UI Semibold", 9.5f),
         Margin = new Padding(0, 6, 0, 3),
     };
 
@@ -88,13 +106,35 @@ internal static class Brand
         Text = text,
         AutoSize = true,
         MaximumSize = new Size(ContentWidth - indent, 0),
-        ForeColor = Muted,
-        Margin = new Padding(indent, 2, 0, 10),
+        ForeColor = Theme.Muted,
+        Margin = new Padding(indent, 2, 0, 8),
     };
+
+    // A field, a list or a box of the system in the colours of the mode (the colour mode of WinForms draws its frame).
+    public static T Field<T>(T control)
+        where T : Control
+    {
+        control.BackColor = Theme.Surface;
+        control.ForeColor = Theme.Text;
+        return control;
+    }
+
+    // The shield of Windows: what it is on needs administrator rights (TRAY-01, the actions of a service). One picture for the life of
+    // the process - the menu is built again every time it opens.
+    private static Image? _shield;
+
+    public static Image Shield() => _shield ??= SystemIcons.GetStockIcon(StockIconId.Shield, StockIconOptions.SmallIcon).ToBitmap();
 }
 
-// The Matgate mark - the rounded square with the gate, as /favicon.svg draws it - and the tray icons made
-// from it at start-up instead of shipped as files.
+internal enum ButtonKind
+{
+    Secondary,
+    Primary,
+    Danger,
+}
+
+// The Matgate mark - the rounded square with the gate, as Matgate's /favicon.svg draws it - and the tray icons made from it at start-up
+// instead of shipped as files. The two colours of the square are the logo's own (Matgate's favicon), not colours of a window.
 internal static class Mark
 {
     private static readonly Color From = Color.FromArgb(0x17, 0x6B, 0x5B);
@@ -114,28 +154,40 @@ internal static class Mark
         graphics.FillPath(Brushes.White, gate);
     }
 
-    // The mark, with a state dot in the corner when there is a state (the tray), without for a window.
-    public static Icon Create(Color? state, int size = 32)
+    // The mark as a bitmap: with the dot of a state at the bottom right for the tray (TRAY-02), without for a window. The dot sits in a
+    // cut-out of the mark - a ring of transparency around it, so that it reads on a light and on a dark task bar - like MatDesktop's
+    // tray icons: centre at three quarters of the size, radius 0.22, gap 0.08.
+    public static Bitmap Picture(AgentState? state, int size)
     {
-        using var bitmap = new Bitmap(size, size);
-        using (var graphics = Graphics.FromImage(bitmap))
+        var bitmap = new Bitmap(size, size);
+        using var graphics = Graphics.FromImage(bitmap);
+        graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
+        graphics.Clear(Color.Transparent);
+        Draw(graphics, new RectangleF(0, 0, size, size));
+        if (state is { } s)
         {
-            graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            graphics.PixelOffsetMode = PixelOffsetMode.HighQuality;
-            graphics.Clear(Color.Transparent);
-            var markSize = state is null ? size : size * 0.84f;
-            Draw(graphics, new RectangleF(0, 0, markSize, markSize));
-            if (state is { } color)
+            var centre = size * 0.75f;
+            var radius = size * 0.22f;
+            var gap = size * 0.08f;
+            using (var cut = new SolidBrush(Color.Transparent))
             {
-                // Outlined, so it reads on light and dark taskbars alike.
-                var dot = size * 0.42f;
-                using var fill = new SolidBrush(color);
-                using var outline = new Pen(Color.White, size / 16f);
-                graphics.FillEllipse(fill, size - dot - 1, size - dot - 1, dot, dot);
-                graphics.DrawEllipse(outline, size - dot - 1, size - dot - 1, dot, dot);
+                graphics.CompositingMode = CompositingMode.SourceCopy;
+                graphics.FillEllipse(cut, centre - radius - gap, centre - radius - gap, (radius + gap) * 2, (radius + gap) * 2);
+                graphics.CompositingMode = CompositingMode.SourceOver;
             }
+
+            using var dot = new SolidBrush(Theme.TrayDot(s));
+            graphics.FillEllipse(dot, centre - radius, centre - radius, radius * 2, radius * 2);
         }
 
+        return bitmap;
+    }
+
+    // The same as an icon (the tray and the windows).
+    public static Icon Create(AgentState? state, int size = 32)
+    {
+        using var bitmap = Picture(state, size);
         var handle = bitmap.GetHicon();
         try
         {
@@ -160,11 +212,14 @@ internal static class Mark
         return path;
     }
 
+    internal static GraphicsPath Rounded(RectangleF bounds, float radius) => RoundedRectangle(bounds, radius);
+
     [DllImport("user32.dll")]
     private static extern bool DestroyIcon(IntPtr handle);
 }
 
-// The top band: the mark beside "Matgate Agent" and a word (Setup, Update, Deinstallation, Info).
+// The top band: the mark beside "Matgate Agent" and a word for the mode or the window (Einrichtung, Update, Deinstallation, Info,
+// Verbindungsdaten).
 internal sealed class BrandHeader : Control
 {
     private string _subtitle;
@@ -173,7 +228,7 @@ internal sealed class BrandHeader : Control
     {
         _subtitle = subtitle;
         DoubleBuffered = true;
-        BackColor = Color.White;
+        BackColor = Theme.Surface;
         Dock = DockStyle.Top;
         Height = 84;
     }
@@ -197,22 +252,21 @@ internal sealed class BrandHeader : Control
         graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.ClearTypeGridFit;
 
         var scale = DeviceDpi / 96f;
-        var inset = 24 * scale;
-        var markSize = 40f * scale;
+        var inset = 28 * scale;
+        var markSize = 44f * scale;
         Mark.Draw(graphics, new RectangleF(inset, (Height - markSize) / 2f, markSize, markSize));
 
         using var titleFont = new Font("Segoe UI Semibold", 20f);
         using var subtitleFont = new Font("Segoe UI", 12f);
-        using var title = new SolidBrush(Brand.Ink);
-        using var soft = new SolidBrush(Brand.Muted);
+        using var title = new SolidBrush(Theme.Text);
+        using var soft = new SolidBrush(Theme.Muted);
         var left = inset + markSize + 14 * scale;
-        const string name = "Matgate Agent";
-        var titleSize = graphics.MeasureString(name, titleFont);
+        var titleSize = graphics.MeasureString(Installer.ProductName, titleFont);
         var subtitleSize = graphics.MeasureString(_subtitle, subtitleFont);
-        graphics.DrawString(name, titleFont, title, left, (Height - titleSize.Height) / 2f);
+        graphics.DrawString(Installer.ProductName, titleFont, title, left, (Height - titleSize.Height) / 2f);
         graphics.DrawString(_subtitle, subtitleFont, soft, left + titleSize.Width + 6 * scale, (Height - subtitleSize.Height) / 2f + 2 * scale);
 
-        using var line = new Pen(Brand.Line);
+        using var line = new Pen(Theme.Line);
         graphics.DrawLine(line, 0, Height - 1, Width, Height - 1);
     }
 }
@@ -225,10 +279,11 @@ internal enum NoticeTone
     Error,
 }
 
-// A notice: a tinted box with a bar in the tone's colour on the left.
+// A notice, as MatUi's mat-alert: the tint of its tone with rounded corners and the text in the tone's colour - no bar at one side.
 internal sealed class BrandNotice : Label
 {
     private NoticeTone _tone;
+    private Color _tint;
 
     public BrandNotice(string text, NoticeTone tone, int width = Brand.ContentWidth)
     {
@@ -236,7 +291,7 @@ internal sealed class BrandNotice : Label
         AutoSize = true;
         MaximumSize = new Size(width, 0);
         MinimumSize = new Size(width, 0);
-        Padding = new Padding(14, 9, 12, 9);
+        Padding = new Padding(14, 10, 14, 10);
         Margin = new Padding(0, 4, 0, 10);
         Tone = tone;
     }
@@ -248,33 +303,86 @@ internal sealed class BrandNotice : Label
         set
         {
             _tone = value;
-            (BackColor, ForeColor) = value switch
-            {
-                NoticeTone.Success => (Color.FromArgb(0xE9, 0xF8, 0xF0), Color.FromArgb(0x1C, 0x6B, 0x43)),
-                NoticeTone.Warning => (Color.FromArgb(0xFF, 0xF6, 0xE5), Color.FromArgb(0x7A, 0x4E, 0x00)),
-                NoticeTone.Error => (Color.FromArgb(0xFD, 0xEC, 0xEE), Color.FromArgb(0x9B, 0x1C, 0x2E)),
-                _ => (Color.FromArgb(0xEE, 0xF4, 0xFB), Color.FromArgb(0x1F, 0x3B, 0x63)),
-            };
+            (_tint, ForeColor) = Theme.Tone(value);
             Invalidate();
         }
     }
 
-    protected override void OnPaint(PaintEventArgs e)
+    protected override void OnPaintBackground(PaintEventArgs e)
     {
-        base.OnPaint(e);
-        var bar = _tone switch
+        using (var surface = new SolidBrush(Parent?.BackColor ?? Theme.Surface))
         {
-            NoticeTone.Success => Brand.Ok,
-            NoticeTone.Warning => Brand.Warning,
-            NoticeTone.Error => Brand.Error,
-            _ => Brand.Accent,
-        };
-        using var brush = new SolidBrush(bar);
-        e.Graphics.FillRectangle(brush, 0, 0, Math.Max(3, (int)Math.Round(4 * DeviceDpi / 96f)), Height);
+            e.Graphics.FillRectangle(surface, ClientRectangle);
+        }
+
+        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        var radius = 8 * DeviceDpi / 96f;
+        using var shape = Mark.Rounded(new RectangleF(0, 0, Width - 1, Height - 1), radius);
+        using var tint = new SolidBrush(_tint);
+        e.Graphics.FillPath(tint, shape);
     }
 }
 
-// A value to hand over to Matgate: the label, the value in a read-only field, and a copy button.
+// The bar of the progress step: a track and a piece in the accent that runs along it while the work has no measure (MatUi's progress
+// bar; the bar of the system has no track in the dark mode).
+internal sealed class MarqueeBar : Control
+{
+    private readonly System.Windows.Forms.Timer _timer = new() { Interval = 30 };
+    private float _phase = 0.1f;
+
+    public MarqueeBar()
+    {
+        DoubleBuffered = true;
+        SetStyle(ControlStyles.ResizeRedraw | ControlStyles.SupportsTransparentBackColor, true);
+        AccessibleRole = AccessibleRole.ProgressBar;
+        _timer.Tick += (_, _) =>
+        {
+            _phase = (_phase + 0.012f) % 1.3f;
+            Invalidate();
+        };
+    }
+
+    protected override void OnVisibleChanged(EventArgs e)
+    {
+        base.OnVisibleChanged(e);
+        _timer.Enabled = Visible;
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        var graphics = e.Graphics;
+        graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        graphics.Clear(Parent?.BackColor ?? Theme.Surface);
+        var radius = Height / 2f;
+        using (var track = Mark.Rounded(new RectangleF(0, 0, Width - 1, Height - 1), radius))
+        using (var trackBrush = new SolidBrush(Theme.Surface3))
+        {
+            graphics.FillPath(trackBrush, track);
+        }
+
+        var piece = Width * 0.3f;
+        var left = Math.Max(0, (_phase - 0.3f) * Width);
+        var right = Math.Min(Width - 1, _phase * Width);
+        if (right - left > Height)
+        {
+            using var chunk = Mark.Rounded(new RectangleF(left, 0, Math.Min(piece, right - left), Height - 1), radius);
+            using var accent = new SolidBrush(Theme.Accent);
+            graphics.FillPath(accent, chunk);
+        }
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            _timer.Dispose();
+        }
+
+        base.Dispose(disposing);
+    }
+}
+
+// A value to hand over to Matgate: the label, the value in a read-only field, and a Copy button (AGENT-02).
 internal sealed class CopyField : TableLayoutPanel
 {
     public CopyField(string label, string value, bool monospace = false, bool wrap = false)
@@ -286,14 +394,15 @@ internal sealed class CopyField : TableLayoutPanel
         ColumnStyles.Add(new ColumnStyle(SizeType.Absolute, 150));
         ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
         ColumnStyles.Add(new ColumnStyle(SizeType.AutoSize));
-        Controls.Add(new Label { Text = label, AutoSize = true, ForeColor = Brand.Muted, Anchor = AnchorStyles.Left, Margin = new Padding(0, 6, 8, 0) }, 0, 0);
+        Controls.Add(new Label { Text = label, AutoSize = true, ForeColor = Theme.Muted, Anchor = AnchorStyles.Left, Margin = new Padding(0, 6, 8, 0) }, 0, 0);
         var box = new TextBox
         {
             Text = value,
             ReadOnly = true,
             BorderStyle = BorderStyle.FixedSingle,
-            BackColor = Brand.FooterBack,
-            Width = 318,
+            BackColor = Theme.Surface2,
+            ForeColor = Theme.Text,
+            Width = 300,
             Font = monospace ? new Font("Consolas", 9.5f) : Brand.BodyFont(),
             Margin = new Padding(0, 2, 6, 2),
         };
@@ -304,7 +413,10 @@ internal sealed class CopyField : TableLayoutPanel
             box.Text = value.Length > 32 ? value[..32] + Environment.NewLine + value[32..] : value;
             box.Height = (int)(box.Font.GetHeight() * 2) + 8;
         }
+
         var copy = new Button { Text = "Kopieren", Size = new Size(84, 28), Margin = new Padding(0, 1, 0, 1) };
+        Brand.Style(copy, ButtonKind.Secondary);
+        copy.AccessibleName = label + " kopieren";
         copy.Click += (_, _) =>
         {
             Clipboard.SetText(value);

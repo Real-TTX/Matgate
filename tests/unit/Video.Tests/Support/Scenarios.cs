@@ -33,6 +33,32 @@ internal static class Scenarios
         }
     }
 
+    // A page scrolls in one part of the screen while the rest stands still, by the clock rather than by the
+    // picture: so many rows a second for so many milliseconds, and every picture shows the page where it is
+    // when the picture is taken. The pictures come at the recording's pace - or, paced, when the session
+    // would take them: it asks the encoder how long a picture with that much new in it should wait. after is
+    // called for every picture.
+    public static void ScrollPart(
+        Recording recording, byte[] page, int left, int top, int width, int height, double rowsPerSecond, double milliseconds, bool paced,
+        Action<EncodedPicture>? after = null)
+    {
+        var start = recording.Now;
+        while (true)
+        {
+            var interval = paced ? recording.Interval((long)width * height) : 1000.0 / recording.FramesPerSecond;
+            var time = recording.Now + interval - start;
+            if (time > milliseconds)
+            {
+                break;
+            }
+
+            Pictures.ScrollPart(page, recording.Source, recording.Width, left, top, width, height, (int)(time * rowsPerSecond / 1000));
+            recording.Show(left, top, width, height);
+            var picture = recording.Encode(after: interval);
+            after?.Invoke(picture);
+        }
+    }
+
     // A window is dragged across a desktop that otherwise does not change; only the part of the screen the
     // window left and the part it now covers are converted.
     public static void Window(Recording recording, int pictures, bool refine = true)

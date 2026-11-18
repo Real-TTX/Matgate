@@ -2,8 +2,8 @@ using System.Drawing.Drawing2D;
 
 namespace Matgate.Agent.Ui;
 
-// The frame of the agent's small windows (Info, connection details), after MatMon's BrandWindow: the
-// header, a white body as tall as its content, the grey bar with the version on the left.
+// The frame of the tray's windows (Info, connection details), in the chrome of the Mat family's WinForms trays (AGENT-05): the
+// header, a body as tall as its content, the footer with the version on the left and the buttons on the right.
 internal abstract class BrandWindow : Form
 {
     public const int ClientWidth = 616;
@@ -34,22 +34,26 @@ internal abstract class BrandWindow : Form
         MinimizeBox = false;
         StartPosition = FormStartPosition.CenterScreen;
         Font = Brand.BodyFont();
-        BackColor = Color.White;
+        BackColor = Theme.Surface;
+        ForeColor = Theme.Text;
         ClientSize = new Size(ClientWidth, 360);
         Icon = Mark.Create(null);
         _header = new BrandHeader(subtitle);
         _body.Controls.Add(Content);
     }
 
+    // The buttons of the footer, left to right.
     protected void Complete(params Button[] buttons)
     {
-        _footer = Brand.Footer($"Version {Brand.Version}", buttons);
+        _footer = Brand.Footer(AgentVersion.Text, buttons);
         Controls.Add(_body);
         Controls.Add(_footer);
         Controls.Add(_header);
         ResumeLayout(false);
         PerformLayout();
         FitHeight();
+        // The focus on Close, not in the first field (which would select a value to copy).
+        ActiveControl = buttons[^1];
     }
 
     // As tall as what it shows - no scrollbar, no empty half.
@@ -66,11 +70,10 @@ internal abstract class BrandWindow : Form
     }
 }
 
-// The state the tray icon says: a dot in its colour, a word, a line of detail, a rule under it.
+// The state the tray icon says (TRAY-05): a dot in its colour, the word, one sentence that explains it, a line under it.
 internal sealed class StateLine : Control
 {
-    private Color _color = Brand.Neutral;
-    private string _title = "";
+    private AgentState _state = AgentState.NotSetUp;
     private string _detail = "";
 
     public StateLine()
@@ -80,9 +83,11 @@ internal sealed class StateLine : Control
         Size = new Size(Brand.ContentWidth, 60);
     }
 
-    public void Set(Color color, string title, string detail)
+    public void Set(AgentState state, string detail)
     {
-        (_color, _title, _detail) = (color, title, detail);
+        (_state, _detail) = (state, detail);
+        Text = state.Word();
+        AccessibleName = state.Word() + ". " + detail;
         Height = Measure();
         Invalidate();
     }
@@ -96,7 +101,7 @@ internal sealed class StateLine : Control
     private int Measure()
     {
         using var titleFont = TitleFont();
-        var titleHeight = TextRenderer.MeasureText(_title, titleFont).Height;
+        var titleHeight = TextRenderer.MeasureText(_state.Word(), titleFont).Height;
         var detailHeight = TextRenderer.MeasureText(_detail, Font, new Size(Width - TextLeft, 0), TextFormatFlags.WordBreak).Height;
         return titleHeight + (int)(2 * Factor) + detailHeight + (int)(16 * Factor);
     }
@@ -106,15 +111,16 @@ internal sealed class StateLine : Control
         var graphics = e.Graphics;
         graphics.SmoothingMode = SmoothingMode.AntiAlias;
         using var titleFont = TitleFont();
-        var titleHeight = TextRenderer.MeasureText(_title, titleFont).Height;
+        var title = _state.Word();
+        var titleHeight = TextRenderer.MeasureText(title, titleFont).Height;
         var dot = 12 * Factor;
-        using var brush = new SolidBrush(_color);
+        using var brush = new SolidBrush(Theme.State(_state));
         graphics.FillEllipse(brush, 2 * Factor, (titleHeight - dot) / 2f, dot, dot);
-        TextRenderer.DrawText(graphics, _title, titleFont, new Point(TextLeft - (int)(3 * Factor), 0), Brand.HeadingColor, TextFormatFlags.NoPadding);
+        TextRenderer.DrawText(graphics, title, titleFont, new Point(TextLeft - (int)(3 * Factor), 0), Theme.Text, TextFormatFlags.NoPadding);
         var detailTop = titleHeight + (int)(2 * Factor);
         TextRenderer.DrawText(graphics, _detail, Font, new Rectangle(TextLeft - (int)(3 * Factor), detailTop, Width - TextLeft, Height - detailTop),
-            Brand.Muted, TextFormatFlags.WordBreak | TextFormatFlags.NoPadding);
-        using var line = new Pen(Brand.Line);
+            Theme.Muted, TextFormatFlags.WordBreak | TextFormatFlags.NoPadding);
+        using var line = new Pen(Theme.Line);
         graphics.DrawLine(line, 0, Height - 1, Width, Height - 1);
     }
 }

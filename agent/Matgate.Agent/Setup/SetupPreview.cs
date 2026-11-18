@@ -2,33 +2,87 @@ using Matgate.Agent.Ui;
 
 namespace Matgate.Agent.Setup;
 
-// setup-preview <folder>: draws every window of the agent into image files without showing them on the
-// screen - for checking the layout.
+// setup-preview <folder>: draws every window of the agent into image files without showing them on the screen - for checking the
+// layout and for the pictures of the READMEs and of MatDesign. Everything comes from sample data (the computer ANNA-PC, the user Anna,
+// a sample password and fingerprint, a pinned start time), never from this machine (MatDesign, docs/DESKTOP.md section 6), in the light
+// and in the dark mode: <name>-light.png and <name>-dark.png.
 internal static class SetupPreview
 {
+    public const string SampleToken = "q3Vx9Lk2-example-token-Rt7mWp";
+    public const string SampleFingerprint = "B6A1A74FF49B59E48728364E704707897F3C88F02CCAA3EAD9237DFE224BA135";
+
+    // An installation as setup-preview shows it in the update, the uninstall and the tray.
+    private static SetupOptions Installed() => new()
+    {
+        Port = 7488,
+        Mode = "user",
+        Version = "0.7.0.17",
+        Roots = [new AgentRoot { Name = "Home", Path = Machine.Home }, new AgentRoot { Name = "Projekte", Path = @"D:\Projekte" }],
+        Claude = true,
+        Screen = true,
+    };
+
+    private static AgentStatus.Snapshot Status() =>
+        new(AgentVersion.Number, 7488, "user", 1, new DateTimeOffset(2026, 11, 1, 8, 2, 0, TimeSpan.FromHours(1)));
+
+    private static readonly string[] Progress =
+    [
+        @"Installing Matgate Agent to C:\Program Files\Matgate Agent, settings in C:\ProgramData\Matgate Agent.",
+        @"Starts at logon as ANNA-PC\Anna.",
+        "  netsh advfirewall: ok",
+        "  schtasks /Create: ok",
+        "  schtasks /Run: ok",
+        "  Symbol im Infobereich: eingerichtet",
+    ];
+
     public static void Save(string folder)
     {
-        // The folder picker and the clipboard need it; without, the "Hinzufügen" button did nothing.
-        Console.WriteLine($"apartment: {Thread.CurrentThread.GetApartmentState()}");
+        Machine.Sample = true;
         Directory.CreateDirectory(folder);
-        var result = new Installer.Result("q3Vx9Lk2-example-token-Rt7mWp", "B6A1A74FF49B59E48728364E704707897F3C88F02CCAA3EAD9237DFE224BA135", 7488, true);
-        foreach (var page in new[] { "Welcome", "Connection", "Content", "Finish" })
+        foreach (var (dark, suffix) in new[] { (false, "light"), (true, "dark") })
         {
-            var wizard = new SetupWizard(uninstall: false);
-            Draw(wizard, Path.Combine(folder, "setup-" + page.ToLowerInvariant() + ".png"), () => wizard.Preview(page, result));
+            Theme.Use(dark);
+            DrawAll(folder, suffix);
         }
 
-        var uninstall = new SetupWizard(uninstall: true);
-        Draw(uninstall, Path.Combine(folder, "uninstall-confirm.png"), () => { });
+        Theme.Use(false);
+        foreach (var state in Enum.GetValues<AgentState>())
+        {
+            using var bitmap = Mark.Picture(state, 64);
+            bitmap.Save(Path.Combine(folder, $"tray-icon-{state.ToString().ToLowerInvariant()}.png"));
+        }
+    }
 
+    private static void DrawAll(string folder, string suffix)
+    {
+        string File(string name) => Path.Combine(folder, $"{name}-{suffix}.png");
+        var result = new Installer.Result(SampleToken, SampleFingerprint, 7488, true);
+        foreach (var page in new[] { "Welcome", "Connection", "Content", "Finish" })
+        {
+            var wizard = new SetupWizard(uninstall: false, installed: null);
+            Draw(wizard, File("setup-" + page.ToLowerInvariant()), () => wizard.Preview(page, result));
+        }
+
+        var progress = new SetupWizard(uninstall: false, installed: null);
+        Draw(progress, File("setup-progress"), () => progress.Preview("Progress", progress: Progress));
+
+        var update = new SetupWizard(uninstall: false, Installed());
+        Draw(update, File("setup-update"), () => { });
+
+        var uninstall = new SetupWizard(uninstall: true, Installed());
+        Draw(uninstall, File("uninstall-confirm"), () => { });
+
+        var (state, detail) = TrayApplication.Describe(Status(), Installed(), null, starting: false);
         var info = new InfoWindow(() => { }, () => { });
-        Draw(info, Path.Combine(folder, "tray-info.png"), () => info.Show(Brand.Ok, ("Läuft", "Bereit für Matgate auf Port 7488. Wer sich wann verbunden hat, steht im Log."),
-            [new("Rechner", Environment.MachineName), new("Port", "7488"), new("Modus", "als angemeldeter Benutzer"), new("Gestartet", "01.11.2026 08:02 Uhr"), new("Version", Brand.Version), new("Terminals", "1 offen"), new("Einstellungen", Installer.DataFolder)]));
-        Draw(ConnectionWindow.Preview(), Path.Combine(folder, "tray-connection.png"), () => { });
+        Draw(info, File("tray-info"), () => info.Show(state, detail, TrayApplication.InfoRows(Status(), Installed())));
 
-        using var icon = Mark.Create(Brand.Ok, 64);
-        using var bitmap = icon.ToBitmap();
-        bitmap.Save(Path.Combine(folder, "tray-icon.png"));
+        var (waiting, waitingDetail) = TrayApplication.Describe(null, Installed(), null, starting: true);
+        var infoWaiting = new InfoWindow(() => { }, () => { });
+        Draw(infoWaiting, File("tray-info-waiting"), () => infoWaiting.Show(waiting, waitingDetail, TrayApplication.InfoRows(null, Installed())));
+
+        Draw(ConnectionWindow.Preview(), File("tray-connection"), () => { });
+        DrawMenu(File("tray-menu"), AgentState.Running);
+        DrawMenu(File("tray-menu-stopped"), AgentState.Stopped);
     }
 
     // write-icon <file.ico>: the mark as a Windows icon with every size Explorer asks for.
@@ -51,7 +105,7 @@ internal static class SetupPreview
             return png.ToArray();
         }).ToArray();
 
-        using var output = new BinaryWriter(File.Create(path));
+        using var output = new BinaryWriter(System.IO.File.Create(path));
         output.Write((short)0);
         output.Write((short)1);
         output.Write((short)sizes.Length);
@@ -87,15 +141,40 @@ internal static class SetupPreview
             form.Show();
             prepare();
             Application.DoEvents();
-            // This machine's screen may be smaller than the window; say whether the content fits the real size.
+            // Whether the content fits the window or needs its scroll bar.
             foreach (var panel in AllControls(form).OfType<FlowLayoutPanel>().Where(p => p.AutoScroll))
             {
-                Console.WriteLine($"{Path.GetFileName(path)}: content {panel.DisplayRectangle.Height} px, room at 680 px client height {680 - 84 - 58 - 34} px");
+                Console.WriteLine($"{Path.GetFileName(path)}: content {panel.DisplayRectangle.Height} px in {panel.ClientSize.Height} px{(panel.DisplayRectangle.Height > panel.ClientSize.Height ? " - scrolls" : "")}");
             }
-            using var bitmap = new Bitmap(form.Width, form.Height);
-            form.DrawToBitmap(bitmap, new Rectangle(0, 0, form.Width, form.Height));
+
+            // The window without the frame and the title bar of the system: DrawToBitmap paints those in the light look whatever the
+            // mode, which a picture of the dark mode must not show. A line of the mode stands for the frame.
+            using var whole = new Bitmap(form.Width, form.Height);
+            form.DrawToBitmap(whole, new Rectangle(0, 0, form.Width, form.Height));
+            var client = form.RectangleToScreen(form.ClientRectangle);
+            using var bitmap = whole.Clone(new Rectangle(client.X - form.Left, client.Y - form.Top, client.Width, client.Height), whole.PixelFormat);
+            using (var graphics = Graphics.FromImage(bitmap))
+            using (var frame = new Pen(Theme.LineStrong))
+            {
+                graphics.DrawRectangle(frame, 0, 0, bitmap.Width - 1, bitmap.Height - 1);
+            }
+
             bitmap.Save(path);
             form.Hide();
         }
+    }
+
+    // The tray menu as it opens, drawn into a picture (it is never shown on the screen here).
+    private static void DrawMenu(string path, AgentState state)
+    {
+        using var menu = new ContextMenuStrip();
+        TrayApplication.Fill(menu, state, Installed(), set: true, TrayActions.None);
+        menu.CreateControl();
+        menu.PerformLayout();
+        var size = menu.GetPreferredSize(Size.Empty);
+        menu.Size = size;
+        using var bitmap = new Bitmap(size.Width, size.Height);
+        menu.DrawToBitmap(bitmap, new Rectangle(Point.Empty, size));
+        bitmap.Save(path);
     }
 }

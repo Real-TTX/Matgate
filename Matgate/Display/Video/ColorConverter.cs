@@ -45,7 +45,7 @@ public static unsafe class ColorConverter
 
         if (changed)
         {
-            target.MarkChanged(right - left, bottom - top);
+            target.MarkChanged(left, top, right - left, bottom - top);
         }
     }
 

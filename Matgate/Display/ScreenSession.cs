@@ -511,7 +511,22 @@ public sealed class ScreenSession : IScreenHost, IAsyncDisposable
                 return 15;
             }
 
-            var slot = _lastEncode + 1000 / _fps - now;
+            // Where the screen changes faster than the connection carries, the encoder asks for fewer
+            // pictures before it makes them hard to read: it says how long a picture with this much new in
+            // it should wait. A key frame does not wait, and neither does a small change - the encoder asks
+            // nothing for a cursor or a letter typed.
+            var interval = 1000 / _fps;
+            if (dirty && !key && !_reopen && _encoder is { } pacing)
+            {
+                var width = Math.Clamp(_dirtyRight, 0, pacing.Width) - Math.Clamp(_dirtyLeft, 0, pacing.Width);
+                var height = Math.Clamp(_dirtyBottom, 0, pacing.Height) - Math.Clamp(_dirtyTop, 0, pacing.Height);
+                if (width > 0 && height > 0)
+                {
+                    interval = Math.Max(interval, pacing.SuggestedInterval((long)width * height));
+                }
+            }
+
+            var slot = _lastEncode + interval - now;
             if (slot > 0)
             {
                 return (int)slot;

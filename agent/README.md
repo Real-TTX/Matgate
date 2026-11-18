@@ -57,6 +57,11 @@ there (it only shows one when opened on its own, outside Matgate).
   this device's clipboard; files copied there are offered for download (a browser cannot put files on a
   clipboard).
 - **Several monitors:** a choice in the bar.
+- **Windows:** a list of the machine's windows in the bar (what Alt+Tab offers there) - picking one brings it
+  to the front, a minimised one comes back first. With "show the chosen window only" that window is the whole
+  picture and stays it wherever it is moved or resized; the mouse then moves inside it. What covers the window
+  on the machine covers it in the picture too - it is the window's place on the monitor that is shown.
+  `matgate-agent screen-probe --windows` lists what would be offered (programs and sizes, no titles).
 - **Ctrl+Alt+Del:** a button in the bar (and in a phone's key bar) - for the sign-in screen and the lock
   screen, when the agent runs as a system service.
 - **Phone and tablet:** the pointer mode of the toolbar, shared with RDP sessions. *Touchpad* (a phone's
@@ -64,8 +69,10 @@ there (it only shows one when opened on its own, outside Matgate).
   quicker), a tap clicks there, tap and then touch again to drag, two fingers tapped are the right button,
   two fingers moving scroll; zoomed in, the picture follows the cursor. *Direct touch* (a tablet's default):
   a tap clicks where the finger is, a long press is the right button, a moving finger drags. Pinching zooms
-  in both. The keyboard buttons open the device's keyboard or a key bar (Esc, Tab, Windows, Ctrl, Alt, Del,
-  Ctrl+Alt+Del, arrows).
+  in both. The keyboard buttons open the device's keyboard or the key bar - the user's own buttons
+  (Account -> Key bar; by default Esc, Tab, Ctrl, Alt, Windows, Del, the arrows, Ctrl+C, Ctrl+V and
+  Ctrl+Alt+Del). A letter typed while Ctrl, Alt or the Windows key is held is pressed as the key it sits on in
+  the machine's keyboard layout, so it is a shortcut there.
 - **One viewer at a time:** a second window takes the screen over; the first says so and can take it back.
 
 Where it works depends on how the agent runs:
@@ -130,7 +137,9 @@ What it puts where:
 |---|---|
 | Program | `%ProgramFiles%\Matgate Agent\matgate-agent.exe` |
 | Settings, token, certificate, `agent.log` | `%ProgramData%\Matgate Agent` (only SYSTEM, administrators and the agent's account) |
-| Start | task "Matgate Agent" (user mode) or service "MatgateAgent" (service mode, restarts on failure) |
+| Start | task "Matgate Agent" (user mode) or service "Matgate Agent" (service mode, restarts on failure; an installation from 0.7 or older keeps its service "MatgateAgent" until the setup runs again) |
+| Tray icon | autostart value "Matgate Agent Tray" (HKLM Run) and the Start menu entry "Matgate Agent" |
+| Status | the pipe `matgate-agent-status` (state, version, port, started, open terminals - never the token) |
 | Firewall | rule "Matgate Agent" for the port, if allowed |
 | Apps & Features | "Matgate Agent" - the uninstaller |
 
@@ -145,15 +154,40 @@ matgate-agent.exe setup --dry-run      # says what it would do, changes nothing
 
 ## The tray icon
 
-The Matgate mark in the notification area, started at every logon (it can be switched off in the setup).
-Its dot says the state: green - the agent runs; red - installed but not answering; grey - not set up.
-Whether Matgate is connected right now is not shown (Matgate keeps its connection open while idle); who
-connected when is in `agent.log`. Double-click opens *Info*; the menu also has *Verbindungsdaten*
-(host, port, token, fingerprint to copy - for a service this asks for administrator rights), *Einstellungen
-ändern* (the setup again), *Agent neu starten* and *Log-Ordner öffnen*. It only looks at the agent through a
-local pipe without secrets; `matgate-agent status` shows the same in a console.
+The Matgate mark in the notification area, started at every logon (it can be switched off in the setup). It
+follows the desktop rules of the Mat family (MatDesign, areas TRAY and AGENT): the colours are MatUi's tokens
+for Matgate's accent, copied as MatDesktop's token files into `MatDesktop/` (never edited here - copy them
+again with `node tools/matdesktop-copy.js <this folder> --tokens-only` in MatDesign), in the light or dark
+mode of Windows.
+
+Its dot says the state, and the second line of the menu, the tooltip (`Matgate Agent: Läuft`) and Info say it
+in words: green *Läuft* - the agent answers; amber *Wartet* - it is starting or stopping (at sign-in, after
+*Dienst starten*); red *Gestoppt* - installed but not answering; grey *Nicht eingerichtet*. Whether Matgate is
+connected right now is not shown (Matgate keeps its connection open while idle); who connected when is in
+`agent.log`.
+
+A left click opens *Info*, the right click the menu:
+
+| | |
+|---|---|
+| Matgate Agent 0.8.0.17 | the version (disabled) |
+| Läuft | the state (disabled) |
+| **Matgate Agent öffnen** | Info - the agent has no page of its own |
+| Verbindungsdaten … | host, port, password, fingerprint to copy (for a service this asks for administrator rights) |
+| Info … · Einrichten … · Log-Ordner öffnen | Einrichten is the setup again (administrator rights) |
+| Dienst starten … / beenden … / neu starten … | with the shield, whichever applies now; *Agent …* in user mode |
+| Beenden | ends the icon, never the agent |
+
+There is no uninstall in the menu (Settings > Apps does that). The icon only looks at the agent through the
+local pipe `matgate-agent-status`, which carries no secret; `matgate-agent status` shows the same in a
+console. Stopping or restarting the agent leaves every icon running.
 
 ![Info](../docs/images/agent-tray-info.png) ![Connection details](../docs/images/agent-tray-connection.png)
+
+`matgate-agent setup-preview <folder>` draws every window - the setup steps, the update, the uninstall, Info,
+the connection details, the tray menu and the icon in its four states - into PNG files, light and dark, from
+sample data (the computer ANNA-PC, the user Anna, a sample password): nothing of the machine it runs on, so
+the pictures may be published. The ones in `docs/images` are made that way.
 
 ## Updates
 

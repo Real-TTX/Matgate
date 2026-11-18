@@ -16,6 +16,8 @@ public interface IInputSink
     void Key(int scanCode, bool extended, bool down);
 
     void Text(string text);
+
+    void Shortcut(char character);
 }
 
 public sealed class InputInjector : IInputSink
@@ -99,6 +101,25 @@ public sealed class InputInjector : IInputSink
         }
     }
 
+    // A character typed while Ctrl, Alt or the Windows key is held: a shortcut, and Windows knows shortcuts by
+    // key, not by character. Which key that is, says the keyboard layout of the window that gets it - so Ctrl+Z
+    // is Ctrl+Z on a German keyboard as well. A character that needs AltGr there has no such key.
+    public void Shortcut(char character)
+    {
+        var layout = GetKeyboardLayout(GetWindowThreadProcessId(GetForegroundWindow(), out _));
+        var found = VkKeyScanEx(character, layout);
+        var virtualKey = (ushort)(found & 0xFF);
+        if (found == -1 || virtualKey == 0xFF || (found & 0x0600) != 0)
+        {
+            Text(character.ToString());
+            return;
+        }
+
+        var scan = (ushort)MapVirtualKeyEx(virtualKey, 0, layout);
+        SendKeyboard(virtualKey, scan, 0);
+        SendKeyboard(virtualKey, scan, KeyUp);
+    }
+
     private static void SendMouse(int dx, int dy, uint data, uint flags)
     {
         var input = new Input { Type = InputMouse };
@@ -156,6 +177,21 @@ public sealed class InputInjector : IInputSink
 
     [DllImport("user32.dll")]
     private static extern int GetSystemMetrics(int index);
+
+    [DllImport("user32.dll")]
+    private static extern nint GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(nint window, out uint processId);
+
+    [DllImport("user32.dll")]
+    private static extern nint GetKeyboardLayout(uint thread);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern short VkKeyScanEx(char character, nint layout);
+
+    [DllImport("user32.dll")]
+    private static extern uint MapVirtualKeyEx(uint code, uint mapType, nint layout);
 }
 
 // For the tests: nothing reaches the real mouse or keyboard, every input is reported back instead.
@@ -170,4 +206,6 @@ public sealed class RecordingInput(Action<string> report) : IInputSink
     public void Key(int scanCode, bool extended, bool down) => report($"key {scanCode:x2}{(extended ? "e" : "")} {(down ? "down" : "up")}");
 
     public void Text(string text) => report($"text {text}");
+
+    public void Shortcut(char character) => report($"shortcut {character}");
 }

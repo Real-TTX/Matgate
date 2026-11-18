@@ -442,6 +442,8 @@ public static partial class EndpointMapping
         MapAgentEndpoints(app);
         MapDisplayEndpoints(app);
         MapSshEndpoints(app);
+        MapKeyBarEndpoints(app);
+        MapFolderEndpoints(app);
         app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
         app.MapMethods("/favicon.svg", new[] { "GET", "HEAD" }, () => Results.Text(FaviconSvg, "image/svg+xml"));
         app.MapMethods("/favicon.ico", new[] { "GET", "HEAD" }, () => Results.Text(FaviconSvg, "image/svg+xml"));
@@ -614,6 +616,7 @@ public static partial class EndpointMapping
 
         app.MapGet("/admin/servers", () => Results.Redirect("/admin?tab=servers")).RequireAuthorization();
         app.MapGet("/admin/servers/new", NewServerAsync).RequireAuthorization();
+        app.MapGet("/admin/servers/done", ServerFormDoneAsync).RequireAuthorization();
         app.MapPost("/admin/servers", CreateServerAsync).RequireAuthorization();
         app.MapGet("/admin/servers/{id:guid}", ServerDetailAsync).RequireAuthorization();
         app.MapPost("/admin/servers/{id:guid}", UpdateServerAsync).RequireAuthorization();
@@ -4813,7 +4816,27 @@ public static partial class EndpointMapping
             ? parsedProtocol
             : (ServerProtocol?)null;
 
-        return Results.Content(views.ServerCreate(context, user, preferredProtocol), "text/html");
+        var folders = ServerFolders.Names((await store.GetServersAsync(context.RequestAborted)).Where(server => CanEditServer(user, server)));
+        return Results.Content(views.ServerCreate(context, user, preferredProtocol, folders, ServerFormReturn(context.Request.Query["return"])), "text/html");
+    }
+
+    // Where the form of a connection was opened from - "home" (a tab of its own, which closes again) or
+    // anything else (the administration's list).
+    private static string ServerFormReturn(string? value) => value == "home" ? "home" : "";
+
+    private static string ServerFormTarget(HttpContext context, string returnTo) =>
+        EmbedAwareRedirect(context, returnTo == "home" ? "/admin/servers/done" : "/admin/servers");
+
+    // The page a connection opened from the home page ends on; inside the shell it closes its own tab.
+    private static async Task<IResult> ServerFormDoneAsync(HttpContext context, JsonDataStore store, HtmlViews views)
+    {
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            return Results.Redirect("/login");
+        }
+
+        return Results.Content(views.ServerFormDone(context, user), "text/html");
     }
 
     private static async Task<IResult> CreateServerAsync(
@@ -4849,9 +4872,14 @@ public static partial class EndpointMapping
                 HtmlViews.Translate(context, requiresWebsiteUrl ? "Name and website URL are required." : "Name and host are required.")), "text/html");
         }
 
-        await store.UpdateServersAsync(servers => servers.Add(server), context.RequestAborted);
+        await store.UpdateServersAsync(servers =>
+        {
+            // A folder has one icon: a connection that joins it takes the folder's.
+            server.FolderIconKey = ServerFolders.IconFor(servers, server.Id, server.FolderName, "");
+            servers.Add(server);
+        }, context.RequestAborted);
         await configWriter.SynchronizeAsync(context.RequestAborted);
-        return Results.Redirect(EmbedAwareRedirect(context, "/admin/servers"));
+        return Results.Redirect(ServerFormTarget(context, ServerFormReturn(form["return"])));
     }
 
     private static async Task<IResult> ServerDetailAsync(
@@ -4877,7 +4905,10 @@ public static partial class EndpointMapping
             return Results.Redirect("/forbidden");
         }
 
-        return Results.Content(views.ServerDetail(context, user, server, await store.GetUsersAsync(context.RequestAborted)), "text/html");
+        var folders = ServerFolders.Names((await store.GetServersAsync(context.RequestAborted)).Where(candidate => CanEditServer(user, candidate)));
+        return Results.Content(
+            views.ServerDetail(context, user, server, await store.GetUsersAsync(context.RequestAborted), folders, ServerFormReturn(context.Request.Query["return"])),
+            "text/html");
     }
 
     private static async Task<IResult> UpdateServerAsync(
@@ -4934,8 +4965,13 @@ public static partial class EndpointMapping
             storedServer.Name = updated.Name;
             storedServer.Protocol = updated.Protocol;
             storedServer.IconKey = updated.IconKey;
+            // A folder has one icon: staying keeps it, joining another folder takes that one's.
+            storedServer.FolderIconKey = ServerFolders.IconFor(
+                servers,
+                id,
+                updated.FolderName,
+                string.Equals(storedServer.FolderName, updated.FolderName, StringComparison.OrdinalIgnoreCase) ? storedServer.FolderIconKey : "");
             storedServer.FolderName = updated.FolderName;
-            storedServer.FolderIconKey = updated.FolderIconKey;
             storedServer.Host = updated.Host;
             storedServer.Port = updated.Port;
             storedServer.WebsiteUrl = updated.WebsiteUrl;
@@ -4958,7 +4994,7 @@ public static partial class EndpointMapping
         }, context.RequestAborted);
 
         await configWriter.SynchronizeAsync(context.RequestAborted);
-        return Results.Redirect(EmbedAwareRedirect(context, $"/admin/servers/{id}"));
+        return Results.Redirect(ServerFormTarget(context, ServerFormReturn(form["return"])));
     }
 
     private static async Task<IResult> DeleteServerAsync(
@@ -5005,7 +5041,7 @@ public static partial class EndpointMapping
 
         websiteProxy.ForgetServer(id);
         await configWriter.SynchronizeAsync(context.RequestAborted);
-        return Results.Redirect(EmbedAwareRedirect(context, "/admin/servers"));
+        return Results.Redirect(ServerFormTarget(context, ServerFormReturn(form["return"])));
     }
 
     private static async Task<MatgateUser?> RequireUserAsync(HttpContext context, JsonDataStore store)
@@ -5518,6 +5554,7 @@ public static partial class EndpointMapping
             ServerProtocol.Sftp => 22,
             ServerProtocol.Ftp => 21,
             ServerProtocol.Smb => 445,
+            ServerProtocol.WebDav => 443,
             ServerProtocol.Agent => 7488,
             _ => 3389
         };

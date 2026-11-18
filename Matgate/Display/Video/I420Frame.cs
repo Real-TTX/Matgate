@@ -13,6 +13,14 @@ public sealed unsafe class I420Frame : IDisposable
 
     private byte* _memory;
 
+    // The smallest rectangle that holds every change since the encoder took it last (nothing: right is not
+    // beyond left), and the version the picture had when that was.
+    private int _changedLeft;
+    private int _changedTop;
+    private int _changedRight;
+    private int _changedBottom;
+    private long _changedSince;
+
     public I420Frame(int width, int height)
     {
         if (width < 2 || (width & 1) != 0)
@@ -82,12 +90,81 @@ public sealed unsafe class I420Frame : IDisposable
     internal bool IsDisposed => _memory == null;
 
     // For a caller that writes into the planes itself: the whole picture counts as new.
-    public void MarkChanged() => MarkChanged(Width, Height);
+    public void MarkChanged() => MarkChanged(0, 0, Width, Height);
 
-    internal void MarkChanged(int width, int height)
+    // What changed lies in this rectangle. Whatever of it is outside the picture does not count.
+    internal void MarkChanged(int left, int top, int width, int height)
     {
+        var right = (int)Math.Min(Width, (long)left + width);
+        var bottom = (int)Math.Min(Height, (long)top + height);
+        left = Math.Max(0, left);
+        top = Math.Max(0, top);
+        if (left >= right || top >= bottom)
+        {
+            return;
+        }
+
         Version++;
-        ChangedPixels += (long)width * height;
+        ChangedPixels += (long)(right - left) * (bottom - top);
+        if (_changedRight <= _changedLeft)
+        {
+            _changedLeft = left;
+            _changedTop = top;
+            _changedRight = right;
+            _changedBottom = bottom;
+        }
+        else
+        {
+            _changedLeft = Math.Min(_changedLeft, left);
+            _changedTop = Math.Min(_changedTop, top);
+            _changedRight = Math.Max(_changedRight, right);
+            _changedBottom = Math.Max(_changedBottom, bottom);
+        }
+    }
+
+    // Where the picture changed since it had the given version - the version the caller saw when it asked
+    // last - and from now on the changes are gathered anew. False when nothing changed. A caller that was not
+    // the last to ask (two encoders given the same frame) cannot be told where: for it the whole picture
+    // counts as changed.
+    internal bool TakeChanged(long since, out int left, out int top, out int right, out int bottom)
+    {
+        if (since != _changedSince)
+        {
+            left = 0;
+            top = 0;
+            right = Width;
+            bottom = Height;
+        }
+        else
+        {
+            left = _changedLeft;
+            top = _changedTop;
+            right = _changedRight;
+            bottom = _changedBottom;
+        }
+
+        _changedLeft = 0;
+        _changedTop = 0;
+        _changedRight = 0;
+        _changedBottom = 0;
+        _changedSince = Version;
+        return left < right && top < bottom;
+    }
+
+    // Makes this picture the same as the other one, which has the same size. It does not count as a change:
+    // the encoder does this to a picture of its own.
+    internal void CopyFrom(I420Frame source)
+    {
+        ObjectDisposedException.ThrowIf(_memory == null, this);
+        ObjectDisposedException.ThrowIf(source.IsDisposed, source);
+        if (source.Width != Width || source.Height != Height)
+        {
+            throw new ArgumentException($"The picture is {source.Width} x {source.Height}, this one {Width} x {Height}.", nameof(source));
+        }
+
+        // The same size means the same strides, so the planes lie in both in the same places.
+        var size = (long)StrideY * Height + 2L * StrideU * (Height / 2);
+        Buffer.MemoryCopy(source._memory, _memory, size, size);
     }
 
     public void Dispose()

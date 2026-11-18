@@ -140,6 +140,66 @@ let agent;
   check("the notice is gone once the picture is there", await view.evaluate(() => document.getElementById("notice").classList.contains("hidden")), true);
   check("the machine's cursor shape becomes the page's cursor", await view.evaluate(() => /^url\("?blob:/.test(document.getElementById("screen").style.cursor)), true);
 
+  // --- The machine's windows: a list to switch by (what Alt+Tab is on the machine), and one window as the
+  // whole picture. The test agent has three: an editor at 100,80 (640x400), a terminal at 300,200 (501x301)
+  // and a minimised calculator (320x480 at 0,0 once it is back).
+  for (let i = 0; i < 20 && !(await view.evaluate(() => window.MatgateScreen.state().canWindows)); i++) { await sleep(200); }
+  check("the agent knows its windows", await view.evaluate(() => window.MatgateScreen.state().canWindows), true);
+  const windowDebug = () => view.evaluate(() => window.__screen.debug.splice(0));
+  const windowRows = () => view.evaluate(() => [...document.querySelectorAll("#windows-list .windows-row")].map(row => ({
+    id: row.dataset.id, title: row.querySelector(".windows-name").textContent, note: row.querySelector(".windows-note").textContent, on: row.classList.contains("on"),
+  })));
+  const pickWindow = async id => {
+    if (await view.evaluate(() => document.getElementById("windows").classList.contains("hidden"))) { await view.evaluate(() => window.MatgateScreen.toggleWindows()); await sleep(500); }
+    await view.evaluate(i => document.querySelector("#windows-list .windows-row[data-id='" + i + "']").click(), id);
+  };
+  const pictureIs = async (width, height) => {
+    for (let i = 0; i < 40; i++) {
+      const size = await view.evaluate(() => [document.getElementById("screen").width, document.getElementById("screen").height]);
+      if (size[0] === width && size[1] === height) { return size; }
+      await sleep(250);
+    }
+    return view.evaluate(() => [document.getElementById("screen").width, document.getElementById("screen").height]);
+  };
+  await view.evaluate(() => window.MatgateScreen.toggleWindows());
+  for (let i = 0; i < 20 && (await windowRows()).length < 4; i++) { await sleep(200); }
+  let rows = await windowRows();
+  check("the list: the whole screen first, then the windows", rows.map(row => row.title).slice(1), ["notes.txt - Editor", "Terminal", "Rechner"]);
+  check("with the program, which one is in front and which is minimised", [rows[0].on, /notepad/.test(rows[1].note) && /front|vorn/.test(rows[1].note), /minimi/.test(rows[3].note)], [true, true, true]);
+  await windowDebug();
+  await pickWindow("102");
+  await sleep(700);
+  check("picking a window brings it to the front, and the list closes", [(await windowDebug()).filter(line => /^window/.test(line)), await view.evaluate(() => document.getElementById("windows").classList.contains("hidden"))], [["window 102 front"], true]);
+  check("the picture stays the whole screen", await pictureIs(1280, 720), [1280, 720]);
+  // "Only the chosen window": the window in front becomes the whole picture - with even sides.
+  await view.evaluate(() => window.MatgateScreen.toggleWindows());
+  await sleep(500);
+  await view.evaluate(() => document.getElementById("windows-only").click());
+  check("one window only: the picture is that window", await pictureIs(500, 300), [500, 300]);
+  check("and the page says which", await view.evaluate(() => window.MatgateScreen.state().windowOnly), "102");
+  await view.evaluate(() => window.MatgateScreen.toggleWindows());
+  await sleep(300);
+  await windowDebug();
+  const cropBox = await view.locator("#screen").boundingBox();
+  await view.mouse.move(cropBox.x + cropBox.width * 10.5 / 500, cropBox.y + cropBox.height * 20.5 / 300);
+  await sleep(500);
+  const cropMove = ((await windowDebug()).filter(line => /^move /.test(line)).pop() || "").replace("move ", "").split(",").map(Number);
+  check("the mouse moves inside that window (it starts at 300,200)", Math.abs(cropMove[0] - 310) <= 1 && Math.abs(cropMove[1] - 220) <= 1 ? true : cropMove, true);
+  await pickWindow("101");
+  check("another window: the picture follows", await pictureIs(640, 400), [640, 400]);
+  await pickWindow("103");
+  check("a minimised window comes back and is shown", await pictureIs(320, 480), [320, 480]);
+  await view.evaluate(() => window.MatgateScreen.toggleWindows());
+  await sleep(500);
+  rows = await windowRows();
+  check("the list marks the window that is the picture", rows.filter(row => row.on).map(row => row.id), ["103"]);
+  await view.screenshot({ path: path.join(work, "screen-windows.png") });
+  await pickWindow("0");
+  check("\"the whole screen\" is the whole screen again", await pictureIs(1280, 720), [1280, 720]);
+  check("and no window is the picture", await view.evaluate(() => window.MatgateScreen.state().windowOnly), "");
+  await view.evaluate(() => { localStorage.setItem("matgate.screen.window.only", "0"); document.getElementById("windows-only").checked = false; });
+  check("the monitor keeps its own size in the list of monitors", await view.evaluate(() => document.querySelector("#monitor option").textContent), "1: 1280×720");
+
   // --- Two monitors: a choice, and switching shows the other one.
   check("two monitors: the choice is offered", await view.evaluate(() => [...document.querySelectorAll("#monitor option")].map(o => o.textContent)), ["1: 1280×720", "2: 800×600"]);
   await view.selectOption("#monitor", "1");
@@ -312,6 +372,41 @@ let agent;
   check("with the key bar and the keyboard button", await tapPage.evaluate(() => [getComputedStyle(document.getElementById("keys")).display !== "none", !document.getElementById("keyboard").classList.contains("hidden")]), [true, true]);
   const touchDebug = () => tapPage.evaluate(() => window.__screen.debug.splice(0));
   await touchDebug();
+
+  // --- The key bar (Account -> Key bar; here the default). A shortcut's letter goes as text, and with Ctrl
+  // held the agent presses the key that letter sits on - a character alone would be no shortcut.
+  const bar = id => tapPage.evaluate(i => document.querySelector("#keys [data-id='" + i + "']").click(), id);
+  const typeOnPhone = text => tapPage.evaluate(t => {
+    const sink = document.getElementById("sink");
+    sink.focus();
+    sink.setRangeText(t, sink.value.length, sink.value.length, "end");
+    sink.dispatchEvent(new InputEvent("input", { inputType: "insertText", data: t, bubbles: true }));
+  }, text);
+  const inputs = async () => (await touchDebug()).filter(l => /^(key|text|shortcut|sas)/.test(l));
+  await bar("ctrl-c");
+  await sleep(400);
+  check("key bar: Ctrl+C is Ctrl held and the key of the letter", await inputs(), ["key 1d down", "shortcut c", "key 1d up"]);
+  await bar("ctrl");
+  await sleep(200);
+  check("key bar: a sticky Ctrl goes down and stays", [await inputs(), await tapPage.evaluate(() => document.querySelector("#keys [data-id='ctrl']").classList.contains("on"))], [["key 1d down"], true]);
+  await typeOnPhone("z");
+  await sleep(400);
+  check("key bar: the letter typed next is a shortcut, then Ctrl lets go", [await inputs(), await tapPage.evaluate(() => document.querySelector("#keys [data-id='ctrl']").classList.contains("on"))], [["shortcut z", "key 1d up"], false]);
+  await typeOnPhone("z");
+  await sleep(400);
+  check("key bar: without Ctrl the same letter is text again", await inputs(), ["text z"]);
+  await bar("left");
+  await sleep(300);
+  check("key bar: an arrow is its key", await inputs(), ["key 4be down", "key 4be up"]);
+  await bar("win");
+  await sleep(300);
+  check("key bar: the Windows key is tapped", await inputs(), ["key 5be down", "key 5be up"]);
+  await bar("ctrl-alt-delete");
+  await sleep(400);
+  check("key bar: Ctrl+Alt+Del goes to Windows itself", await inputs(), ["sas"]);
+  await tapPage.evaluate(() => document.getElementById("sink").blur());
+  await touchDebug();
+
   const touchBox = await tapPage.locator("#screen").boundingBox();
   const touch = (type, points) => tapPage.evaluate(([t, list]) => {
     const stage = document.getElementById("stage");

@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading.Channels;
 using Matgate.Agent;
+using Matgate.Models;
 using Matgate.Services;
 
 namespace Matgate.Web;
@@ -16,6 +17,7 @@ public static partial class EndpointMapping
     [
         "screen.input", "screen.ack", "screen.key", "screen.config", "screen.audio", "screen.sas", "screen.auth",
         "screen.clip.set", "screen.clip.begin", "screen.clip.chunk", "screen.clip.end",
+        "screen.windows", "screen.window",
     ];
 
     private static void MapAgentScreenEndpoints(WebApplication app)
@@ -212,12 +214,12 @@ public static partial class EndpointMapping
             return Results.StatusCode(StatusCodes.Status403Forbidden);
         }
 
-        return Results.Content(ScreenPageHtml(context, server!.Name, server.Id, "agent", "/api/agent/" + server.Id), "text/html; charset=utf-8");
+        return Results.Content(ScreenPageHtml(context, user!, server!.Name, server.Id, "agent", "/api/agent/" + server.Id), "text/html; charset=utf-8");
     }
 
     // The screen page for an agent's machine and for RDP/VNC through Matgate's own engine: the same page, only
     // where its socket and its downloads are differs.
-    private static string ScreenPageHtml(HttpContext context, string title, Guid serverId, string kind, string basePath)
+    private static string ScreenPageHtml(HttpContext context, MatgateUser user, string title, Guid serverId, string kind, string basePath)
     {
         var de = HtmlViews.Language(context) == "de";
         return AgentScreenPage.Html
@@ -226,6 +228,7 @@ public static partial class EndpointMapping
             .Replace("__SERVER__", serverId.ToString())
             .Replace("__KIND__", kind)
             .Replace("__BASE__", basePath)
+            .Replace("__KEYS__", System.Net.WebUtility.HtmlEncode(KeyBar.ScreenJson(user, de)))
             .Replace("__TEXT__", System.Net.WebUtility.HtmlEncode(JsonSerializer.Serialize(new
             {
                 authTitle = de ? "Anmelden" : "Sign in",
@@ -276,6 +279,12 @@ public static partial class EndpointMapping
                 download = de ? "Herunterladen" : "Download",
                 folder = de ? "Ordner (nicht ladbar)" : "Folder (cannot be downloaded)",
                 close = de ? "Schließen" : "Close",
+                windows = de ? "Fenster" : "Windows",
+                wholeScreen = de ? "Ganzer Bildschirm" : "The whole screen",
+                onlyWindow = de ? "Nur das gewählte Fenster zeigen" : "Show the chosen window only",
+                onlyWindowHint = de ? "Das Fenster füllt das Bild und bleibt es, auch wenn es verschoben wird." : "The window fills the picture and stays it, wherever it is moved.",
+                minimized = de ? "minimiert" : "minimised",
+                frontWindow = de ? "vorn" : "in front",
             })));
     }
 
