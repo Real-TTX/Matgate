@@ -207,6 +207,32 @@ public sealed class SessionPreferences
 
     public static bool IsKnownAction(string key) => SortableActions.Contains(key);
 
+    // --- Sessions that outlive the browser ---
+    // How many minutes a session of Matgate's own engine (RDP, VNC, SSH) keeps running after its browser
+    // went away - a reload, a phone that lost its network, another device. The open tabs are kept on the
+    // server with it, so whoever signs in again finds everything where it was. 0: a session ends with its
+    // browser, and the tabs are the browser's own.
+    public int KeepSessionMinutes { get; set; }
+
+    public static readonly int[] KeepSessionChoices = [0, 5, 15, 30, 60, 120, 480, 1440];
+
+    public static int NormalizeKeepSessionMinutes(int minutes) =>
+        KeepSessionChoices.Contains(minutes) ? minutes : 0;
+
+    // For the tests, where nobody waits five minutes for a session to run out: this many seconds instead of
+    // the minutes a user chose. It does not switch the option on for anyone.
+    private static readonly int KeepSecondsOverride =
+        int.TryParse(Environment.GetEnvironmentVariable("MATGATE_KEEP_SESSION_SECONDS"), out var seconds) && seconds > 0 ? seconds : 0;
+
+    // How long this user's sessions stay without a browser; zero: not at all.
+    public static TimeSpan KeepSessionTime(SessionPreferences? preferences)
+    {
+        var minutes = NormalizeKeepSessionMinutes(preferences?.KeepSessionMinutes ?? 0);
+        return minutes == 0 ? TimeSpan.Zero
+            : KeepSecondsOverride > 0 ? TimeSpan.FromSeconds(KeepSecondsOverride)
+            : TimeSpan.FromMinutes(minutes);
+    }
+
     // --- Clipboard ---
     // Paste by TYPING the text as individual key events instead of handing it to the remote over the
     // clipboard channel. Required for SSH/terminal sessions (and a useful fallback elsewhere), where

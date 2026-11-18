@@ -27,6 +27,82 @@ public sealed class DisplayBridge
     // Open screens by session id - a download of a file copied on the remote desktop finds its session here.
     public ConcurrentDictionary<string, ScreenSession> Live { get; } = new();
 
+    // The screens a viewer can come back to, by session id: while a browser shows them, and - for a user who
+    // set it up that way - for a while after it went.
+    public ConcurrentDictionary<string, HeldScreen> Held { get; } = new();
+
+    public const int MaxHeldPerUser = 16;
+
+    // A screen and whoever is looking at it right now. One viewer at a time: the next one takes it.
+    public sealed class HeldScreen(ScreenSession screen, Guid userId, Guid serverId)
+    {
+        private readonly object _gate = new();
+        private TaskCompletionSource _replaced = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private CancellationTokenSource? _expiry;
+
+        public ScreenSession Screen => screen;
+
+        public Guid UserId => userId;
+
+        public Guid ServerId => serverId;
+
+        // The viewer the session was opened by. What comes back completes when another viewer takes the screen.
+        public Task First()
+        {
+            lock (_gate)
+            {
+                return _replaced.Task;
+            }
+        }
+
+        // A viewer takes the screen: whoever had it is told, and a screen that was waiting for someone no
+        // longer runs out.
+        public Task Take(Action<Matgate.Agent.AgentFrame> viewer)
+        {
+            lock (_gate)
+            {
+                _expiry?.Cancel();
+                _expiry = null;
+                var before = _replaced;
+                _replaced = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                before.TrySetResult();
+                screen.Attach(viewer);
+                return _replaced.Task;
+            }
+        }
+
+        // The viewer left. True when the screen stays: because another viewer has it already, or because it
+        // is kept for the time given - then `expired` is called when nobody came, or when the remote desktop
+        // ended meanwhile.
+        public bool Leave(Task mine, TimeSpan keep, Action expired)
+        {
+            lock (_gate)
+            {
+                if (!ReferenceEquals(mine, _replaced.Task))
+                {
+                    return true;
+                }
+
+                if (keep <= TimeSpan.Zero || screen.Completion.IsCompleted)
+                {
+                    return false;
+                }
+
+                screen.Detach();
+                var expiry = new CancellationTokenSource();
+                _expiry = expiry;
+                _ = Task.WhenAny(Task.Delay(keep, expiry.Token), screen.Completion).ContinueWith(_ =>
+                {
+                    if (!expiry.IsCancellationRequested)
+                    {
+                        expired();
+                    }
+                }, TaskScheduler.Default);
+                return true;
+            }
+        }
+    }
+
     public ScreenSession Open(ScreenTarget target)
     {
         return new ScreenSession(

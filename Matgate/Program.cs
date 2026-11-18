@@ -144,6 +144,7 @@ builder.Services.AddSingleton<GuacamoleLauncher>();
 builder.Services.AddSingleton<EphemeralServerStore>();
 builder.Services.AddSingleton<BrowserFarmClient>();
 builder.Services.AddSingleton<DisplayBridge>();
+builder.Services.AddSingleton<ShellStateStore>();
 builder.Services.AddSingleton<BrowserFarmSessionManager>();
 builder.Services.AddHostedService<BrowserFarmReaper>();
 builder.Services.AddSingleton<NetworkToolsService>();

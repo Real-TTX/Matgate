@@ -50,6 +50,10 @@ const GROUPS = [
     name: "Group 9 - the key bar, the scale and the keyboard of a session, the connection form",
     scripts: ["key-bar.js", "screen-scale.js", "connection-form.js"],
   },
+  {
+    name: "Group 10 - sessions that outlive the browser",
+    scripts: ["kept-sessions.js"],
+  },
 ];
 
 const PAUSE = 310000;

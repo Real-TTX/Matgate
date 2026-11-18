@@ -81,6 +81,43 @@ public static partial class EndpointMapping
             return;
         }
 
+        var quality = query["quality"].ToString() is { Length: > 0 and <= 16 } wantedQuality ? wantedQuality : "auto";
+        var resolution = query["resolution"].ToString() is { Length: > 0 and <= 16 } wantedResolution ? wantedResolution : "auto";
+        var fitWidth = int.TryParse(query["fitWidth"], out var parsedWidth) ? Math.Clamp(parsedWidth, 0, 16384) : 0;
+        var fitHeight = int.TryParse(query["fitHeight"], out var parsedHeight) ? Math.Clamp(parsedHeight, 0, 16384) : 0;
+        // How long this user's sessions keep running without a browser (Account -> Session); zero: not at all.
+        var keep = SessionPreferences.KeepSessionTime(user!.Session);
+
+        // A session of this id that is still running - the page was reloaded, the network came back, another
+        // device opened the same tab: the viewer gets that session instead of a new connection.
+        if (bridge.Held.TryGetValue(session, out var running))
+        {
+            if (running.UserId != user.Id || running.ServerId != id)
+            {
+                browser.Post(ScreenError("This session belongs to another connection."));
+                return;
+            }
+
+            if (!running.Screen.Completion.IsCompleted)
+            {
+                browser.Post(new AgentFrame { Kind = "evt", Op = "screen.ready", Data = running.Screen.Describe() });
+                var mine = running.Take(browser.Post);
+                running.Screen.Post("screen.config", new System.Text.Json.Nodes.JsonObject
+                {
+                    ["quality"] = quality,
+                    ["resolution"] = resolution,
+                    ["fitWidth"] = fitWidth,
+                    ["fitHeight"] = fitHeight,
+                }, default);
+                var listening = Task.Run(() => ForwardBrowserAsync(socket, running.Screen, context.RequestAborted));
+                await WatchScreenAsync(bridge, session, running, mine, listening, browser, keep);
+                return;
+            }
+
+            // It ended while nobody was looking: what is left of it goes, and this is a new connection.
+            await EndHeldScreenAsync(bridge, session, running);
+        }
+
         var target = new ScreenTarget
         {
             Session = session,
@@ -92,16 +129,17 @@ public static partial class EndpointMapping
             Domain = server.Domain ?? "",
             IgnoreCertificate = server.IgnoreCertificate,
             KeyboardLayout = DisplayBridge.KeyboardLayoutId(server.KeyboardLayout),
-            Quality = query["quality"].ToString() is { Length: > 0 and <= 16 } quality ? quality : "auto",
-            Resolution = query["resolution"].ToString() is { Length: > 0 and <= 16 } resolution ? resolution : "auto",
-            FitWidth = int.TryParse(query["fitWidth"], out var fitWidth) ? Math.Clamp(fitWidth, 0, 16384) : 0,
-            FitHeight = int.TryParse(query["fitHeight"], out var fitHeight) ? Math.Clamp(fitHeight, 0, 16384) : 0,
+            Quality = quality,
+            Resolution = resolution,
+            FitWidth = fitWidth,
+            FitHeight = fitHeight,
         };
 
-        await using var screen = bridge.Open(target);
-        screen.UserId = user!.Id;
+        var screen = bridge.Open(target);
+        screen.UserId = user.Id;
         screen.OnEvent = browser.Post;
-        bridge.Live[session] = screen;
+        var held = new DisplayBridge.HeldScreen(screen, user.Id, id);
+        var handedOver = false;
         try
         {
             // The viewer's messages go on while the connection is still being made: the session may ask for a
@@ -119,7 +157,19 @@ public static partial class EndpointMapping
             var opened = await opening;
             browser.Post(new AgentFrame { Kind = "evt", Op = "screen.ready", Data = opened });
             await RecordRecentConnectionAsync(store, user.Id, id, CancellationToken.None);
-            await Task.WhenAny(forwarding, screen.Completion);
+
+            // From here on the session is one a viewer can come back to.
+            var mine = held.First();
+            bridge.Live[session] = screen;
+            bridge.Held[session] = held;
+            handedOver = true;
+            // Not without end: someone who never comes back to dozens of them must not keep them all.
+            if (bridge.Held.Values.Count(other => other.UserId == user.Id) > DisplayBridge.MaxHeldPerUser)
+            {
+                keep = TimeSpan.Zero;
+            }
+
+            await WatchScreenAsync(bridge, session, held, mine, forwarding, browser, keep);
         }
         catch (ScreenException exception)
         {
@@ -130,7 +180,57 @@ public static partial class EndpointMapping
         }
         finally
         {
-            bridge.Live.TryRemove(session, out _);
+            if (!handedOver)
+            {
+                await screen.DisposeAsync();
+            }
+        }
+    }
+
+    // A viewer on a running screen, until it leaves, the screen ends, or another viewer takes it. A screen
+    // whose viewer just went away stays for the next one as long as the user's setting says.
+    private static async Task WatchScreenAsync(
+        DisplayBridge bridge,
+        string session,
+        DisplayBridge.HeldScreen held,
+        Task replaced,
+        Task forwarding,
+        BrowserScreen browser,
+        TimeSpan keep)
+    {
+        try
+        {
+            var first = await Task.WhenAny(forwarding, held.Screen.Completion, replaced);
+            if (first == replaced)
+            {
+                // Another window or device shows this screen now; it is theirs.
+                browser.Post(new AgentFrame { Kind = "evt", Op = "screen.ended", Data = new System.Text.Json.Nodes.JsonObject { ["reason"] = "taken" } });
+                return;
+            }
+        }
+        catch (Exception exception) when (exception is WebSocketException or OperationCanceledException or JsonException or InvalidDataException)
+        {
+        }
+
+        if (held.Leave(replaced, keep, () => _ = EndHeldScreenAsync(bridge, session, held)))
+        {
+            return;
+        }
+
+        await EndHeldScreenAsync(bridge, session, held);
+    }
+
+    private static async Task EndHeldScreenAsync(DisplayBridge bridge, string session, DisplayBridge.HeldScreen held)
+    {
+        bridge.Held.TryRemove(new KeyValuePair<string, DisplayBridge.HeldScreen>(session, held));
+        bridge.Live.TryRemove(new KeyValuePair<string, ScreenSession>(session, held.Screen));
+        try
+        {
+            await held.Screen.DisposeAsync();
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException)
+        {
+            // Ending a session must not fail the request that ended it.
         }
     }
 

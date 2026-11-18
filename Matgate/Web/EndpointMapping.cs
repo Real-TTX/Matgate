@@ -444,6 +444,7 @@ public static partial class EndpointMapping
         MapSshEndpoints(app);
         MapKeyBarEndpoints(app);
         MapFolderEndpoints(app);
+        MapKeptSessionEndpoints(app);
         app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
         app.MapMethods("/favicon.svg", new[] { "GET", "HEAD" }, () => Results.Text(FaviconSvg, "image/svg+xml"));
         app.MapMethods("/favicon.ico", new[] { "GET", "HEAD" }, () => Results.Text(FaviconSvg, "image/svg+xml"));
@@ -1030,7 +1031,10 @@ public static partial class EndpointMapping
         }
 
         return Results.Content(
-            views.SessionsWorkspace(context, user, servers, visibleWorkspaces, openServerId),
+            views.SessionsWorkspace(context, user, servers, visibleWorkspaces, openServerId,
+                SessionPreferences.NormalizeKeepSessionMinutes(user.Session?.KeepSessionMinutes ?? 0) > 0
+                    ? context.RequestServices.GetRequiredService<ShellStateStore>().Get(user.Id)
+                    : null),
             "text/html");
     }
 
@@ -4425,6 +4429,13 @@ public static partial class EndpointMapping
             current.Session.FunctionKeys = Checked(form, "functionKeys");
             current.Session.CtrlAltDelHotkey = Checked(form, "ctrlAltDelHotkey");
             current.Session.PasteAsKeystrokes = Checked(form, "pasteAsKeystrokes");
+            current.Session.KeepSessionMinutes = SessionPreferences.NormalizeKeepSessionMinutes(
+                int.TryParse(form["keepSessionMinutes"].ToString(), out var keepMinutes) ? keepMinutes : 0);
+            if (current.Session.KeepSessionMinutes == 0)
+            {
+                // Switched off: the tabs are the browser's own again, and the server forgets its copy.
+                context.RequestServices.GetRequiredService<ShellStateStore>().Forget(current.Id);
+            }
 
             // The toolbar order arrives as one comma-separated field, written by the drag list. Only
             // keys the session UI actually knows are kept, so a stale or hand-crafted value cannot

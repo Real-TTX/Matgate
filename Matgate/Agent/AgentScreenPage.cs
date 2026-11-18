@@ -257,6 +257,7 @@ public static class AgentScreenPage
 
             let socket = null;
             let session = '';
+            let sessionOver = false;
             let ended = false;
             let retry = 0;
             let retryTimer = 0;
@@ -579,7 +580,29 @@ public static class AgentScreenPage
                 pending = [];
                 showNotice(text.connecting);
                 setStatus(text.connecting);
-                session = crypto.randomUUID();
+                // The session keeps its id as long as it lives - it is part of the address, so a reload, a
+                // network that came back or a tab restored elsewhere comes back to the SAME session where
+                // Matgate kept it. A session that ended gets a new one.
+                if (kind !== 'display') {
+                    // An agent's screen is the machine's own desktop: there is nothing to come back to but
+                    // the desktop itself, and every connection is a session of its own.
+                    session = crypto.randomUUID();
+                }
+                else if (!session || sessionOver) {
+                    const fromAddress = params.get('session') || '';
+                    session = !sessionOver && /^[A-Za-z0-9-]{8,64}$/.test(fromAddress) ? fromAddress : crypto.randomUUID();
+                    sessionOver = false;
+                    params.set('session', session);
+                    try {
+                        history.replaceState(null, '', location.pathname + '?' + params.toString());
+                        // The shell keeps the tab's address (and with it the session) - tell it the new one.
+                        if (window.parent !== window && typeof window.parent.MatgateTabAddressChanged === 'function') {
+                            window.parent.MatgateTabAddressChanged();
+                        }
+                    }
+                    catch {
+                    }
+                }
                 const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
                 const maxWidth = Math.max(1280, Math.round(Math.max(screen.width, screen.height) * (window.devicePixelRatio || 1)));
                 sentFit = fitSize();
@@ -622,6 +645,8 @@ public static class AgentScreenPage
                         break;
                     case 'screen.ready':
                         retry = 0;
+                        // Whether this is a session that kept running (for the tests, and anyone who looks).
+                        window.__screen.attached = !!data.attached;
                         hideAuth();
                         clipImage = data.clipImage || 'png';
                         clipFiles = data.clipFiles !== false;
@@ -728,6 +753,8 @@ public static class AgentScreenPage
                         break;
                     case 'screen.ended':
                         ended = true;
+                        // Taken by another window, the session lives on (and can be taken back); otherwise it is over.
+                        sessionOver = data.reason !== 'taken';
                         statsLine.textContent = '';
                         releaseAll();
                         stopSound(false);
@@ -746,6 +773,7 @@ public static class AgentScreenPage
                         break;
                     case 'screen.error':
                         ended = true;
+                        sessionOver = true;
                         setStatus(data.message || text.error, true);
                         showNotice(data.message || text.error, text.reconnect, connect);
                         break;

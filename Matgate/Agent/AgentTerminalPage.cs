@@ -316,6 +316,11 @@ public static class AgentTerminalPage
                     if (message.type === 'ready') {
                         retry = 0;
                         setStatus(message.attached ? text.reattached : text.connected);
+                        if (message.attached) {
+                            // What the program printed last comes again: on a page that still shows it, it
+                            // would stand there twice.
+                            term.reset();
+                        }
                         // A program that kept running redraws itself on a size change - but the console ignores a
                         // "change" to the size it already has, so it is nudged one column and back.
                         if (message.attached) {
@@ -353,6 +358,14 @@ public static class AgentTerminalPage
                 session = crypto.randomUUID();
                 params.set('session', session);
                 history.replaceState(null, '', location.pathname + '?' + params.toString());
+                try {
+                    // The shell keeps the tab's address (and with it the session) - tell it the new one.
+                    if (window.parent !== window && typeof window.parent.MatgateTabAddressChanged === 'function') {
+                        window.parent.MatgateTabAddressChanged();
+                    }
+                }
+                catch {
+                }
                 restartButton.classList.add('hidden');
                 killButton.classList.remove('hidden');
                 term.reset();

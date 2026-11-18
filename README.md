@@ -38,6 +38,10 @@ usable from a laptop or a phone – installable as a PWA.
   Explorer window that is open), **sound**, and a resolution that **follows the window without reconnecting**
 - A password that is not stored is **asked for when connecting**
 - Several sessions open at once as **draggable tabs**, with session restore
+- **Sessions that outlive the browser** (an option per user, Account -> Session, 5 minutes to 24 hours):
+  an RDP, VNC or SSH session of Matgate's own engine keeps running when its browser is reloaded, loses its
+  network or is closed, and the page that comes back - on another device too - gets that very session and
+  the same tabs; closing a tab ends its session at once
 - **Pop a session out into its own window** and re-attach it later (great for multi-monitor)
 - **Real fullscreen / immersive mode** (safe-area aware on iPhone), clipboard sync, a live status bar
 - **A scale instead of a resolution**: "fit to window" at 50 %, 100 %, 150 % ... - a larger desktop shown

@@ -346,20 +346,103 @@ public sealed class ScreenSession : IScreenHost, IAsyncDisposable
 
     public void Cursor(int hotX, int hotY, int width, int height, ReadOnlySpan<byte> rgba)
     {
-        var data = new JsonObject { ["x"] = hotX, ["y"] = hotY, ["width"] = width, ["height"] = height, ["format"] = "rgba" };
-        Emit("screen.cursor", data, rgba.ToArray());
+        var shape = rgba.ToArray();
+        // Kept for a viewer that comes later: the remote desktop only says it again when it changes.
+        _cursor = () => (new JsonObject { ["x"] = hotX, ["y"] = hotY, ["width"] = width, ["height"] = height, ["format"] = "rgba" }, shape);
+        Emit("screen.cursor", _cursor().Data, shape);
         CursorHidden(false);
     }
 
     public void CursorHidden(bool hidden)
     {
+        _cursorHidden = hidden;
         Emit("screen.pointer", new JsonObject { ["visible"] = !hidden, ["local"] = true });
     }
 
     public void CursorDefault()
     {
+        _cursor = null;
         Emit("screen.cursor", new JsonObject { ["format"] = "default" });
         CursorHidden(false);
+    }
+
+    // ---- a viewer goes, a viewer comes ---------------------------------------------------------------------
+
+    private Func<(JsonObject Data, byte[] Shape)>? _cursor;
+    private bool _cursorHidden;
+    private volatile bool _watched = true;
+
+    // Nobody is looking: the connection to the remote desktop stays, but no picture is made of it and no
+    // sound is sent. Nothing stays pressed there either.
+    public void Detach()
+    {
+        _watched = false;
+        OnEvent = null;
+        _audio.Enabled = false;
+        if (_ready && !_stop.IsCancellationRequested)
+        {
+            _backend.SoundEnabled(false);
+            _backend.Input(new JsonObject { ["t"] = "r" });
+        }
+    }
+
+    // A viewer is there (again): it starts with a picture of its own - a key frame, and what describes the
+    // screen - and with the pointer as it is now.
+    public void Attach(Action<AgentFrame> viewer)
+    {
+        OnEvent = viewer;
+        lock (_state)
+        {
+            _acked = _sent;
+            _lastAck = Environment.TickCount64;
+            _reopen = true;
+            _dirty = true;
+        }
+
+        _watched = true;
+        if (_cursor is { } cursor)
+        {
+            var (data, shape) = cursor();
+            Emit("screen.cursor", data, shape);
+        }
+        else
+        {
+            Emit("screen.cursor", new JsonObject { ["format"] = "default" });
+        }
+
+        Emit("screen.pointer", new JsonObject { ["visible"] = !_cursorHidden, ["local"] = true });
+        _wake.Set();
+    }
+
+    // What the page gets as "screen.ready" when it comes back to a session that kept running.
+    public JsonObject Describe()
+    {
+        var width = 0;
+        var height = 0;
+        _backend.WithFrame((_, _, w, h) =>
+        {
+            width = w;
+            height = h;
+        });
+        return new JsonObject
+        {
+            ["session"] = _target.Session,
+            ["attached"] = true,
+            ["monitor"] = 0,
+            ["width"] = width,
+            ["height"] = height,
+            ["monitors"] = new JsonArray(new JsonObject
+            {
+                ["index"] = 0,
+                ["name"] = _backend.Name,
+                ["width"] = width,
+                ["height"] = height,
+                ["primary"] = true,
+            }),
+            ["clipImage"] = _backend.ClipImages ? "dib" : "none",
+            ["clipFiles"] = _backend.ClipFiles,
+            ["audio"] = _backend.Sound,
+        };
     }
 
     public void Event(string op, JsonObject data, ReadOnlyMemory<byte> payload = default)
@@ -489,6 +572,12 @@ public sealed class ScreenSession : IScreenHost, IAsyncDisposable
     private int Tick()
     {
         var now = Environment.TickCount64;
+        if (!_watched)
+        {
+            // Kept for a viewer that may come back: nothing to encode meanwhile.
+            return 500;
+        }
+
         SendStats(now);
 
         bool dirty;

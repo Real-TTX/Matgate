@@ -1768,6 +1768,17 @@ public sealed class HtmlViews
                                 {{Toggle("ctrlAltDelHotkey", prefs.CtrlAltDelHotkey, "Strg+Alt+Entf als Button", "Ctrl+Alt+Del button", "Zusätzlich zur Bildschirmtastatur auch als Toolbar-Button.", "In addition to the on-screen keyboard, also as a toolbar button.")}}
                                 </fieldset>
                                 <fieldset class="settings-group">
+                                    <legend>{{(de ? "Sitzungen, die den Browser überdauern" : "Sessions that outlive the browser")}}</legend>
+                                    <p class="muted settings-hint">{{(de
+                                        ? "Eine RDP-, VNC- oder SSH-Sitzung über Matgates eigene Engine läuft so lange weiter, wenn ihr Browser weg ist - neu geladen, Netz verloren, anderes Gerät. Die offenen Tabs liegen dann auf dem Server: wer sich wieder anmeldet, findet alles, wie es war. Ein Tab, der geschlossen wird, beendet seine Sitzung sofort. Sitzungen über Guacamole verbinden sich wie bisher neu; ein Neustart von Matgate beendet alle."
+                                        : "An RDP, VNC or SSH session through Matgate's own engine keeps running for this long after its browser went away - reloaded, lost its network, another device. The open tabs are kept on the server then: whoever signs in again finds everything as it was. A tab that is closed ends its session at once. Sessions through Guacamole reconnect as before; restarting Matgate ends them all.")}}</p>
+                                    <label>{{(de ? "Weiterlaufen lassen" : "Keep running for")}}
+                                        <select name="keepSessionMinutes">
+                                            {{string.Join("", SessionPreferences.KeepSessionChoices.Select(minutes => $"<option value=\"{minutes}\"{(SessionPreferences.NormalizeKeepSessionMinutes(prefs.KeepSessionMinutes) == minutes ? " selected" : "")}>{E(KeepSessionLabel(minutes, de))}</option>"))}}
+                                        </select>
+                                    </label>
+                                </fieldset>
+                                <fieldset class="settings-group">
                                     <legend>{{(de ? "Zwischenablage" : "Clipboard")}}</legend>
                                 {{Toggle("pasteAsKeystrokes", prefs.PasteAsKeystrokes, "Einfuegen als Tastatureingaben", "Paste as keystrokes", "Text wird Zeichen für Zeichen getippt statt über die Zwischenablage geschickt - nötig z. B. bei SSH-Terminals.", "Text is typed character by character instead of sent over the clipboard - needed e.g. for SSH terminals.")}}
                                 </fieldset>
@@ -2105,6 +2116,14 @@ public sealed class HtmlViews
 
         return Layout(context, user, de ? "Ordner" : "Folder", body);
     }
+
+    private static string KeepSessionLabel(int minutes, bool de) => minutes switch
+    {
+        0 => de ? "Aus - eine Sitzung endet mit ihrem Browser" : "Off - a session ends with its browser",
+        < 60 => de ? $"{minutes} Minuten" : $"{minutes} minutes",
+        60 => de ? "1 Stunde" : "1 hour",
+        _ => de ? $"{minutes / 60} Stunden" : $"{minutes / 60} hours",
+    };
 
     private static string KeyBarScopeLabel(string scope, bool de) => scope switch
     {
@@ -4833,8 +4852,14 @@ public sealed class HtmlViews
         MatgateUser user,
         IReadOnlyList<ServerEndpoint> servers,
         IReadOnlyList<WorkspaceDefinition> workspaces,
-        Guid? openServerId)
+        Guid? openServerId,
+        Matgate.Services.ShellStateStore.ShellState? storedTabs = null)
     {
+        // For a user whose sessions outlive the browser: the tabs as the server has them (null: none yet).
+        var keepSessions = SessionPreferences.NormalizeKeepSessionMinutes(user.Session?.KeepSessionMinutes ?? 0) > 0;
+        var serverTabs = keepSessions && storedTabs is not null
+            ? JsonSerializer.Serialize(storedTabs, new JsonSerializerOptions(JsonSerializerDefaults.Web))
+            : "null";
         var availableServers = JsonSerializer.Serialize(
             servers.Select(ServerChoicePayload),
             new JsonSerializerOptions(JsonSerializerDefaults.Web));
@@ -5425,6 +5450,73 @@ public sealed class HtmlViews
                 }
 
                 ensureFreshBootState();
+
+                // Sessions that outlive the browser (Account -> Session): the open tabs are the user's, not
+                // this browser's. What the server has replaces what this browser remembers - before anything
+                // is restored from it - and every change goes back to the server.
+                const keepSessions = {{(keepSessions ? "true" : "false")}};
+                const serverTabs = {{serverTabs}};
+                if (keepSessions && serverTabs) {
+                    try {
+                        [[workspaceStorageKey, serverTabs.workspace], [shellTabStorageKey, serverTabs.shell], [tabOrderStorageKey, serverTabs.order]].forEach(([key, value]) => {
+                            if (typeof value === 'string') {
+                                localStorage.setItem(key, value);
+                            }
+                            else {
+                                localStorage.removeItem(key);
+                            }
+                        });
+                    }
+                    catch {
+                        // Without storage the tabs start empty, as they would anyway.
+                    }
+                }
+                let tabStateTimer = null;
+                function pushTabState() {
+                    tabStateTimer = null;
+                    try {
+                        fetch('/api/shell-state', {
+                            method: 'PUT',
+                            keepalive: true,
+                            credentials: 'same-origin',
+                            headers: { 'Content-Type': 'application/json', 'X-Matgate-Csrf': csrfToken },
+                            body: JSON.stringify({
+                                workspace: localStorage.getItem(workspaceStorageKey),
+                                shell: localStorage.getItem(shellTabStorageKey),
+                                order: localStorage.getItem(tabOrderStorageKey)
+                            })
+                        }).catch(() => {});
+                    }
+                    catch {
+                        // The next change tries again.
+                    }
+                }
+                function scheduleTabStatePush() {
+                    if (!keepSessions || isPoppedWindow) {
+                        return;
+                    }
+                    window.clearTimeout(tabStateTimer);
+                    tabStateTimer = window.setTimeout(pushTabState, 500);
+                }
+                // A tab that is closed ends its session for good; one that merely lost its browser would stay
+                // until its time runs out. The session's id is part of the tab's address.
+                function endKeptSession(url) {
+                    try {
+                        const session = new URL(url, window.location.href).searchParams.get('session');
+                        if (!session || !/^\/(display|ssh)\//.test(new URL(url, window.location.href).pathname)) {
+                            return;
+                        }
+                        fetch('/api/kept-sessions/end?session=' + encodeURIComponent(session), {
+                            method: 'POST',
+                            keepalive: true,
+                            credentials: 'same-origin',
+                            headers: { 'X-Matgate-Csrf': csrfToken }
+                        }).catch(() => {});
+                    }
+                    catch {
+                        // An address without a session has none to end.
+                    }
+                }
 
                 const shellLayout = document.body.dataset.shellLayout === '1';
                 // Android/Chrome: let the on-screen keyboard OVERLAY the page instead of resizing the
@@ -6268,11 +6360,30 @@ public sealed class HtmlViews
                     }
                 }
 
+                // The address a page tab is at NOW: a session page writes its session into its own address,
+                // and it may do so after the tab's load was seen (a session that ended and was started again).
+                function syncShellTabUrl(tab) {
+                    try {
+                        const frame = tab.panel ? tab.panel.querySelector('iframe') : null;
+                        const loc = frame && frame.contentWindow ? frame.contentWindow.location : null;
+                        if (loc && loc.origin === window.location.origin) {
+                            const u = new URL(loc.href);
+                            u.searchParams.delete('embed');
+                            tab.url = `${u.pathname}${u.search}${u.hash}`;
+                        }
+                    }
+                    catch {
+                        // A page that cannot be read keeps the address the tab was opened with.
+                    }
+                    return tab;
+                }
+                window.MatgateTabAddressChanged = () => saveShellTabs();
+
                 function saveShellTabs() {
                     if (isPoppedWindow) { return; }
                     try {
                         localStorage.setItem(shellTabStorageKey, JSON.stringify({
-                            tabs: Array.from(shellTabs.values()).map(tab => ({
+                            tabs: Array.from(shellTabs.values()).map(syncShellTabUrl).map(tab => ({
                                 id: tab.id,
                                 title: tab.title,
                                 url: tab.url,
@@ -6281,6 +6392,7 @@ public sealed class HtmlViews
                             })),
                             activeTabId: activeShellTabId
                         }));
+                        scheduleTabStatePush();
                     }
                     catch {
                         // Ignore storage failures.
@@ -6491,6 +6603,8 @@ public sealed class HtmlViews
 
                     // An agent terminal keeps running when its tab closes - picking the work up again later, from
                     // another device even, is the point. It ends with "Beenden" (its page or the agent overview).
+                    // A session of Matgate's own engine (RDP, VNC, SSH) ends with its tab.
+                    endKeptSession(syncShellTabUrl(tab).url);
 
                     tab.button.remove();
                     tab.panel.remove();
@@ -9022,6 +9136,7 @@ public sealed class HtmlViews
                                 .map(tabButton => tabButton.getAttribute('data-tab-id'))
                                 .filter(Boolean)
                         }));
+                        scheduleTabStatePush();
                     }
                     catch {
                         // Ignore ordering failures.
@@ -10155,6 +10270,7 @@ public sealed class HtmlViews
                         };
 
                         localStorage.setItem(workspaceStorageKey, JSON.stringify(state));
+                        scheduleTabStatePush();
                     }
                     catch {
                         // Local storage is optional; restoring tabs is a convenience.

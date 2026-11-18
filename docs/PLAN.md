@@ -1,7 +1,8 @@
 # Matgate – Plan zum Weitermachen
 
-Stand: 2026-11-18, Version 0.21.4 (Agent 0.9.0) auf `main` und als `v0.21.4` markiert; auf ve-docker-1
-(matgate.schmoldt.it) läuft 0.21.2 - 0.21.3/0.21.4 warten auf das Einspielen (trennt laufende Sitzungen). Geschrieben als Übergabe an eine andere Sitzung.
+Stand: 2026-11-18, Version 0.22.0 (Agent 0.9.0) auf `main` und als `v0.22.0` markiert; auf ve-docker-1
+(matgate.schmoldt.it) läuft 0.21.4 - 0.22.0 wartet auf das Einspielen (trennt laufende Sitzungen, nur
+auf ausdrücklichen Wunsch). Geschrieben als Übergabe an eine andere Sitzung.
 
 ## Wo wir stehen
 
@@ -107,7 +108,8 @@ Stellen genannt - bei Gelegenheit nachfragen, ob der Umbau trifft, was ihn gest�
   Decoder macht dasselbe Bild), aber nicht abschließend geprüft.
 - **`docker-compose.simple.yml`** braucht den Caddy (`edge`) nur noch fürs Komprimieren. Mit
   Kompression in Matgate selbst wäre es ein einziger Container.
-- **ve-docker-1** läuft noch auf einer alten Version; ein Update braucht dort keinen neuen Dienst mehr.
+- **ve-docker-1** (matgate.schmoldt.it) läuft auf 0.21.4; Ablauf des Einspielens steht im Gedächtnis
+  (`production-deploy`).
 
 Vorgehen für das Review: Bereich für Bereich mit dem Nutzer (Startseite/Tabs, Verbindung anlegen und
 bearbeiten, Sitzung am Telefon, Sitzung am Desktop, Dateien), je Bereich Befunde sammeln, dann
@@ -166,17 +168,38 @@ was dahinter liegt.
 - Was noch gehen würde: dem Windows-Rechner bei RDP einen Skalierungsfaktor mitgeben
   (DesktopScaleFactor), dann wäre das Bild groß UND scharf; der eigene RDP-Client sendet keinen.
 
-## Wunsch: serverseitige Sitzungen (2026-11-18, nicht begonnen)
+## Sitzungen, die den Browser überdauern (0.22.0, Wunsch vom 2026-11-18)
 
 Der Nutzer: „Können wir serverseitige Sitzungen einbauen? Wenn man den Browser lädt bzw. neu lädt, dass
-dann alles immer wieder da ist - als Option.“ Heute: Die Hülle merkt sich ihre Tabs im Browser
-(`saveShellTabs`) und verbindet beim Laden neu; Agent-Terminals laufen auf dem Agent weiter; eine
-RDP-, VNC- oder SSH-Sitzung der eigenen Engine endet mit ihrer Verbindung zum Browser. Vorschlag, noch
-nicht bestätigt: (1) Matgate hält die Sitzung nach dem Abreißen eine einstellbare Zeit offen und der
-Browser hängt sich mit der Sitzungskennung wieder an (`ScreenSession` bzw. die SSH-Sitzung brauchen
-dafür einen Betrachter, der wechseln kann - beim Agent-Bildschirm gibt es das schon), (2) die Liste der
-offenen Tabs liegt je Benutzer auf dem Server statt im Browser, damit auch ein anderes Gerät sie sieht.
-Offene Fragen an den Nutzer: wie lange halten, welche Sitzungsarten, auch geräteübergreifend?
+dann alles immer wieder da ist - als Option.“, bestätigt mit „Sitzung pro User, Dauer einstellbar“.
+
+- **Option je Benutzer:** Konto -> Sitzung, „Weiterlaufen lassen“ (`SessionPreferences.KeepSessionMinutes`:
+  aus, 5/15/30 Minuten, 1/2/8/24 Stunden). Aus ist der Vorgabewert - dann ist alles wie vorher.
+- **Was weiterläuft:** RDP und VNC (`DisplayBridge.Held` / `HeldScreen`, `ScreenSession.Attach/Detach`)
+  und SSH (`SshShell` in `EndpointMapping.Ssh.cs`, mit 256 KB der letzten Ausgabe) der eigenen Engine.
+  Ohne Betrachter läuft die Sitzung die eingestellte Zeit weiter (der Encoder ruht), dann endet sie.
+  Höchstens 16 gehaltene Sitzungen je Benutzer und Art; darüber endet eine neue mit ihrem Browser.
+  Nicht: Guacamole-Sitzungen (verbinden neu wie bisher), Agent-Bildschirm (ist der Desktop selbst),
+  Agent-Terminals (liefen schon immer auf dem Agent weiter). Ein Neustart von Matgate beendet alle.
+- **Wiederfinden:** Die Sitzungskennung steht in der Adresse der Seite (`?session=`); die Seite, die
+  wiederkommt, bekommt dieselbe Sitzung (`screen.ready` mit `attached`, beim Terminal `ready` mit
+  `attached` und der letzten Ausgabe). Ein Betrachter zur Zeit: der nächste nimmt sie, der vorige
+  bekommt „in einem anderen Fenster geöffnet“.
+- **Tabs auf dem Server:** `ShellStateStore` (`<data>/shell-state/<Benutzer>.json`), `PUT
+  /api/shell-state`. Die Hülle legt die drei Werte ihres `localStorage` dort ab und nimmt beim Laden die
+  des Servers. Ganze Liste, der letzte Schreiber gewinnt.
+- **Ende:** Ein geschlossener Tab beendet seine Sitzung sofort (`POST /api/kept-sessions/end`,
+  `endKeptSession` in `closeShellTab`). Option aus: der Server vergisst die Tabs.
+- **Test:** `tests/kept-sessions.js` (29 Prüfungen): gleiche Shell nach Neuladen, kein zweiter
+  VNC-Verbindungsaufbau, Netz weg und wieder da, zweiter Browser übernimmt Tab und Sitzung, Tab
+  schließen, Ablauf der Zeit. Der Teststapel verkürzt die Zeit mit `MATGATE_KEEP_SESSION_SECONDS` (nur
+  dafür gedacht; schaltet die Option für niemanden ein).
+- **Bekannte Grenzen:** (1) Zwei offene Browser schreiben beide die ganze Tab-Liste: ein Browser, der
+  einen andernorts geschlossenen Tab noch zeigt, bringt ihn mit seiner nächsten Änderung zurück (dann
+  als neue Verbindung). (2) Abmelden beendet gehaltene Sitzungen nicht - sie laufen aus oder enden mit
+  ihrem Tab. (3) Die Dauer gilt ab dem Abreißen und wird beim Verbindungsaufbau der Seite gelesen; eine
+  geänderte Dauer gilt für Seiten, die danach verbinden. (4) Nicht am echten Windows-Server und nicht
+  am echten Telefon geprüft (RDP im Teststapel ist xrdp).
 
 ## Eigene Engine: unscharf beim Scrollen (Meldung vom 2026-11-18)
 

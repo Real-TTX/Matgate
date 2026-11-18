@@ -168,42 +168,276 @@ public static partial class EndpointMapping
         }
 
         using var socket = await context.WebSockets.AcceptWebSocketAsync();
-        var terminal = new SshTerminal(socket, cols, rows, context.RequestAborted,
-            (login, password) => SshSessions[session] = new SshLive(user!.Id, server!.Id, server.Host, server.Port, login, password));
-        try
+        // How long this user's sessions keep running without a browser (Account -> Session); zero: not at all.
+        var keep = SessionPreferences.KeepSessionTime(user!.Session);
+        var terminal = new SshTerminal(socket, cols, rows, context.RequestAborted);
+
+        // A shell of this id that is still running - the page was reloaded, the network came back, another
+        // device opened the same tab: the page gets that shell, and what it printed last.
+        if (SshShells.TryGetValue(session, out var running))
         {
-            await terminal.RunAsync(server!);
-        }
-        finally
-        {
-            SshSessions.TryRemove(session, out _);
+            if (running.UserId != user.Id || running.ServerId != id)
+            {
+                await terminal.RefuseAsync("This session belongs to another connection.");
+                return;
+            }
+
+            if (!running.Ended.IsCompleted)
+            {
+                await terminal.ServeAsync(running, attached: true, keep, () => EndSshShell(session, running));
+                return;
+            }
+
+            EndSshShell(session, running);
         }
 
-        await RecordRecentConnectionAsync(store, user!.Id, id, CancellationToken.None);
+        var shell = await terminal.OpenAsync(server!, user.Id);
+        if (shell is null)
+        {
+            return;
+        }
+
+        SshSessions[session] = shell.Login;
+        SshShells[session] = shell;
+        await RecordRecentConnectionAsync(store, user.Id, id, CancellationToken.None);
+        if (SshShells.Values.Count(other => other.UserId == user.Id) > Matgate.Services.DisplayBridge.MaxHeldPerUser)
+        {
+            // Not without end: someone who never comes back to dozens of them must not keep them all.
+            keep = TimeSpan.Zero;
+        }
+
+        await terminal.ServeAsync(shell, attached: false, keep, () => EndSshShell(session, shell));
     }
 
-    // One SSH shell for one terminal page.
-    private sealed class SshTerminal(WebSocket socket, uint columns, uint rows, CancellationToken cancellationToken, Action<string, string> connected)
+    // The shells a page can come back to, by session id.
+    private static readonly ConcurrentDictionary<string, SshShell> SshShells = new();
+
+    private static void EndSshShell(string session, SshShell shell)
+    {
+        SshShells.TryRemove(new KeyValuePair<string, SshShell>(session, shell));
+        SshSessions.TryRemove(new KeyValuePair<string, SshLive>(session, shell.Login));
+        shell.End();
+    }
+
+    // An SSH shell and the page that shows it right now. The shell runs on its own: what it prints is kept
+    // (the last 256 KB) and handed to whichever page is attached, so a page that comes later starts with what
+    // was on the screen. One page at a time - the next one takes it.
+    private sealed class SshShell
+    {
+        private const int BacklogBytes = 256 * 1024;
+        private readonly SshClient _client;
+        private readonly ShellStream _stream;
+        private readonly object _gate = new();
+        private readonly byte[] _backlog = new byte[BacklogBytes];
+        private readonly CancellationTokenSource _stop = new();
+        private readonly TaskCompletionSource _ended = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private TaskCompletionSource _replaced = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private CancellationTokenSource? _expiry;
+        private Func<ReadOnlyMemory<byte>, Task>? _viewer;
+        private int _backlogEnd;
+        private int _backlogLength;
+        private int _ending;
+
+        public SshShell(SshClient client, ShellStream stream, Guid userId, Guid serverId, SshLive login)
+        {
+            _client = client;
+            _stream = stream;
+            UserId = userId;
+            ServerId = serverId;
+            Login = login;
+            _ = Task.Run(PumpAsync);
+        }
+
+        public Guid UserId { get; }
+
+        public Guid ServerId { get; }
+
+        public SshLive Login { get; }
+
+        // Completes when the shell is over: "exit" on the server, a lost connection, or End().
+        public Task Ended => _ended.Task;
+
+        private async Task PumpAsync()
+        {
+            var buffer = new byte[16 * 1024];
+            try
+            {
+                while (!_stop.IsCancellationRequested)
+                {
+                    var read = await _stream.ReadAsync(buffer, _stop.Token);
+                    if (read <= 0)
+                    {
+                        break;
+                    }
+
+                    Func<ReadOnlyMemory<byte>, Task>? viewer;
+                    lock (_gate)
+                    {
+                        Remember(buffer.AsSpan(0, read));
+                        viewer = _viewer;
+                    }
+
+                    if (viewer is not null)
+                    {
+                        try
+                        {
+                            await viewer(buffer.AsMemory(0, read).ToArray());
+                        }
+                        catch (Exception exception) when (exception is WebSocketException or OperationCanceledException or ObjectDisposedException or InvalidOperationException)
+                        {
+                            // The page is gone; its handler notices by itself.
+                        }
+                    }
+                }
+            }
+            catch (Exception exception) when (exception is SshException or OperationCanceledException or IOException or ObjectDisposedException or System.Net.Sockets.SocketException)
+            {
+            }
+            finally
+            {
+                _ended.TrySetResult();
+            }
+        }
+
+        private void Remember(ReadOnlySpan<byte> bytes)
+        {
+            if (bytes.Length >= BacklogBytes)
+            {
+                bytes = bytes[^BacklogBytes..];
+            }
+
+            var first = Math.Min(bytes.Length, BacklogBytes - _backlogEnd);
+            bytes[..first].CopyTo(_backlog.AsSpan(_backlogEnd));
+            bytes[first..].CopyTo(_backlog);
+            _backlogEnd = (_backlogEnd + bytes.Length) % BacklogBytes;
+            _backlogLength = Math.Min(BacklogBytes, _backlogLength + bytes.Length);
+        }
+
+        // A page takes the shell: whoever had it is told (what comes back first completes when the NEXT page
+        // takes it), and a shell that was waiting for someone no longer runs out. Second: what the shell
+        // printed last. The page is sent nothing new until it says it is ready for it.
+        public (Task Replaced, byte[] Backlog) Take(Func<ReadOnlyMemory<byte>, Task> viewer)
+        {
+            lock (_gate)
+            {
+                _expiry?.Cancel();
+                _expiry = null;
+                var before = _replaced;
+                _replaced = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                before.TrySetResult();
+                _viewer = viewer;
+                var backlog = new byte[_backlogLength];
+                var start = (_backlogEnd - _backlogLength + BacklogBytes) % BacklogBytes;
+                var first = Math.Min(_backlogLength, BacklogBytes - start);
+                _backlog.AsSpan(start, first).CopyTo(backlog);
+                _backlog.AsSpan(0, _backlogLength - first).CopyTo(backlog.AsSpan(first));
+                return (_replaced.Task, backlog);
+            }
+        }
+
+        // The page left. True when the shell stays: because another page has it already, or because it is kept
+        // for the time given - then `expired` is called when nobody came, or when the shell ended meanwhile.
+        public bool Leave(Task mine, TimeSpan keep, Action expired)
+        {
+            lock (_gate)
+            {
+                if (!ReferenceEquals(mine, _replaced.Task))
+                {
+                    return true;
+                }
+
+                _viewer = null;
+                if (keep <= TimeSpan.Zero || _ended.Task.IsCompleted)
+                {
+                    return false;
+                }
+
+                var expiry = new CancellationTokenSource();
+                _expiry = expiry;
+                _ = Task.WhenAny(Task.Delay(keep, expiry.Token), _ended.Task).ContinueWith(_ =>
+                {
+                    if (!expiry.IsCancellationRequested)
+                    {
+                        expired();
+                    }
+                }, TaskScheduler.Default);
+                return true;
+            }
+        }
+
+        public async Task WriteAsync(byte[] bytes, CancellationToken cancellationToken)
+        {
+            await _stream.WriteAsync(bytes, cancellationToken);
+            await _stream.FlushAsync(cancellationToken);
+        }
+
+        public void Resize(uint columns, uint rows)
+        {
+            try
+            {
+                _stream.ChangeWindowSize(columns, rows, 0, 0);
+            }
+            catch (Exception exception) when (exception is SshException or ObjectDisposedException or InvalidOperationException)
+            {
+            }
+        }
+
+        public void End()
+        {
+            if (Interlocked.Exchange(ref _ending, 1) != 0)
+            {
+                return;
+            }
+
+            _stop.Cancel();
+            try
+            {
+                _client.Disconnect();
+            }
+            catch (Exception exception) when (exception is SshException or ObjectDisposedException or System.Net.Sockets.SocketException or InvalidOperationException)
+            {
+            }
+
+            _client.Dispose();
+            _ended.TrySetResult();
+        }
+    }
+
+    // One terminal page on its socket: it signs in (asking in the terminal for what is not stored), and then
+    // shows a shell - a new one, or one that kept running.
+    private sealed class SshTerminal(WebSocket socket, uint columns, uint rows, CancellationToken cancellationToken)
     {
         private readonly SemaphoreSlim _send = new(1, 1);
         private readonly Queue<byte> _typed = new();
         private uint _columns = columns;
         private uint _rows = rows;
-        private ShellStream? _shell;
+        private SshShell? _shell;
 
-        public async Task RunAsync(ServerEndpoint server)
+        public async Task RefuseAsync(string message)
         {
-            await SendControlAsync(new { type = "ready", attached = false });
-            var user = server.UserName;
-            var password = server.Password;
             try
             {
+                await SendControlAsync(new { type = "error", message });
+            }
+            catch (Exception exception) when (exception is WebSocketException or OperationCanceledException)
+            {
+            }
+        }
+
+        // Signs in and starts a shell; null when that did not happen (the page has been told why).
+        public async Task<SshShell?> OpenAsync(ServerEndpoint server, Guid userId)
+        {
+            try
+            {
+                await SendControlAsync(new { type = "ready", attached = false });
+                var user = server.UserName;
+                var password = server.Password;
                 if (string.IsNullOrWhiteSpace(user))
                 {
                     user = await PromptAsync("login as: ", echo: true);
                     if (user is null)
                     {
-                        return;
+                        return null;
                     }
                 }
 
@@ -215,7 +449,7 @@ public static partial class EndpointMapping
                         password = await PromptAsync($"{user}@{server.Host}'s password: ", echo: false);
                         if (password is null)
                         {
-                            return;
+                            return null;
                         }
                     }
 
@@ -230,34 +464,88 @@ public static partial class EndpointMapping
                 if (client is null)
                 {
                     await SendControlAsync(new { type = "error", message = "The login was refused." });
-                    return;
+                    return null;
                 }
 
-                using (client)
+                try
                 {
-                    connected(user, password!);
-                    _shell = client.CreateShellStream("xterm-256color", _columns, _rows, 0, 0, 64 * 1024);
-                    var output = Task.Run(PumpOutputAsync);
-                    var input = Task.Run(PumpInputAsync);
-                    await Task.WhenAny(output, input);
-                    if (socket.State == WebSocketState.Open)
-                    {
-                        // Ended on the server (exit) or here ("Trennen"): either way the page shows it as ended.
-                        await SendControlAsync(new { type = "exit", code = 0 });
-                    }
-
-                    client.Disconnect();
+                    var stream = client.CreateShellStream("xterm-256color", _columns, _rows, 0, 0, 64 * 1024);
+                    return new SshShell(client, stream, userId, server.Id, new SshLive(userId, server.Id, server.Host, server.Port, user, password!));
+                }
+                catch
+                {
+                    client.Dispose();
+                    throw;
                 }
             }
             catch (Exception exception) when (exception is SshException or System.Net.Sockets.SocketException or WebSocketException or OperationCanceledException or IOException or ObjectDisposedException)
             {
                 if (socket.State == WebSocketState.Open)
                 {
-                    await SendControlAsync(new { type = "error", message = exception is System.Net.Sockets.SocketException or SshConnectionException
+                    await RefuseAsync(exception is System.Net.Sockets.SocketException or SshConnectionException
                         ? $"The SSH server {server.Host}:{server.Port} cannot be reached."
-                        : "The SSH connection was lost." });
+                        : "The SSH connection was lost.");
+                }
+
+                return null;
+            }
+        }
+
+        // Shows the shell until the page leaves, the shell ends, the page asks for the end ("Trennen") or
+        // another page takes the shell. A shell whose page just went away stays for the next one as long as
+        // the user's setting says; otherwise `end` is called.
+        public async Task ServeAsync(SshShell shell, bool attached, TimeSpan keep, Action end)
+        {
+            _shell = shell;
+            var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var (replaced, backlog) = shell.Take(async bytes =>
+            {
+                await ready.Task;
+                await SendBytesAsync(bytes);
+            });
+            var asked = false;
+            try
+            {
+                if (attached)
+                {
+                    await SendControlAsync(new { type = "ready", attached = true });
+                    shell.Resize(_columns, _rows);
+                    if (backlog.Length > 0)
+                    {
+                        await SendBytesAsync(backlog);
+                    }
+                }
+
+                ready.TrySetResult();
+                var input = PumpInputAsync(shell);
+                var first = await Task.WhenAny(input, shell.Ended, replaced);
+                if (first == replaced)
+                {
+                    await RefuseAsync("Another window or device shows this terminal now.");
+                    return;
+                }
+
+                asked = first == input && await input;
+                if ((asked || first == shell.Ended) && socket.State == WebSocketState.Open)
+                {
+                    // Ended on the server (exit) or here ("Trennen"): either way the page shows it as ended.
+                    await SendControlAsync(new { type = "exit", code = 0 });
                 }
             }
+            catch (Exception exception) when (exception is SshException or WebSocketException or OperationCanceledException or IOException or ObjectDisposedException)
+            {
+            }
+            finally
+            {
+                ready.TrySetResult();
+            }
+
+            if (!asked && shell.Leave(replaced, keep, end))
+            {
+                return;
+            }
+
+            end();
         }
 
         private async Task<SshClient?> ConnectAsync(ServerEndpoint server, string user, string password)
@@ -282,43 +570,22 @@ public static partial class EndpointMapping
             }
         }
 
-        private async Task PumpOutputAsync()
-        {
-            var buffer = new byte[16 * 1024];
-            while (true)
-            {
-                var read = await _shell!.ReadAsync(buffer, cancellationToken);
-                if (read <= 0)
-                {
-                    return;
-                }
-
-                await _send.WaitAsync(cancellationToken);
-                try
-                {
-                    await socket.SendAsync(buffer.AsMemory(0, read), WebSocketMessageType.Binary, true, cancellationToken);
-                }
-                finally
-                {
-                    _send.Release();
-                }
-            }
-        }
-
-        private async Task PumpInputAsync()
+        // The page's keystrokes to the shell. True when the page asked for the end.
+        private async Task<bool> PumpInputAsync(SshShell shell)
         {
             while (await ReceiveAsync() is { } message)
             {
                 if (message.Bytes is { } bytes)
                 {
-                    await _shell!.WriteAsync(bytes, cancellationToken);
-                    await _shell.FlushAsync(cancellationToken);
+                    await shell.WriteAsync(bytes, cancellationToken);
                 }
                 else if (message.Kill)
                 {
-                    return;
+                    return true;
                 }
             }
+
+            return false;
         }
 
         // Asks in the terminal itself; null when the page went away or the person pressed Ctrl+C.
@@ -419,7 +686,7 @@ public static partial class EndpointMapping
                     {
                         _columns = (uint)Math.Clamp(control.RootElement.GetProperty("cols").GetInt32(), 10, 1000);
                         _rows = (uint)Math.Clamp(control.RootElement.GetProperty("rows").GetInt32(), 5, 500);
-                        _shell?.ChangeWindowSize(_columns, _rows, 0, 0);
+                        _shell?.Resize(_columns, _rows);
                     }
                     else if (type == "kill")
                     {
@@ -442,6 +709,19 @@ public static partial class EndpointMapping
             try
             {
                 await socket.SendAsync(Encoding.UTF8.GetBytes(text), WebSocketMessageType.Binary, true, cancellationToken);
+            }
+            finally
+            {
+                _send.Release();
+            }
+        }
+
+        private async Task SendBytesAsync(ReadOnlyMemory<byte> bytes)
+        {
+            await _send.WaitAsync(cancellationToken);
+            try
+            {
+                await socket.SendAsync(bytes, WebSocketMessageType.Binary, true, cancellationToken);
             }
             finally
             {

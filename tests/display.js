@@ -270,8 +270,9 @@ const only = process.argv[2] || "";
     const view = await context.newPage();
     view.on("pageerror", e => { console.log("JS ERROR: " + e.message); failures.push("JS error"); });
     await view.goto(BASE + "/display/" + vnc.id + "/screen", { waitUntil: "domcontentloaded" });
-    await waitFrames(view, 3);
-    check("VNC: pictures arrive and are decoded", (await frames(view)) >= 3, true);
+    // Two, not more: a desktop that already has the size of this window and does not change sends no third.
+    await waitFrames(view, 2);
+    check("VNC: pictures arrive and are decoded", (await frames(view)) >= 2, true);
     await sleep(1500);
     const first = await picture(view);
     check("VNC: with the desktop on them", first.content, true);
