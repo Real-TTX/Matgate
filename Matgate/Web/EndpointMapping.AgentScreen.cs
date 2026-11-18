@@ -18,6 +18,8 @@ public static partial class EndpointMapping
         "screen.input", "screen.ack", "screen.key", "screen.config", "screen.audio", "screen.sas", "screen.auth",
         "screen.clip.set", "screen.clip.begin", "screen.clip.chunk", "screen.clip.end",
         "screen.windows", "screen.window",
+        // The viewer's game controllers and microphone, for a machine that can take them.
+        "screen.pad", "screen.mic",
     ];
 
     private static void MapAgentScreenEndpoints(WebApplication app)
@@ -260,6 +262,22 @@ public static partial class EndpointMapping
                 soundOff = de ? "Ton ausschalten" : "Turn sound off",
                 soundBlocked = de ? "Ton: einmal ins Bild klicken" : "Sound: click into the picture once",
                 noSound = de ? "Der Rechner hat keine Tonausgabe." : "The machine has no sound output.",
+                micOn = de ? "Mikrofon einschalten" : "Turn the microphone on",
+                micOff = de ? "Mikrofon ausschalten" : "Turn the microphone off",
+                micStarting = de ? "Mikrofon an ..." : "Microphone on ...",
+                micPlaying = de ? "Mikrofon an - auf dem Rechner als „{device}“" : "Microphone on - on the machine as \"{device}\"",
+                micNoDevice = de
+                    ? "Der Rechner hat kein virtuelles Mikrofon. Dort ein virtuelles Audiokabel installieren (z. B. VB-CABLE) - der Agent spielt das Mikrofon hinein."
+                    : "The machine has no virtual microphone. Install a virtual audio cable there (VB-CABLE, for one) - the agent plays the microphone into it.",
+                micSwitchedOff = de ? "Das Mikrofon ist in den Einstellungen des Agents abgeschaltet." : "The microphone is switched off in the agent's settings.",
+                micDenied = de ? "Der Browser gibt das Mikrofon nicht frei - in den Einstellungen der Seite erlauben." : "The browser does not hand out the microphone - allow it in the page's settings.",
+                micUnsupported = de ? "Dieser Browser gibt hier kein Mikrofon heraus (nur über HTTPS)." : "This browser hands out no microphone here (HTTPS only).",
+                micFailed = de ? "Das Mikrofon ließ sich nicht öffnen." : "The microphone could not be opened.",
+                padConnected = de ? "Controller {n} verbunden - am Rechner ein Xbox-Controller" : "Controller {n} connected - an Xbox controller on the machine",
+                padNoDriver = de
+                    ? "Controller erkannt, aber dem Rechner fehlt der Treiber dafür (ViGEmBus). Dort installieren, dann geht er."
+                    : "A controller was found, but the machine lacks the driver for it (ViGEmBus). Install it there and it works.",
+                padSwitchedOff = de ? "Controller sind in den Einstellungen des Agents abgeschaltet." : "Controllers are switched off in the agent's settings.",
                 keyboard = de ? "Tastatur" : "Keyboard",
                 resolution = de ? "Auflösung des Rechners" : "The machine's resolution",
                 resolutionAuto = de ? "An Fenster anpassen" : "Fit to window",

@@ -25,14 +25,21 @@ internal sealed class SetupWizard : Form
     private readonly TextBox _password = Brand.Field(new TextBox { Width = 260, UseSystemPasswordChar = true });
     private readonly CheckBox _autoUpdate = new() { Text = "Automatisch aktualisieren - über Matgate, wenn kein Terminal offen ist", AutoSize = true, Checked = true };
     private readonly CheckBox _tray = new() { Text = "Symbol im Infobereich anzeigen (Status, Verbindungsdaten, Log)", AutoSize = true, Checked = true };
-    private readonly ListView _roots = Brand.Field(new ListView { View = View.Details, FullRowSelect = true, HeaderStyle = ColumnHeaderStyle.Nonclickable, Width = 400, Height = 84, BorderStyle = BorderStyle.FixedSingle });
+    private readonly ListView _roots = Brand.Field(new ListView { View = View.Details, FullRowSelect = true, HeaderStyle = ColumnHeaderStyle.Nonclickable, Width = 400, Height = 64, BorderStyle = BorderStyle.FixedSingle });
     private readonly CheckBox _claude = new() { Text = "Claude Code", AutoSize = true, Checked = true };
     private readonly CheckBox _screen = new() { Text = "Bildschirm - den Rechner aus Matgate bedienen, mit Ton und Zwischenablage", AutoSize = true, Checked = true };
     private readonly CheckBox _powerShell = new() { Text = "PowerShell", AutoSize = true };
+    private readonly PictureBox _logoPicture = new() { Size = new Size(32, 32), SizeMode = PictureBoxSizeMode.Zoom, BorderStyle = BorderStyle.FixedSingle, Margin = new Padding(3, 0, 10, 0) };
+    private readonly Label _logoName = new() { AutoSize = true, MaximumSize = new Size(200, 0), AutoEllipsis = true, Margin = new Padding(0, 7, 10, 0) };
     private readonly CheckBox _deleteSettings = new() { AutoSize = true, MaximumSize = new Size(Brand.ContentWidth, 0) };
     private readonly MarqueeBar _progress = new() { Height = 8, Width = Brand.ContentWidth - 8, Margin = new Padding(3, 4, 3, 4) };
     private readonly ListBox _log = Brand.Field(new ListBox { IntegralHeight = false, HorizontalScrollbar = true, BorderStyle = BorderStyle.FixedSingle, Width = Brand.ContentWidth - 8, Height = 200 });
     private readonly List<AgentRoot> _rootList = [];
+
+    // The logo as the wizard shows it: the file that is (or will be) this machine's picture; "" for none.
+    // _logoChanged says whether that is the user's choice in this run or simply what is installed.
+    private string _logo = "";
+    private bool _logoChanged;
     private readonly Stack<Page> _history = new();
 
     private Page _page;
@@ -84,6 +91,7 @@ internal sealed class SetupWizard : Form
             _claude.Checked = _installed.Claude;
             _screen.Checked = _installed.Screen;
             _powerShell.Checked = _installed.PowerShell;
+            _logo = _installed.CurrentLogo;
             _password.PlaceholderText = "für den Dienst erneut eingeben";
         }
         else
@@ -246,6 +254,17 @@ internal sealed class SetupWizard : Form
                 content.Controls.Add(Brand.Hint("Starten im Ordner, der in Matgate offen ist. Claude Code muss hier installiert sein."));
                 content.Controls.Add(_screen);
                 content.Controls.Add(Brand.Hint("Als angemeldeter Benutzer oder als Systemdienst, nicht unter einem anderen Konto.", 20));
+                content.Controls.Add(Brand.FieldLabel("Logo auf der Startseite dieses Rechners in Matgate"));
+                var logo = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, Margin = Padding.Empty };
+                var pick = new Button { Text = "Auswählen …", Size = new Size(112, 30), Margin = new Padding(0, 1, 6, 0) };
+                var drop = new Button { Text = "Entfernen", Size = new Size(96, 30), Margin = new Padding(0, 1, 0, 0) };
+                Brand.Style(pick, ButtonKind.Secondary);
+                Brand.Style(drop, ButtonKind.Secondary);
+                pick.Click += (_, _) => PickLogo();
+                drop.Click += (_, _) => SetLogo("");
+                logo.Controls.AddRange([_logoPicture, _logoName, pick, drop]);
+                content.Controls.Add(logo);
+                RefreshLogo();
                 RefreshRoots();
                 break;
 
@@ -330,6 +349,8 @@ internal sealed class SetupWizard : Form
             Claude = _claude.Checked,
             Screen = _screen.Checked,
             PowerShell = _powerShell.Checked,
+            // Only what was chosen here is an instruction; an untouched logo stays as it is.
+            Logo = _logoChanged ? _logo : null,
         };
         var keepConfig = !_deleteSettings.Checked;
 
@@ -402,6 +423,56 @@ internal sealed class SetupWizard : Form
         {
             _rootList.RemoveAt(_roots.SelectedIndices[0]);
             RefreshRoots();
+        }
+    }
+
+    private void PickLogo()
+    {
+        using var dialog = new OpenFileDialog { Title = "Logo für Matgate", Filter = AgentLogo.DialogFilter, CheckFileExists = true };
+        if (dialog.ShowDialog(this) != DialogResult.OK)
+        {
+            return;
+        }
+
+        if (AgentLogo.Problem(dialog.FileName) is { } problem)
+        {
+            MessageBox.Show(this, problem, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            return;
+        }
+
+        SetLogo(dialog.FileName);
+    }
+
+    private void SetLogo(string path)
+    {
+        _logo = path;
+        _logoChanged = true;
+        RefreshLogo();
+    }
+
+    private void RefreshLogo()
+    {
+        var old = _logoPicture.Image;
+        _logoPicture.Image = null;
+        old?.Dispose();
+        _logoName.Text = _logo.Length == 0 ? "Kein Logo" : Path.GetFileName(_logo);
+        _logoName.ForeColor = _logo.Length == 0 ? Theme.Muted : Theme.Text;
+        if (_logo.Length == 0 || AgentLogo.TypeOf(_logo) is "image/svg+xml" or "image/webp" or null)
+        {
+            // Windows' own picture box shows neither SVG nor WebP; Matgate does. The name has to do here.
+            return;
+        }
+
+        try
+        {
+            // From a copy in memory, so the file stays free to be replaced or deleted.
+            using var stream = new MemoryStream(File.ReadAllBytes(_logo));
+            using var loaded = Image.FromStream(stream);
+            _logoPicture.Image = new Bitmap(loaded);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or OutOfMemoryException)
+        {
+            // Not readable here: the name is shown, and Matgate decides whether it is a picture.
         }
     }
 

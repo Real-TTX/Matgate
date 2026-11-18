@@ -10,7 +10,14 @@ namespace Matgate.Agent;
 // What the agent said about itself when the connection was made.
 public sealed record AgentHello(string Name, string Version, string Machine, string User, string Os, IReadOnlyList<AgentPlugin> Plugins, bool AutoUpdate, bool CanUpdate);
 
-public sealed record AgentPlugin(string Id, string Kind, string Title, IReadOnlyList<AgentPluginVariant> Variants);
+public sealed record AgentPlugin(string Id, string Kind, string Title, IReadOnlyList<AgentPluginVariant> Variants)
+{
+    // For the screen: whether the machine can take the browser's microphone and its game controllers
+    // (it needs a virtual audio cable for the one and the ViGEmBus driver for the other).
+    public bool Microphone { get; init; }
+
+    public bool Gamepad { get; init; }
+}
 
 // Another way to start the same program - for Claude Code "continue the last conversation".
 public sealed record AgentPluginVariant(string Id, string Title);
@@ -298,7 +305,11 @@ public sealed class AgentLink : IDisposable
                     item["id"]?.GetValue<string>() ?? "",
                     item["kind"]?.GetValue<string>() ?? "",
                     item["title"]?.GetValue<string>() ?? "",
-                    variants));
+                    variants)
+                {
+                    Microphone = item["microphone"]?.GetValue<bool>() ?? false,
+                    Gamepad = item["gamepad"]?.GetValue<bool>() ?? false,
+                });
             }
         }
 

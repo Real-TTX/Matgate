@@ -14,7 +14,7 @@ using Matgate.Agent.Setup;
 //   matgate-agent run [--config path]  the agent itself (what the service or the logon task starts)
 //   matgate-agent setup [--port 7488] [--firewall|--no-firewall] [--mode user|system|service]
 //                       [--account .\name|LocalSystem] [--password pw] [--root Name=C:\Path ...]
-//                       [--no-claude] [--powershell] [--no-screen] [--dry-run]
+//                       [--no-claude] [--powershell] [--no-screen] [--logo picture|--no-logo] [--dry-run]
 //   matgate-agent uninstall [--keep-config] [--gui]
 //   matgate-agent tray                 the icon in the notification area (started at sign-in)
 //   matgate-agent start|stop|restart   the service or the logon task (administrator rights; what the tray asks for)
@@ -177,6 +177,8 @@ static int RunSetup(string[] args)
             case "--powershell": options.PowerShell = true; break;
             case "--no-auto-update": options.AutoUpdate = false; break;
             case "--no-screen": options.Screen = false; break;
+            case "--logo": options.Logo = Path.GetFullPath(Next()); break;
+            case "--no-logo": options.Logo = ""; break;
             case "--no-tray": options.Tray = false; break;
             case "--dry-run": options.DryRun = true; break;
             case "--root":
@@ -368,7 +370,7 @@ static async Task RunAgentAsync(string[] args, string version)
 
         using var socket = await context.WebSockets.AcceptWebSocketAsync();
         AgentLog.Write($"Matgate connected from {context.Connection.RemoteIpAddress}");
-        await new Connection(socket, config, version, files, terminals, updates, screen, () =>
+        await new Connection(socket, config, directory, version, files, terminals, updates, screen, () =>
         {
             // As a service a non-zero exit makes Windows restart it (failure actions); the updater does the rest.
             Environment.Exit(AgentStatus.Mode == "service" ? 1 : 0);

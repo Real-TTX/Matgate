@@ -40,6 +40,13 @@ public sealed class SetupOptions
     // the sign-in screen).
     public bool Screen { get; set; } = true;
 
+    // The picture for this machine's start page in Matgate. A path: that picture is taken (a copy of it).
+    // Empty: no logo any more. Null: whatever is there stays.
+    public string? Logo { get; set; }
+
+    // What is installed: the logo's file, for the setup to show. Not an instruction.
+    public string CurrentLogo { get; set; } = "";
+
     // Filled from an existing installation only.
     public string Version { get; set; } = "";
 }
@@ -105,6 +112,7 @@ public static class Installer
                 options.PowerShell = config.Terminals.Any(t => t.Id == "powershell" && t.Enabled);
                 options.AutoUpdate = config.AutoUpdate;
                 options.Screen = config.Screen;
+                options.CurrentLogo = AgentLogo.Find(config, DataFolder)?.Path ?? "";
             }
         }
         catch (UnauthorizedAccessException)
@@ -194,6 +202,17 @@ public static class Installer
         if (options.Roots.Count > 0)
         {
             config.Roots = options.Roots;
+        }
+
+        if (options.Logo is { Length: > 0 } picture)
+        {
+            config.Logo = AgentLogo.Store(picture, DataFolder);
+            log("Logo for Matgate: " + Path.GetFileName(picture));
+        }
+        else if (options.Logo is not null)
+        {
+            AgentLogo.Remove(DataFolder);
+            config.Logo = "";
         }
 
         SetTerminal(config, "claude", "Claude Code", "cmd.exe /c claude", options.Claude);

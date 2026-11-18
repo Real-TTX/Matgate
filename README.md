@@ -37,6 +37,9 @@ usable from a laptop or a phone – installable as a PWA.
 - RDP with a **clipboard for text, pictures and files** in both directions (Ctrl+V puts files into the
   Explorer window that is open), **sound**, and a resolution that **follows the window without reconnecting**
 - A password that is not stored is **asked for when connecting**
+- Through the [agent](agent/README.md): the real desktop of a Windows machine with its **microphone and
+  game controllers** taken from the browser (given a virtual audio cable and the ViGEmBus driver there),
+  single windows, and a start page with the machine's **own logo**
 - Several sessions open at once as **draggable tabs**, with session restore
 - **Sessions that outlive the browser** (an option per user, Account -> Session, 5 minutes to 24 hours):
   an RDP, VNC or SSH session of Matgate's own engine keeps running when its browser is reloaded, loses its

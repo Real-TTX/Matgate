@@ -1,8 +1,9 @@
 # Matgate – Plan zum Weitermachen
 
-Stand: 2026-11-18, Version 0.23.0 (Agent 0.9.0) auf `main` und als `v0.23.0` markiert; auf ve-docker-1
-(matgate.schmoldt.it) läuft 0.22.0 - 0.23.0 wartet auf das Einspielen (trennt laufende Sitzungen, nur
-auf ausdrücklichen Wunsch). Geschrieben als Übergabe an eine andere Sitzung.
+Stand: 2026-11-18, Version 0.24.0 (Agent 0.10.0) auf `main` und als `v0.24.0` markiert; auf ve-docker-1
+(matgate.schmoldt.it) läuft 0.23.0 samt Browser-Farm-Image (Websites dort weiter über den Pfad, bis Route
+und Variable stehen) - 0.24.0 wartet auf das Einspielen (trennt laufende Sitzungen, nur auf
+ausdrücklichen Wunsch). Geschrieben als Übergabe an eine andere Sitzung.
 
 ## Wo wir stehen
 
@@ -279,6 +280,46 @@ Blöcke von 4/8/16 Pixeln. Geändert in `Matgate/Display/Video` und `ScreenSessi
   (statt 8-17 ms). Eine einzige Messung; braucht eine eigene Bewertung (die Vorgabe „Kamera“ war
   gemessen gewählt). Ein ganzer Schirm dichter Text, schnell gescrollt, bleibt bei 12 Mbit/s auch
   jetzt schwer lesbar - dafür bräuchte es diesen Modus oder eine höhere Obergrenze.
+
+## Agent: Logo, Startseite, Mikrofon, Controller (0.24.0 / Agent 0.10.0, Wunsch vom 2026-11-18)
+
+Der Nutzer: „Ich möchte, dass man ein Logo im Agent hinterlegen kann, das dann auf der Home-Seite des
+Agents angezeigt wird. Das UI vom Agent (wenn man die Verbindung aufmacht) muss deutlich schöner werden,
+UI/UX-Fokus. Auch brauchen wir Mikrofon- und Controller-Support.“
+
+- **Logo:** `AgentConfig.Logo` bzw. `logo.<png|jpg|webp|gif|svg>` neben der Konfiguration
+  (`agent/Matgate.Agent/AgentLogo.cs`, höchstens 1 MB, wird je Anfrage gesucht - kein Neustart). Setup:
+  Seite „Was Matgate sehen darf“ (Auswählen/Entfernen, Vorschau außer SVG/WebP), `setup --logo|--no-logo`.
+  Draht: `logo.stat` / `logo.read`. Matgate: `status.logo` und `GET /api/agent/{id}/logo?v=<Stempel>`
+  mit `nosniff` und CSP-`sandbox` (ein SVG darf unter Matgates Adresse kein Skript ausführen).
+- **Startseite** (`renderAgentHome` in `HtmlViews.cs`, Klassen `agent-hero`, `agent-features`,
+  `agent-chip`, `agent-badge`): Kopfkarte mit Logo/Icon, Name, Fakten und Zustand; laufende Sitzungen
+  darüber, „Fortsetzen“ als Hauptknopf; Bildschirm und Dateien als zwei große Karten (Bildschirm mit dem,
+  was er kann; Dateien mit je einem Chip pro freigegebenem Ordner, der direkt dorthin führt); Programme
+  als Karten; Gerüst statt Text beim Laden; Telefon einspaltig, Name in eigener Zeile.
+- **Mikrofon:** Browser (`getUserMedia`, AudioWorklet, WebCodecs-Opus oder PCM, 20 ms, 48 kHz mono) →
+  `screen.mic` → Agent `Screen/Microphone.cs`: `MicrophonePlayer` spielt per WASAPI in das
+  Wiedergabe-Ende eines virtuellen Audiokabels (automatisch erkannt: CABLE Input, VoiceMeeter, Steam
+  Streaming Microphone …; `Microphone` in der Konfiguration: Gerätename, `speakers`, `off`). Ohne Kabel
+  `microphone: "nodevice"` - der Knopf sagt, was fehlt.
+- **Controller:** Browser (Gamepad-API, Standardbelegung, je Bild abgefragt, nur Änderungen) →
+  `screen.pad` → Agent `Screen/Gamepads.cs`: `ViGEmGamepads` spricht den Treiber ViGEmBus direkt per
+  IOCTL (Schnittstelle aus dessen `BusShared.h`), bis zu vier Xbox-360-Controller, Vibration zurück als
+  `screen.pad.rumble`. Verliert die Seite den Fokus, werden Sticks und Tasten losgelassen.
+- **Was der Rechner kann**, steht im Hello (`microphone`, `gamepad` am Bildschirm-Plugin) und in der
+  Antwort auf `screen.open` (`"ok"`, `"nodevice"`/`"nodriver"`, `"off"`).
+- **Prüfen auf einem Rechner:** `matgate-agent screen-probe --microphone [Einstellung] [--tone]` und
+  `screen-probe --gamepad [--plug]`.
+- **Test:** `tests/agent-devices.js` (33 Prüfungen) im Testmodus des Agents: gefälschtes Mikrofon von
+  Chromium, ein Ersatz für `navigator.getGamepads()`, der Agent meldet statt zu spielen/einzustecken; der
+  Test-Controller „vibriert“, indem er seine Trigger als Motoren zurückgibt.
+- **Nicht geprüft:** der echte ViGEmBus-Weg (auf dem Entwicklungsrechner ist kein Treiber; nur
+  „nicht installiert“ wird erkannt) und ein echtes virtuelles Audiokabel (Wiedergabe in ein Gerät geprüft
+  mit `screen-probe --microphone speakers`: öffnet und nimmt Ton). Safari/iPhone (AudioEncoder, Gamepad).
+- **Offen / Entscheidung des Nutzers:** Soll das Setup die Treiber mitbringen oder herunterladen?
+  Vorher Lizenz und Stand beider prüfen (ViGEmBus: frei verfügbar, wird meines Wissens nicht mehr weiterentwickelt; VB-CABLE: Spendenware des Herstellers, Mitliefern nicht ohne Weiteres erlaubt) - ungeprüft.
+  RDP der eigenen Engine könnte Mikrofon nativ (MS-RDPEAI) - nicht gebaut. Mikrofon/Controller haben im
+  Setup-Dialog kein Feld (nur Konfigurationsdatei).
 
 ## Agent: Fenster des Rechners (Wunsch vom 2026-11-18, erledigt mit Agent 0.9.0)
 

@@ -28,6 +28,10 @@ public sealed class AgentConfig
     // Shown in Matgate when set; otherwise the machine name.
     public string Name { get; set; } = "";
 
+    // The picture shown on this machine's start page in Matgate (see AgentLogo): a path, relative ones start
+    // at the folder of this file. Empty: a file called logo.png (.jpg, .webp, .gif, .svg) there, if any.
+    public string Logo { get; set; } = "";
+
     // The TLS certificate (created on the first start, self-signed - tick "ignore certificate" in
     // Matgate, as for RDP). A path to an own .pfx may be put here instead.
     public string CertificatePath { get; set; } = "matgate-agent.pfx";
@@ -52,6 +56,14 @@ public sealed class AgentConfig
     // the signed-in user, or as a LocalSystem service (then also at the sign-in screen); a service under any
     // other account sees no desktop.
     public bool Screen { get; set; } = true;
+
+    // Where the microphone of the person in the browser is played (see Screen/Microphone.cs). Empty: into a
+    // virtual audio cable, if the machine has one - its other end is a microphone programs can pick. A part
+    // of a playback device's name: into that device. "speakers": on the machine's loudspeakers. "off": nowhere.
+    public string Microphone { get; set; } = "";
+
+    // Game controllers of the browser as Xbox controllers of this machine. Needs the ViGEmBus driver.
+    public bool Gamepads { get; set; } = true;
 
     public static AgentConfig LoadOrCreate(string path, out bool created)
     {

@@ -33,6 +33,19 @@ there (it only shows one when opened on its own, outside Matgate).
   encoder where there is none or it fails. Up to 60 pictures a second ("Flüssig"), 30 or 20 to save data.
   At most three pictures are on the way: a slow network gets fewer pictures, never older ones. When the
   screen stands still the last picture is sent once or twice more, sharper.
+- **Microphone:** the microphone of the device in front of the browser, as a microphone of the machine
+  (the toolbar's microphone button). A program cannot *be* a microphone in Windows - that takes a driver -,
+  so the agent plays the voice into the playback end of a **virtual audio cable** (VB-CABLE, VoiceMeeter,
+  Steam's streaming microphone): what is played there comes out of the cable's other end, which every
+  program can pick as its microphone. Without such a cable the button says what is missing. Opus where
+  the browser encodes it (48 kHz mono, 20 ms packets), plain samples otherwise. See `Microphone` below;
+  `matgate-agent screen-probe --microphone` tells where the voice would go on this machine.
+- **Game controllers:** a controller connected to the device in front of the browser is an **Xbox 360
+  controller on the machine** - up to four, with rumble on the way back. That takes the
+  [ViGEmBus](https://github.com/nefarius/ViGEmBus/releases) driver (the virtual gamepad bus most
+  remote-play tools use); the agent speaks to it directly. Without it the page says so when a controller
+  is connected. `matgate-agent screen-probe --gamepad [--plug]` tells whether the driver is there (and
+  plugs a controller in for three seconds).
 - **Resolution, as RDP does it:** "an Fenster anpassen" (the default) sets the machine's monitor to the
   largest mode that fits the picture area of the browser - and again whenever the window changes size; in
   full screen that is the size of this screen. A real monitor only has the modes its driver offers, so the
@@ -244,7 +257,10 @@ One self-contained file. `matgate-agent.exe run [--config path]` starts the agen
   ],
   "DetachedSessionMinutes": 0,
   "AutoUpdate": true,
-  "Screen": true
+  "Screen": true,
+  "Logo": "",
+  "Microphone": "",
+  "Gamepads": true
 }
 ```
 
@@ -257,6 +273,15 @@ One self-contained file. `matgate-agent.exe run [--config path]` starts the agen
   until the program ends or is ended in the overview).
 - `Screen` - the screen plugin (offered in user mode and as a system service, not under another service
   account).
+- `Logo` - the picture on this machine's start page in Matgate: a path to a PNG, JPG, WebP, GIF or SVG of
+  at most 1 MB (relative paths start at the folder of this file). The setup's page "Was Matgate sehen
+  darf" picks one and keeps a copy; `setup --logo picture` and `--no-logo` do the same. Without the
+  setting a file called `logo.png` (or `.jpg`, `.webp`, `.gif`, `.svg`) next to this file is taken -
+  dropped there by hand it shows at once, without a restart.
+- `Microphone` - where a viewer's microphone is played: empty = into a virtual audio cable if the
+  machine has one; a part of a playback device's name = into that device; `speakers` = on the machine's
+  loudspeakers (an intercom rather than a microphone); `off` = nowhere.
+- `Gamepads` - `false` keeps a viewer's controllers out, driver or not.
 
 ## Security
 

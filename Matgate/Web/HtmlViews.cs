@@ -4904,6 +4904,9 @@ public sealed class HtmlViews
             terminal = Icon("terminal"),
             sound = Icon("volume"),
             soundOff = Icon("volume-off"),
+            mic = Icon("mic"),
+            micOff = Icon("mic-off"),
+            gamepad = Icon("gamepad"),
             home = Icon("home"),
             copy = Icon("copy"),
             clipboard = Icon("clipboard"),
@@ -8686,6 +8689,27 @@ public sealed class HtmlViews
                             true));
                     }
 
+                    // This device's microphone as one of the machine's (an agent's screen). Where the
+                    // machine cannot take it the button stays: pressing it says what is missing there.
+                    if (state.canMic) {
+                        addTabAction('mic', createTabActionButton(
+                            state.mic ? actionIcons.mic : actionIcons.micOff,
+                            state.mic ? agentTexts.micOff : agentTexts.micOn,
+                            () => api()?.toggleMic(),
+                            state.mic ? 'active' : '',
+                            true));
+                    }
+
+                    // A game controller of this device is one of the machine's right now.
+                    if (state.pads > 0) {
+                        addTabAction('gamepad', createTabActionButton(
+                            actionIcons.gamepad,
+                            agentTexts.gamepads.replace('{n}', String(state.pads)),
+                            () => { },
+                            'active',
+                            true));
+                    }
+
                     addTabAction('clipboard', createTabActionButton(
                         actionIcons.clipboard,
                         uiText.pasteToActiveTab || uiText.clipboard || 'Paste to active tab',
@@ -11766,6 +11790,22 @@ public sealed class HtmlViews
                     automaticOff: agentGerman ? 'automatische Updates aus' : 'automatic updates off',
                     soundOn: agentGerman ? 'Ton einschalten' : 'Turn sound on',
                     soundOff: agentGerman ? 'Ton ausschalten' : 'Turn sound off',
+                    micOn: agentGerman ? 'Mikrofon einschalten' : 'Turn the microphone on',
+                    micOff: agentGerman ? 'Mikrofon ausschalten' : 'Turn the microphone off',
+                    gamepads: agentGerman ? 'Controller am Rechner: {n}' : 'Controllers on the machine: {n}',
+                    programs: agentGerman ? 'Programme' : 'Programs',
+                    sharedFolders: agentGerman ? 'Freigegebene Ordner' : 'Shared folders',
+                    noFolders: agentGerman ? 'Noch kein Ordner freigegeben - das Setup des Agents legt sie fest.' : 'No folder shared yet - the agent\'s setup decides which.',
+                    openScreen: agentGerman ? 'Bildschirm öffnen' : 'Open the screen',
+                    openFiles: agentGerman ? 'Dateien öffnen' : 'Open files',
+                    capSound: agentGerman ? 'Ton' : 'Sound',
+                    capClipboard: agentGerman ? 'Zwischenablage' : 'Clipboard',
+                    capWindows: agentGerman ? 'Einzelne Fenster' : 'Single windows',
+                    capMicrophone: agentGerman ? 'Mikrofon' : 'Microphone',
+                    capGamepad: agentGerman ? 'Controller' : 'Controller',
+                    startFolder: agentGerman ? 'Startet in' : 'Starts in',
+                    nothingOffered: agentGerman ? 'Dieser Rechner bietet gerade nichts an. Im Setup des Agents lassen sich Ordner, Programme und der Bildschirm freigeben.' : 'This machine offers nothing right now. The agent\'s setup shares folders, programs and the screen.',
+                    runsAs: agentGerman ? 'angemeldet als' : 'signed in as',
                 };
 
                 function isAgentTab(tab) {
@@ -11856,7 +11896,12 @@ public sealed class HtmlViews
                     setStatus(tab, ui('loading'));
                     const root = document.createElement('div');
                     root.className = 'agent-home-inner';
-                    root.innerHTML = `<p class="muted">${escapeHtml(agentTexts.checking)}</p>`;
+                    root.innerHTML = `
+                        <section class="agent-hero is-loading" aria-busy="true">
+                            <span class="agent-hero-mark">${tab.iconHtml || actionIcons.terminal}</span>
+                            <div class="agent-hero-text"><h2>${escapeHtml(tab.name || '')}</h2><p class="agent-hero-facts"><span class="agent-chip">${escapeHtml(agentTexts.checking)}</span></p></div>
+                        </section>
+                        <div class="agent-features"><span class="agent-skeleton"></span><span class="agent-skeleton"></span></div>`;
                     tab.displayRoot.appendChild(root);
 
                     const id = encodeURIComponent(tab.serverId);
@@ -11965,54 +12010,101 @@ public sealed class HtmlViews
                             return defaultFolder;
                         }
                     };
-                    const fileTile = files ? `
-                        <button type="button" class="agent-tile agent-tile--open" data-agent-files>
-                            <span class="agent-tile-head">${fileIcon('folder')}<strong>${escapeHtml(agentTexts.files)}</strong></span>
-                            <p>${escapeHtml(roots.length ? roots.join(', ') : agentTexts.filesHint)}</p>
-                            <span class="agent-tile-actions"><span class="button">${escapeHtml(agentTexts.open)}</span></span>
-                        </button>` : '';
+                    const logo = online && typeof status.logo === 'string' && status.logo.startsWith('/api/agent/') ? status.logo : '';
+                    const chip = textValue => `<span class="agent-chip">${escapeHtml(textValue)}</span>`;
+                    const capabilities = [agentTexts.capSound, agentTexts.capClipboard, agentTexts.capWindows]
+                        .concat(screenPlugin && screenPlugin.microphone ? [agentTexts.capMicrophone] : [])
+                        .concat(screenPlugin && screenPlugin.gamepad ? [agentTexts.capGamepad] : []);
                     const screenTile = screenPlugin ? `
-                        <button type="button" class="agent-tile agent-tile--open" data-agent-screen>
-                            <span class="agent-tile-head">${actionIcons.resolution}<strong>${escapeHtml(agentTexts.screen)}</strong></span>
-                            <p>${escapeHtml(agentTexts.screenHint)}</p>
-                            <span class="agent-tile-actions"><span class="button primary">${escapeHtml(agentTexts.open)}</span></span>
-                        </button>` : '';
+                        <div class="agent-tile agent-feature agent-feature--screen" data-agent-card>
+                            <span class="agent-badge">${actionIcons.resolution}</span>
+                            <div class="agent-feature-body">
+                                <strong>${escapeHtml(agentTexts.screen)}</strong>
+                                <p>${escapeHtml(agentTexts.screenHint)}</p>
+                                <div class="agent-chips">${capabilities.map(chip).join('')}</div>
+                            </div>
+                            <span class="agent-tile-actions"><button type="button" class="button primary" data-agent-screen>${escapeHtml(agentTexts.openScreen)}</button></span>
+                        </div>` : '';
+                    const fileTile = files ? `
+                        <div class="agent-tile agent-feature" data-agent-card>
+                            <span class="agent-badge">${fileIcon('folder')}</span>
+                            <div class="agent-feature-body">
+                                <strong>${escapeHtml(agentTexts.files)}</strong>
+                                <p>${escapeHtml(roots.length ? agentTexts.filesHint : agentTexts.noFolders)}</p>
+                                <div class="agent-chips">${roots.map(name => `<button type="button" class="agent-chip agent-chip--link" data-agent-root="${escapeHtml('/' + name)}">${fileIcon('folder')}<span>${escapeHtml(name)}</span></button>`).join('')}</div>
+                            </div>
+                            <span class="agent-tile-actions"><button type="button" class="button" data-agent-files>${escapeHtml(agentTexts.openFiles)}</button></span>
+                        </div>` : '';
                     const programTiles = programs.map(plugin => {
                         const folder = startFolder(plugin);
-                        const variants = (plugin.variants || []).map(variant => `<button type="button" class="button" data-agent-start="${escapeHtml(plugin.id)}" data-agent-variant="${escapeHtml(variant.id)}">${escapeHtml(variant.title)}</button>`).join('');
+                        const variants = (plugin.variants || []).map(variant => `<button type="button" class="button agent-variant" data-agent-start="${escapeHtml(plugin.id)}" data-agent-variant="${escapeHtml(variant.id)}">${escapeHtml(variant.title)}</button>`).join('');
                         return `
-                        <div class="agent-tile" data-agent-program="${escapeHtml(plugin.id)}" data-agent-folder="${escapeHtml(folder)}">
-                            <span class="agent-tile-head">${actionIcons.terminal}<strong>${escapeHtml(plugin.title || plugin.id)}</strong></span>
+                        <div class="agent-tile agent-program" data-agent-program="${escapeHtml(plugin.id)}" data-agent-folder="${escapeHtml(folder)}">
+                            <span class="agent-tile-head"><span class="agent-badge agent-badge--small">${actionIcons.terminal}</span><strong>${escapeHtml(plugin.title || plugin.id)}</strong></span>
                             <p>${escapeHtml(plugin.id === 'claude' ? agentTexts.claudeHint : agentTexts.terminalHint)}</p>
-                            <span class="agent-folder"><span class="muted">${escapeHtml(agentTexts.folder)}</span>
-                                <button type="button" class="agent-folder-path" data-agent-browse>${fileIcon('folder')}<span data-agent-folder-text>${escapeHtml(folder)}</span></button></span>
+                            <span class="agent-folder"><span class="muted">${escapeHtml(agentTexts.startFolder)}</span>
+                                <button type="button" class="agent-folder-path" data-agent-browse title="${escapeHtml(agentTexts.folder)}">${fileIcon('folder')}<span data-agent-folder-text>${escapeHtml(folder)}</span></button></span>
                             <div class="agent-folder-browser" data-agent-browser hidden></div>
                             <span class="agent-tile-actions"><button type="button" class="button primary" data-agent-start="${escapeHtml(plugin.id)}">${escapeHtml(agentTexts.start)}</button>${variants}</span>
                         </div>`;
                     }).join('');
                     const sessionRows = sessions.map(item => `
                         <li>
+                            <span class="agent-badge agent-badge--small ${item.attached ? 'is-live' : ''}">${actionIcons.terminal}</span>
                             <span class="agent-session-name"><strong>${escapeHtml(item.title || item.plugin)}</strong>
                                 <small>${escapeHtml(agentTexts.since)} ${escapeHtml(new Date(item.started).toLocaleString([], { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }))} · ${escapeHtml(item.attached ? agentTexts.attached : agentTexts.detached)}${item.cwd && item.cwd !== '/' ? ' · ' + escapeHtml(item.cwd) : ''}</small></span>
-                            <button type="button" class="button" data-agent-resume="${escapeHtml(item.session)}" data-agent-plugin="${escapeHtml(item.plugin)}">${escapeHtml(agentTexts.resume)}</button>
-                            <button type="button" class="button danger" data-agent-kill="${escapeHtml(item.session)}">${escapeHtml(agentTexts.end)}</button>
+                            <span class="agent-session-actions">
+                                <button type="button" class="button primary" data-agent-resume="${escapeHtml(item.session)}" data-agent-plugin="${escapeHtml(item.plugin)}">${escapeHtml(agentTexts.resume)}</button>
+                                <button type="button" class="button danger" data-agent-kill="${escapeHtml(item.session)}">${escapeHtml(agentTexts.end)}</button>
+                            </span>
                         </li>`).join('');
+                    const facts = online
+                        ? [status.machine && status.machine !== (status.name || tab.name) ? status.machine : '', status.user ? agentTexts.runsAs + ' ' + status.user : '', status.os].filter(Boolean)
+                        : [];
 
                     root.innerHTML = `
-                        <section class="agent-home-head">
-                            <span class="agent-home-icon">${tab.iconHtml || actionIcons.terminal}</span>
-                            <span class="agent-home-title">
+                        <section class="agent-hero ${online ? '' : 'is-offline'}">
+                            <span class="agent-hero-mark ${logo ? 'has-logo' : ''}" data-agent-mark>${logo
+                                ? `<img src="${escapeHtml(logo)}" alt="" data-agent-logo>`
+                                : (tab.iconHtml || actionIcons.terminal)}</span>
+                            <div class="agent-hero-text">
                                 <h2>${escapeHtml(status.name || tab.name || '')}</h2>
-                                <span class="muted">${escapeHtml(online ? machine : (status.error || ''))}</span>
-                            </span>
-                            <span class="agent-home-state ${online ? 'is-online' : 'is-offline'}">${escapeHtml(online ? agentTexts.online : agentTexts.unreachable)}</span>
+                                <p class="agent-hero-facts">${online ? facts.map(chip).join('') : chip(status.error || agentTexts.unreachable)}</p>
+                            </div>
+                            <span class="agent-home-state ${online ? 'is-online' : 'is-offline'}"><i></i>${escapeHtml(online ? agentTexts.online : agentTexts.unreachable)}</span>
                         </section>
                         ${updateNotice(status, sessions)}
-                        ${online ? '' : `<div class="agent-home-notice"><span>${escapeHtml(agentTexts.offlineHint)}</span><button type="button" class="button" data-agent-retry>${escapeHtml(agentTexts.retry)}</button></div>`}
-                        ${online && (screenTile || fileTile || programTiles) ? `<h3 class="agent-home-section">${escapeHtml(agentTexts.plugins)}</h3><div class="agent-home-grid">${screenTile}${fileTile}${programTiles}</div>` : ''}
-                        ${sessions.length ? `<h3 class="agent-home-section">${escapeHtml(agentTexts.sessions)}<button type="button" class="button agent-home-refresh" data-agent-retry>${escapeHtml(agentTexts.refresh)}</button></h3><ul class="agent-sessions">${sessionRows}</ul>` : ''}
+                        ${online ? '' : `<div class="agent-home-notice"><span>${escapeHtml(agentTexts.offlineHint)}</span><button type="button" class="button primary" data-agent-retry>${escapeHtml(agentTexts.retry)}</button></div>`}
+                        ${sessions.length ? `<h3 class="agent-home-section"><span>${escapeHtml(agentTexts.sessions)} <em>${sessions.length}</em></span><button type="button" class="button agent-home-refresh" data-agent-retry>${escapeHtml(agentTexts.refresh)}</button></h3><ul class="agent-sessions">${sessionRows}</ul>` : ''}
+                        ${online && (screenTile || fileTile) ? `<h3 class="agent-home-section"><span>${escapeHtml(agentTexts.plugins)}</span></h3><div class="agent-features">${screenTile}${fileTile}</div>` : ''}
+                        ${online && programTiles ? `<h3 class="agent-home-section"><span>${escapeHtml(agentTexts.programs)}</span></h3><div class="agent-home-grid">${programTiles}</div>` : ''}
+                        ${online && !screenTile && !fileTile && !programTiles ? `<div class="agent-home-notice is-plain"><span>${escapeHtml(agentTexts.nothingOffered)}</span></div>` : ''}
                         ${online ? `<p class="muted agent-home-foot">${escapeHtml(agentTexts.version)} ${escapeHtml(status.version || '-')}${status.update ? ' · ' + escapeHtml(status.update.automatic ? agentTexts.automaticOn : agentTexts.automaticOff) : ''}</p>` : ''}`;
 
+                    // A logo that does not load (a broken file) gives way to the machine's icon.
+                    root.querySelector('[data-agent-logo]')?.addEventListener('error', () => {
+                        const mark = root.querySelector('[data-agent-mark]');
+                        if (mark) {
+                            mark.classList.remove('has-logo');
+                            mark.innerHTML = tab.iconHtml || actionIcons.terminal;
+                        }
+                    });
+                    // A shared folder by its name: straight into it.
+                    root.querySelectorAll('[data-agent-root]').forEach(button => button.addEventListener('click', event => {
+                        event.stopPropagation();
+                        tab.agentView = 'files';
+                        tab.initialFilePath = button.dataset.agentRoot;
+                        startFileTab(tab);
+                        updateTabActions();
+                    }));
+                    // The whole card is the way in, not only its button.
+                    root.querySelectorAll('[data-agent-card]').forEach(card => card.addEventListener('click', event => {
+                        if (!(event.target instanceof Element) || event.target.closest('button, a')) {
+                            return;
+                        }
+
+                        card.querySelector('[data-agent-screen], [data-agent-files]')?.click();
+                    }));
                     root.querySelectorAll('[data-agent-retry]').forEach(button => button.addEventListener('click', () => startAgentHome(tab)));
                     root.querySelector('[data-agent-update]')?.addEventListener('click', () => updateAgent(tab, root, status, sessions));
                     root.querySelector('[data-agent-screen]')?.addEventListener('click', () => {
@@ -20620,25 +20712,68 @@ public sealed class HtmlViews
                     .file-area-dialog-body > .connection-panel { display: flex; flex: 1 1 auto; min-width: 0; }
                     /* The overview of a Matgate agent: the machine, its plugins as tiles, running programs. */
                     .agent-home { background: var(--bg); height: 100%; overflow: auto; }
-                    .agent-home-inner { margin: 0 auto; max-width: 980px; padding: clamp(14px, 3vw, 28px); }
-                    .agent-home-head { align-items: center; display: flex; gap: 14px; }
-                    .agent-home-icon {
+                    .agent-home-inner { margin: 0 auto; max-width: 1040px; padding: clamp(14px, 3vw, 32px); }
+                    /* Who the machine is: its logo (or its icon), its name, and whether it answers. */
+                    .agent-hero {
                         align-items: center;
-                        background: color-mix(in srgb, var(--accent) 14%, transparent);
-                        border-radius: var(--radius);
+                        background: linear-gradient(120deg, color-mix(in srgb, var(--accent) 11%, var(--surface)), var(--surface) 62%);
+                        border: 1px solid var(--line);
+                        border-radius: calc(var(--radius) + 6px);
+                        box-shadow: 0 10px 30px -22px color-mix(in srgb, var(--text) 55%, transparent);
+                        display: flex;
+                        gap: clamp(14px, 2.4vw, 22px);
+                        padding: clamp(16px, 2.6vw, 26px);
+                    }
+                    .agent-hero.is-offline { background: linear-gradient(120deg, color-mix(in srgb, var(--danger) 8%, var(--surface)), var(--surface) 62%); }
+                    .agent-hero-mark {
+                        align-items: center;
+                        background: color-mix(in srgb, var(--accent) 16%, var(--surface));
+                        border-radius: calc(var(--radius) + 2px);
                         color: var(--accent);
                         display: inline-flex;
                         flex: 0 0 auto;
-                        height: 52px;
+                        height: 72px;
                         justify-content: center;
-                        width: 52px;
+                        width: 72px;
                     }
-                    .agent-home-icon svg { height: 28px; width: 28px; }
-                    .agent-home-title { display: flex; flex: 1 1 auto; flex-direction: column; gap: 2px; min-width: 0; }
-                    .agent-home-title h2 { font-size: 1.35rem; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-                    .agent-home-title .muted { font-size: 13px; overflow-wrap: anywhere; }
-                    .agent-home-state { border-radius: 999px; flex: 0 0 auto; font-size: 12px; font-weight: 600; padding: 4px 11px; }
+                    .agent-hero-mark svg { height: 36px; width: 36px; }
+                    /* A logo keeps its own shape (many are wide) and its own background: a light plate, so a
+                       dark word mark stays readable in the dark theme too. */
+                    .agent-hero-mark.has-logo {
+                        background: #fff;
+                        border: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+                        min-width: 72px;
+                        padding: 8px 12px;
+                        width: auto;
+                    }
+                    .agent-hero-mark img { display: block; height: 56px; max-width: min(216px, 36vw); object-fit: contain; width: auto; }
+                    .agent-hero.is-offline .agent-hero-mark { background: color-mix(in srgb, var(--muted) 16%, var(--surface)); color: var(--muted); }
+                    .agent-hero-text { display: flex; flex: 1 1 auto; flex-direction: column; gap: 8px; min-width: 0; }
+                    .agent-hero-text h2 { font-size: clamp(1.3rem, 2.4vw, 1.7rem); letter-spacing: -.01em; line-height: 1.15; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                    .agent-hero-facts { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
+                    .agent-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+                    .agent-chip {
+                        align-items: center;
+                        background: color-mix(in srgb, var(--text) 6%, transparent);
+                        border: 1px solid transparent;
+                        border-radius: 999px;
+                        color: var(--muted);
+                        display: inline-flex;
+                        font: inherit;
+                        font-size: 12px;
+                        gap: 5px;
+                        line-height: 1.3;
+                        max-width: 100%;
+                        overflow-wrap: anywhere;
+                        padding: 3px 10px;
+                    }
+                    button.agent-chip--link { background: color-mix(in srgb, var(--accent) 10%, var(--surface)); color: var(--text); cursor: pointer; min-height: 28px; }
+                    button.agent-chip--link:hover, button.agent-chip--link:focus-visible { border-color: var(--accent); }
+                    .agent-chip svg { color: var(--accent); flex: 0 0 auto; height: 14px; width: 14px; }
+                    .agent-home-state { align-items: center; border-radius: 999px; display: inline-flex; flex: 0 0 auto; font-size: 12px; font-weight: 600; gap: 7px; padding: 5px 12px; }
+                    .agent-home-state i { background: currentColor; border-radius: 50%; height: 8px; width: 8px; }
                     .agent-home-state.is-online { background: color-mix(in srgb, #3fc47a 20%, transparent); color: color-mix(in srgb, #3fc47a 55%, var(--text)); }
+                    .agent-home-state.is-online i { box-shadow: 0 0 0 4px color-mix(in srgb, #3fc47a 22%, transparent); }
                     .agent-home-state.is-offline { background: color-mix(in srgb, var(--danger) 16%, transparent); color: var(--danger); }
                     .agent-home-notice {
                         align-items: center;
@@ -20650,51 +20785,91 @@ public sealed class HtmlViews
                         gap: 12px;
                         justify-content: space-between;
                         margin-top: 18px;
-                        padding: 12px 14px;
+                        padding: 14px 16px;
                     }
+                    .agent-home-notice.is-plain { background: var(--surface); border-color: var(--line); color: var(--muted); }
                     .agent-home-section {
                         align-items: center;
                         color: var(--muted);
                         display: flex;
                         font-size: 12px;
+                        font-weight: 600;
                         gap: 10px;
                         justify-content: space-between;
-                        letter-spacing: .05em;
-                        margin: 26px 0 10px;
+                        letter-spacing: .06em;
+                        margin: 28px 2px 10px;
+                        min-height: 28px;
                         text-transform: uppercase;
                     }
+                    .agent-home-section em { background: color-mix(in srgb, var(--accent) 16%, transparent); border-radius: 999px; color: var(--accent); font-style: normal; letter-spacing: 0; margin-left: 4px; padding: 1px 8px; }
                     .agent-home-refresh { font-size: 12px; letter-spacing: 0; min-height: 28px; text-transform: none; }
-                    .agent-home-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr)); }
+                    /* The two things most people come for, side by side and large. */
+                    .agent-features { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); }
+                    .agent-home-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); }
                     .agent-tile {
-                        /* A button by the global rules - centred; a tile reads from the left like the others. */
-                        align-items: stretch;
-                        justify-content: flex-start;
                         background: var(--surface);
                         border: 1px solid var(--line);
-                        border-radius: var(--radius);
+                        border-radius: calc(var(--radius) + 2px);
                         color: var(--text);
                         display: flex;
                         flex-direction: column;
-                        font: inherit;
-                        gap: 8px;
-                        min-height: 150px;
-                        padding: 16px;
+                        gap: 10px;
+                        padding: 18px;
                         text-align: left;
+                        transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease;
                     }
-                    button.agent-tile { cursor: pointer; }
-                    button.agent-tile:hover, button.agent-tile:focus-visible { border-color: var(--accent); }
-                    .agent-tile-head { align-items: center; display: flex; gap: 10px; }
-                    .agent-tile-head svg { color: var(--accent); flex: 0 0 auto; height: 22px; width: 22px; }
-                    .agent-tile-head strong { font-size: 15px; }
-                    .agent-tile p { color: var(--muted); font-size: 13px; margin: 0; overflow-wrap: anywhere; }
+                    .agent-tile:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); box-shadow: 0 12px 28px -22px color-mix(in srgb, var(--text) 60%, transparent); }
+                    .agent-feature { cursor: pointer; display: grid; column-gap: 16px; grid-template-columns: auto 1fr; row-gap: 14px; }
+                    .agent-feature:hover { transform: translateY(-1px); }
+                    .agent-feature--screen { background: linear-gradient(160deg, color-mix(in srgb, var(--accent) 9%, var(--surface)), var(--surface) 70%); }
+                    .agent-feature-body { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+                    .agent-feature-body strong { font-size: 17px; }
+                    .agent-feature .agent-tile-actions { grid-column: 1 / -1; }
+                    .agent-badge {
+                        align-items: center;
+                        background: color-mix(in srgb, var(--accent) 14%, transparent);
+                        border-radius: 14px;
+                        color: var(--accent);
+                        display: inline-flex;
+                        flex: 0 0 auto;
+                        height: 48px;
+                        justify-content: center;
+                        width: 48px;
+                    }
+                    .agent-badge svg { height: 24px; width: 24px; }
+                    .agent-badge--small { border-radius: 10px; height: 34px; width: 34px; }
+                    .agent-badge--small svg { height: 18px; width: 18px; }
+                    .agent-badge.is-live { background: color-mix(in srgb, #3fc47a 22%, transparent); color: color-mix(in srgb, #3fc47a 60%, var(--text)); }
+                    .agent-tile-head { align-items: center; display: flex; gap: 10px; min-width: 0; }
+                    .agent-tile-head strong { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                    .agent-tile p { color: var(--muted); font-size: 13px; line-height: 1.45; margin: 0; overflow-wrap: anywhere; }
                     .agent-tile-actions { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; margin-top: auto; }
                     .agent-tile-actions select { flex: 1 1 140px; min-width: 0; }
-                    .agent-sessions { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); list-style: none; margin: 0; padding: 0; }
-                    .agent-sessions li { align-items: center; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 8px; padding: 10px 14px; }
-                    .agent-sessions li:first-child { border-top: 0; }
-                    .agent-session-name { display: flex; flex: 1 1 180px; flex-direction: column; min-width: 0; }
-                    .agent-session-name small { color: var(--muted); }
-                    .agent-home-foot { font-size: 12px; margin-top: 22px; }
+                    .agent-variant { font-size: 13px; }
+                    .agent-sessions { display: grid; gap: 10px; list-style: none; margin: 0; padding: 0; }
+                    .agent-sessions li { align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: calc(var(--radius) + 2px); display: flex; flex-wrap: wrap; gap: 12px; padding: 12px 14px; }
+                    .agent-session-name { display: flex; flex: 1 1 200px; flex-direction: column; gap: 2px; min-width: 0; }
+                    .agent-session-name small { color: var(--muted); overflow-wrap: anywhere; }
+                    .agent-session-actions { display: flex; flex: 0 0 auto; gap: 8px; }
+                    .agent-home-foot { font-size: 12px; margin: 26px 2px 4px; }
+                    /* While the agent is asked: the page's shape, quietly breathing. */
+                    .agent-skeleton { background: var(--surface); border: 1px solid var(--line); border-radius: calc(var(--radius) + 2px); display: block; height: 150px; margin-top: 28px; position: relative; overflow: hidden; }
+                    .agent-skeleton::after, .agent-hero.is-loading::after {
+                        animation: agent-shimmer 1.4s ease-in-out infinite;
+                        background: linear-gradient(90deg, transparent, color-mix(in srgb, var(--text) 6%, transparent), transparent);
+                        content: "";
+                        inset: 0;
+                        position: absolute;
+                        transform: translateX(-100%);
+                    }
+                    .agent-hero.is-loading { overflow: hidden; position: relative; }
+                    @keyframes agent-shimmer {
+                        to { transform: translateX(100%); }
+                    }
+                    @media (prefers-reduced-motion: reduce) {
+                        .agent-skeleton::after, .agent-hero.is-loading::after { animation: none; }
+                        .agent-tile, .agent-feature:hover { transition: none; transform: none; }
+                    }
                     .agent-folder { align-items: center; display: flex; gap: 8px; min-width: 0; }
                     .agent-folder-path {
                         align-items: center;
@@ -20755,11 +20930,23 @@ public sealed class HtmlViews
                     .agent-home-update > span { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
                     .agent-home-update.is-failed { background: color-mix(in srgb, var(--danger) 8%, var(--surface)); border-color: color-mix(in srgb, var(--danger) 30%, var(--line)); }
                     @media (max-width: 720px) {
-                        .agent-home-grid { grid-template-columns: 1fr; }
-                        .agent-tile { min-height: 0; }
+                        .agent-home-grid, .agent-features { grid-template-columns: 1fr; }
+                        /* The name gets the width; the state moves under it instead of squeezing it. */
+                        .agent-hero { align-items: center; display: grid; gap: 12px 14px; grid-template-columns: auto minmax(0, 1fr); }
+                        .agent-hero-mark { height: 56px; width: 56px; }
+                        .agent-hero-mark svg { height: 28px; width: 28px; }
+                        .agent-hero-mark.has-logo { height: 56px; min-width: 56px; padding: 6px 10px; }
+                        .agent-hero-mark img { height: 40px; max-width: 46vw; }
+                        .agent-hero-text { display: contents; }
+                        /* The mark and the state share the first line; the name gets a whole one below. */
+                        .agent-hero-text h2 { grid-column: 1 / -1; grid-row: 2; white-space: normal; }
+                        .agent-hero-facts { grid-column: 1 / -1; grid-row: 3; }
+                        .agent-home-state { font-size: 11px; grid-column: 2; grid-row: 1; justify-self: end; padding: 4px 10px; }
                         .agent-tile-actions .button, .agent-tile-actions select, .agent-sessions .button { min-height: 44px; }
                         .agent-tile-actions .button { flex: 1 1 auto; justify-content: center; }
-                        .agent-home-state { font-size: 11px; padding: 3px 9px; }
+                        .agent-session-actions { flex: 1 1 100%; }
+                        .agent-session-actions .button { flex: 1 1 0; justify-content: center; }
+                        button.agent-chip--link { min-height: 36px; padding: 6px 12px; }
                     }
                     /* While the dialog shows an area, its tab stays out of the strip. */
                     .tab-in-dialog { display: none; }
@@ -23762,6 +23949,9 @@ public sealed class HtmlViews
             "logout" => """<path d="M10 17l5-5-5-5"/><path d="M15 12H3"/><path d="M21 3v18"/>""",
             "volume" => """<path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/>""",
             "volume-off" => """<path d="M11 5 6 9H3v6h3l5 4z"/><path d="m22 9-6 6"/><path d="m16 9 6 6"/>""",
+            "mic" => """<rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><path d="M12 17v5"/>""",
+            "mic-off" => """<path d="M9 9v2a3 3 0 0 0 5 2.2"/><path d="M15 9.3V5a3 3 0 0 0-5.7-1.3"/><path d="M5 10a7 7 0 0 0 11 5.7"/><path d="M19 10a7 7 0 0 1-.6 2.8"/><path d="M12 17v5"/><path d="m3 3 18 18"/>""",
+            "gamepad" => """<path d="M6 8h12a4 4 0 0 1 4 4v1.5a3.5 3.5 0 0 1-6.3 2.1L15 15H9l-.7.6A3.5 3.5 0 0 1 2 13.500V12a4 4 0 0 1 4-4z"/><path d="M7 11v3"/><path d="M5.5 12.500h3"/><path d="M16 11.500h.01"/><path d="M18 13.500h.01"/>""",
             "play" => """<path d="m8 5 11 7-11 7z"/>""",
             "menu" => """<path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/>""",
             "list" => """<path d="M8 7h12"/><path d="M8 12h12"/><path d="M8 17h12"/><path d="M4 7h.01"/><path d="M4 12h.01"/><path d="M4 17h.01"/>""",

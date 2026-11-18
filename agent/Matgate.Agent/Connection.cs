@@ -6,7 +6,7 @@ namespace Matgate.Agent;
 
 // One connection from Matgate. Requests are answered concurrently (a file copy must not hold up a
 // terminal); every send goes through one lock, because a WebSocket takes one message at a time.
-public sealed class Connection(WebSocket socket, AgentConfig config, string version, FilesPlugin files, TerminalPlugin terminals, UpdatePlugin updates, Matgate.Agent.Screen.ScreenPlugin screen, Action shutdown)
+public sealed class Connection(WebSocket socket, AgentConfig config, string folder, string version, FilesPlugin files, TerminalPlugin terminals, UpdatePlugin updates, Matgate.Agent.Screen.ScreenPlugin screen, Action shutdown)
 {
     private readonly SemaphoreSlim _sendLock = new(1, 1);
 
@@ -64,6 +64,8 @@ public sealed class Connection(WebSocket socket, AgentConfig config, string vers
             response = request.Op switch
             {
                 "hello" => Hello(request.Id),
+                "logo.stat" => LogoStat(request),
+                "logo.read" => LogoRead(request),
                 "pty.open" => terminals.Open(request, SendAsync),
                 "pty.kill" => terminals.Kill(request),
                 "pty.list" => terminals.List(request),
@@ -101,7 +103,15 @@ public sealed class Connection(WebSocket socket, AgentConfig config, string vers
 
         if (screen.IsAvailable)
         {
-            plugins.Add(new JsonObject { ["id"] = "screen", ["kind"] = "screen", ["title"] = "Bildschirm" });
+            plugins.Add(new JsonObject
+            {
+                ["id"] = "screen",
+                ["kind"] = "screen",
+                ["title"] = "Bildschirm",
+                // What the screen can take from the browser besides mouse and keyboard.
+                ["microphone"] = screen.MicrophoneState == "ok",
+                ["gamepad"] = screen.GamepadState == "ok",
+            });
         }
 
         foreach (var terminal in terminals.Available)
@@ -139,6 +149,35 @@ public sealed class Connection(WebSocket socket, AgentConfig config, string vers
                 ["autoUpdate"] = config.AutoUpdate,
                 ["canUpdate"] = UpdatePlugin.CanUpdate(),
             },
+        };
+    }
+
+    // The machine's picture for its start page in Matgate: whether there is one (and which - the stamp
+    // changes with the file), and the file itself.
+    private AgentFrame LogoStat(AgentFrame request)
+    {
+        var logo = AgentLogo.Find(config, folder);
+        return new AgentFrame
+        {
+            Id = request.Id,
+            Kind = "res",
+            Op = request.Op,
+            Data = logo is null
+                ? new JsonObject { ["exists"] = false }
+                : new JsonObject { ["exists"] = true, ["type"] = logo.Type, ["stamp"] = logo.Stamp.ToString("x"), ["size"] = logo.Size },
+        };
+    }
+
+    private AgentFrame LogoRead(AgentFrame request)
+    {
+        var logo = AgentLogo.Find(config, folder) ?? throw new InvalidOperationException("This machine has no logo.");
+        return new AgentFrame
+        {
+            Id = request.Id,
+            Kind = "res",
+            Op = request.Op,
+            Data = new JsonObject { ["type"] = logo.Type, ["stamp"] = logo.Stamp.ToString("x") },
+            Payload = File.ReadAllBytes(logo.Path),
         };
     }
 

@@ -19,6 +19,7 @@ public static partial class EndpointMapping
     private static void MapAgentEndpoints(WebApplication app)
     {
         app.MapGet("/api/agent/{id:guid}/status", AgentStatusAsync).RequireAuthorization();
+        app.MapGet("/api/agent/{id:guid}/logo", AgentLogoAsync).RequireAuthorization();
         app.MapGet("/api/agent/{id:guid}/terminal-socket", AgentTerminalSocketAsync).RequireAuthorization();
         app.MapPost("/api/agent/{id:guid}/terminal/kill", AgentTerminalKillAsync).RequireAuthorization();
         app.MapGet("/api/agent/{id:guid}/sessions", AgentSessionsAsync).RequireAuthorization();
@@ -71,6 +72,7 @@ public static partial class EndpointMapping
             return Results.Json(new
             {
                 online = true,
+                logo = await AgentLogoAddressAsync(link, id, context.RequestAborted),
                 name = hello.Name,
                 machine = hello.Machine,
                 user = hello.User,
@@ -78,13 +80,77 @@ public static partial class EndpointMapping
                 version = hello.Version,
                 plugins = hello.Plugins
                     .Where(plugin => (plugin.Kind != "terminal" && plugin.Kind != "screen") || terminalsAllowed)
-                    .Select(plugin => new { id = plugin.Id, kind = plugin.Kind, title = plugin.Title, variants = plugin.Variants.Select(variant => new { id = variant.Id, title = variant.Title }) }),
+                    .Select(plugin => new
+                    {
+                        id = plugin.Id,
+                        kind = plugin.Kind,
+                        title = plugin.Title,
+                        variants = plugin.Variants.Select(variant => new { id = variant.Id, title = variant.Title }),
+                        microphone = plugin.Microphone,
+                        gamepad = plugin.Gamepad,
+                    }),
                 update = await UpdateInfoAsync(hello, user!, server!, updates, context.RequestAborted),
             });
         }
         catch (Exception exception) when (exception is InvalidOperationException or TimeoutException)
         {
             return Results.Json(new { online = false, error = exception.Message, plugins = Array.Empty<object>() });
+        }
+    }
+
+    // The machine's own picture for its start page (the agent's setup puts it there), as an address the
+    // page can show - with the picture's stamp in it, so a browser keeps it until it changes. Null: none,
+    // or an agent from before there were logos.
+    private static async Task<string?> AgentLogoAddressAsync(AgentLink link, Guid id, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var stat = await link.RequestAsync("logo.stat", cancellationToken: cancellationToken);
+            return stat.Bool("exists") && AgentLogoTypes.Contains(stat.Text("type") ?? "")
+                ? $"/api/agent/{id}/logo?v={Uri.EscapeDataString(stat.Text("stamp") ?? "")}"
+                : null;
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or TimeoutException)
+        {
+            return null;
+        }
+    }
+
+    private static readonly HashSet<string> AgentLogoTypes = new(StringComparer.Ordinal)
+    {
+        "image/png", "image/jpeg", "image/webp", "image/gif", "image/svg+xml",
+    };
+
+    private static async Task<IResult> AgentLogoAsync(Guid id, HttpContext context, JsonDataStore store, AgentClientPool agents)
+    {
+        var (server, result, _) = await RequireAgentAsync(id, context, store);
+        if (result is not null)
+        {
+            return result;
+        }
+
+        try
+        {
+            var link = await agents.GetAsync(server!, context.RequestAborted);
+            var answer = await link.RequestAsync("logo.read", cancellationToken: context.RequestAborted);
+            var type = answer.Text("type") ?? "";
+            if (!AgentLogoTypes.Contains(type) || answer.Payload.Length is 0 or > 1024 * 1024)
+            {
+                return Results.NotFound();
+            }
+
+            // The file is the machine's, not Matgate's: it is shown as a picture and nothing else. An SVG
+            // opened by its address must not run a script in Matgate's name.
+            context.Response.Headers.XContentTypeOptions = "nosniff";
+            context.Response.Headers.ContentSecurityPolicy = "default-src 'none'; style-src 'unsafe-inline'; sandbox";
+            context.Response.Headers.CacheControl = context.Request.Query.ContainsKey("v")
+                ? "private, max-age=31536000, immutable"
+                : "private, no-cache";
+            return Results.Bytes(answer.Payload.ToArray(), type);
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or TimeoutException)
+        {
+            return Results.NotFound();
         }
     }
 

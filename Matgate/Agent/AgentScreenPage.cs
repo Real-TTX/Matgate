@@ -109,6 +109,7 @@ public static class AgentScreenPage
             <button id="windows-button" type="button" class="icon hidden"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="13" height="13" rx="2"/><path d="M8 7V6a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-3"/></svg></button>
             <button id="cad" type="button" class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></button>
             <button id="sound" type="button" class="icon"></button>
+            <button id="mic" type="button" class="icon hidden"></button>
             <button id="keyboard" type="button" class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg></button>
             <button id="fullscreen" type="button" class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg></button>
         </div>
@@ -651,6 +652,10 @@ public static class AgentScreenPage
                         clipImage = data.clipImage || 'png';
                         clipFiles = data.clipFiles !== false;
                         canSound = data.audio !== false;
+                        // What the machine can take from this browser besides mouse and keyboard, and why not.
+                        micAvailability = kind === 'agent' && typeof data.microphone === 'string' ? data.microphone : '';
+                        padAvailability = kind === 'agent' && typeof data.gamepad === 'string' ? data.gamepad : '';
+                        onDevicesKnown();
                         window.setTimeout(notifyShell, 0);
                         if (kind === 'agent') {
                             // Whether this agent knows its windows: it answers, or it does not.
@@ -726,6 +731,12 @@ public static class AgentScreenPage
                     case 'screen.clip.done':
                         setStatus(text.connected);
                         break;
+                    case 'screen.mic':
+                        onMicAnswer(data);
+                        break;
+                    case 'screen.pad.rumble':
+                        onRumble(data);
+                        break;
                     case 'screen.status':
                         if (data.state === 'unavailable') {
                             showNotice(text.unavailable);
@@ -744,6 +755,11 @@ public static class AgentScreenPage
                         else if (data.state === 'nocad') {
                             setStatus(text.noCad, true);
                         }
+                        else if (data.state === 'nopads') {
+                            padAvailability = 'nodriver';
+                            setStatus(text.padNoDriver, true);
+                            notifyShell();
+                        }
                         else if (data.state === 'clipfailed') {
                             setStatus(text.clipFailed, true);
                         }
@@ -758,6 +774,7 @@ public static class AgentScreenPage
                         statsLine.textContent = '';
                         releaseAll();
                         stopSound(false);
+                        stopMic(false);
                         if (data.reason === 'taken') {
                             setStatus(text.taken, true);
                             showNotice(text.taken, text.takeBack, connect);
@@ -1884,6 +1901,287 @@ public static class AgentScreenPage
                 toast.querySelectorAll('[data-download]').forEach(link => link.addEventListener('click', () => window.__screen.downloads.push(link.getAttribute('download'))));
             };
 
+            // ---- the microphone -------------------------------------------------------------------------
+            // This device's microphone as a microphone of the machine (an agent that has a virtual audio
+            // cable to play it into). 20 ms packets, 48 kHz mono: Opus where this browser encodes it, plain
+            // 16-bit samples otherwise.
+            const micButton = $('mic');
+            const MIC_ON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><path d="M12 17v5"/></svg>';
+            const MIC_OFF = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 9v2a3 3 0 0 0 5 2.2M15 9.3V5a3 3 0 0 0-5.7-1.3"/><path d="M5 10a7 7 0 0 0 11 5.7M19 10a7 7 0 0 1-.6 2.8"/><path d="M12 17v5"/><path d="m3 3 18 18"/></svg>';
+            let micAvailability = '';
+            let micOn = false;
+            let micStarting = false;
+            let micStream = null;
+            let micContext = null;
+            let micNode = null;
+            let micEncoder = null;
+            let micStamp = 0;
+            window.__screen.mic = { packets: 0, codec: '' };
+            const paintMic = () => {
+                micButton.classList.toggle('hidden', kind !== 'agent' || micAvailability === '');
+                micButton.innerHTML = micOn ? MIC_ON : MIC_OFF;
+                micButton.classList.toggle('on', micOn);
+                micButton.title = micOn ? text.micOff : text.micOn;
+                notifyShell();
+            };
+            const stopMic = tell => {
+                if (tell && micOn) {
+                    send('screen.mic', { state: 'off' });
+                }
+                micOn = false;
+                try {
+                    micNode && micNode.disconnect();
+                    micStream && micStream.getTracks().forEach(track => track.stop());
+                    micEncoder && micEncoder.state !== 'closed' && micEncoder.close();
+                    micContext && micContext.close();
+                }
+                catch {
+                    // Whatever was half open is gone with the page.
+                }
+                micNode = null;
+                micStream = null;
+                micEncoder = null;
+                micContext = null;
+                paintMic();
+            };
+            const startMic = async () => {
+                if (micOn || micStarting || kind !== 'agent') {
+                    return;
+                }
+                if (micAvailability !== 'ok') {
+                    setStatus(micAvailability === 'off' ? text.micSwitchedOff : text.micNoDevice, true);
+                    return;
+                }
+                if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+                    // Browsers hand out the microphone to pages they reached securely only.
+                    setStatus(text.micUnsupported, true);
+                    return;
+                }
+                micStarting = true;
+                try {
+                    micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
+                    micContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 48000 });
+                    let opus = false;
+                    try {
+                        opus = 'AudioEncoder' in window && 'AudioData' in window
+                            && (await AudioEncoder.isConfigSupported({ codec: 'opus', sampleRate: 48000, numberOfChannels: 1, bitrate: 32000 })).supported;
+                    }
+                    catch {
+                        opus = false;
+                    }
+                    if (opus) {
+                        micEncoder = new AudioEncoder({
+                            output: chunk => {
+                                const bytes = new Uint8Array(chunk.byteLength);
+                                chunk.copyTo(bytes);
+                                window.__screen.mic.packets++;
+                                send('screen.mic', { codec: 'opus' }, bytes);
+                            },
+                            error: () => stopMic(true),
+                        });
+                        micEncoder.configure({ codec: 'opus', sampleRate: 48000, numberOfChannels: 1, bitrate: 32000 });
+                    }
+                    window.__screen.mic.codec = opus ? 'opus' : 'pcm';
+
+                    // The samples in pieces of 20 ms, whatever size the browser hands them out in.
+                    const frame = new Float32Array(960);
+                    let filled = 0;
+                    const take = samples => {
+                        if (!micOn) {
+                            return;
+                        }
+                        for (let i = 0; i < samples.length; i++) {
+                            frame[filled++] = samples[i];
+                            if (filled < frame.length) {
+                                continue;
+                            }
+                            filled = 0;
+                            if (micEncoder && micEncoder.state === 'configured') {
+                                micEncoder.encode(new AudioData({ format: 'f32', sampleRate: 48000, numberOfFrames: frame.length, numberOfChannels: 1, timestamp: micStamp, data: frame.slice() }));
+                                micStamp += 20000;
+                            }
+                            else {
+                                const pcm = new Int16Array(frame.length);
+                                for (let n = 0; n < frame.length; n++) {
+                                    pcm[n] = Math.max(-32768, Math.min(32767, Math.round(frame[n] * 32767)));
+                                }
+                                window.__screen.mic.packets++;
+                                send('screen.mic', { codec: 'pcm' }, new Uint8Array(pcm.buffer));
+                            }
+                        }
+                    };
+                    const source = micContext.createMediaStreamSource(micStream);
+                    const worklet = 'class MatgateMic extends AudioWorkletProcessor { process(inputs) { const channel = inputs[0] && inputs[0][0]; if (channel) { this.port.postMessage(channel.slice(0)); } return true; } } registerProcessor("matgate-mic", MatgateMic);';
+                    const address = URL.createObjectURL(new Blob([worklet], { type: 'application/javascript' }));
+                    try {
+                        await micContext.audioWorklet.addModule(address);
+                    }
+                    finally {
+                        URL.revokeObjectURL(address);
+                    }
+                    micNode = new AudioWorkletNode(micContext, 'matgate-mic', { numberOfInputs: 1, numberOfOutputs: 0 });
+                    micNode.port.onmessage = event => take(event.data);
+                    source.connect(micNode);
+                    micOn = true;
+                    send('screen.mic', { state: 'on' });
+                    setStatus(text.micStarting);
+                }
+                catch (error) {
+                    stopMic(false);
+                    setStatus(error && (error.name === 'NotAllowedError' || error.name === 'SecurityError') ? text.micDenied : text.micFailed, true);
+                }
+                finally {
+                    micStarting = false;
+                    paintMic();
+                }
+            };
+            // The machine says where the voice goes - or that it has nowhere to put it.
+            const onMicAnswer = data => {
+                if (data.state === 'on') {
+                    setStatus(text.micPlaying.replace('{device}', data.device || ''));
+                }
+                else if (data.state === 'failed') {
+                    micAvailability = data.reason === 'off' ? 'off' : 'nodevice';
+                    stopMic(false);
+                    setStatus(data.reason === 'off' ? text.micSwitchedOff : text.micNoDevice, true);
+                }
+            };
+            micButton.addEventListener('click', () => micOn ? stopMic(true) : startMic());
+
+            // ---- game controllers ------------------------------------------------------------------------
+            // This device's controllers as Xbox controllers of the machine (an agent with the ViGEmBus
+            // driver). Their state is read with every picture the browser draws and sent when it changed.
+            let padAvailability = '';
+            const padSlots = new Map();
+            const padSent = new Map();
+            let padFrame = 0;
+            let padHinted = false;
+            window.__screen.pads = { sent: 0, rumble: [] };
+            // The browser's "standard" layout, button by button, in the bits of an Xbox controller.
+            const PAD_BITS = [0x1000, 0x2000, 0x4000, 0x8000, 0x0100, 0x0200, 0, 0, 0x0020, 0x0010, 0x0040, 0x0080, 0x0001, 0x0002, 0x0004, 0x0008, 0x0400];
+            const stick = value => {
+                const dead = Math.abs(value) < 0.06 ? 0 : value;
+                return Math.max(-32768, Math.min(32767, Math.round(dead * 32767)));
+            };
+            const readPads = () => {
+                try {
+                    return navigator.getGamepads ? [...navigator.getGamepads()].filter(pad => pad && pad.connected) : [];
+                }
+                catch {
+                    return [];
+                }
+            };
+            const sendPad = (slot, state) => {
+                const packed = state.join(',');
+                if (padSent.get(slot) === packed) {
+                    return;
+                }
+                padSent.set(slot, packed);
+                window.__screen.pads.sent++;
+                send('screen.pad', { i: slot, b: state[0], lt: state[1], rt: state[2], lx: state[3], ly: state[4], rx: state[5], ry: state[6] });
+            };
+            const pollPads = () => {
+                padFrame = 0;
+                if (padAvailability !== 'ok' || ended) {
+                    return;
+                }
+                const seen = new Set();
+                for (const pad of readPads()) {
+                    if (!padSlots.has(pad.index)) {
+                        const free = [0, 1, 2, 3].find(slot => ![...padSlots.values()].includes(slot));
+                        if (free === undefined) {
+                            continue;
+                        }
+                        padSlots.set(pad.index, free);
+                        setStatus(text.padConnected.replace('{n}', String(free + 1)));
+                        notifyShell();
+                    }
+                    seen.add(pad.index);
+                    let bits = 0;
+                    pad.buttons.forEach((button, index) => {
+                        if (PAD_BITS[index] && (button.pressed || button.value > 0.5)) {
+                            bits |= PAD_BITS[index];
+                        }
+                    });
+                    const trigger = index => Math.round(Math.max(0, Math.min(1, pad.buttons[index] ? pad.buttons[index].value : 0)) * 255);
+                    // Up is positive for an Xbox controller, negative for the browser.
+                    sendPad(padSlots.get(pad.index), [bits, trigger(6), trigger(7), stick(pad.axes[0] || 0), stick(-(pad.axes[1] || 0)), stick(pad.axes[2] || 0), stick(-(pad.axes[3] || 0))]);
+                }
+                for (const [index, slot] of [...padSlots]) {
+                    if (!seen.has(index)) {
+                        padSlots.delete(index);
+                        padSent.delete(slot);
+                        send('screen.pad', { i: slot, gone: true });
+                        notifyShell();
+                    }
+                }
+                if (padSlots.size || readPads().length) {
+                    padFrame = requestAnimationFrame(pollPads);
+                }
+            };
+            const watchPads = () => {
+                if (kind !== 'agent' || !readPads().length) {
+                    return;
+                }
+                if (padAvailability === 'ok') {
+                    if (!padFrame) {
+                        padFrame = requestAnimationFrame(pollPads);
+                    }
+                }
+                else if (padAvailability && !padHinted) {
+                    // Said once: a controller is there, and why the machine does not get it.
+                    padHinted = true;
+                    setStatus(padAvailability === 'off' ? text.padSwitchedOff : text.padNoDriver, true);
+                }
+            };
+            // A page nobody looks at gets no more pictures drawn, so nothing would be read: whatever is held
+            // is let go, or a stick would stay pushed for as long as the tab is in the background.
+            const restPads = () => {
+                for (const slot of padSlots.values()) {
+                    sendPad(slot, [0, 0, 0, 0, 0, 0, 0]);
+                }
+            };
+            const onRumble = data => {
+                window.__screen.pads.rumble.push([data.i, data.large, data.small]);
+                const entry = [...padSlots].find(([, slot]) => slot === data.i);
+                const pad = entry ? readPads().find(candidate => candidate.index === entry[0]) : null;
+                const motor = pad && pad.vibrationActuator;
+                if (!motor || typeof motor.playEffect !== 'function') {
+                    return;
+                }
+                try {
+                    if (!data.large && !data.small && typeof motor.reset === 'function') {
+                        motor.reset();
+                    }
+                    else {
+                        motor.playEffect('dual-rumble', { duration: 3000, strongMagnitude: (data.large || 0) / 255, weakMagnitude: (data.small || 0) / 255 });
+                    }
+                }
+                catch {
+                    // A controller without motors.
+                }
+            };
+            window.addEventListener('gamepadconnected', watchPads);
+            window.addEventListener('gamepaddisconnected', () => {
+                if (!padFrame && padSlots.size) {
+                    pollPads();
+                }
+            });
+            document.addEventListener('visibilitychange', () => document.hidden ? restPads() : watchPads());
+            window.addEventListener('blur', restPads);
+            window.addEventListener('focus', watchPads);
+            // The machine has said what it takes (when the session opens, and again after a reconnect).
+            const onDevicesKnown = () => {
+                padSent.clear();
+                padHinted = false;
+                watchPads();
+                if (micOn) {
+                    // A session that was opened anew does not know of the microphone yet.
+                    send('screen.mic', { state: 'on' });
+                }
+                paintMic();
+            };
+
             // ---- sound ----------------------------------------------------------------------------------
             const soundButton = $('sound');
             let soundWanted = localStorage.getItem('matgate.screen.sound') !== 'off';
@@ -2182,6 +2480,11 @@ public static class AgentScreenPage
                     qualities: optionList(qualitySelect),
                     sound: !!audioContext,
                     canSound,
+                    mic: micOn,
+                    canMic: kind === 'agent' && micAvailability !== '',
+                    micAvailability,
+                    pads: padSlots.size,
+                    padAvailability,
                     keyboardOpen: coarse && document.activeElement === sink,
                     keyBarOpen: keyBar.classList.contains('open'),
                     scale,
@@ -2238,6 +2541,7 @@ public static class AgentScreenPage
                     qualitySelect.dispatchEvent(new Event('change'));
                 },
                 toggleSound: () => soundButton.click(),
+                toggleMic: () => micButton.click(),
                 rightClick: () => clickAtCursor(2),
                 toggleKeyboard: () => keyboardButton.click(),
                 toggleKeyBar: () => {

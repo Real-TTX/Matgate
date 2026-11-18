@@ -41,6 +41,12 @@ public sealed class ScreenPlugin
 
     public bool IsAvailable => OperatingSystem.IsWindows() && _config.Screen && (TestMode || _helper || SessionNative.CurrentSession != 0);
 
+    // "ok", or why the browser's microphone cannot be one here: "nodevice" (no virtual audio cable), "off".
+    public string MicrophoneState => MicrophoneDevices.State(_config.Microphone);
+
+    // "ok", or why the browser's controllers cannot be controllers here: "nodriver" (no ViGEmBus), "off".
+    public string GamepadState => !_config.Gamepads ? "off" : TestMode || ViGEmGamepads.Installed ? "ok" : "nodriver";
+
     public static JsonArray Monitors()
     {
         var list = new JsonArray();
@@ -90,7 +96,7 @@ public sealed class ScreenPlugin
             }
         }
 
-        var session = new ScreenSession(id, send, request);
+        var session = new ScreenSession(id, send, request, _config.Microphone, _config.Gamepads);
         ScreenSession? previous;
         lock (_gate)
         {
@@ -112,6 +118,8 @@ public sealed class ScreenPlugin
                 ["width"] = monitor.Width,
                 ["height"] = monitor.Height,
                 ["monitors"] = Monitors(),
+                ["microphone"] = MicrophoneState,
+                ["gamepad"] = GamepadState,
             },
         };
     }
@@ -190,6 +198,12 @@ public sealed class ScreenPlugin
             case "screen.clip.chunk":
             case "screen.clip.end":
                 session.Clip(frame);
+                break;
+            case "screen.pad":
+                session.Pad(frame);
+                break;
+            case "screen.mic":
+                session.Microphone(frame);
                 break;
             case "screen.close":
                 Close(session, "closed");
@@ -485,6 +499,12 @@ internal sealed unsafe class ScreenSession
     private DateTime _lastAck = DateTime.UtcNow;
     private MonitorInfo _current = new(0, "", 0, 0, 0, 0, true);
     private IDisposable? _audio;
+    private readonly string _microphoneSetting;
+    private readonly bool _gamepadsAllowed;
+    private readonly object _deviceGate = new();
+    private IGamepads? _pads;
+    private bool _padsFailed;
+    private IMicrophone? _microphone;
     private string _clipToken = "";
     private IReadOnlyList<string> _clipFiles = [];
 
@@ -497,10 +517,12 @@ internal sealed unsafe class ScreenSession
     private string _encoderName = "";
     private bool _followWarned;
 
-    public ScreenSession(string id, Func<AgentFrame, Task> send, AgentFrame request)
+    public ScreenSession(string id, Func<AgentFrame, Task> send, AgentFrame request, string microphone = "", bool gamepads = true)
     {
         Id = id;
         Send = send;
+        _microphoneSetting = microphone;
+        _gamepadsAllowed = gamepads;
         _monitor = request.Int("monitor", 0);
         _maxWidth = Math.Clamp(request.Int("maxWidth", 2560), 640, 7680);
         _quality = request.Text("quality") ?? "auto";
@@ -563,6 +585,15 @@ internal sealed unsafe class ScreenSession
         _input.Dispose();
         _audio?.Dispose();
         _audio = null;
+        lock (_deviceGate)
+        {
+            // The controllers are unplugged and the microphone falls silent with the viewer.
+            _pads?.Dispose();
+            _pads = null;
+            _microphone?.Dispose();
+            _microphone = null;
+        }
+
         _clipboard.Changed -= OnClipboardChanged;
         _clipboard.Dispose();
         lock (_uploads)
@@ -1372,6 +1403,129 @@ internal sealed unsafe class ScreenSession
             if (!control)
             {
                 _input.Key(ScanControl, false, false);
+            }
+        }
+    }
+
+    // ---- controllers -----------------------------------------------------------------------------------
+
+    // The state of one of the browser's controllers, or that it is gone. The first state plugs a
+    // controller in here; the viewer leaving unplugs them all.
+    public void Pad(AgentFrame frame)
+    {
+        if (!_running || !_gamepadsAllowed)
+        {
+            return;
+        }
+
+        var index = frame.Int("i");
+        if (index is < 0 or >= ViGEmGamepads.MaxPads)
+        {
+            return;
+        }
+
+        lock (_deviceGate)
+        {
+            if (_pads is null && !_padsFailed)
+            {
+                try
+                {
+                    void Rumble(int pad, byte large, byte small) => Emit("screen.pad.rumble", new JsonObject { ["i"] = pad, ["large"] = large, ["small"] = small });
+                    _pads = ScreenPlugin.TestMode ? new RecordingGamepads(Debug, Rumble) : new ViGEmGamepads(Rumble);
+                }
+                catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception or DllNotFoundException)
+                {
+                    // Said once; the page shows why its controllers do nothing here.
+                    _padsFailed = true;
+                    AgentLog.Write("Controllers: " + exception.Message);
+                    Emit("screen.status", new JsonObject { ["state"] = "nopads" });
+                }
+            }
+
+            if (_pads is null)
+            {
+                return;
+            }
+
+            if (frame.Bool("gone"))
+            {
+                _pads.Remove(index);
+                return;
+            }
+
+            static short Axis(int value) => (short)Math.Clamp(value, short.MinValue, short.MaxValue);
+            _pads.Update(
+                index,
+                (ushort)(frame.Int("b") & 0xFFFF),
+                (byte)Math.Clamp(frame.Int("lt"), 0, 255),
+                (byte)Math.Clamp(frame.Int("rt"), 0, 255),
+                Axis(frame.Int("lx")),
+                Axis(frame.Int("ly")),
+                Axis(frame.Int("rx")),
+                Axis(frame.Int("ry")));
+        }
+    }
+
+    // ---- the microphone --------------------------------------------------------------------------------
+
+    // The viewer's voice: switched on or off (no payload), or 20 ms of it (the payload).
+    public void Microphone(AgentFrame frame)
+    {
+        if (!_running)
+        {
+            return;
+        }
+
+        lock (_deviceGate)
+        {
+            var state = frame.Text("state");
+            if (state == "off")
+            {
+                _microphone?.Dispose();
+                _microphone = null;
+                return;
+            }
+
+            if (_microphone is null)
+            {
+                if (state != "on")
+                {
+                    // Packets of a microphone that was never opened (or could not be).
+                    return;
+                }
+
+                try
+                {
+                    if (ScreenPlugin.TestMode)
+                    {
+                        _microphone = new RecordingMicrophone(Debug);
+                        Emit("screen.mic", new JsonObject { ["state"] = "on", ["device"] = "test" });
+                    }
+                    else
+                    {
+                        if (MicrophoneDevices.IsOff(_microphoneSetting))
+                        {
+                            throw new InvalidOperationException("off");
+                        }
+
+                        var player = new MicrophonePlayer(_microphoneSetting);
+                        _microphone = player;
+                        AgentLog.Write("Microphone: playing into " + player.Name);
+                        Emit("screen.mic", new JsonObject { ["state"] = "on", ["device"] = player.Name });
+                    }
+                }
+                catch (Exception exception) when (exception is InvalidOperationException or System.Runtime.InteropServices.COMException or NotSupportedException or ArgumentException)
+                {
+                    AgentLog.Write("Microphone: " + exception.Message);
+                    Emit("screen.mic", new JsonObject { ["state"] = "failed", ["reason"] = exception.Message == "off" ? "off" : "nodevice" });
+                }
+
+                return;
+            }
+
+            if (frame.Payload.Length > 0)
+            {
+                _microphone.Packet(frame.Text("codec") ?? "pcm", frame.Payload);
             }
         }
     }

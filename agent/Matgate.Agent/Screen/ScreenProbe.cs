@@ -23,6 +23,77 @@ internal static unsafe class ScreenProbe
             return 0;
         }
 
+        if (args.Contains("--microphone"))
+        {
+            // Where a viewer's microphone would be played on this machine, and whether that device opens:
+            // one second of silence goes into it (--tone: a quiet tone instead, to hear or to record).
+            // An argument after --microphone is the setting to try ("speakers", a part of a device's name).
+            var at = Array.IndexOf(args, "--microphone");
+            var setting = at + 1 < args.Length && !args[at + 1].StartsWith("--", StringComparison.Ordinal) ? args[at + 1] : "";
+            using (var enumerator = new NAudio.CoreAudioApi.MMDeviceEnumerator())
+            {
+                foreach (var device in enumerator.EnumerateAudioEndPoints(NAudio.CoreAudioApi.DataFlow.Render, NAudio.CoreAudioApi.DeviceState.Active))
+                {
+                    Console.WriteLine("playback device: " + device.FriendlyName);
+                    device.Dispose();
+                }
+            }
+
+            try
+            {
+                using var player = new MicrophonePlayer(setting);
+                Console.WriteLine($"microphone: would be played into \"{player.Name}\"");
+                var packet = new byte[960 * 2];
+                for (var n = 0; n < 50; n++)
+                {
+                    if (args.Contains("--tone"))
+                    {
+                        for (var i = 0; i < 960; i++)
+                        {
+                            BitConverter.TryWriteBytes(packet.AsSpan(i * 2), (short)(Math.Sin((n * 960 + i) * 2 * Math.PI * 440 / 48000) * 2500));
+                        }
+                    }
+
+                    player.Packet("pcm", packet);
+                    Thread.Sleep(20);
+                }
+
+                Console.WriteLine("microphone: the device opened and took one second of sound");
+                return 0;
+            }
+            catch (InvalidOperationException exception)
+            {
+                Console.WriteLine("microphone: " + exception.Message + " Install a virtual audio cable (VB-CABLE, for one), or set \"Microphone\" in matgate-agent.json.");
+                return 1;
+            }
+        }
+
+        if (args.Contains("--gamepad"))
+        {
+            // Whether a viewer's controller can be one here. --plug: plugs a virtual Xbox controller in for
+            // three seconds and presses A once - visible in Windows' "Set up USB game controllers".
+            if (!ViGEmGamepads.Installed)
+            {
+                Console.WriteLine("controllers: the virtual gamepad driver (ViGEmBus) is not installed - https://github.com/nefarius/ViGEmBus/releases");
+                return 1;
+            }
+
+            Console.WriteLine("controllers: ViGEmBus is installed");
+            if (args.Contains("--plug"))
+            {
+                using var pads = new ViGEmGamepads((pad, large, small) => Console.WriteLine($"controllers: rumble {large}/{small}"));
+                pads.Update(0, 0, 0, 0, 0, 0, 0, 0);
+                Thread.Sleep(1000);
+                pads.Update(0, 0x1000, 0, 0, 0, 0, 0, 0);
+                Thread.Sleep(300);
+                pads.Update(0, 0, 0, 0, 0, 0, 0, 0);
+                Thread.Sleep(1700);
+                Console.WriteLine("controllers: a virtual Xbox 360 controller was plugged in, pressed A and was unplugged");
+            }
+
+            return 0;
+        }
+
         if (args.Contains("--clipboard"))
         {
             // The clipboard watcher starts and stops; what is on the clipboard is neither read nor changed.
