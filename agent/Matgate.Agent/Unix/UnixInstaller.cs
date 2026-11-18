@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Text;
+using Matgate.Agent.Setup;
 
 namespace Matgate.Agent;
 
@@ -14,28 +15,6 @@ namespace Matgate.Agent;
 //
 // The service is root. Programs in a terminal run as the user named at setup (RunAs) - by default whoever
 // called sudo.
-public sealed class UnixSetupOptions
-{
-    public int Port { get; set; } = 7488;
-
-    public List<AgentRoot> Roots { get; set; } = [];
-
-    public bool Claude { get; set; } = true;
-
-    public bool Shell { get; set; }
-
-    public bool AutoUpdate { get; set; } = true;
-
-    // The user programs run as. Null: whoever called sudo, else whatever the settings already say.
-    public string? RunAs { get; set; }
-
-    // The logo: a path takes that picture, empty removes it, null leaves it.
-    public string? Logo { get; set; }
-
-    // Says what would be done, and does none of it.
-    public bool DryRun { get; set; }
-}
-
 public static class UnixInstaller
 {
     public const string ServiceName = "matgate-agent";
@@ -55,9 +34,44 @@ public static class UnixInstaller
 
     public static bool IsRoot => Environment.UserName == "root";
 
-    public sealed record Result(string Token, string Fingerprint, int Port, bool Listening);
+    // The icon in the notification area starts with whoever signs in: Linux through the desktop's autostart
+    // folder, macOS as a LaunchAgent of the signed-in session.
+    public static string TrayAutostartPath => Mac ? $"/Library/LaunchAgents/{LaunchLabel}.tray.plist" : "/etc/xdg/autostart/matgate-agent-tray.desktop";
 
-    public static Result Install(UnixSetupOptions options, Action<string> log)
+    // What is installed, as far as whoever asks may see it: the settings are root's, so the icon of a signed-in
+    // user knows that the agent is installed and little more (the rest comes from the agent's status).
+    public static SetupOptions? FindExisting()
+    {
+        if (!File.Exists(UnitPath) && !File.Exists(InstalledProgram))
+        {
+            return null;
+        }
+
+        var options = new SetupOptions { Mode = "service", Tray = File.Exists(TrayAutostartPath) };
+        try
+        {
+            if (File.Exists(ConfigPath))
+            {
+                var config = AgentConfig.LoadOrCreate(ConfigPath, out _);
+                options.Port = config.Port;
+                options.Roots = config.Roots;
+                options.Claude = config.Terminals.Any(t => t.Id == "claude" && t.Enabled);
+                options.Shell = config.Terminals.Any(t => t.Id == "shell" && t.Enabled);
+                options.AutoUpdate = config.AutoUpdate;
+                options.Screen = config.Screen;
+                options.RunAs = config.RunAs;
+                options.CurrentLogo = AgentLogo.Find(config, DataFolder)?.Path ?? "";
+            }
+        }
+        catch (Exception exception) when (exception is UnauthorizedAccessException or IOException)
+        {
+            // Not root: the settings stay closed.
+        }
+
+        return options;
+    }
+
+    public static SetupResult Install(SetupOptions options, Action<string> log)
     {
         var runAs = options.RunAs ?? Environment.GetEnvironmentVariable("SUDO_USER") ?? "";
         log($"Installing Matgate Agent to {ProgramFolder}, settings in {DataFolder}.");
@@ -66,7 +80,7 @@ public static class UnixInstaller
         if (options.DryRun)
         {
             log("Dry run: nothing was changed.");
-            return new Result("", "", options.Port, false);
+            return new SetupResult("", "", options.Port, false);
         }
 
         var source = Environment.ProcessPath ?? throw new InvalidOperationException("The program does not know where it is.");
@@ -88,6 +102,7 @@ public static class UnixInstaller
         config.Port = options.Port;
         config.ListenAddress = "0.0.0.0";
         config.AutoUpdate = options.AutoUpdate;
+        config.Screen = options.Screen;
         if (options.RunAs is not null || created || string.IsNullOrEmpty(config.RunAs))
         {
             config.RunAs = runAs == "root" ? "" : runAs;
@@ -120,6 +135,23 @@ public static class UnixInstaller
         var fingerprint = certificate.GetCertHashString(HashAlgorithmName.SHA256);
 
         File.WriteAllText(UnitPath, Mac ? LaunchDaemon() : SystemdUnit());
+        try
+        {
+            if (options.Tray)
+            {
+                Directory.CreateDirectory(Path.GetDirectoryName(TrayAutostartPath)!);
+                File.WriteAllText(TrayAutostartPath, Mac ? TrayLaunchAgent() : TrayDesktopEntry());
+            }
+            else
+            {
+                Remove(TrayAutostartPath);
+            }
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // A machine without a desktop has no place for it, and no use.
+        }
+
         if (Mac)
         {
             Run(log, "launchctl", "bootstrap", "system", UnitPath);
@@ -133,7 +165,7 @@ public static class UnixInstaller
 
         var listening = WaitForAgent(config.Port);
         log(listening ? $"The agent runs and waits for Matgate on port {config.Port}." : $"Installed, but the agent does not answer on port {config.Port} yet - see {Path.Combine(DataFolder, "agent.log")}.");
-        return new Result(config.Token, fingerprint, config.Port, listening);
+        return new SetupResult(config.Token, fingerprint, config.Port, listening);
     }
 
     public static void Uninstall(bool keepSettings, Action<string> log)
@@ -145,6 +177,7 @@ public static class UnixInstaller
         }
 
         Remove(UnitPath);
+        Remove(TrayAutostartPath);
         if (!Mac)
         {
             Run(log, "systemctl", "daemon-reload");
@@ -227,6 +260,36 @@ public static class UnixInstaller
             <key>RunAtLoad</key><true/>
             <key>KeepAlive</key><true/>
             <key>ProcessType</key><string>Interactive</string>
+        </dict>
+        </plist>
+
+        """;
+
+    private static string TrayDesktopEntry() => $"""
+        [Desktop Entry]
+        Type=Application
+        Name=Matgate Agent
+        Comment=The Matgate agent's icon in the notification area
+        Exec={InstalledProgram} tray
+        Terminal=false
+        NoDisplay=true
+        X-GNOME-Autostart-enabled=true
+
+        """;
+
+    private static string TrayLaunchAgent() => $"""
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>Label</key><string>{LaunchLabel}.tray</string>
+            <key>ProgramArguments</key>
+            <array>
+                <string>{InstalledProgram}</string>
+                <string>tray</string>
+            </array>
+            <key>RunAtLoad</key><true/>
+            <key>LimitLoadToSessionType</key><string>Aqua</string>
         </dict>
         </plist>
 

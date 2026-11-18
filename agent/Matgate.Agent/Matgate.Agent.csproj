@@ -1,22 +1,57 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
+  <!--
+    The Matgate agent: one program for Windows, Linux and macOS - the agent itself (the server Matgate
+    connects to), its setup and its icon in the notification area. The windows are Avalonia with MatDesktop
+    (MatDesktop/, a copy from MatDesign - never edited here).
+
+    What talks to Matgate is the same everywhere (the files in this folder). What belongs to a system is in
+    its own files: Windows in ConPty, PtyLauncher, SessionHost, SessionNative, UpdatePlugin, Screen/ and
+    Setup/Installer + WindowsNative; Linux and macOS in Unix/.
+
+    dotnet publish -r win-x64 | linux-x64 | linux-arm64 | osx-arm64 | osx-x64: one self-contained file.
+  -->
   <PropertyGroup>
-    <!-- A windowed exe: a double-click opens the setup dialog without a console behind it. Commands
-         typed in a console still print there (see AgentLog.AttachToParentConsole). -->
-    <OutputType>WinExe</OutputType>
-    <TargetFramework>net10.0-windows</TargetFramework>
-    <UseWindowsForms>true</UseWindowsForms>
+    <AgentForWindows Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier.StartsWith('win'))</AgentForWindows>
+    <AgentForWindows Condition="'$(RuntimeIdentifier)' == '' and '$(OS)' == 'Windows_NT'">true</AgentForWindows>
+    <AgentForWindows Condition="'$(AgentForWindows)' == ''">false</AgentForWindows>
+  </PropertyGroup>
+
+  <PropertyGroup>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <AssemblyName>matgate-agent</AssemblyName>
     <RootNamespace>Matgate.Agent</RootNamespace>
-    <VersionPrefix>0.11.0</VersionPrefix>
-    <ApplicationManifest>app.manifest</ApplicationManifest>
-    <ApplicationIcon>matgate-agent.ico</ApplicationIcon>
+    <VersionPrefix>0.12.0</VersionPrefix>
+    <AvaloniaVersion>11.3.22</AvaloniaVersion>
+    <!-- The windows are built in code; bindings in MatDesktop's templates resolve as its own project compiles them. -->
+    <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
   </PropertyGroup>
 
-  <!-- dotnet publish -r win-x64: one self-contained file, which is what the setup copies. -->
+  <!-- Windows: a windowed exe (a double-click opens the setup without a console behind it; commands typed in a
+       console still print there, see AgentLog.AttachToParentConsole). WinForms is not the look - it is what the
+       screen's clipboard bridge runs its message loop with. -->
+  <PropertyGroup Condition="'$(AgentForWindows)' == 'true'">
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <OutputType>WinExe</OutputType>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>matgate-agent.ico</ApplicationIcon>
+    <DefineConstants>$(DefineConstants);AGENT_WINDOWS</DefineConstants>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(AgentForWindows)' != 'true'">
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <DefineConstants>$(DefineConstants);AGENT_UNIX</DefineConstants>
+    <!-- A server without the ICU libraries runs the agent all the same. -->
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- The shared files call a few Windows-only functions behind OperatingSystem.IsWindows(). -->
+    <NoWarn>$(NoWarn);CA1416</NoWarn>
+  </PropertyGroup>
+
+  <!-- dotnet publish -r <rid>: one self-contained file, which is what the setup copies. -->
   <PropertyGroup Condition="'$(RuntimeIdentifier)' != ''">
     <SelfContained>true</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>
@@ -26,7 +61,32 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <!-- Avalonia and WinForms name many things alike (Application, Button, Control): nothing of WinForms is in scope
+         unless a file asks for it. -->
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(AgentForWindows)' == 'true'">
+    <Compile Remove="Unix\**" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(AgentForWindows)' != 'true'">
+    <Compile Remove="Screen\**" />
+    <Compile Remove="ConPty.cs;PtyLauncher.cs;SessionHost.cs;SessionNative.cs;UpdatePlugin.cs" />
+    <Compile Remove="Setup\Installer.cs;Setup\WindowsNative.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="$(AvaloniaVersion)" />
+    <PackageReference Include="Avalonia.Desktop" Version="$(AvaloniaVersion)" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="$(AvaloniaVersion)" />
+    <!-- "matgate-agent snapshot <folder>" draws every window without a screen. -->
+    <PackageReference Include="Avalonia.Headless" Version="$(AvaloniaVersion)" />
     <PackageReference Include="Concentus" Version="2.2.2" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(AgentForWindows)' == 'true'">
     <PackageReference Include="Microsoft.Extensions.Hosting.WindowsServices" Version="10.0.*" />
     <PackageReference Include="NAudio.Wasapi" Version="3.3.0" />
     <PackageReference Include="Vortice.Direct3D11" Version="3.8.3" />

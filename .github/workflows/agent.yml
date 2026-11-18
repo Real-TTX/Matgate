@@ -3,7 +3,10 @@ name: Agent
 # Builds the agent for every system and puts the programs into the rolling release "agent-latest", where
 # Matgate's connection form links to them and Matgate itself reads the updates from:
 #
-#   Windows          matgate-agent.exe         + matgate-agent.json          (setup, tray, screen - one file)
+# It is one program everywhere (agent/Matgate.Agent): the agent itself, its setup window and its icon in
+# the notification area.
+#
+#   Windows          matgate-agent.exe         + matgate-agent.json
 #   Linux, macOS     matgate-agent-<platform>  + matgate-agent-<platform>.json   (linux-x64, linux-arm64,
 #                                                                                 osx-arm64, osx-x64)
 #
@@ -71,6 +74,9 @@ jobs:
         run: |
           ./publish/matgate-agent.exe --version
           ./publish/matgate-agent.exe setup --dry-run --port 7600
+          # Every window, drawn without a screen.
+          ./publish/matgate-agent.exe snapshot windows | cat
+          ls windows | wc -l
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -114,7 +120,7 @@ jobs:
       - name: Publish
         shell: bash
         run: |
-          dotnet publish agent/Matgate.Agent.Unix/Matgate.Agent.Unix.csproj -c Release -r ${{ matrix.rid }} -o out \
+          dotnet publish agent/Matgate.Agent/Matgate.Agent.csproj -c Release -r ${{ matrix.rid }} -o out \
             -p:Version=${{ steps.version.outputs.version }} -p:InformationalVersion=${{ steps.version.outputs.version }}
           mkdir -p publish
           cp out/matgate-agent publish/matgate-agent-${{ matrix.rid }}
@@ -136,6 +142,16 @@ jobs:
         run: |
           ./publish/matgate-agent-${{ matrix.rid }} --version
           ./publish/matgate-agent-${{ matrix.rid }} setup --dry-run --port 7600
+          # Every window, drawn without a screen: the setup and the tray's windows come up on this system.
+          ./publish/matgate-agent-${{ matrix.rid }} snapshot windows
+          ls windows | wc -l
+
+      - name: Upload the pictures of the windows
+        if: matrix.run
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.rid }}
+          path: windows/*.png
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

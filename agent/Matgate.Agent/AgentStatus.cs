@@ -13,7 +13,7 @@ namespace Matgate.Agent;
 public static class AgentStatus
 {
     // The status channel of the installed agent, named as the Mat family names it (AGENT-01): matgate-agent-status.
-    public const string InstalledPipeName = "matgate-agent-status";
+    public static readonly string InstalledPipeName = OperatingSystem.IsWindows() ? "matgate-agent-status" : "/tmp/matgate-agent-status";
 
     // An agent started by hand from a folder (a test beside an installed one) takes a pipe of its own per port, so that two
     // agents on one machine do not answer for each other.
@@ -42,7 +42,7 @@ public static class AgentStatus
 
     public static void StartServer(CancellationToken stopping)
     {
-        foreach (var name in Installed ? [InstalledPipeName, LegacyPipeName(Port)] : new[] { PipeName(Port) })
+        foreach (var name in !Installed ? [PipeName(Port)] : OperatingSystem.IsWindows() ? [InstalledPipeName, LegacyPipeName(Port)] : new[] { InstalledPipeName })
         {
             Serve(name, stopping);
         }
@@ -87,7 +87,28 @@ public static class AgentStatus
     {
         if (!OperatingSystem.IsWindows())
         {
-            return new NamedPipeServerStream(name, PipeDirection.Out, 4, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+            // A full path is the socket file itself. Whoever is signed in may ask (the status carries no secret).
+            if (File.Exists(name))
+            {
+                try
+                {
+                    File.Delete(name);
+                }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+                {
+                }
+            }
+
+            var pipe = new NamedPipeServerStream(name, PipeDirection.Out, 4, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+            try
+            {
+                File.SetUnixFileMode(name, UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.GroupRead | UnixFileMode.GroupWrite | UnixFileMode.OtherRead | UnixFileMode.OtherWrite);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+            }
+
+            return pipe;
         }
 
         var security = new PipeSecurity();

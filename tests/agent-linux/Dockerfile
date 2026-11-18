@@ -5,13 +5,14 @@ FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 COPY Matgate/Agent/AgentWire.cs Matgate/Agent/AgentWire.cs
 COPY agent/Matgate.Agent agent/Matgate.Agent
-COPY agent/Matgate.Agent.Unix agent/Matgate.Agent.Unix
-RUN dotnet publish agent/Matgate.Agent.Unix/Matgate.Agent.Unix.csproj -c Release -r linux-x64 -o /out -p:Version=0.10.0.1
+RUN dotnet publish agent/Matgate.Agent/Matgate.Agent.csproj -c Release -r linux-x64 -o /out -p:Version=0.10.0.1
 # The same program as a later version: what an update brings (the test serves it to Matgate as the release).
-RUN dotnet publish agent/Matgate.Agent.Unix/Matgate.Agent.Unix.csproj -c Release -r linux-x64 -o /next -p:Version=0.99.0.7
+RUN dotnet publish agent/Matgate.Agent/Matgate.Agent.csproj -c Release -r linux-x64 -o /next -p:Version=0.99.0.7
 
 FROM debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates procps \
+# fontconfig and a font: only for "matgate-agent snapshot", which draws the agent's windows without a screen -
+# the agent itself needs neither.
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates procps libfontconfig1 fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/* \
     && useradd -m -s /bin/bash demo \
     && mkdir -p /srv/share/Ordner /data /etc/systemd/system \

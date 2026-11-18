@@ -7,50 +7,6 @@ using Microsoft.Win32;
 
 namespace Matgate.Agent.Setup;
 
-// What the setup decides. Comes from the dialog or from the command line.
-public sealed class SetupOptions
-{
-    public int Port { get; set; } = 7488;
-
-    public bool OpenFirewall { get; set; } = true;
-
-    // "user": starts at logon as the signed-in user. "service": a Windows service under Account.
-    public string Mode { get; set; } = "user";
-
-    // For "service": DOMAIN\name, .\name or LocalSystem. The password goes to Windows, nowhere else.
-    public string Account { get; set; } = "";
-
-    public string Password { get; set; } = "";
-
-    public List<AgentRoot> Roots { get; set; } = [];
-
-    public bool Claude { get; set; } = true;
-
-    public bool PowerShell { get; set; }
-
-    public bool DryRun { get; set; }
-
-    // The icon in the notification area, started at every logon.
-    public bool Tray { get; set; } = true;
-
-    // Matgate may bring new versions on its own.
-    public bool AutoUpdate { get; set; } = true;
-
-    // The screen in Matgate (desktop, sound, clipboard) - in user mode, or as a LocalSystem service (then also
-    // the sign-in screen).
-    public bool Screen { get; set; } = true;
-
-    // The picture for this machine's start page in Matgate. A path: that picture is taken (a copy of it).
-    // Empty: no logo any more. Null: whatever is there stays.
-    public string? Logo { get; set; }
-
-    // What is installed: the logo's file, for the setup to show. Not an instruction.
-    public string CurrentLogo { get; set; } = "";
-
-    // Filled from an existing installation only.
-    public string Version { get; set; } = "";
-}
-
 // Installs the agent the way MatMon installs its agent: the exe copies itself to Program Files, the
 // configuration lives in ProgramData behind an ACL, one named firewall rule, an entry in "Apps &
 // Features" - and uninstall takes every one of them away again.

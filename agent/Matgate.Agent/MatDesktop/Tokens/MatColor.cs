@@ -1,4 +1,4 @@
-// MatDesktop 0.1.0 – a copy from MatDesign, do not edit here
+// MatDesktop 0.2.0 – a copy from MatDesign, do not edit here
 // Plain C#, only System: a WinForms tray copies it together with MatTokens.g.cs and MatPalette.cs (AGENT-05, tools/matdesktop-copy.js --tokens-only).
 using System.Globalization;
 

@@ -1,5 +1,4 @@
 <Solution>
   <Project Path="Matgate/Matgate.csproj" />
   <Project Path="agent/Matgate.Agent/Matgate.Agent.csproj" />
-  <Project Path="agent/Matgate.Agent.Unix/Matgate.Agent.Unix.csproj" />
 </Solution>

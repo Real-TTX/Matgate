@@ -1,0 +1,496 @@
+<!-- MatDesktop 0.2.0 – a copy from MatDesign, do not edit here -->
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:local="using:MatDesktop"
+                    x:Class="MatDesktop.MatControlThemes">
+  <!--
+    The control themes of MatDesktop, in the flat look of MatUi (docs/ARCHITECTURE.md, "A flat look"): lines instead of shadows, the small radii of the tokens, nothing lifts under the
+    pointer, a visible focus ring in the accent (A11Y-01), what is selected or current is a tint behind the whole item and never a bar at one side (COLOR-08), labels in sentence case.
+    Every colour is a DynamicResource of the tokens (Mat.*, MatTheme): there is no literal colour in this file. Named looks are used with Theme="{DynamicResource MatButton.Primary}".
+  -->
+
+  <!-- ===== Buttons: the default is MatUi's secondary button (mat-btn mat-btn-secondary) ===== -->
+  <ControlTheme x:Key="{x:Type Button}" TargetType="Button">
+    <Setter Property="Foreground" Value="{DynamicResource Mat.Text}" />
+    <Setter Property="Background" Value="{DynamicResource Mat.Surface}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Mat.BorderStrong}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="{DynamicResource Mat.Radius}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Padding" Value="16,0" />
+    <Setter Property="MinHeight" Value="{DynamicResource Mat.ControlHeight}" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="FocusAdorner" Value="{x:Null}" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Panel>
+          <!-- the focus ring: 3 px of the accent around the button, outside it (the token mat-focus-ring) -->
+          <Border Name="Ring" Margin="-3" BorderThickness="3" CornerRadius="9" BorderBrush="{DynamicResource Mat.FocusRing}" IsVisible="False" />
+          <Border Name="Frame" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
+                  CornerRadius="{TemplateBinding CornerRadius}" Padding="{TemplateBinding Padding}">
+            <ContentPresenter Name="PART_ContentPresenter" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}"
+                              Foreground="{TemplateBinding Foreground}"
+                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+          </Border>
+        </Panel>
+      </ControlTemplate>
+    </Setter>
+    <Style Selector="^:pointerover /template/ Border#Frame">
+      <Setter Property="Background" Value="{DynamicResource Mat.Surface3}" />
+    </Style>
+    <Style Selector="^:pressed /template/ Border#Frame">
+      <Setter Property="Background" Value="{DynamicResource Mat.Surface3}" />
+    </Style>
+    <Style Selector="^:focus-visible /template/ Border#Ring">
+      <Setter Property="IsVisible" Value="True" />
+    </Style>
+    <Style Selector="^:disabled">
+      <Setter Property="Opacity" Value="0.5" />
+      <Setter Property="Cursor" Value="Arrow" />
+    </Style>
+  </ControlTheme>
+
+  <!-- The primary action: filled with the accent, the colour on the accent as text. -->
+  <ControlTheme x:Key="MatButton.Primary" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+    <Setter Property="Background" Value="{DynamicResource Mat.Accent}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Mat.Accent}" />
+    <Setter Property="Foreground" Value="{DynamicResource Mat.OnAccent}" />
+    <Style Selector="^:pointerover /template/ Border#Frame">
+      <Setter Property="Background" Value="{DynamicResource Mat.AccentHover}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Mat.AccentHover}" />
+    </Style>
+    <Style Selector="^:pressed /template/ Border#Frame">
+      <Setter Property="Background" Value="{DynamicResource Mat.AccentActive}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Mat.AccentActive}" />
+    </Style>
+  </ControlTheme>
+
+  <!-- A destructive action: danger text on the surface, a line of the danger colour; tinted under the pointer. -->
+  <ControlTheme x:Key="MatButton.Danger" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+    <Setter Property="Foreground" Value="{DynamicResource Mat.DangerText}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Mat.DangerLine}" />
+    <Style Selector="^:pointerover /template/ Border#Frame">
+      <Setter Property="Background" Value="{DynamicResource Mat.DangerBg}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Mat.Danger}" />
+    </Style>
+    <Style Selector="^:pressed /template/ Border#Frame">
+      <Setter Property="Background" Value="{DynamicResource Mat.DangerBg}" />
+    </Style>
+  </ControlTheme>
+
+  <!--
+    A state that needs attention and the button that ends it ("Resume" while recording is paused): the colours of a warning (the tint, its text, its line), so that nobody forgets the
+    state. Not for a destructive action (MatButton.Danger) and not for the main action (MatButton.Primary).
+  -->
+  <ControlTheme x:Key="MatButton.Warning" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+    <Setter Property="Foreground" Value="{DynamicResource Mat.WarningText}" />
+    <Setter Property="Background" Value="{DynamicResource Mat.WarningBg}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Mat.Warning}" />
+    <Style Selector="^:pointerover /template/ Border#Frame">
+      <Setter Property="Background" Value="{DynamicResource Mat.WarningBg}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Mat.WarningText}" />
+    </Style>
+    <Style Selector="^:pressed /template/ Border#Frame">
+      <Setter Property="Background" Value="{DynamicResource Mat.WarningBg}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Mat.WarningText}" />
+    </Style>
+  </ControlTheme>
+
+  <!-- Without a frame: an action in a row or a header; muted until the pointer is over it. -->
+  <ControlTheme x:Key="MatButton.Ghost" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="Foreground" Value="{DynamicResource Mat.TextMuted}" />
+    <Style Selector="^:pointerover">
+      <Setter Property="Foreground" Value="{DynamicResource Mat.Text}" />
+    </Style>
+  </ControlTheme>
+
+  <!-- A square button with only an icon (give it AutomationProperties.Name and a tooltip, DESK-07). -->
+  <ControlTheme x:Key="MatButton.Icon" TargetType="Button" BasedOn="{StaticResource MatButton.Ghost}">
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="Width" Value="{DynamicResource Mat.ControlHeight}" />
+    <Setter Property="Height" Value="{DynamicResource Mat.ControlHeight}" />
+  </ControlTheme>
+
+  <!-- A text that acts: the version at the foot of the menu, "Open the settings". -->
+  <ControlTheme x:Key="MatButton.Link" TargetType="Button">
+    <Setter Property="Foreground" Value="{DynamicResource Mat.AccentText}" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Padding" Value="2,1" />
+    <Setter Property="FontSize" Value="{DynamicResource Mat.FontSizeSm}" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="FocusAdorner" Value="{x:Null}" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Panel>
+          <Border Name="Ring" Margin="-3" BorderThickness="3" CornerRadius="{DynamicResource Mat.Radius}" BorderBrush="{DynamicResource Mat.FocusRing}" IsVisible="False" />
+          <Border Name="Frame" Background="Transparent" Padding="{TemplateBinding Padding}">
+            <ContentPresenter Name="PART_ContentPresenter" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}"
+                              Foreground="{TemplateBinding Foreground}" VerticalAlignment="Center" />
+          </Border>
+        </Panel>
+      </ControlTemplate>
+    </Setter>
+    <Style Selector="^:pointerover">
+      <Setter Property="Foreground" Value="{DynamicResource Mat.Text}" />
+    </Style>
+    <Style Selector="^:focus-visible /template/ Border#Ring">
+      <Setter Property="IsVisible" Value="True" />
+    </Style>
+  </ControlTheme>
+
+  <!-- The caption buttons of Windows (MatTitleBar): 46 x 32, square, the glyphs of the system; the close button is the system's red under the pointer. -->
+  <ControlTheme x:Key="MatButton.Caption" TargetType="Button">
+    <Setter Property="Foreground" Value="{DynamicResource Mat.Text}" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Border Name="Frame" Background="{TemplateBinding Background}">
+          <ContentPresenter Name="PART_ContentPresenter" Content="{TemplateBinding Content}" Foreground="{TemplateBinding Foreground}"
+                            HorizontalAlignment="Center" VerticalAlignment="Center" />
+        </Border>
+      </ControlTemplate>
+    </Setter>
+    <Style Selector="^:pointerover /template/ Border#Frame">
+      <Setter Property="Background" Value="{DynamicResource Mat.Surface3}" />
+    </Style>
+    <Style Selector="^:pressed /template/ Border#Frame">
+      <Setter Property="Background" Value="{DynamicResource Mat.Bg2}" />
+    </Style>
+  </ControlTheme>
+  <ControlTheme x:Key="MatButton.CaptionClose" TargetType="Button" BasedOn="{StaticResource MatButton.Caption}">
+    <Style Selector="^:pointerover /template/ Border#Frame">
+      <Setter Property="Background" Value="{DynamicResource Mat.CaptionCloseHover}" />
+    </Style>
+    <Style Selector="^:pressed /template/ Border#Frame">
+      <Setter Property="Background" Value="{DynamicResource Mat.CaptionCloseHover}" />
+    </Style>
+    <Style Selector="^:pointerover">
+      <Setter Property="Foreground" Value="{DynamicResource Mat.CaptionCloseHoverGlyph}" />
+    </Style>
+  </ControlTheme>
+
+  <!-- ===== Text: windows set the font and the colour once (MatWindow); these are the named looks ===== -->
+  <ControlTheme x:Key="MatText.PageTitle" TargetType="TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource Mat.Text}" />
+    <Setter Property="FontSize" Value="{DynamicResource Mat.FontSize2xl}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </ControlTheme>
+  <ControlTheme x:Key="MatText.SectionTitle" TargetType="TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource Mat.Text}" />
+    <Setter Property="FontSize" Value="{DynamicResource Mat.FontSizeXl}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </ControlTheme>
+  <ControlTheme x:Key="MatText.Muted" TargetType="TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource Mat.TextMuted}" />
+    <Setter Property="FontSize" Value="{DynamicResource Mat.FontSizeSm}" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </ControlTheme>
+  <ControlTheme x:Key="MatText.Faint" TargetType="TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource Mat.TextFaint}" />
+    <Setter Property="FontSize" Value="{DynamicResource Mat.FontSizeXs}" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </ControlTheme>
+  <ControlTheme x:Key="MatText.FieldLabel" TargetType="TextBlock">
+    <Setter Property="Foreground" Value="{DynamicResource Mat.Text}" />
+    <Setter Property="FontSize" Value="{DynamicResource Mat.FontSizeSm}" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Margin" Value="0,0,0,6" />
+  </ControlTheme>
+
+  <!-- ===== Card: a surface with a hairline, no shadow ===== -->
+  <ControlTheme x:Key="MatCard" TargetType="Border">
+    <Setter Property="Background" Value="{DynamicResource Mat.Surface}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Mat.Border}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="{DynamicResource Mat.RadiusLg}" />
+    <Setter Property="Padding" Value="16" />
+  </ControlTheme>
+
+  <!-- A key of the keyboard (kbd): a shortcut in a hint, a tooltip or the settings. -->
+  <ControlTheme x:Key="MatKeyCap" TargetType="Border">
+    <Setter Property="Background" Value="{DynamicResource Mat.Surface2}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Mat.BorderStrong}" />
+    <Setter Property="BorderThickness" Value="1,1,1,2" />
+    <Setter Property="CornerRadius" Value="{DynamicResource Mat.RadiusXs}" />
+    <Setter Property="Padding" Value="6,1" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="TextElement.FontFamily" Value="{DynamicResource Mat.Mono}" />
+    <Setter Property="TextElement.FontSize" Value="{DynamicResource Mat.FontSizeXs}" />
+    <Setter Property="TextElement.Foreground" Value="{DynamicResource Mat.Text}" />
+  </ControlTheme>
+
+  <!-- A count or a short label: a pill of the accent. -->
+  <ControlTheme x:Key="MatBadge" TargetType="Border">
+    <Setter Property="Background" Value="{DynamicResource Mat.Accent}" />
+    <Setter Property="CornerRadius" Value="{DynamicResource Mat.RadiusPill}" />
+    <Setter Property="MinHeight" Value="20" />
+    <Setter Property="MinWidth" Value="20" />
+    <Setter Property="Padding" Value="6,0" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+    <Setter Property="TextElement.Foreground" Value="{DynamicResource Mat.OnAccent}" />
+    <Setter Property="TextElement.FontSize" Value="{DynamicResource Mat.FontSizeXs}" />
+    <Setter Property="TextElement.FontWeight" Value="SemiBold" />
+  </ControlTheme>
+
+  <!-- A quiet label (mat-badge mat-badge-soft): the strong tint of the accent with the accent text, for a mark such as "OCR" beside a title; an icon and a word fit in it. -->
+  <ControlTheme x:Key="MatBadge.Soft" TargetType="Border" BasedOn="{StaticResource MatBadge}">
+    <Setter Property="Background" Value="{DynamicResource Mat.AccentSoftStrong}" />
+    <Setter Property="TextElement.Foreground" Value="{DynamicResource Mat.AccentText}" />
+  </ControlTheme>
+
+  <!-- ===== Lists of rows: a list without a frame of its own, whose items are choices or cards ===== -->
+  <ControlTheme x:Key="MatList" TargetType="ListBox" BasedOn="{StaticResource {x:Type ListBox}}">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled" />
+  </ControlTheme>
+
+  <!--
+    A choice in a short list (an item of MatList, like a ticked mat-choice of MatUi): a row of a control's height with a hairline; the chosen one is the tint of the accent behind the whole
+    row with the accent as its line all around (COLOR-08, never a bar at one side), the keyboard focus the ring of the accent.
+  -->
+  <ControlTheme x:Key="MatChoiceRow" TargetType="ListBoxItem">
+    <Setter Property="Foreground" Value="{DynamicResource Mat.Text}" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="BorderBrush" Value="Transparent" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="Padding" Value="12,0" />
+    <Setter Property="MinHeight" Value="{DynamicResource Mat.ControlHeight}" />
+    <Setter Property="Margin" Value="0,0,0,4" />
+    <Setter Property="CornerRadius" Value="{DynamicResource Mat.Radius}" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="FocusAdorner" Value="{x:Null}" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Panel>
+          <Border Name="Ring" Margin="-3" BorderThickness="3" CornerRadius="9" BorderBrush="{DynamicResource Mat.FocusRing}" IsVisible="False" />
+          <Border Name="Frame" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="1"
+                  CornerRadius="{TemplateBinding CornerRadius}" Padding="{TemplateBinding Padding}" MinHeight="{TemplateBinding MinHeight}">
+            <ContentPresenter Name="PART_ContentPresenter" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}"
+                              Foreground="{TemplateBinding Foreground}" VerticalAlignment="Center"
+                              HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}" />
+          </Border>
+        </Panel>
+      </ControlTemplate>
+    </Setter>
+    <Style Selector="^:pointerover /template/ Border#Frame">
+      <Setter Property="Background" Value="{DynamicResource Mat.Surface3}" />
+    </Style>
+    <Style Selector="^:selected /template/ Border#Frame">
+      <Setter Property="Background" Value="{DynamicResource Mat.AccentSoft}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Mat.Accent}" />
+    </Style>
+    <Style Selector="^:selected">
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="^:focus-visible /template/ Border#Ring">
+      <Setter Property="IsVisible" Value="True" />
+    </Style>
+    <Style Selector="^:disabled">
+      <Setter Property="Opacity" Value="0.5" />
+      <Setter Property="Cursor" Value="Arrow" />
+    </Style>
+  </ControlTheme>
+
+  <!--
+    A row of a list as a card (an item of MatList: the history of a clipboard, the computers of a server): the surface with a hairline and the radius of a card, a step darker under the
+    pointer; the chosen one is the tint of the accent with the accent as its line all around (COLOR-08), the keyboard focus a line in the colour of the ring. The content brings its own
+    layout; Padding is the space inside the card.
+  -->
+  <ControlTheme x:Key="MatCardRow" TargetType="ListBoxItem">
+    <Setter Property="Foreground" Value="{DynamicResource Mat.Text}" />
+    <Setter Property="Background" Value="{DynamicResource Mat.Surface}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Mat.Border}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="{DynamicResource Mat.RadiusLg}" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="Padding" Value="14,10" />
+    <Setter Property="Margin" Value="0,0,0,8" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="FocusAdorner" Value="{x:Null}" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Border Name="Frame" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}"
+                CornerRadius="{TemplateBinding CornerRadius}" Padding="{TemplateBinding Padding}">
+          <ContentPresenter Name="PART_ContentPresenter" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}"
+                            Foreground="{TemplateBinding Foreground}" HorizontalContentAlignment="{TemplateBinding HorizontalContentAlignment}" />
+        </Border>
+      </ControlTemplate>
+    </Setter>
+    <Style Selector="^:pointerover /template/ Border#Frame">
+      <Setter Property="Background" Value="{DynamicResource Mat.Surface2}" />
+    </Style>
+    <Style Selector="^:selected /template/ Border#Frame">
+      <Setter Property="Background" Value="{DynamicResource Mat.AccentSoft}" />
+      <Setter Property="BorderBrush" Value="{DynamicResource Mat.Accent}" />
+    </Style>
+    <Style Selector="^:focus-visible /template/ Border#Frame">
+      <Setter Property="BorderBrush" Value="{DynamicResource Mat.FocusRing}" />
+    </Style>
+    <Style Selector="^:disabled">
+      <Setter Property="Cursor" Value="Arrow" />
+    </Style>
+  </ControlTheme>
+
+  <!-- ===== The menu (DESK-04): the current item is a tint behind the whole item, its icon in the accent ===== -->
+  <ControlTheme x:Key="{x:Type local:MatNavItem}" TargetType="local:MatNavItem">
+    <Setter Property="Foreground" Value="{DynamicResource Mat.Text}" />
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Padding" Value="11,0" />
+    <Setter Property="MinHeight" Value="{DynamicResource Mat.ControlHeight}" />
+    <Setter Property="CornerRadius" Value="{DynamicResource Mat.Radius}" />
+    <Setter Property="FontWeight" Value="Medium" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="FocusAdorner" Value="{x:Null}" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Border Name="Frame" Background="{TemplateBinding Background}" CornerRadius="{TemplateBinding CornerRadius}" Padding="{TemplateBinding Padding}"
+                BorderThickness="2" BorderBrush="Transparent" MinHeight="{TemplateBinding MinHeight}">
+          <StackPanel Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+            <local:MatIcon Name="Icon" Icon="{TemplateBinding Icon}" Size="18" Foreground="{DynamicResource Mat.TextMuted}" />
+            <TextBlock Name="Label" Text="{TemplateBinding Label}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" />
+          </StackPanel>
+        </Border>
+      </ControlTemplate>
+    </Setter>
+    <Style Selector="^:pointerover /template/ Border#Frame">
+      <Setter Property="Background" Value="{DynamicResource Mat.Surface3}" />
+    </Style>
+    <Style Selector="^:current /template/ Border#Frame">
+      <Setter Property="Background" Value="{DynamicResource Mat.AccentSoftStrong}" />
+    </Style>
+    <Style Selector="^:current">
+      <Setter Property="FontWeight" Value="SemiBold" />
+    </Style>
+    <Style Selector="^:current /template/ local|MatIcon#Icon">
+      <Setter Property="Foreground" Value="{DynamicResource Mat.AccentText}" />
+    </Style>
+    <Style Selector="^:folded /template/ TextBlock#Label">
+      <Setter Property="IsVisible" Value="False" />
+    </Style>
+    <Style Selector="^:focus-visible /template/ Border#Frame">
+      <Setter Property="BorderBrush" Value="{DynamicResource Mat.FocusRing}" />
+    </Style>
+  </ControlTheme>
+
+  <!-- ===== Tabs (settings with many rows): the chosen tab in the accent text with a line of the accent under it ===== -->
+  <ControlTheme x:Key="{x:Type TabControl}" TargetType="TabControl">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Padding" Value="0,16,0,0" />
+    <Setter Property="ItemsPanel">
+      <ItemsPanelTemplate>
+        <WrapPanel />
+      </ItemsPanelTemplate>
+    </Setter>
+    <Setter Property="Template">
+      <ControlTemplate>
+        <DockPanel>
+          <Border DockPanel.Dock="Top" BorderBrush="{DynamicResource Mat.Border}" BorderThickness="0,0,0,1">
+            <ItemsPresenter Name="PART_ItemsPresenter" ItemsPanel="{TemplateBinding ItemsPanel}" />
+          </Border>
+          <ContentPresenter Name="PART_SelectedContentHost" Margin="{TemplateBinding Padding}"
+                            Content="{TemplateBinding SelectedContent}" ContentTemplate="{TemplateBinding SelectedContentTemplate}" />
+        </DockPanel>
+      </ControlTemplate>
+    </Setter>
+  </ControlTheme>
+  <ControlTheme x:Key="{x:Type TabItem}" TargetType="TabItem">
+    <Setter Property="Foreground" Value="{DynamicResource Mat.TextMuted}" />
+    <Setter Property="FontWeight" Value="Medium" />
+    <Setter Property="Cursor" Value="Hand" />
+    <Setter Property="FocusAdorner" Value="{x:Null}" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Border Name="Frame" Margin="0,0,20,0" Background="Transparent" BorderThickness="0,0,0,2" BorderBrush="Transparent">
+          <ContentPresenter Name="PART_ContentPresenter" Content="{TemplateBinding Header}" ContentTemplate="{TemplateBinding HeaderTemplate}"
+                            Foreground="{TemplateBinding Foreground}" Margin="2,6,2,8" />
+        </Border>
+      </ControlTemplate>
+    </Setter>
+    <Style Selector="^:pointerover">
+      <Setter Property="Foreground" Value="{DynamicResource Mat.Text}" />
+    </Style>
+    <Style Selector="^:selected">
+      <Setter Property="Foreground" Value="{DynamicResource Mat.AccentText}" />
+    </Style>
+    <Style Selector="^:selected /template/ Border#Frame">
+      <Setter Property="BorderBrush" Value="{DynamicResource Mat.Accent}" />
+    </Style>
+    <Style Selector="^:focus-visible /template/ Border#Frame">
+      <Setter Property="Background" Value="{DynamicResource Mat.AccentSoft}" />
+    </Style>
+  </ControlTheme>
+
+  <!-- ===== The search field: the magnifier inside the field, the line of a field, the accent when it has the focus ===== -->
+  <ControlTheme x:Key="MatSearchBox" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+    <Setter Property="MinHeight" Value="{DynamicResource Mat.ControlHeight}" />
+    <Setter Property="CornerRadius" Value="{DynamicResource Mat.Radius}" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="InnerLeftContent">
+      <Template>
+        <local:MatIcon Icon="search" Size="16" Margin="10,0,0,0" Foreground="{DynamicResource Mat.TextMuted}" IsHitTestVisible="False" />
+      </Template>
+    </Setter>
+  </ControlTheme>
+
+  <!-- ===== A progress bar: the accent on a track of the third surface ===== -->
+  <ControlTheme x:Key="MatProgress" TargetType="ProgressBar" BasedOn="{StaticResource {x:Type ProgressBar}}">
+    <Setter Property="Foreground" Value="{DynamicResource Mat.Accent}" />
+    <Setter Property="Background" Value="{DynamicResource Mat.Surface3}" />
+    <Setter Property="MinHeight" Value="6" />
+    <Setter Property="Height" Value="6" />
+    <Setter Property="CornerRadius" Value="{DynamicResource Mat.RadiusPill}" />
+  </ControlTheme>
+
+  <!-- ===== A setting: title and sentence at the left, the control at the right, a line under it ===== -->
+  <ControlTheme x:Key="{x:Type local:MatSettingRow}" TargetType="local:MatSettingRow">
+    <Setter Property="Padding" Value="0,10" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Mat.Border}" />
+    <Setter Property="BorderThickness" Value="0,0,0,1" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <Border Padding="{TemplateBinding Padding}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" Background="Transparent">
+          <Grid ColumnDefinitions="*,Auto">
+            <StackPanel VerticalAlignment="Center" Margin="0,0,20,0">
+              <TextBlock Text="{TemplateBinding Title}" TextWrapping="Wrap" FontWeight="Medium" />
+              <TextBlock Name="Description" Text="{TemplateBinding Description}" Theme="{StaticResource MatText.Muted}" Margin="0,2,0,0"
+                         IsVisible="{TemplateBinding Description, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+            </StackPanel>
+            <ContentPresenter Grid.Column="1" Name="PART_ContentPresenter" Content="{TemplateBinding Content}" VerticalAlignment="Center" />
+          </Grid>
+        </Border>
+      </ControlTemplate>
+    </Setter>
+  </ControlTheme>
+
+  <!-- ===== A labelled field with a hint and an error ===== -->
+  <ControlTheme x:Key="{x:Type local:MatFormField}" TargetType="local:MatFormField">
+    <Setter Property="Margin" Value="0,0,0,14" />
+    <Setter Property="Template">
+      <ControlTemplate>
+        <StackPanel>
+          <TextBlock Text="{TemplateBinding Label}" Theme="{StaticResource MatText.FieldLabel}"
+                     IsVisible="{TemplateBinding Label, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+          <ContentPresenter Name="PART_ContentPresenter" Content="{TemplateBinding Content}" />
+          <TextBlock Text="{TemplateBinding Hint}" Theme="{StaticResource MatText.Muted}" Margin="0,5,0,0"
+                     IsVisible="{TemplateBinding Hint, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+          <TextBlock Text="{TemplateBinding Error}" Foreground="{DynamicResource Mat.DangerText}" FontSize="{DynamicResource Mat.FontSizeSm}" Margin="0,5,0,0" TextWrapping="Wrap"
+                     IsVisible="{TemplateBinding Error, Converter={x:Static StringConverters.IsNotNullOrEmpty}}" />
+        </StackPanel>
+      </ControlTemplate>
+    </Setter>
+  </ControlTheme>
+
+</ResourceDictionary>

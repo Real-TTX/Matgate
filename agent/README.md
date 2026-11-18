@@ -146,9 +146,11 @@ setup prints host, port, connection password and the certificate's fingerprint f
 - **Updates** come from Matgate as on Windows - the program for the machine's own system. The new file is
   checked (size, SHA-256, its own `--version`), put in place of the running one (the one before stays as
   `matgate-agent.previous`), and the service manager starts the agent again.
-- The source is `agent/Matgate.Agent.Unix`: what talks to Matgate is linked from the Windows project
-  (connection, files, terminals, logo), what belongs to the system is there (`UnixPty`, `UnixUser`,
-  `UnixInstaller`, `UnixUpdates`).
+- **The same program as on Windows** (`agent/Matgate.Agent`), with the same windows: started without
+  arguments on a desktop it opens the setup window (it asks for an administrator's password when it
+  installs - through polkit on Linux, the system's own dialog on macOS); `matgate-agent tray` is the icon in
+  the notification area, started for whoever signs in. On a machine without a desktop the commands above
+  do everything.
 - Tested on Linux (a container of the test stack, `tests/agent-linux.js`). **macOS is built by the CI and
   has not run on a Mac yet.**
 
@@ -238,7 +240,7 @@ console. Stopping or restarting the agent leaves every icon running.
 
 ![Info](../docs/images/agent-tray-info.png) ![Connection details](../docs/images/agent-tray-connection.png)
 
-`matgate-agent setup-preview <folder>` draws every window - the setup steps, the update, the uninstall, Info,
+`matgate-agent snapshot <folder>` draws every window - the setup steps, the update, the uninstall, Info,
 the connection details, the tray menu and the icon in its four states - into PNG files, light and dark, from
 sample data (the computer ANNA-PC, the user Anna, a sample password): nothing of the machine it runs on, so
 the pictures may be published. The ones in `docs/images` are made that way.
@@ -275,8 +277,16 @@ The connection in Matgate stays until it is deleted there.
 ## Building it
 
 ```bash
-dotnet publish agent/Matgate.Agent -c Release -r win-x64 -o publish/agent
+dotnet publish agent/Matgate.Agent -c Release -r win-x64 -o publish/agent     # or linux-x64, linux-arm64, osx-arm64, osx-x64
 ```
+
+One project for every system. Its windows are **Avalonia** in the look of **MatDesktop** (`MatDesktop/`,
+the desktop toolkit of MatDesign - a copy, never edited here: change it in MatDesign and copy it again with
+`node tools/matdesktop-copy.js <this folder>`): `Ui/AgentSetup.cs` (the setup window), `Ui/AgentTray.cs` (the
+icon, Info, the connection details), `Ui/Snapshot.cs` (the pictures). What talks to Matgate is the same
+everywhere (the files in the project's folder); what belongs to a system is compiled only for it - Windows:
+`ConPty`, `PtyLauncher`, `SessionHost`, `SessionNative`, `UpdatePlugin`, `Screen/`, `Setup/Installer`;
+Linux and macOS: `Unix/`. `Setup/AgentInstall.cs` is the one door to either installer.
 
 One self-contained file. `matgate-agent.exe run [--config path]` starts the agent by hand (a
 `matgate-agent.json` next to the exe is created if missing).

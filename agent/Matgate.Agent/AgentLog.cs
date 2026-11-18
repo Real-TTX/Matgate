@@ -58,8 +58,9 @@ public static class AgentLog
     // A windowed exe has no console. Typed in one, the commands still answer there.
     public static void AttachToParentConsole()
     {
-        // Output that goes into a pipe or a file already has somewhere to go.
-        if (!Console.IsOutputRedirected && AttachConsole(-1))
+        // Windows only: elsewhere a program started in a terminal simply has it. Output that goes into a pipe or
+        // a file already has somewhere to go.
+        if (OperatingSystem.IsWindows() && !Console.IsOutputRedirected && AttachConsole(-1))
         {
             var output = new StreamWriter(Console.OpenStandardOutput()) { AutoFlush = true };
             Console.SetOut(output);

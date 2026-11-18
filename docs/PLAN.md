@@ -1,9 +1,9 @@
 # Matgate – Plan zum Weitermachen
 
-Stand: 2026-11-18, Version 0.25.0 (Agent 0.11.0) auf `main` und als `v0.25.0` markiert; auf ve-docker-1
-(matgate.schmoldt.it) läuft 0.23.0 samt Browser-Farm-Image (Websites dort weiter über den Pfad, bis Route
-und Variable stehen) - 0.24.0/0.25.0 warten auf das Einspielen (trennt laufende Sitzungen, nur auf
-ausdrücklichen Wunsch). Geschrieben als Übergabe an eine andere Sitzung.
+Stand: 2026-11-19, Version 0.25.0 auf `main` (`v0.25.0`), Agent 0.12.0; auf ve-docker-1
+(matgate.schmoldt.it) läuft seit dem 2026-11-18 ebenfalls 0.25.0 (Websites dort weiter über den Pfad, bis
+Route und Variable stehen; Einspielen trennt laufende Sitzungen, nur auf ausdrücklichen Wunsch). Der Agent
+auf dem Entwicklungsrechner ist der offizielle Build aus dem Release `agent-latest`. Geschrieben als Übergabe an eine andere Sitzung.
 
 ## Wo wir stehen
 
@@ -386,18 +386,39 @@ Anmeldebildschirm. Etappen:
   Container gibt es keines - geprüft ist, WAS das Setup schreibt, nicht dass der Dienst startet);
   linux-arm64; BusyBox/Alpine (musl) - dafür bräuchte es ein `linux-musl`-Programm.
 
-### Etappe 2 - offen: Oberfläche auf Avalonia, ein Projekt für alle
+### Etappe 2 - erledigt (Agent 0.12.0): Oberfläche auf Avalonia, ein Projekt für alle
 
-- MatDesktop aus MatDesign in den Agent kopieren (`node tools/matdesktop-copy.js <Pfad>` DORT ausführen;
-  die Kopie nie hier ändern; heute liegen im Agent nur die Tokens für WinForms).
-- Setup-Assistent, Tray, Info- und Verbindungsfenster als Avalonia-Fenster (`MatSetupWindow`, `MatTray`
-  ...), WinForms raus; dabei die gemeinsamen Dateien in ein `Matgate.Agent.Core` verschieben und
-  `Matgate.Agent.Unix` im einen Programm aufgehen lassen. `setup-preview` → `--snapshot` wie ThixClip
-  (headless, Avalonia.Headless + Skia).
-- Regeln: MatDesign `docs/DESKTOP.md` (DESK, TRAY, SETUP) - gelten schon für die WinForms-Fenster.
-- Auf Linux/macOS braucht die Oberfläche eine angemeldete Person; der Dienst läuft ohne sie. Setup auf
-  dem Mac als `.app`/dmg (`package-macos.sh` von ThixClip), Rechte per Authorization Services oder
-  `osascript`; für eine Installation ohne Warnung ein Apple-Entwicklerkonto (Notarisierung).
+- **Ein Projekt** `agent/Matgate.Agent` für alle Systeme: `net10.0-windows` beim Bauen für Windows (wegen
+  der Zwischenablage-Brücke des Bildschirms, die WinForms als Nachrichtenschleife nutzt - nicht mehr als
+  Oberfläche), sonst `net10.0`. Windows-Dateien und `Unix/` werden je nach Ziel ausgeschlossen
+  (`AgentForWindows`, Konstanten `AGENT_WINDOWS`/`AGENT_UNIX`). `Matgate.Agent.Unix` ist darin aufgegangen.
+- **MatDesktop 0.2.0** vollständig kopiert (`MatDesktop/`, aus MatDesign Zweig `origin/dev` - der
+  Arbeitsstand des MatDesign-Ordners hat ihn nicht; kopiert wurde aus einem `git archive`, ohne dort etwas
+  zu ändern).
+- **Fenster:** `Ui/AgentApp.cs` (Application, Akzent `#0a7d57`, das Logo wird gezeichnet statt geladen),
+  `Ui/AgentSetup.cs` (`MatSetupWindow`: Willkommen → Verbindung und Ausführung → Was Matgate sehen darf →
+  Betrieb und Aussehen → Fortschritt → Werte für Matgate; gleiche Version = Einstellungen ändern, ältere
+  installiert = Update, das nichts fragt), `Ui/AgentTray.cs` (`MatTray`/`MatTrayMenu`, Info als
+  `MatInfoWindow`, Verbindungsdaten), `Ui/Snapshot.cs` (`matgate-agent snapshot <Ordner>`: jedes Fenster
+  ohne Bildschirm, hell und dunkel; ersetzt `setup-preview`). WinForms-Dateien (Brand, BrandWindow, Theme,
+  SetupWizard, SetupPreview, TrayApplication) sind gelöscht.
+- **`Setup/AgentInstall.cs`:** eine Tür zu beiden Installern (Pfade, FindExisting, Install, Uninstall,
+  Start/Stop/Restart) und `RunElevated` (UAC / `pkexec` / `osascript … with administrator privileges`).
+  Unter Windows hat das Setup-Fenster selbst Administratorrechte; unter Linux/macOS läuft es als die
+  angemeldete Person und gibt die Arbeit an einen zweiten, erhöhten Lauf (`setup … --result-json`).
+- **Tray unter Linux/macOS:** Autostart über `/etc/xdg/autostart/matgate-agent-tray.desktop` bzw. einen
+  LaunchAgent; der Statuskanal ist dort die Socket-Datei `/tmp/matgate-agent-status` (für alle lesbar,
+  ohne Geheimnis), weil Dienst (root) und Symbol (Benutzer) sonst verschiedene Temp-Ordner hätten.
+- **CI:** dieselbe Projektdatei für alle fünf Ziele; jeder Lauf zeichnet die Fenster (`snapshot`) und
+  lädt die Bilder als Artefakt `windows-<Plattform>` hoch - so sieht man auch die macOS-Fenster.
+- **Geprüft:** alle Windows-Agent-Tests (50/33/10/95) und `agent-linux.js` (36) mit dem neuen Programm;
+  Fenster als Bilder unter Windows und Linux angesehen; das Tray-Symbol startet unter Windows.
+- **Nicht geprüft:** die Fenster *in Bedienung* (Klicks, Ordnerwahl, UAC-Lauf des Setups, Deinstallation
+  über das Fenster) - nur ihr Aussehen und die Arbeit dahinter über die Kommandozeile; Tray und Setup
+  unter einem echten Linux-Desktop (pkexec, StatusNotifier) und unter macOS überhaupt. macOS hat noch kein
+  `.app`/dmg (Vorlage: `../ThixClip/scripts/package-macos.sh`).
+- **Falle:** `AgentLog.AttachToParentConsole` rief unter Linux `kernel32` - nur in einem Terminal (dort
+  ist die Ausgabe nicht umgeleitet), also genau beim Start eines Programms über `as-user`.
 
 ### Etappe 3 - offen: Bildschirm auf Linux, auch ohne angemeldeten Benutzer
 
