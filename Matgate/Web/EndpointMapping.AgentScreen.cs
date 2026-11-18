@@ -280,6 +280,11 @@ public static partial class EndpointMapping
                 download = de ? "Herunterladen" : "Download",
                 folder = de ? "Ordner (nicht ladbar)" : "Folder (cannot be downloaded)",
                 close = de ? "Schließen" : "Close",
+                perf = de ? "Leistungsanzeige im Bild" : "Performance numbers in the picture",
+                perfHint = de
+                    ? "Oben links: Bilder/s gesendet/gezeigt, Laufzeit hin und zurück, Datenrate - darunter Bildgröße, Maßstab, Encoder und Zeit je Bild."
+                    : "Top left: pictures per second sent/shown, round trip, data rate - below it picture size, scale, encoder and time per picture.",
+                perfWaiting = "...",
                 scale = de ? "Skalierung" : "Scale",
                 fixedSizes = de ? "Feste Auflösung" : "A fixed resolution",
                 keyboardResize = de ? "Auflösung an die Tastatur anpassen" : "Fit the resolution to the keyboard",

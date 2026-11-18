@@ -1,7 +1,7 @@
 # Matgate – Plan zum Weitermachen
 
-Stand: 2026-11-18, Version 0.21.3 (Agent 0.9.0) auf `main` und als `v0.21.3` markiert; auf ve-docker-1
-(matgate.schmoldt.it) läuft 0.21.2 - 0.21.3 wartet auf das Einspielen (trennt laufende Sitzungen). Geschrieben als Übergabe an eine andere Sitzung.
+Stand: 2026-11-18, Version 0.21.4 (Agent 0.9.0) auf `main` und als `v0.21.4` markiert; auf ve-docker-1
+(matgate.schmoldt.it) läuft 0.21.2 - 0.21.3/0.21.4 warten auf das Einspielen (trennt laufende Sitzungen). Geschrieben als Übergabe an eine andere Sitzung.
 
 ## Wo wir stehen
 
@@ -147,7 +147,11 @@ was dahinter liegt.
   zurückkommt (`#immersive-hint`).
 - **Zahnrad am Ende der Tastenleiste (0.21.3):** führt zu Konto -> Tastenleiste - der Nutzer fragte nach
   einer einstellbaren Leiste, obwohl es sie schon gab.
-- Test: `tests/screen-scale.js` (41 Prüfungen, iPhone-Tastatur nachgestellt über `visualViewport`).
+- **Leistungsanzeige im Bild (0.21.4, Wunsch des Nutzers):** Option im Auflösungsdialog
+  (`matgate.screen.perf`, je Gerät): oben links Bilder/s gesendet/gezeigt, Laufzeit, Datenrate, darunter
+  Bildgröße, Maßstab, Encoder, Zeit je Bild (`#perf`, `paintPerf`). Für RDP, VNC und Agent-Bildschirm;
+  Guacamole-Sitzungen haben keine solchen Zahlen.
+- Test: `tests/screen-scale.js` (47 Prüfungen, iPhone-Tastatur nachgestellt über `visualViewport`).
   Falle dabei: Mausrad über dem leeren Test-Desktop lässt openbox die Arbeitsfläche wechseln - das
   Terminal ist dann „weg“ und alle VNC-Tests schlagen fehl; `tests/desktop/start.sh` räumt jetzt auch
   alte X-Sockets weg (nach `docker restart` lag die RDP-Sitzung sonst auf :11 statt :10).

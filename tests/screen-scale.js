@@ -100,6 +100,20 @@ const near = (a, b, tolerance) => Math.abs(a - b) <= tolerance;
   await view.reload({ waitUntil: "domcontentloaded" });
   await started(view);
   check("the scale is kept for the connection", (await state(view)).scale, 100);
+
+  // --- The session's numbers as a mark in the picture: an option, off until someone wants it.
+  const perf = () => view.evaluate(() => { const box = document.getElementById("perf"); return { shown: !box.classList.contains("hidden"), text: box.textContent }; });
+  check("the numbers are not in the picture unless asked for", (await perf()).shown, false);
+  await view.evaluate(() => window.MatgateScreen.setPerf(true));
+  let numbers = await perf();
+  for (let i = 0; i < 12 && !/fps|B\/s/.test(numbers.text); i++) { await sleep(500); numbers = await perf(); }
+  check("switched on, they show pictures per second, the picture's size and the encoder", [numbers.shown, /\d+\/\d+ (fps|B\/s)/.test(numbers.text), /\d+×\d+/.test(numbers.text), /OpenH264/.test(numbers.text)], [true, true, true, true]);
+  check("and are never in the way of a click", await view.evaluate(() => getComputedStyle(document.getElementById("perf")).pointerEvents), "none");
+  await view.reload({ waitUntil: "domcontentloaded" });
+  await started(view);
+  check("the choice is kept", [(await state(view)).perf, (await perf()).shown], [true, true]);
+  await view.evaluate(() => window.MatgateScreen.setPerf(false));
+  check("and off is off", (await perf()).shown, false);
   await view.close();
 
   // ============================================================================================ a phone
@@ -156,6 +170,11 @@ const near = (a, b, tolerance) => Math.abs(a - b) <= tolerance;
     (document.querySelector(".resolution-scale-preset.active") || {}).textContent || "",
     /\d+ × \d+/.test((document.querySelector(".resolution-scale-note") || {}).textContent || "")]), ["50 %", true]);
   check("and what the device's keyboard does to the picture", await shell.evaluate(() => (document.querySelector("[data-keyboard-resize]") || {}).dataset?.keyboardResize || "missing"), "0");
+  await shell.evaluate(() => document.querySelector("[data-perf]").click());
+  await sleep(300);
+  check("the numbers in the picture can be switched on there - a phone has no status bar for them", [(await state(frame)).perf, await shell.evaluate(() => document.querySelector("[data-perf]").dataset.perf), await frame.evaluate(() => !document.getElementById("perf").classList.contains("hidden"))], [true, "1", true]);
+  await shell.evaluate(() => document.querySelector("[data-perf]").click());
+  await sleep(300);
   await shell.evaluate(() => [...document.querySelectorAll(".resolution-scale-preset")].find(x => x.textContent === "75 %").click());
   await sleep(400);
   check("a step sets the scale and closes the dialog", [(await state(frame)).scale, await shell.evaluate(() => document.getElementById("resolution-dialog").classList.contains("hidden"))], [75, true]);

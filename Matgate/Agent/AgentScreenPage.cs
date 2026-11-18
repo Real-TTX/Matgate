@@ -33,6 +33,9 @@ public static class AgentScreenPage
             .notice { align-items: center; background: rgba(11, 15, 13, .82); display: flex; flex-direction: column; gap: 12px; inset: 0; justify-content: center; padding: 24px; position: absolute; text-align: center; }
             .notice p { font-size: 15px; margin: 0; max-width: 460px; }
             .toast { background: #18211d; border: 1px solid #33413a; border-radius: 10px; bottom: 16px; box-shadow: 0 8px 24px rgba(0,0,0,.5); max-width: min(420px, calc(100% - 32px)); padding: 12px 14px; position: absolute; right: 16px; }
+            /* The session's numbers in a corner of the picture: there to be read, never in the way of a click. */
+            .perf { background: rgba(11, 15, 13, .62); border-radius: 6px; color: #e6efe9; font: 11px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; left: 8px; padding: 4px 7px; pointer-events: none; position: absolute; text-shadow: 0 1px 1px rgba(0, 0, 0, .6); top: 8px; white-space: pre; z-index: 3; }
+            body.fs .perf { top: calc(8px + env(safe-area-inset-top, 0px)); }
             .toast ul { list-style: none; margin: 8px 0; max-height: 40vh; overflow: auto; padding: 0; }
             .toast li { align-items: center; display: flex; gap: 8px; justify-content: space-between; padding: 3px 0; }
             .toast li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -114,6 +117,7 @@ public static class AgentScreenPage
             <div id="frame"><canvas id="screen" width="16" height="9"></canvas><img id="pointer" class="hidden" alt=""></div>
             <div id="notice" class="notice"><p id="notice-text"></p><button id="notice-action" type="button" class="hidden"></button></div>
             <div id="toast" class="toast hidden"></div>
+            <div id="perf" class="perf hidden" aria-hidden="true"></div>
             <div id="auth" class="auth hidden">
                 <form id="auth-form" autocomplete="off">
                     <h2 id="auth-title"></h2>
@@ -688,6 +692,7 @@ public static class AgentScreenPage
                     case 'screen.stats':
                         window.__screen.stats = data;
                         window.setTimeout(notifyStats, 0);
+                        paintPerf(data);
                         statsLine.textContent = [data.fps != null ? Math.round(data.fps) + ' ' + text.fps : '', data.rtt != null ? Math.round(data.rtt) + ' ms' : ''].filter(Boolean).join(' · ');
                         statsLine.title = text.statsTitle
                             .replace('{fps}', data.fps ?? '-').replace('{limit}', data.fpsLimit ?? '-').replace('{rtt}', data.rtt ?? '-')
@@ -2090,6 +2095,52 @@ public static class AgentScreenPage
                 notifyShell();
             };
 
+            // ---- the session's numbers in the picture (an option) ----------------------------------------
+            // What the machine sends a second and what this browser has shown of it, the way there and back,
+            // the data rate, the size of the picture and what it costs to make one. The shell's status bar has
+            // some of this on a computer; a phone has no such bar, and in full screen nobody has.
+            const perfBox = $('perf');
+            let perfOn = localStorage.getItem('matgate.screen.perf') === '1';
+            let perfFrames = window.__screen.frames;
+            let perfAt = performance.now();
+            const paintPerf = data => {
+                if (!perfOn) {
+                    return;
+                }
+                const now = performance.now();
+                const shownRate = Math.round((window.__screen.frames - perfFrames) * 1000 / Math.max(1, now - perfAt));
+                perfFrames = window.__screen.frames;
+                perfAt = now;
+                const rate = data.kbps == null ? '' : data.kbps >= 1000 ? (data.kbps / 1000).toFixed(1) + ' Mbit/s' : data.kbps + ' kbit/s';
+                const first = [
+                    (data.fps != null ? Math.round(data.fps) : '-') + '/' + shownRate + ' ' + text.fps,
+                    data.rtt != null ? Math.round(data.rtt) + ' ms' : '',
+                    rate,
+                ].filter(Boolean).join('  ');
+                const second = [
+                    canvas.width + '×' + canvas.height,
+                    resolution === 'auto' ? scale + ' %' : '',
+                    data.encoder || '',
+                    data.agentMs != null ? data.agentMs + ' ms' : '',
+                ].filter(Boolean).join('  ');
+                perfBox.textContent = first + '\n' + second;
+            };
+            const setPerf = on => {
+                perfOn = !!on;
+                localStorage.setItem('matgate.screen.perf', perfOn ? '1' : '0');
+                perfBox.classList.toggle('hidden', !perfOn);
+                perfFrames = window.__screen.frames;
+                perfAt = performance.now();
+                if (perfOn) {
+                    perfBox.textContent = text.perfWaiting;
+                    if (window.__screen.stats) {
+                        paintPerf(window.__screen.stats);
+                    }
+                }
+                notifyShell();
+            };
+            perfBox.classList.toggle('hidden', !perfOn);
+
             const optionList = select => [...select.options].map(option => ({ value: option.value, label: option.textContent, active: option.selected }));
             window.MatgateScreen = {
                 state: () => ({
@@ -2109,6 +2160,7 @@ public static class AgentScreenPage
                     fit: fitSize(),
                     keyboardResize,
                     keyboardInset,
+                    perf: perfOn,
                     touch: coarse,
                     canWindows,
                     windowsOpen: windowsOpen(),
@@ -2116,7 +2168,7 @@ public static class AgentScreenPage
                     windows: windowList,
                     pointerMode,
                     kind,
-                    texts: { monitor: text.monitor, quality: text.quality, target: kind === 'agent' ? text.target : 'Matgate', scale: text.scale, remoteSize: text.resolution, keyboardResize: text.keyboardResize, keyboardResizeHint: text.keyboardResizeHint, fixedSizes: text.fixedSizes },
+                    texts: { monitor: text.monitor, quality: text.quality, target: kind === 'agent' ? text.target : 'Matgate', scale: text.scale, remoteSize: text.resolution, keyboardResize: text.keyboardResize, keyboardResizeHint: text.keyboardResizeHint, fixedSizes: text.fixedSizes, perf: text.perf, perfHint: text.perfHint },
                 }),
                 setResolution: value => {
                     resolutionSelect.value = value;
@@ -2139,6 +2191,7 @@ public static class AgentScreenPage
                     const factor = clampScale(value) / scale;
                     return { fitWidth: Math.round(now.fitWidth / factor), fitHeight: Math.round(now.fitHeight / factor) };
                 },
+                setPerf,
                 setKeyboardResize: on => {
                     keyboardResize = !!on;
                     localStorage.setItem('matgate.screen.keyboard.resize', keyboardResize ? '1' : '0');

@@ -8715,6 +8715,25 @@ public sealed class HtmlViews
                             hint.textContent = state.texts?.keyboardResizeHint || '';
                             resolutionExtra.appendChild(hint);
                         }
+                        // The session's numbers as a mark in the picture - on a phone the only place for them.
+                        if (typeof api.setPerf === 'function') {
+                            const toggle = document.createElement('button');
+                            toggle.type = 'button';
+                            toggle.className = 'resolution-toggle' + (state.perf ? ' active' : '');
+                            toggle.dataset.perf = state.perf ? '1' : '0';
+                            toggle.title = state.texts?.perfHint || '';
+                            const label = document.createElement('span');
+                            label.textContent = state.texts?.perf || 'Performance numbers in the picture';
+                            const stateText = document.createElement('span');
+                            stateText.className = 'resolution-toggle-state';
+                            stateText.textContent = state.perf ? (uiText.onLabel || 'On') : (uiText.offLabel || 'Off');
+                            toggle.append(label, stateText);
+                            toggle.addEventListener('click', () => {
+                                api.setPerf(!state.perf);
+                                openScreenResolutionDialog(screen);
+                            });
+                            resolutionExtra.appendChild(toggle);
+                        }
                         // The machine's own size, and the fixed ones behind a button (open when one of them is set).
                         others.filter(item => item.value === 'native').forEach(item =>
                             resolutionExtra.appendChild(option(item.label, item.value === state.resolution, () => api.setResolution(item.value))));
