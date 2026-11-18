@@ -313,6 +313,161 @@ public static class AgentTerminalPage
                 picker.value = '';
             });
 
+            // ---- a phone's keyboard --------------------------------------------------------------------------
+            // xterm.js takes keys well and text badly: what a phone's keyboard changes afterwards - dictation
+            // that rewrites what it said, a word corrected after the fact - never reaches the shell, or reaches
+            // it twice. So on a phone the keyboard types into a field of this page, as on the screen page of
+            // RDP and VNC: the field keeps the text exactly as the keyboard left it, and every change goes to
+            // the shell as the difference - Backspace for what went, then the new text. Emptying the field
+            // under the keyboard makes it deliver everything again, so that only happens after a quiet moment.
+            if (matchMedia('(pointer: coarse)').matches) {
+                // One character always stays in the field, so that Backspace has something to delete and is
+                // reported at all.
+                const MARK = ' ';
+                const sink = document.createElement('textarea');
+                sink.id = 'sink';
+                ['autocapitalize', 'autocomplete', 'autocorrect'].forEach(name => sink.setAttribute(name, 'off'));
+                sink.setAttribute('spellcheck', 'false');
+                sink.setAttribute('aria-hidden', 'true');
+                sink.style.cssText = 'border:0;caret-color:transparent;color:transparent;font-size:16px;height:1px;left:0;opacity:0;outline:0;padding:0;pointer-events:none;position:fixed;resize:none;top:0;width:1px;';
+                sink.value = MARK;
+                document.body.appendChild(sink);
+                const own = term.textarea;
+                // Whatever gives the terminal the keyboard gives it to the field.
+                own.addEventListener('focus', () => sink.focus({ preventScroll: true }));
+                try {
+                    // The terminal's own field never has the focus here: its cursor should not look switched off.
+                    term.options.cursorInactiveStyle = 'block';
+                }
+                catch {
+                }
+
+                let composing = false;
+                let typed = MARK;
+                // Up to here the field's text belongs to an earlier line or another place on the line.
+                let floor = MARK.length;
+                let lastTextAt = 0;
+                const quiet = () => !composing && Date.now() - lastTextAt > 2000;
+                const clearText = () => {
+                    if (sink.value !== MARK) {
+                        sink.value = MARK;
+                    }
+                    typed = MARK;
+                    floor = MARK.length;
+                };
+                const boundary = () => {
+                    if (quiet()) {
+                        clearText();
+                    }
+                    else {
+                        floor = typed.length;
+                    }
+                };
+                const syncText = () => {
+                    const now = sink.value;
+                    const before = typed;
+                    if (now === before) {
+                        return;
+                    }
+                    lastTextAt = Date.now();
+                    typed = now;
+                    let same = 0;
+                    const limit = Math.min(before.length, now.length);
+                    while (same < limit && before.charCodeAt(same) === now.charCodeAt(same)) {
+                        same++;
+                    }
+                    if (same > 0 && (before.charCodeAt(same - 1) & 0xfc00) === 0xd800) {
+                        same--;
+                    }
+                    if (same < floor) {
+                        if (now.length > same) {
+                            // The keyboard rewrote text that is no longer where the cursor is.
+                            floor = now.length;
+                            return;
+                        }
+                        floor = same;
+                    }
+                    let gone = [...before.slice(Math.max(same, MARK.length))].length;
+                    if (same < MARK.length && gone === 0 && now.length === 0) {
+                        gone = 1;
+                    }
+                    const added = now.slice(same).replace(/\r\n?|\n/g, '\r');
+                    const bytes = encoder.encode('\x7f'.repeat(gone) + added);
+                    if (bytes.length) {
+                        sendBytes(bytes);
+                    }
+                    if (added.includes('\r')) {
+                        floor = typed.length;
+                    }
+                };
+                const settleText = () => {
+                    if (!composing && sink.value === '') {
+                        clearText();
+                    }
+                };
+                sink.addEventListener('compositionstart', () => composing = true);
+                sink.addEventListener('compositionend', () => {
+                    composing = false;
+                    syncText();
+                    settleText();
+                });
+                sink.addEventListener('input', () => {
+                    syncText();
+                    settleText();
+                });
+                sink.addEventListener('focus', () => {
+                    if (quiet()) {
+                        clearText();
+                    }
+                });
+                sink.addEventListener('blur', () => {
+                    composing = false;
+                    syncText();
+                });
+                sink.addEventListener('beforeinput', event => {
+                    if (/^(insertFromPaste|insertFromDrop|historyUndo|historyRedo)$/.test(event.inputType)) {
+                        event.preventDefault();
+                    }
+                });
+                sink.addEventListener('paste', event => {
+                    event.preventDefault();
+                    const files = kind === 'ssh' ? filesOf(event.clipboardData) : [];
+                    if (files.length) {
+                        uploadFiles(files);
+                        return;
+                    }
+                    const plain = event.clipboardData ? event.clipboardData.getData('text/plain') : '';
+                    if (plain) {
+                        boundary();
+                        term.paste(plain);
+                    }
+                });
+                // Keys without text - an arrow, Tab, a shortcut from a keyboard that is plugged in - are the
+                // terminal's: it knows what each of them sends.
+                const forward = event => {
+                    if (event.isComposing || event.key === 'Process' || event.keyCode === 229) {
+                        return;
+                    }
+                    const types = !event.ctrlKey && !event.altKey && !event.metaKey
+                        && ([...String(event.key || '')].length === 1 || event.key === 'Backspace' || event.key === 'Enter');
+                    if (types) {
+                        return;
+                    }
+                    event.preventDefault();
+                    if (event.type === 'keydown') {
+                        boundary();
+                    }
+                    own.dispatchEvent(new KeyboardEvent(event.type, event));
+                };
+                sink.addEventListener('keydown', forward);
+                sink.addEventListener('keyup', forward);
+                // The key bar moves the cursor or ends the line just the same.
+                document.getElementById('keys').addEventListener('click', boundary);
+                if (document.activeElement === own) {
+                    sink.focus({ preventScroll: true });
+                }
+            }
+
             // The session toolbar's side (SSH): disconnect, connect again, paste.
             window.MatgateTerminal = {
                 state: () => ({ status: statusLine.textContent, ended, rows: term.rows, cols: term.cols }),

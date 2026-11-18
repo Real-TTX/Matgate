@@ -315,9 +315,20 @@ internal sealed class RdpBackend : IScreenBackend, IRdpHandler
                 Key(client, ScreenJson.Int(data, "s"), ScreenJson.Flag(data, "e"), ScreenJson.Flag(data, "d"));
                 break;
             case 'u':
+                // Text from a phone's keyboard. With Ctrl, Alt or the Windows key held (the key bar), a letter
+                // is a shortcut and has to arrive as the key it sits on - a character alone is none.
+                var shortcut = ShortcutHeld();
                 foreach (var unit in ScreenJson.Text(data, "text"))
                 {
-                    client.Unicode(unit);
+                    if (shortcut && KeyOf(unit) is { } scancode)
+                    {
+                        client.Key(scancode, false, true);
+                        client.Key(scancode, false, false);
+                    }
+                    else
+                    {
+                        client.Unicode(unit);
+                    }
                 }
 
                 break;
@@ -344,6 +355,51 @@ internal sealed class RdpBackend : IScreenBackend, IRdpHandler
                 _buttonsDown = 0;
                 break;
         }
+    }
+
+    private bool ShortcutHeld()
+    {
+        lock (_keysDown)
+        {
+            // Ctrl on either side, the left Alt (the right one is AltGr and types characters), a Windows key.
+            return _keysDown.Contains(0x1D) || _keysDown.Contains(0x11D) || _keysDown.Contains(0x38)
+                || _keysDown.Contains(0x15B) || _keysDown.Contains(0x15C);
+        }
+    }
+
+    // Where a letter or digit sits on the keyboard the server was told this session has.
+    private int? KeyOf(char character)
+    {
+        const string Rows = "qwertyuiop    asdfghjkl     zxcvbnm";
+        var letter = char.ToLowerInvariant(character);
+        var layout = _target.KeyboardLayout & 0xFFFF;
+        if (layout is 0x0407 or 0x0807 or 0x100C or 0x040E)
+        {
+            // QWERTZ: Y and Z have changed places.
+            letter = letter switch { 'y' => 'z', 'z' => 'y', _ => letter };
+        }
+        else if (layout is 0x040C or 0x080C)
+        {
+            // AZERTY.
+            letter = letter switch { 'a' => 'q', 'q' => 'a', 'z' => 'w', 'w' => 'z', 'm' => ';', _ => letter };
+            if (char.IsAsciiDigit(letter))
+            {
+                return null;
+            }
+        }
+
+        if (letter == ';')
+        {
+            return 0x27;
+        }
+
+        if (char.IsAsciiDigit(letter))
+        {
+            return letter == '0' ? 0x0B : 0x02 + (letter - '1');
+        }
+
+        var at = letter is >= 'a' and <= 'z' ? Rows.IndexOf(letter) : -1;
+        return at < 0 ? null : 0x10 + at;
     }
 
     private void Key(RdpClient client, int scancode, bool extended, bool down)
