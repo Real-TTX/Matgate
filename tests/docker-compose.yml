@@ -94,6 +94,13 @@ services:
     networks:
       default:
         aliases: [other]
+  # A Linux machine with the Matgate agent on it (tests/agent-linux.js): built as the release is, running as
+  # root with a user "demo" for the programs.
+  agent-linux:
+    build:
+      context: ..
+      dockerfile: tests/agent-linux/Dockerfile
+    init: true
 volumes: { mgdata: , secrets: , files: }
 # A fixed subnet, because Docker's default pools run out on a machine with many stacks
 # ("all predefined address pools have been fully subnetted"). Change it if 10.253.81.0/24 is

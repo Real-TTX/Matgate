@@ -56,15 +56,18 @@ public static class AgentStatus
             {
                 try
                 {
-                    // Every signed-in user may read it - the tray runs as the user, the agent perhaps as a service.
-                    var security = new PipeSecurity();
-                    security.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.AuthenticatedUserSid, null), PipeAccessRights.ReadWrite, AccessControlType.Allow));
-                    security.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null), PipeAccessRights.FullControl, AccessControlType.Allow));
-                    await using var server = NamedPipeServerStreamAcl.Create(name, PipeDirection.Out, 4, PipeTransmissionMode.Byte, PipeOptions.Asynchronous, 0, 0, security);
+                    await using var server = Open(name);
                     await server.WaitForConnectionAsync(stopping);
                     var json = JsonSerializer.SerializeToUtf8Bytes(Current());
                     await server.WriteAsync(json, stopping);
-                    server.WaitForPipeDrain();
+                    if (OperatingSystem.IsWindows())
+                    {
+                        server.WaitForPipeDrain();
+                    }
+                    else
+                    {
+                        await server.FlushAsync(stopping);
+                    }
                 }
                 catch (OperationCanceledException)
                 {
@@ -76,6 +79,21 @@ public static class AgentStatus
                 }
             }
         }, stopping);
+    }
+
+    // Every signed-in user may read it - the tray runs as the user, the agent perhaps as a service. (On
+    // Linux and macOS a named pipe is a socket file; who may read it is the file system's to say.)
+    private static NamedPipeServerStream Open(string name)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return new NamedPipeServerStream(name, PipeDirection.Out, 4, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+        }
+
+        var security = new PipeSecurity();
+        security.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.AuthenticatedUserSid, null), PipeAccessRights.ReadWrite, AccessControlType.Allow));
+        security.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null), PipeAccessRights.FullControl, AccessControlType.Allow));
+        return NamedPipeServerStreamAcl.Create(name, PipeDirection.Out, 4, PipeTransmissionMode.Byte, PipeOptions.Asynchronous, 0, 0, security);
     }
 
     // For the tray: the installed agent, or null when it does not answer.

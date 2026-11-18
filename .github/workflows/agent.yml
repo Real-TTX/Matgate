@@ -1,8 +1,14 @@
 name: Agent
 
-# Builds the Windows agent (one self-contained matgate-agent.exe: setup, uninstall and the agent
-# itself) and puts it into the rolling release "agent-latest", where Matgate's connection form links
-# to it. Like MatMon's agent feed: the newest build from main is always at the same address.
+# Builds the agent for every system and puts the programs into the rolling release "agent-latest", where
+# Matgate's connection form links to them and Matgate itself reads the updates from:
+#
+#   Windows          matgate-agent.exe         + matgate-agent.json          (setup, tray, screen - one file)
+#   Linux, macOS     matgate-agent-<platform>  + matgate-agent-<platform>.json   (linux-x64, linux-arm64,
+#                                                                                 osx-arm64, osx-x64)
+#
+# Every program of one run carries the same version (<VersionPrefix>.<run number>). Like MatMon's agent
+# feed: the newest build from main is always at the same address.
 on:
   push:
     branches:
@@ -28,7 +34,7 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
+  windows:
     name: Build Windows agent
     runs-on: windows-latest
 
@@ -70,18 +76,106 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: matgate-agent-win-x64
-          path: publish/matgate-agent.exe*
+          path: |
+            publish/matgate-agent.exe
+            publish/matgate-agent.exe.sha256
+            publish/matgate-agent.json
 
-      - name: Rolling release agent-latest
-        # Only main fills the rolling release; a tag build is the same code and would race it.
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+  unix:
+    name: Build ${{ matrix.rid }} agent
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # run: whether this runner can start the program it built (the smoke test).
+          - { rid: linux-x64, os: ubuntu-latest, run: true }
+          - { rid: linux-arm64, os: ubuntu-latest, run: false }
+          - { rid: osx-arm64, os: macos-latest, run: true }
+          - { rid: osx-x64, os: macos-latest, run: false }
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Compute version
+        id: version
+        shell: bash
+        run: |
+          # The number is the Windows program's: one release, every system.
+          base="$(sed -n 's/.*<VersionPrefix>\([^<]*\)<\/VersionPrefix>.*/\1/p' agent/Matgate.Agent/Matgate.Agent.csproj | head -n 1)"
+          echo "version=${base}.${GITHUB_RUN_NUMBER}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish
+        shell: bash
+        run: |
+          dotnet publish agent/Matgate.Agent.Unix/Matgate.Agent.Unix.csproj -c Release -r ${{ matrix.rid }} -o out \
+            -p:Version=${{ steps.version.outputs.version }} -p:InformationalVersion=${{ steps.version.outputs.version }}
+          mkdir -p publish
+          cp out/matgate-agent publish/matgate-agent-${{ matrix.rid }}
+          chmod +x publish/matgate-agent-${{ matrix.rid }}
+          if [ "$RUNNER_OS" = "macOS" ]; then
+            # Apple's ARM machines start nothing that is not signed; a signature without an identity is enough.
+            codesign --force --sign - publish/matgate-agent-${{ matrix.rid }}
+          fi
+          hash="$(shasum -a 256 publish/matgate-agent-${{ matrix.rid }} | cut -d' ' -f1)"
+          size="$(wc -c < publish/matgate-agent-${{ matrix.rid }} | tr -d ' ')"
+          printf '{"version":"%s","sha256":"%s","size":%s,"commit":"%s","platform":"%s"}' \
+            "${{ steps.version.outputs.version }}" "$hash" "$size" "${GITHUB_SHA::7}" "${{ matrix.rid }}" > publish/matgate-agent-${{ matrix.rid }}.json
+          ls -la publish
+          cat publish/matgate-agent-${{ matrix.rid }}.json
+
+      - name: Smoke test
+        if: matrix.run
+        shell: bash
+        run: |
+          ./publish/matgate-agent-${{ matrix.rid }} --version
+          ./publish/matgate-agent-${{ matrix.rid }} setup --dry-run --port 7600
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: matgate-agent-${{ matrix.rid }}
+          path: publish/*
+
+  release:
+    name: Rolling release agent-latest
+    # Only main fills the rolling release; a tag build is the same code and would race it.
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: [windows, unix]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download the programs
+        uses: actions/download-artifact@v4
+        with:
+          path: release
+          merge-multiple: true
+
+      - name: Upload
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
         run: |
+          ls -la release
+          version="$(sed -n 's/.*"version":"\([^"]*\)".*/\1/p' release/matgate-agent.json)"
           gh release view agent-latest >/dev/null 2>&1 || \
             gh release create agent-latest --title "Matgate agent (latest)" --prerelease \
-              --notes "The newest Windows agent from main. Download matgate-agent.exe, double-click it and press Install."
-          gh release upload agent-latest publish/matgate-agent.exe publish/matgate-agent.exe.sha256 --clobber
-          gh release upload agent-latest publish/matgate-agent.json --clobber
-          gh release edit agent-latest --notes "Matgate agent ${{ steps.version.outputs.version }} (${GITHUB_SHA::7}). Download matgate-agent.exe, double-click it and press Install. Uninstall: Settings > Apps > Installed apps > Matgate Agent."
+              --notes "The newest agent from main."
+          # The programs first, then what names them: a manifest never points at a file that is not there yet.
+          gh release upload agent-latest release/matgate-agent.exe release/matgate-agent.exe.sha256 --clobber
+          for program in release/matgate-agent-linux-x64 release/matgate-agent-linux-arm64 release/matgate-agent-osx-arm64 release/matgate-agent-osx-x64; do
+            gh release upload agent-latest "$program" --clobber
+          done
+          gh release upload agent-latest release/*.json --clobber
+          gh release edit agent-latest --notes "Matgate agent ${version} (${GITHUB_SHA::7}).
+
+          **Windows:** download matgate-agent.exe, double-click it and press Install. Uninstall: Settings > Apps > Installed apps > Matgate Agent.
+
+          **Linux and macOS** (files and terminals, as the system's service): download the program for the machine (matgate-agent-linux-x64, -linux-arm64, -osx-arm64, -osx-x64), then \`chmod +x matgate-agent-* && sudo ./matgate-agent-* setup\`. Uninstall: \`sudo matgate-agent uninstall\` (the program is in /opt/matgate-agent, on macOS in /usr/local/lib/matgate-agent)."

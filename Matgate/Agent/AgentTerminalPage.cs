@@ -300,9 +300,16 @@ public static class AgentTerminalPage
             term.onResize(size => sendControl({ type: 'resize', cols: size.cols, rows: size.rows }));
             new ResizeObserver(() => fit.fit()).observe(document.getElementById('screen'));
 
+            let everConnected = false;
             const connect = () => {
                 window.clearTimeout(retryTimer);
                 setStatus(text.connecting);
+                if (everConnected) {
+                    // Connecting again: a session that kept running sends what it printed last once more - on a
+                    // page that still shows it, it would stand there twice. Cleared here, before anything
+                    // arrives (the session's lines come before its "ready").
+                    term.reset();
+                }
                 const scheme = location.protocol === 'https:' ? 'wss:' : 'ws:';
                 const query = new URLSearchParams({ plugin, session, cols: term.cols, rows: term.rows, cwd: params.get('cwd') || '', variant: params.get('variant') || '' });
                 socket = new WebSocket(`${scheme}//${location.host}${base}/terminal-socket?${query}`);
@@ -316,11 +323,7 @@ public static class AgentTerminalPage
                     if (message.type === 'ready') {
                         retry = 0;
                         setStatus(message.attached ? text.reattached : text.connected);
-                        if (message.attached) {
-                            // What the program printed last comes again: on a page that still shows it, it
-                            // would stand there twice.
-                            term.reset();
-                        }
+                        everConnected = true;
                         // A program that kept running redraws itself on a size change - but the console ignores a
                         // "change" to the size it already has, so it is nudged one column and back.
                         if (message.attached) {

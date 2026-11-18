@@ -58,6 +58,10 @@ const GROUPS = [
     name: "Group 11 - websites: an address of their own, the path under Matgate's, a browser tab",
     scripts: ["website.js"],
   },
+  {
+    name: "Group 12 - the agent on Linux",
+    scripts: ["agent-linux.js"],
+  },
 ];
 
 const PAUSE = 310000;

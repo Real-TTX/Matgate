@@ -3,25 +3,11 @@ using System.Text.Json.Nodes;
 
 namespace Matgate.Agent;
 
-// A program in a pseudo console, wherever it runs.
-public interface IPty
-{
-    event Action<byte[], int>? Output;
-
-    event Action<int>? Exited;
-
-    void Write(ReadOnlySpan<byte> data);
-
-    void Resize(int columns, int rows);
-
-    void Kill();
-}
-
 // Where programs start: in this process (user mode, or a service under an account - they run as that
 // account), or, for a LocalSystem service, through a helper in the session of the person who is signed in, with
 // that person's token: Claude Code then runs as them, with their login, exactly as in user mode - not as SYSTEM.
 // MATGATE_AGENT_PTY_HOST=1 makes a test agent take the helper's way with a helper of its own user.
-internal sealed class PtyLauncher
+internal sealed class PtyLauncher : IPtyStarter
 {
     private readonly bool _helper = OperatingSystem.IsWindows()
         && (SessionNative.IsSystemService || Environment.GetEnvironmentVariable("MATGATE_AGENT_PTY_HOST") == "1");

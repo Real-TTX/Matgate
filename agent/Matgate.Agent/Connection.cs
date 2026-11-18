@@ -6,7 +6,7 @@ namespace Matgate.Agent;
 
 // One connection from Matgate. Requests are answered concurrently (a file copy must not hold up a
 // terminal); every send goes through one lock, because a WebSocket takes one message at a time.
-public sealed class Connection(WebSocket socket, AgentConfig config, string folder, string version, FilesPlugin files, TerminalPlugin terminals, UpdatePlugin updates, Matgate.Agent.Screen.ScreenPlugin screen, Action shutdown)
+public sealed class Connection(WebSocket socket, AgentConfig config, string folder, string version, FilesPlugin files, TerminalPlugin terminals, IAgentUpdates updates, IAgentScreen screen, Action shutdown)
 {
     private readonly SemaphoreSlim _sendLock = new(1, 1);
 
@@ -147,7 +147,9 @@ public sealed class Connection(WebSocket socket, AgentConfig config, string fold
                 ["plugins"] = plugins,
                 // Whether Matgate may push updates without being asked, and whether this agent can take them.
                 ["autoUpdate"] = config.AutoUpdate,
-                ["canUpdate"] = UpdatePlugin.CanUpdate(),
+                ["canUpdate"] = updates.CanUpdate,
+                // Which build this is - an update has to be the one for this system.
+                ["platform"] = AgentPlatform.Id,
             },
         };
     }

@@ -13,21 +13,21 @@ public sealed class TerminalPlugin
     private readonly AgentConfig _config;
     private readonly FilesPlugin _files;
     private readonly ConcurrentDictionary<string, Session> _sessions = new();
-    private readonly PtyLauncher _launcher = new();
+    private readonly IPtyStarter _launcher;
 
     public int Count => _sessions.Count;
     private readonly System.Threading.Timer _reaper;
 
-    public TerminalPlugin(AgentConfig config, FilesPlugin files)
+    public TerminalPlugin(AgentConfig config, FilesPlugin files, IPtyStarter launcher)
     {
         _config = config;
         _files = files;
+        _launcher = launcher;
         _reaper = new System.Threading.Timer(_ => Reap(), null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
     }
 
-    public IEnumerable<AgentTerminal> Available => OperatingSystem.IsWindows()
-        ? _config.Terminals.Where(terminal => terminal.Enabled && !string.IsNullOrWhiteSpace(terminal.Id) && !string.IsNullOrWhiteSpace(terminal.Command))
-        : [];
+    public IEnumerable<AgentTerminal> Available =>
+        _config.Terminals.Where(terminal => terminal.Enabled && !string.IsNullOrWhiteSpace(terminal.Id) && !string.IsNullOrWhiteSpace(terminal.Command));
 
     // Opens a session, or attaches to the one with this id. Output goes to `send` from then on.
     public AgentFrame Open(AgentFrame request, Func<AgentFrame, Task> send)
@@ -50,16 +50,8 @@ public sealed class TerminalPlugin
             }
 
             existing.Attach(send);
-            if (OperatingSystem.IsWindows())
-            {
-                existing.Pty.Resize(columns, rows);
-            }
+            existing.Pty.Resize(columns, rows);
             return Result(request, id, attached: true);
-        }
-
-        if (!OperatingSystem.IsWindows())
-        {
-            throw new InvalidOperationException("Terminals are only available on Windows so far.");
         }
 
         var terminal = Available.FirstOrDefault(candidate => string.Equals(candidate.Id, plugin, StringComparison.Ordinal))
@@ -91,7 +83,7 @@ public sealed class TerminalPlugin
 
     public void Input(AgentFrame frame)
     {
-        if (OperatingSystem.IsWindows() && _sessions.TryGetValue(frame.Text("session") ?? "", out var session))
+        if (_sessions.TryGetValue(frame.Text("session") ?? "", out var session))
         {
             session.Pty.Write(frame.Payload.Span);
         }
@@ -99,7 +91,7 @@ public sealed class TerminalPlugin
 
     public void Resize(AgentFrame frame)
     {
-        if (OperatingSystem.IsWindows() && _sessions.TryGetValue(frame.Text("session") ?? "", out var session))
+        if (_sessions.TryGetValue(frame.Text("session") ?? "", out var session))
         {
             session.Pty.Resize(frame.Int("cols", 120), frame.Int("rows", 32));
         }
@@ -124,7 +116,7 @@ public sealed class TerminalPlugin
 
     public AgentFrame Kill(AgentFrame request)
     {
-        if (OperatingSystem.IsWindows() && _sessions.TryGetValue(request.Text("session") ?? "", out var session))
+        if (_sessions.TryGetValue(request.Text("session") ?? "", out var session))
         {
             session.Pty.Kill();
         }
@@ -152,7 +144,7 @@ public sealed class TerminalPlugin
 
     private void Reap()
     {
-        if (_config.DetachedSessionMinutes <= 0 || !OperatingSystem.IsWindows())
+        if (_config.DetachedSessionMinutes <= 0)
         {
             return;
         }

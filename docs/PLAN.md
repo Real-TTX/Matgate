@@ -1,8 +1,8 @@
 # Matgate – Plan zum Weitermachen
 
-Stand: 2026-11-18, Version 0.24.0 (Agent 0.10.0) auf `main` und als `v0.24.0` markiert; auf ve-docker-1
+Stand: 2026-11-18, Version 0.25.0 (Agent 0.11.0) auf `main` und als `v0.25.0` markiert; auf ve-docker-1
 (matgate.schmoldt.it) läuft 0.23.0 samt Browser-Farm-Image (Websites dort weiter über den Pfad, bis Route
-und Variable stehen) - 0.24.0 wartet auf das Einspielen (trennt laufende Sitzungen, nur auf
+und Variable stehen) - 0.24.0/0.25.0 warten auf das Einspielen (trennt laufende Sitzungen, nur auf
 ausdrücklichen Wunsch). Geschrieben als Übergabe an eine andere Sitzung.
 
 ## Wo wir stehen
@@ -345,28 +345,73 @@ bleibt es, wenn es verschoben oder in der Größe geändert wird.
   (Aufgabe stoppen, exe tauschen, Aufgabe starten). Am echten Desktop über Matgate noch nicht
   ausprobiert: Fenster nach vorn holen und das Zuschneiden.
 
-## Aufgabe 3: Agent für Linux und macOS (Frage des Nutzers)
+## Aufgabe 3: Ein Agent für Windows, Linux und macOS (Auftrag vom 2026-11-18)
 
-Heute gibt es den Agent nur für Windows, weil fast alles an Windows-Schnittstellen hängt: Terminals
-(ConPTY), Bildschirm (Desktop Duplication, Media Foundation), Eingaben (SendInput), Dienst und
-Sitzungswechsel, Tray und Einrichtung (WinForms).
+Der Nutzer, in seinen Worten: „Die Agents müssen auch für Linux, Mac und Windows gebuildet werden auf
+GitHub?“ - „Wir wollten doch das Windows-Programm komplett auf Avalonia umbauen und schauen, dass wir
+das cross-platform hinbekommen.“ - „Ich möchte auch den Bildschirm, und auch so, dass man nicht
+unbedingt eine User-Session braucht. Auch möchte ich den Dienst natürlich installieren, dass er als
+Systemkonto läuft bei Windows und Linux/Mac-Äquivalent.“
 
-Plattformneutral und wiederverwendbar: Verbindung und Protokoll (`Connection`, `AgentWire`),
-Dateien, Updates – und seit 0.20.0 der H.264-Weg über OpenH264 (`Matgate/Display/Video`).
+Ziel also: EIN Agent mit Avalonia-Oberfläche (MatDesktop-Baukasten aus MatDesign, Vorlage ThixClip:
+`../ThixClip`, dort `CLAUDE.md`, `src/ThixClip/Setup`, `Tray`, `MatDesktop/`, `scripts/package-macos.sh`,
+`.github/workflows/desktop.yml`), als Dienst des Systems installiert, mit Bildschirm auch am
+Anmeldebildschirm. Etappen:
 
-Neu je Plattform:
+### Etappe 1 - erledigt (0.25.0 / Agent 0.11.0): Kern überall, Dienst auf Linux/macOS
 
-| Teil | Linux | macOS |
-|---|---|---|
-| Terminals | `forkpty` | `forkpty` |
-| Bildschirm | X11 (XShm/XDamage), Wayland nur über PipeWire-Portal | ScreenCaptureKit, braucht Freigabe |
-| Eingaben | XTest bzw. uinput | CGEvent, braucht Bedienungshilfen-Freigabe |
-| Dienst | systemd-Unit | launchd |
-| Oberfläche (Tray, Einrichtung) | Avalonia | Avalonia |
+- **Nähte im Kern** (`agent/Matgate.Agent/AgentServices.cs`): `IPty`/`IPtyStarter`, `IAgentScreen`
+  (+ `NoScreen`), `IAgentUpdates`, `AgentPlatform.Id` (`win-x64`, `linux-x64`, `linux-arm64`,
+  `osx-arm64`, `osx-x64`). `Connection`, `TerminalPlugin` kennen nur noch die Schnittstellen.
+- **`agent/Matgate.Agent.Unix`** (net10.0, Konsole, `matgate-agent`): bindet die gemeinsamen Dateien des
+  Windows-Projekts ein (kein Verschieben - das kommt mit Etappe 2). Eigenes: `UnixPty` (posix_openpt +
+  posix_spawn mit eigener Sitzung; `ioctl` auf Apple-ARM mit Platzhaltern, weil variadisch),
+  `UnixUser`/`as-user` (Benutzerwechsel im eigenen zweiten Prozess: initgroups, setgid, setuid, execve -
+  `su -c` nimmt dem Programm das Terminal, Strg+C beendete alles), `UnixInstaller` (systemd-Unit als
+  root bzw. LaunchDaemon `com.matgate.agent`; Einstellungen nur für root), `UnixUpdates` (Datei unter dem
+  laufenden Programm tauschen, beenden, der Dienstverwalter startet neu; Vorgänger bleibt als `.previous`).
+- **Matgate:** `AgentHello.Platform`, `AgentUpdates.LatestAsync(platform)` - je System ein Manifest und
+  ein Programm im Release (`matgate-agent-<platform>[.json]`; Windows behält seine Namen). Formular nennt
+  den Installationsbefehl für Linux/macOS.
+- **CI** (`.github/workflows/agent.yml`): Windows wie bisher; Matrix linux-x64, linux-arm64 (ubuntu),
+  osx-arm64, osx-x64 (macos, ad hoc signiert); ein eigener Job füllt das Release (Programme vor Manifesten).
+- **Nebenbei gefunden:** Die Terminalseite löschte nach dem Wiederverbinden den eben empfangenen Verlauf
+  (`term.reset()` beim `ready`, die Zeilen kommen aber davor) - unter Windows fiel das nicht auf, weil
+  ConPTY neu zeichnet. Jetzt wird vor dem Verbinden geleert.
+- **Test:** `tests/agent-linux.js` (36 Prüfungen) gegen den Container `agent-linux` des Teststapels
+  (als root, Programme als `demo`): Status, Logo, Dateien, Terminal (Benutzer, Ordner, tty, Größe,
+  Strg+C, Farben, Umlaute), Sitzung überlebt den Browser, Varianten, Beenden, Update von 0.10.0.1 auf
+  0.99.0.7 über ein eigenes Release, Setup schreibt Unit und Einstellungen, Deinstallation.
+- **Nicht geprüft:** macOS überhaupt (nur gebaut, und das erst durch die CI); ein echtes systemd (im
+  Container gibt es keines - geprüft ist, WAS das Setup schreibt, nicht dass der Dienst startet);
+  linux-arm64; BusyBox/Alpine (musl) - dafür bräuchte es ein `linux-musl`-Programm.
 
-Für die Oberfläche ist Avalonia eine passende Grundlage; ob ThixClip als Vorlage taugt, hat diese
-Sitzung nicht angesehen (anderes Repository). Sinnvolle Reihenfolge: erst Agent ohne Oberfläche für
-Linux mit Dateien und Terminals (wenig Risiko), dann Bildschirm unter X11, dann Oberfläche und macOS.
+### Etappe 2 - offen: Oberfläche auf Avalonia, ein Projekt für alle
+
+- MatDesktop aus MatDesign in den Agent kopieren (`node tools/matdesktop-copy.js <Pfad>` DORT ausführen;
+  die Kopie nie hier ändern; heute liegen im Agent nur die Tokens für WinForms).
+- Setup-Assistent, Tray, Info- und Verbindungsfenster als Avalonia-Fenster (`MatSetupWindow`, `MatTray`
+  ...), WinForms raus; dabei die gemeinsamen Dateien in ein `Matgate.Agent.Core` verschieben und
+  `Matgate.Agent.Unix` im einen Programm aufgehen lassen. `setup-preview` → `--snapshot` wie ThixClip
+  (headless, Avalonia.Headless + Skia).
+- Regeln: MatDesign `docs/DESKTOP.md` (DESK, TRAY, SETUP) - gelten schon für die WinForms-Fenster.
+- Auf Linux/macOS braucht die Oberfläche eine angemeldete Person; der Dienst läuft ohne sie. Setup auf
+  dem Mac als `.app`/dmg (`package-macos.sh` von ThixClip), Rechte per Authorization Services oder
+  `osascript`; für eine Installation ohne Warnung ein Apple-Entwicklerkonto (Notarisierung).
+
+### Etappe 3 - offen: Bildschirm auf Linux, auch ohne angemeldeten Benutzer
+
+- H.264 über OpenH264 liegt portabel in `Matgate/Display/Video` (wie die eigene RDP/VNC-Engine).
+- X11: Aufnahme per XShm/XDamage, Eingaben per XTest - als root auch am Anmeldebildschirm (Xauthority des
+  Display-Managers). Im Teststapel prüfbar (Container `desktop` hat ein X auf :1).
+- Wayland/ohne X: KMS/DRM-Aufnahme und uinput als root - sitzungsunabhängig, aber deutlich aufwendiger.
+- Mikrofon/Controller dort ohne fremde Treiber: uinput-Gamepad, PipeWire/PulseAudio-Quelle.
+
+### Etappe 4 - offen: Bildschirm auf macOS
+
+- ScreenCaptureKit/CGDisplayStream und CGEvent; LaunchDaemon plus LaunchAgents für `LoginWindow` und
+  `Aqua` (wie VNC-Server es tun); Freigaben „Bildschirmaufnahme“ und „Bedienungshilfen“ muss ein Mensch
+  erteilen (oder MDM). Von hier aus nicht prüfbar - nur auf einem Mac.
 
 ## Offene Prüfungen am echten Gerät
 

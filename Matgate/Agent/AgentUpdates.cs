@@ -6,9 +6,13 @@ using Matgate.Services;
 
 namespace Matgate.Agent;
 
-// The newest agent and the way it gets to the machines: Matgate reads the release (matgate-agent.json:
-// version, sha256, size), keeps the exe once it is fetched and checked, and sends it to an agent over the
-// connection that agent already trusts. The agent checks it again before swapping.
+// The newest agent and the way it gets to the machines: Matgate reads the release (a manifest per system:
+// version, sha256, size), keeps the program once it is fetched and checked, and sends it to an agent over
+// the connection that agent already trusts. The agent checks it again before swapping.
+//
+// The release holds one program per system: matgate-agent.exe with matgate-agent.json for Windows (the
+// names it always had), matgate-agent-<platform> with matgate-agent-<platform>.json for the others
+// (linux-x64, linux-arm64, osx-arm64, osx-x64).
 public sealed class AgentUpdates(IHttpClientFactory http, ILogger<AgentUpdates> logger)
 {
     // How long the release's manifest is believed; a test stack sets 0 to see its feed change at once.
@@ -16,10 +20,15 @@ public sealed class AgentUpdates(IHttpClientFactory http, ILogger<AgentUpdates> 
         int.TryParse(Environment.GetEnvironmentVariable("MATGATE_AGENT_UPDATE_CACHE_SECONDS"), out var seconds) ? seconds : 1800);
 
     private readonly SemaphoreSlim _gate = new(1, 1);
-    private AgentRelease? _latest;
-    private DateTimeOffset _checkedAt;
+    private readonly Dictionary<string, (AgentRelease? Release, DateTimeOffset CheckedAt)> _latest = new(StringComparer.Ordinal);
 
-    public sealed record AgentRelease(string Version, string Sha256, long Size);
+    public sealed record AgentRelease(string Version, string Sha256, long Size, string Platform = "win-x64");
+
+    private static readonly HashSet<string> Platforms = new(StringComparer.Ordinal) { "win-x64", "linux-x64", "linux-arm64", "osx-arm64", "osx-x64" };
+
+    private static string ManifestName(string platform) => platform == "win-x64" ? "matgate-agent.json" : $"matgate-agent-{platform}.json";
+
+    private static string ProgramName(string platform) => platform == "win-x64" ? "matgate-agent.exe" : $"matgate-agent-{platform}";
 
     // Where the releases are - GitHub's rolling release unless configured otherwise (tests use their own).
     public static string Feed => (Environment.GetEnvironmentVariable("MATGATE_AGENT_UPDATE_URL") is { Length: > 0 } url
@@ -28,40 +37,50 @@ public sealed class AgentUpdates(IHttpClientFactory http, ILogger<AgentUpdates> 
 
     private static string CacheFolder => Path.Combine(Environment.GetEnvironmentVariable("MATGATE_DATA_DIR") is { Length: > 0 } data ? data : Path.GetTempPath(), "agent-updates");
 
-    public async Task<AgentRelease?> LatestAsync(CancellationToken cancellationToken)
+    // The newest agent for a system, or null: none published for it, or the release cannot be read right now.
+    public async Task<AgentRelease?> LatestAsync(string platform, CancellationToken cancellationToken)
     {
-        if (_latest is not null && DateTimeOffset.UtcNow - _checkedAt < ManifestLifetime)
+        if (!Platforms.Contains(platform))
         {
-            return _latest;
+            return null;
+        }
+
+        bool Fresh(out AgentRelease? release)
+        {
+            var known = _latest.TryGetValue(platform, out var entry) && entry.Release is not null && DateTimeOffset.UtcNow - entry.CheckedAt < ManifestLifetime;
+            release = known ? entry.Release : null;
+            return known;
         }
 
         await _gate.WaitAsync(cancellationToken);
         try
         {
-            if (_latest is not null && DateTimeOffset.UtcNow - _checkedAt < ManifestLifetime)
+            if (Fresh(out var cached))
             {
-                return _latest;
+                return cached;
             }
 
-            using var client = http.CreateClient();
-            client.Timeout = TimeSpan.FromSeconds(10);
-            var manifest = await client.GetFromJsonAsync<JsonObject>(Feed + "matgate-agent.json", cancellationToken);
-            var version = manifest?["version"]?.GetValue<string>() ?? "";
-            var sha256 = (manifest?["sha256"]?.GetValue<string>() ?? "").ToUpperInvariant();
-            var size = manifest?["size"]?.GetValue<long>() ?? 0;
-            if (System.Version.TryParse(version, out _) && sha256.Length == 64 && size > 0)
+            var before = _latest.TryGetValue(platform, out var old) ? old.Release : null;
+            try
             {
-                _latest = new AgentRelease(version, sha256, size);
+                using var client = http.CreateClient();
+                client.Timeout = TimeSpan.FromSeconds(10);
+                var manifest = await client.GetFromJsonAsync<JsonObject>(Feed + ManifestName(platform), cancellationToken);
+                var version = manifest?["version"]?.GetValue<string>() ?? "";
+                var sha256 = (manifest?["sha256"]?.GetValue<string>() ?? "").ToUpperInvariant();
+                var size = manifest?["size"]?.GetValue<long>() ?? 0;
+                if (System.Version.TryParse(version, out _) && sha256.Length == 64 && size > 0)
+                {
+                    before = new AgentRelease(version, sha256, size, platform);
+                }
+            }
+            catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
+            {
+                logger.LogInformation("Agent release for {Platform} not readable: {Message}", platform, exception.Message);
             }
 
-            _checkedAt = DateTimeOffset.UtcNow;
-            return _latest;
-        }
-        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
-        {
-            logger.LogInformation("Agent release not readable: {Message}", exception.Message);
-            _checkedAt = DateTimeOffset.UtcNow;
-            return _latest;
+            _latest[platform] = (before, DateTimeOffset.UtcNow);
+            return before;
         }
         finally
         {
@@ -83,7 +102,7 @@ public sealed class AgentUpdates(IHttpClientFactory http, ILogger<AgentUpdates> 
     private async Task<byte[]> PackageAsync(AgentRelease release, CancellationToken cancellationToken)
     {
         Directory.CreateDirectory(CacheFolder);
-        var path = Path.Combine(CacheFolder, $"matgate-agent-{release.Version}.exe");
+        var path = Path.Combine(CacheFolder, $"matgate-agent-{release.Platform}-{release.Version}.bin");
         if (File.Exists(path))
         {
             var cached = await File.ReadAllBytesAsync(path, cancellationToken);
@@ -95,16 +114,27 @@ public sealed class AgentUpdates(IHttpClientFactory http, ILogger<AgentUpdates> 
 
         using var client = http.CreateClient();
         client.Timeout = TimeSpan.FromMinutes(5);
-        var bytes = await client.GetByteArrayAsync(Feed + "matgate-agent.exe", cancellationToken);
+        var bytes = await client.GetByteArrayAsync(Feed + ProgramName(release.Platform), cancellationToken);
         if (bytes.Length != release.Size || Convert.ToHexString(SHA256.HashData(bytes)) != release.Sha256)
         {
             // The rolling release may have moved on between manifest and download; read it again next time.
-            _latest = null;
+            await _gate.WaitAsync(cancellationToken);
+            try
+            {
+                _latest.Remove(release.Platform);
+            }
+            finally
+            {
+                _gate.Release();
+            }
+
             throw new InvalidOperationException("The downloaded agent does not match its release (size or SHA-256) - not sent.");
         }
 
         await File.WriteAllBytesAsync(path, bytes, cancellationToken);
-        foreach (var old in Directory.GetFiles(CacheFolder, "matgate-agent-*.exe").Where(file => file != path))
+        // One kept per system; older ones (and the files of versions before there were systems) go.
+        foreach (var old in Directory.GetFiles(CacheFolder, "matgate-agent-*")
+                     .Where(file => file != path && (Path.GetFileName(file).StartsWith($"matgate-agent-{release.Platform}-", StringComparison.Ordinal) || file.EndsWith(".exe", StringComparison.Ordinal))))
         {
             File.Delete(old);
         }
@@ -150,19 +180,20 @@ public sealed class AgentAutoUpdater(AgentUpdates updates, AgentClientPool agent
 
     public async Task RoundAsync(CancellationToken cancellationToken)
     {
-        var latest = await updates.LatestAsync(cancellationToken);
-        if (latest is null)
-        {
-            return;
-        }
-
         foreach (var server in (await store.GetServersAsync(cancellationToken)).Where(server => server.Protocol == ServerProtocol.Agent && server.IsEnabled))
         {
             try
             {
                 var link = await agents.GetAsync(server, cancellationToken);
                 var hello = link.Hello;
-                if (!hello.AutoUpdate || !hello.CanUpdate || !AgentUpdates.IsNewer(latest, hello.Version))
+                if (!hello.AutoUpdate || !hello.CanUpdate)
+                {
+                    continue;
+                }
+
+                // The release for this agent's own system.
+                var latest = await updates.LatestAsync(hello.Platform, cancellationToken);
+                if (latest is null || !AgentUpdates.IsNewer(latest, hello.Version))
                 {
                     continue;
                 }

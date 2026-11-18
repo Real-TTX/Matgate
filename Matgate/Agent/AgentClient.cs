@@ -8,7 +8,12 @@ using Matgate.Models;
 namespace Matgate.Agent;
 
 // What the agent said about itself when the connection was made.
-public sealed record AgentHello(string Name, string Version, string Machine, string User, string Os, IReadOnlyList<AgentPlugin> Plugins, bool AutoUpdate, bool CanUpdate);
+public sealed record AgentHello(string Name, string Version, string Machine, string User, string Os, IReadOnlyList<AgentPlugin> Plugins, bool AutoUpdate, bool CanUpdate)
+{
+    // Which build the agent is: win-x64, linux-x64, linux-arm64, osx-arm64, osx-x64. An agent from before
+    // there were others does not say - it is the Windows one.
+    public string Platform { get; init; } = "win-x64";
+}
 
 public sealed record AgentPlugin(string Id, string Kind, string Title, IReadOnlyList<AgentPluginVariant> Variants)
 {
@@ -321,7 +326,10 @@ public sealed class AgentLink : IDisposable
             frame.Text("os") ?? "",
             plugins,
             frame.Data?["autoUpdate"]?.GetValue<bool>() ?? false,
-            frame.Data?["canUpdate"]?.GetValue<bool>() ?? false);
+            frame.Data?["canUpdate"]?.GetValue<bool>() ?? false)
+        {
+            Platform = frame.Text("platform") is { Length: > 0 } platform ? platform : "win-x64",
+        };
     }
 
     public void Dispose()

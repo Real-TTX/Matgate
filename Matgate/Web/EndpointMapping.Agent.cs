@@ -300,7 +300,7 @@ public static partial class EndpointMapping
         {
             using var quick = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             quick.CancelAfter(TimeSpan.FromSeconds(4));
-            latest = await updates.LatestAsync(quick.Token);
+            latest = await updates.LatestAsync(hello.Platform, quick.Token);
         }
         catch (OperationCanceledException)
         {
@@ -339,7 +339,7 @@ public static partial class EndpointMapping
         try
         {
             var link = await agents.GetAsync(server!, context.RequestAborted);
-            var latest = await updates.LatestAsync(context.RequestAborted)
+            var latest = await updates.LatestAsync(link.Hello.Platform, context.RequestAborted)
                 ?? throw new InvalidOperationException("No agent release can be read right now.");
             if (!AgentUpdates.IsNewer(latest, link.Hello.Version))
             {

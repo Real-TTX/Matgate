@@ -17143,6 +17143,7 @@ public sealed class HtmlViews
                     .conn-note { background: var(--surface-2); border-radius: var(--radius); font-size: 13px; margin-top: 14px; padding: 10px 12px; }
                     .conn-note p { margin: 0; }
                     .conn-note p + p { margin-top: 6px; }
+                    .conn-note .conn-code { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; font-size: 12px; margin: 6px 0 0; overflow-x: auto; padding: 8px 10px; white-space: pre; }
                     .conn-icon { align-items: center; display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0 6px; }
                     .conn-field-label { font-weight: 600; }
                     .conn-icon-current { align-items: center; display: inline-flex; gap: 8px; min-height: 40px; }
@@ -22795,6 +22796,10 @@ public sealed class HtmlViews
                         : "The agent runs on the machine and listens on a port (default 7488). The token is what the agent's setup shows. What it offers (files, programs, the screen) is up to the agent.")}}</p>
                     <p><a href="https://github.com/Real-TTX/Matgate/releases/download/agent-latest/matgate-agent.exe" target="_blank" rel="noopener">{{(de ? "Agent für Windows herunterladen" : "Download the agent for Windows")}}</a>
                         <span class="muted">{{(de ? " - doppelklicken, Installieren; das Setup zeigt danach Port, Token und Fingerabdruck." : " - double-click, Install; the setup then shows port, token and fingerprint.")}}</span></p>
+                    <p class="muted">{{(de
+                        ? "Linux und macOS (Dateien und Terminals, als Dienst des Systems) - in einem Terminal auf dem Rechner, statt linux-x64 auch linux-arm64, osx-arm64 oder osx-x64:"
+                        : "Linux and macOS (files and terminals, as the system's service) - in a terminal on the machine; instead of linux-x64 also linux-arm64, osx-arm64 or osx-x64:")}}</p>
+                    <pre class="conn-code"><code>curl -fsSL -o matgate-agent https://github.com/Real-TTX/Matgate/releases/download/agent-latest/matgate-agent-linux-x64&#10;chmod +x matgate-agent &amp;&amp; sudo ./matgate-agent setup</code></pre>
                 </div>
             </section>
             <section class="panel server-form-section" data-protocols="rdp,vnc,ssh,sftp,ftp,smb,webdav,agent,website">

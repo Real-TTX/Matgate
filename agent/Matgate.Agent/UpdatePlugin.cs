@@ -10,8 +10,10 @@ namespace Matgate.Agent;
 // the same authenticated channel adds no new door. What it checks itself: size, SHA-256, that the new exe
 // answers --version with the version it was announced as, and - after the swap - that it really comes up;
 // otherwise the old one is put back (see Run below, the part that runs as a separate process).
-public sealed class UpdatePlugin(AgentConfig config, string configPath)
+public sealed class UpdatePlugin(AgentConfig config, string configPath) : IAgentUpdates
 {
+    bool IAgentUpdates.CanUpdate => CanUpdate();
+
     private readonly object _gate = new();
     private FileStream? _incoming;
     private string _expectedVersion = "";

@@ -28,6 +28,10 @@ public sealed class AgentConfig
     // Shown in Matgate when set; otherwise the machine name.
     public string Name { get; set; } = "";
 
+    // Linux and macOS, where the agent runs as the system's own service (root): the user programs in a
+    // terminal run as - with that user's login, home folder and rights. Empty: as the agent itself.
+    public string RunAs { get; set; } = "";
+
     // The picture shown on this machine's start page in Matgate (see AgentLogo): a path, relative ones start
     // at the folder of this file. Empty: a file called logo.png (.jpg, .webp, .gif, .svg) there, if any.
     public string Logo { get; set; } = "";
@@ -100,11 +104,17 @@ public sealed class AgentConfig
         return new AgentConfig
         {
             Roots = [new AgentRoot { Name = "Home", Path = home }],
-            Terminals =
-            [
-                new AgentTerminal { Id = "claude", Title = "Claude Code", Command = OperatingSystem.IsWindows() ? "cmd.exe /c claude" : "claude" },
-                new AgentTerminal { Id = "powershell", Title = "PowerShell", Command = "powershell.exe -NoLogo", Enabled = false },
-            ],
+            Terminals = OperatingSystem.IsWindows()
+                ?
+                [
+                    new AgentTerminal { Id = "claude", Title = "Claude Code", Command = "cmd.exe /c claude" },
+                    new AgentTerminal { Id = "powershell", Title = "PowerShell", Command = "powershell.exe -NoLogo", Enabled = false },
+                ]
+                :
+                [
+                    new AgentTerminal { Id = "claude", Title = "Claude Code", Command = "claude" },
+                    new AgentTerminal { Id = "shell", Title = "Shell", Command = "$SHELL -l", Enabled = false },
+                ],
         };
     }
 }

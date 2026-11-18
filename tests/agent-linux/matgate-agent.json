@@ -1,0 +1,12 @@
+{
+  "Port": 7488,
+  "ListenAddress": "0.0.0.0",
+  "Token": "test-only-linux-agent-token",
+  "Name": "Linux-Kiste",
+  "RunAs": "demo",
+  "Roots": [ { "Name": "Freigabe", "Path": "/srv/share" } ],
+  "Terminals": [
+    { "Id": "shell", "Title": "Shell", "Command": "bash --noprofile --norc", "Enabled": true,
+      "Variants": [ { "Id": "hello", "Title": "Mit Gruss", "Arguments": "-c 'echo GRUSS-VOM-LINUX-AGENT; exec bash --noprofile --norc'" } ] }
+  ]
+}

@@ -111,6 +111,47 @@ It can be switched off in the setup ("Bildschirm") or with `"Screen": false`.
 milliseconds per picture) - whether and how fast a machine can share its screen. The picture itself is not
 kept.
 
+## Linux and macOS
+
+The same agent, as the system's own service - the way it is a LocalSystem service on Windows: it starts
+with the machine, before and without anyone signing in. So far it offers the **shared folders** and
+**programs in a terminal**; the screen follows (see the plan in `docs/PLAN.md`).
+
+```sh
+curl -fsSL -o matgate-agent https://github.com/Real-TTX/Matgate/releases/download/agent-latest/matgate-agent-linux-x64
+chmod +x matgate-agent && sudo ./matgate-agent setup
+```
+
+Programs for `linux-x64`, `linux-arm64`, `osx-arm64` and `osx-x64`, one self-contained file each. The
+setup prints host, port, connection password and the certificate's fingerprint for Matgate.
+
+| | Linux | macOS |
+|---|---|---|
+| Program | `/opt/matgate-agent/matgate-agent` | `/usr/local/lib/matgate-agent/matgate-agent` |
+| Settings (root only) | `/etc/matgate-agent/` | `/Library/Application Support/Matgate Agent/` |
+| Service | systemd unit `matgate-agent.service`, as root | LaunchDaemon `com.matgate.agent`, as root |
+
+- `sudo matgate-agent setup [--port 7488] [--root Name=/path ...] [--user name] [--no-claude] [--shell]
+  [--no-auto-update] [--logo picture|--no-logo] [--dry-run]` - again any time to change something; token
+  and certificate stay.
+- `sudo matgate-agent uninstall [--keep-config]`, `sudo matgate-agent start|stop|restart`,
+  `matgate-agent status`.
+- **Who programs run as:** the service is root, a program in a terminal is not - it runs as the user of
+  `--user` (by default whoever called `sudo`; `RunAs` in the settings), with that user's rights, home
+  folder and shell. The agent does the change of user itself: `su` would take the terminal away from the
+  program, and Ctrl+C would end everything.
+- **Terminals** are real pseudo terminals (window size, Ctrl+C, colours); a session keeps running without
+  a browser, as on Windows. The default programs are Claude Code (`claude`) and, switched off, a login
+  shell (`$SHELL -l`).
+- **Updates** come from Matgate as on Windows - the program for the machine's own system. The new file is
+  checked (size, SHA-256, its own `--version`), put in place of the running one (the one before stays as
+  `matgate-agent.previous`), and the service manager starts the agent again.
+- The source is `agent/Matgate.Agent.Unix`: what talks to Matgate is linked from the Windows project
+  (connection, files, terminals, logo), what belongs to the system is there (`UnixPty`, `UnixUser`,
+  `UnixInstaller`, `UnixUpdates`).
+- Tested on Linux (a container of the test stack, `tests/agent-linux.js`). **macOS is built by the CI and
+  has not run on a Mac yet.**
+
 ## Installing it
 
 ![Setup](../docs/images/agent-setup-welcome.png)

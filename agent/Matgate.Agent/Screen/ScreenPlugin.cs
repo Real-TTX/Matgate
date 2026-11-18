@@ -14,7 +14,7 @@ namespace Matgate.Agent.Screen;
 // sign-in screen, the lock screen, UAC prompts and administrator windows, and Ctrl+Alt+Del.
 //
 // One viewer at a time: a second one takes the screen over, the first is told so.
-public sealed class ScreenPlugin
+public sealed class ScreenPlugin : IAgentScreen
 {
     private readonly AgentConfig _config;
     private readonly object _gate = new();

@@ -328,7 +328,7 @@ static async Task RunAgentAsync(string[] args, string version)
 
     UpdatePlugin.TidyUp();
     var files = new FilesPlugin(config.Roots);
-    var terminals = new TerminalPlugin(config, files);
+    var terminals = new TerminalPlugin(config, files, new PtyLauncher());
     var updates = new UpdatePlugin(config, configPath);
     var screen = new Matgate.Agent.Screen.ScreenPlugin(config);
     AgentStatus.Port = config.Port;
