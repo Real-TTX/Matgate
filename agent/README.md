@@ -57,6 +57,11 @@ there (it only shows one when opened on its own, outside Matgate).
   this device's clipboard; files copied there are offered for download (a browser cannot put files on a
   clipboard).
 - **Several monitors:** a choice in the bar.
+- **Windows:** a list of the machine's windows in the bar (what Alt+Tab offers there) - picking one brings it
+  to the front, a minimised one comes back first. With "show the chosen window only" that window is the whole
+  picture and stays it wherever it is moved or resized; the mouse then moves inside it. What covers the window
+  on the machine covers it in the picture too - it is the window's place on the monitor that is shown.
+  `matgate-agent screen-probe --windows` lists what would be offered (programs and sizes, no titles).
 - **Ctrl+Alt+Del:** a button in the bar (and in a phone's key bar) - for the sign-in screen and the lock
   screen, when the agent runs as a system service.
 - **Phone and tablet:** the pointer mode of the toolbar, shared with RDP sessions. *Touchpad* (a phone's
@@ -64,8 +69,10 @@ there (it only shows one when opened on its own, outside Matgate).
   quicker), a tap clicks there, tap and then touch again to drag, two fingers tapped are the right button,
   two fingers moving scroll; zoomed in, the picture follows the cursor. *Direct touch* (a tablet's default):
   a tap clicks where the finger is, a long press is the right button, a moving finger drags. Pinching zooms
-  in both. The keyboard buttons open the device's keyboard or a key bar (Esc, Tab, Windows, Ctrl, Alt, Del,
-  Ctrl+Alt+Del, arrows).
+  in both. The keyboard buttons open the device's keyboard or the key bar - the user's own buttons
+  (Account -> Key bar; by default Esc, Tab, Ctrl, Alt, Windows, Del, the arrows, Ctrl+C, Ctrl+V and
+  Ctrl+Alt+Del). A letter typed while Ctrl, Alt or the Windows key is held is pressed as the key it sits on in
+  the machine's keyboard layout, so it is a shortcut there.
 - **One viewer at a time:** a second window takes the screen over; the first says so and can take it back.
 
 Where it works depends on how the agent runs:

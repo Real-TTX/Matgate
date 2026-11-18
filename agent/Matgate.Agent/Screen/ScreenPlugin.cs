@@ -179,6 +179,12 @@ public sealed class ScreenPlugin
             case "screen.sas":
                 session.SecureAttention();
                 break;
+            case "screen.windows":
+                session.SendWindows();
+                break;
+            case "screen.window":
+                session.Window(frame);
+                break;
             case "screen.clip.set":
             case "screen.clip.begin":
             case "screen.clip.chunk":
@@ -398,6 +404,11 @@ internal sealed class InputThread : IInputSink, IDisposable
 
     public void Text(string text) => Add(sink => sink.Text(text));
 
+    public void Shortcut(char character) => Add(sink => sink.Shortcut(character));
+
+    // Anything else that has to happen on the desktop the monitor shows (the list of windows, for one).
+    public void Run(Action action) => Add(_ => action());
+
     private void Add(Action<IInputSink> action)
     {
         try
@@ -503,12 +514,14 @@ internal sealed unsafe class ScreenSession
             _input = new InputThread(new RecordingInput(Debug));
             _clipboard = new RecordingClipboard(Debug);
             _display = new TestDisplay(Debug);
+            _windows = new TestWindowList(Debug);
         }
         else
         {
             _input = new InputThread(new InputInjector());
             _clipboard = new WindowsClipboard();
             _display = new WindowsDisplay();
+            _windows = new WindowsWindowList();
         }
 
         _clipboard.Changed += OnClipboardChanged;
@@ -656,6 +669,13 @@ internal sealed unsafe class ScreenSession
                     }
                 }
 
+                if (UpdateCrop(source.Monitor))
+                {
+                    // One window only, another one, or the whole screen again: a picture of another size.
+                    encoder?.Dispose();
+                    encoder = null;
+                }
+
                 if (encoder is not null && (source.Monitor.Width != _current.Width || source.Monitor.Height != _current.Height))
                 {
                     // The resolution changed under way.
@@ -668,8 +688,10 @@ internal sealed unsafe class ScreenSession
                     _current = source.Monitor;
                     // A resolution chosen for the viewer (fitted or picked) is shown as it is; the machine's own one is
                     // halved where it is far larger than the viewer's screen.
-                    scale = _current.Width > (_resolution == "native" ? _maxWidth : Math.Max(_maxWidth, 3840)) ? 2 : 1;
-                    var (width, height) = Nv12.Scaled(_current.Width, _current.Height, scale);
+                    // One window is shown pixel for pixel.
+                    var shown = _crop;
+                    scale = shown is null && _current.Width > (_resolution == "native" ? _maxWidth : Math.Max(_maxWidth, 3840)) ? 2 : 1;
+                    var (width, height) = shown is null ? Nv12.Scaled(_current.Width, _current.Height, scale) : (shown.Width, shown.Height);
                     encoder = VideoEncoders.Create(width, height, _fps, Bitrate(width, height), (bytes, key) => SendVideo(bytes, key, width, height));
                     _encoderName = encoder.Name;
                     picture = new byte[Nv12.Size(width, height)];
@@ -712,8 +734,24 @@ internal sealed unsafe class ScreenSession
                     var target = picture;
                     var factor = scale;
                     var (width, height) = (encoder.Width, encoder.Height);
+                    var area = _crop;
+                    var (monitorWidth, monitorHeight) = (source.Monitor.Width, source.Monitor.Height);
                     grab = source.Next(refine > 0 || _keyRequested ? 100 : 250, pointer, (pixels, pitch) =>
-                        Nv12.FromBgra((byte*)pixels, pitch, factor, target, width, height));
+                    {
+                        var start = (byte*)pixels;
+                        if (area is not null)
+                        {
+                            // Never beyond the picture that was captured, whatever happened to the window meanwhile.
+                            if (area.Width != width || area.Height != height || area.Left + width > monitorWidth || area.Top + height > monitorHeight)
+                            {
+                                return;
+                            }
+
+                            start += (nint)area.Top * pitch + (nint)area.Left * 4;
+                        }
+
+                        Nv12.FromBgra(start, pitch, factor, target, width, height);
+                    });
                 }
                 catch (Exception exception) when (IsCaptureFailure(exception))
                 {
@@ -856,11 +894,16 @@ internal sealed unsafe class ScreenSession
             saved = Resolution.Text((_current.Width, _current.Height));
         }
 
+        // With one window as the picture, the picture's size is what the viewer's mouse moves in.
+        var area = _crop;
         Emit("screen.monitor", new JsonObject
         {
             ["monitor"] = _current.Index,
-            ["width"] = _current.Width,
-            ["height"] = _current.Height,
+            ["width"] = area?.Width ?? _current.Width,
+            ["height"] = area?.Height ?? _current.Height,
+            ["monitorWidth"] = _current.Width,
+            ["monitorHeight"] = _current.Height,
+            ["window"] = area is null ? "" : Interlocked.Read(ref _window).ToString(System.Globalization.CultureInfo.InvariantCulture),
             ["videoWidth"] = videoWidth,
             ["videoHeight"] = videoHeight,
             ["modes"] = modes,
@@ -967,10 +1010,15 @@ internal sealed unsafe class ScreenSession
         if (pointer.Moved)
         {
             pointer.Moved = false;
-            if (pointer.X != _lastPointerX || pointer.Y != _lastPointerY || pointer.Visible != _lastPointerVisible)
+            // With one window as the picture, the pointer is where it is in that window - or not in the picture.
+            var area = _crop;
+            var x = pointer.X - (area?.Left ?? 0);
+            var y = pointer.Y - (area?.Top ?? 0);
+            var visible = pointer.Visible && (area is null || (x >= 0 && y >= 0 && x < area.Width && y < area.Height));
+            if (x != _lastPointerX || y != _lastPointerY || visible != _lastPointerVisible)
             {
-                (_lastPointerX, _lastPointerY, _lastPointerVisible) = (pointer.X, pointer.Y, pointer.Visible);
-                Emit("screen.pointer", new JsonObject { ["x"] = pointer.X, ["y"] = pointer.Y, ["visible"] = pointer.Visible });
+                (_lastPointerX, _lastPointerY, _lastPointerVisible) = (x, y, visible);
+                Emit("screen.pointer", new JsonObject { ["x"] = x, ["y"] = y, ["visible"] = visible });
             }
         }
     }
@@ -1048,6 +1096,156 @@ internal sealed unsafe class ScreenSession
         _wake.Set();
     }
 
+    // ---- windows --------------------------------------------------------------------------------------
+
+    // The part of the monitor that is the whole picture while one window only is shown; in the monitor's
+    // own pixels, from its top left corner.
+    private sealed record CropArea(int Left, int Top, int Width, int Height);
+
+    // An encoder is not made for a picture of any size, and a sliver of a window is no picture.
+    private const int SmallestCropWidth = 192;
+    private const int SmallestCropHeight = 144;
+
+    private readonly IWindowList _windows;
+    private long _window;
+    private volatile CropArea? _crop;
+    private CropArea? _cropWanted;
+    private long _cropWantedAt;
+
+    // The list of windows, for the viewer to pick from. On the input thread: that one is on the desktop the
+    // monitor shows.
+    public void SendWindows() => _input.Run(EmitWindows);
+
+    // The viewer picked a window: it comes to the front, and - when asked for - becomes the whole picture
+    // and stays it wherever it is moved. No window (0) is the whole screen again.
+    public void Window(AgentFrame frame)
+    {
+        if (!long.TryParse(frame.Text("id"), out var id))
+        {
+            id = 0;
+        }
+
+        var only = id != 0 && frame.Bool("only");
+        _input.Run(() =>
+        {
+            if (id != 0)
+            {
+                _windows.Activate(id);
+            }
+
+            if (only && _windows.Bounds(id) is { } bounds)
+            {
+                // On another monitor than the one shown: then that one is shown.
+                var x = bounds.Left + bounds.Width / 2;
+                var y = bounds.Top + bounds.Height / 2;
+                var monitors = ScreenPlugin.TestMode ? TestPattern.Monitors() : DesktopCapture.Monitors();
+                var home = monitors.FirstOrDefault(monitor => x >= monitor.Left && x < monitor.Left + monitor.Width && y >= monitor.Top && y < monitor.Top + monitor.Height);
+                if (home is not null && home.Index != _monitor)
+                {
+                    _monitor = home.Index;
+                    _reconfigure = true;
+                }
+            }
+
+            Interlocked.Exchange(ref _window, only ? id : 0);
+            _wake.Set();
+            EmitWindows();
+        });
+    }
+
+    private void EmitWindows()
+    {
+        var list = new JsonArray();
+        foreach (var window in _windows.List())
+        {
+            list.Add(new JsonObject
+            {
+                ["id"] = window.Id.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                ["title"] = window.Title.Length > 200 ? window.Title[..200] : window.Title,
+                ["app"] = window.App,
+                ["active"] = window.Active,
+                ["minimized"] = window.Minimized,
+            });
+        }
+
+        var only = Interlocked.Read(ref _window);
+        Emit("screen.windows", new JsonObject
+        {
+            ["windows"] = list,
+            ["only"] = only == 0 ? "" : only.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        });
+    }
+
+    // Where the window to show is on this monitor now. True when the picture gets another size (the encoder is
+    // made again); a window that only moved is followed without that.
+    private bool UpdateCrop(MonitorInfo monitor)
+    {
+        var id = Interlocked.Read(ref _window);
+        CropArea? wanted = null;
+        if (id != 0)
+        {
+            wanted = _windows.Bounds(id) is { } bounds ? Fit(bounds, monitor) : null;
+            if (wanted is null)
+            {
+                // Closed, minimised or moved off this monitor: the whole screen again, and the viewer is told.
+                Interlocked.CompareExchange(ref _window, 0, id);
+                _input.Run(EmitWindows);
+            }
+        }
+
+        var current = _crop;
+        if (wanted == current)
+        {
+            _cropWanted = null;
+            return false;
+        }
+
+        var fits = current is null || (current.Left + current.Width <= monitor.Width && current.Top + current.Height <= monitor.Height);
+        if (fits && wanted is not null && current is not null && wanted.Width == current.Width && wanted.Height == current.Height)
+        {
+            _crop = wanted;
+            _cropWanted = null;
+            return false;
+        }
+
+        // Another size. A window that is being dragged larger has a new one with every picture - the encoder
+        // is only made again once the size has stayed for a moment. Switching the mode on or off, and a
+        // picture that no longer fits the monitor, do not wait.
+        var now = Environment.TickCount64;
+        if (wanted != _cropWanted)
+        {
+            _cropWanted = wanted;
+            _cropWantedAt = now;
+        }
+
+        if (fits && wanted is not null && current is not null && now - _cropWantedAt < 300)
+        {
+            return false;
+        }
+
+        _crop = wanted;
+        _cropWanted = null;
+        return true;
+    }
+
+    // The window's part of the monitor: cut at its edges, with even sides, not smaller than an encoder takes.
+    // Null when hardly anything of the window is on this monitor.
+    private static CropArea? Fit(WindowBounds bounds, MonitorInfo monitor)
+    {
+        var left = Math.Max(bounds.Left, monitor.Left) - monitor.Left;
+        var top = Math.Max(bounds.Top, monitor.Top) - monitor.Top;
+        var right = Math.Min(bounds.Left + bounds.Width, monitor.Left + monitor.Width) - monitor.Left;
+        var bottom = Math.Min(bounds.Top + bounds.Height, monitor.Top + monitor.Height) - monitor.Top;
+        if (right - left < 48 || bottom - top < 48)
+        {
+            return null;
+        }
+
+        var width = Math.Min(monitor.Width & ~1, Math.Max(SmallestCropWidth, (right - left) & ~1));
+        var height = Math.Min(monitor.Height & ~1, Math.Max(SmallestCropHeight, (bottom - top) & ~1));
+        return new CropArea(Math.Clamp(left, 0, monitor.Width - width), Math.Clamp(top, 0, monitor.Height - height), width, height);
+    }
+
     // ---- input ---------------------------------------------------------------------------------------
 
     public void Input(AgentFrame frame)
@@ -1057,7 +1255,10 @@ internal sealed unsafe class ScreenSession
             switch (frame.Text("t"))
             {
                 case "m":
-                    _input.MoveTo(_current.Left + Math.Clamp(frame.Int("x"), 0, _current.Width - 1), _current.Top + Math.Clamp(frame.Int("y"), 0, _current.Height - 1));
+                    // The viewer's mouse moves in the picture: the monitor, or the one window that is shown.
+                    var area = _crop;
+                    var (left, top, width, height) = area is null ? (0, 0, _current.Width, _current.Height) : (area.Left, area.Top, area.Width, area.Height);
+                    _input.MoveTo(_current.Left + left + Math.Clamp(frame.Int("x"), 0, width - 1), _current.Top + top + Math.Clamp(frame.Int("y"), 0, height - 1));
                     break;
                 case "b":
                     var button = frame.Int("b");
@@ -1089,7 +1290,19 @@ internal sealed unsafe class ScreenSession
                     var text = frame.Text("text") ?? "";
                     if (text.Length is > 0 and <= 4096)
                     {
-                        _input.Text(text);
+                        // With Ctrl, Alt or the Windows key held (the key bar of a phone), a letter is a shortcut:
+                        // it has to arrive as the key it sits on - a character alone is none.
+                        if (ShortcutHeldLocked())
+                        {
+                            foreach (var character in text)
+                            {
+                                _input.Shortcut(character);
+                            }
+                        }
+                        else
+                        {
+                            _input.Text(text);
+                        }
                     }
 
                     break;
@@ -1099,6 +1312,11 @@ internal sealed unsafe class ScreenSession
             }
         }
     }
+
+    // Ctrl on either side, the left Alt (the right one is AltGr and types characters), a Windows key.
+    private bool ShortcutHeldLocked() =>
+        _keysDown.Contains((0x1D, false)) || _keysDown.Contains((0x1D, true)) || _keysDown.Contains((0x38, false))
+        || _keysDown.Contains((0x5B, true)) || _keysDown.Contains((0x5C, true));
 
     // Ctrl+Alt+Del: only Windows itself may send it, and only for a LocalSystem service.
     public void SecureAttention()
