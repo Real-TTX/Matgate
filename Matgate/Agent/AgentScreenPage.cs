@@ -698,6 +698,10 @@ public static class AgentScreenPage
                 }
                 down ? buttonsDown.add(number) : buttonsDown.delete(number);
                 flushMove();
+                if (down) {
+                    // The caret on the machine is somewhere else now.
+                    textBoundary();
+                }
                 send('screen.input', { t: 'b', b: number, d: down });
             };
             const focusKeyboard = () => {
@@ -1109,7 +1113,7 @@ public static class AgentScreenPage
                 if (event.target instanceof HTMLSelectElement || (event.target instanceof Element && event.target.closest('#auth'))) {
                     return;
                 }
-                if (event.isComposing || event.key === 'Process' || event.keyCode === 229) {
+                if (event.isComposing || event.key === 'Process' || event.keyCode === 229 || typesText(event)) {
                     return;
                 }
                 const scan = scanOf(event);
@@ -1129,9 +1133,13 @@ public static class AgentScreenPage
                 }
                 event.preventDefault();
                 key(scan, true);
+                if (!/^(Shift|Control|Alt|Meta|OS|CapsLock)/.test(scan.code)) {
+                    // An arrow key, Tab, a shortcut: what is typed next does not continue what was typed before.
+                    textBoundary();
+                }
             });
             window.addEventListener('keyup', event => {
-                const scan = scanOf(event);
+                const scan = typesText(event) ? null : scanOf(event);
                 if (!scan) {
                     return;
                 }
@@ -1142,42 +1150,150 @@ public static class AgentScreenPage
                 key(scan, false);
             });
 
-            // Text from a phone's keyboard or an input method arrives as text, not as keys.
+            // Text from a phone's keyboard, an input method or dictation arrives as text, not as keys - and it
+            // is revised afterwards: autocorrection replaces a word, dictation rewrites half a sentence, a
+            // composition grows letter by letter. So the hidden field keeps what was typed, exactly as the
+            // keyboard left it, and every change goes to the machine as the difference to what it already has:
+            // backspaces for what went, then the new text. (Emptying the field under the keyboard, or refusing
+            // its input, makes dictation and autocorrection send everything again - that was the doubled text.)
+            //
+            // One character always stays in the field, so that Backspace has something to delete and is
+            // reported at all: a phone sends no key for it.
+            const MARK = ' ';
+            const BACKSPACE = { s: 0x0e, e: false };
+            const ENTER = { s: 0x1c, e: false };
             let composing = false;
-            sink.addEventListener('compositionstart', () => composing = true);
-            sink.addEventListener('compositionend', event => {
-                composing = false;
-                if (event.data) {
-                    send('screen.input', { t: 'u', text: event.data });
+            let typed = MARK;
+            sink.value = MARK;
+            const tapKey = scan => {
+                key(scan, true);
+                key(scan, false);
+            };
+            // Whether this key press is a phone's keyboard typing: then the field takes it. Shortcuts and keys
+            // without text stay keys.
+            const typesText = event => coarse && document.activeElement === sink && !event.ctrlKey && !event.altKey && !event.metaKey
+                && ([...String(event.key || '')].length === 1 || event.key === 'Backspace' || event.key === 'Enter');
+            // What comes next has nothing to do with what was typed before (a click, an arrow key, a finished
+            // line). Emptying the field is only safe when the keyboard has nothing in flight - dictation that is
+            // still running delivers its whole text again into an emptied field, and a phone blurs and focuses
+            // the field in the middle of one. So unless it has been quiet for a moment, the text stays and only
+            // counts as done: up to `floor` it belongs to somewhere else on the machine.
+            let floor = MARK.length;
+            let lastTextAt = 0;
+            const quiet = () => !composing && Date.now() - lastTextAt > 2000;
+            const clearText = () => {
+                if (sink.value !== MARK) {
+                    sink.value = MARK;
                 }
-                sink.value = '';
+                typed = MARK;
+                floor = MARK.length;
+            };
+            const textBoundary = () => {
+                if (quiet()) {
+                    clearText();
+                }
+                else {
+                    floor = typed.length;
+                }
+            };
+            const typeText = added => {
+                let run = '';
+                const flush = () => {
+                    if (run) {
+                        send('screen.input', { t: 'u', text: run });
+                        run = '';
+                    }
+                };
+                for (const character of added) {
+                    if (character === '\n' || character === '\r') {
+                        flush();
+                        tapKey(ENTER);
+                    }
+                    else {
+                        run += character;
+                    }
+                }
+                flush();
+                if (added && sticky.size) {
+                    // Ctrl or Alt from the key bar counted for this one key.
+                    sticky.forEach(value => key({ s: parseInt(value.replace('e', ''), 16), e: value.endsWith('e') }, false));
+                    sticky.clear();
+                    document.querySelectorAll('[data-sticky]').forEach(item => item.classList.remove('on'));
+                }
+            };
+            // Brings the machine up to date with the field.
+            const syncText = () => {
+                const now = sink.value;
+                const before = typed;
+                if (now === before) {
+                    return;
+                }
+                lastTextAt = Date.now();
+                typed = now;
+                let same = 0;
+                const limit = Math.min(before.length, now.length);
+                while (same < limit && before.charCodeAt(same) === now.charCodeAt(same)) {
+                    same++;
+                }
+                // Not between the two halves of one character.
+                if (same > 0 && (before.charCodeAt(same - 1) & 0xfc00) === 0xd800) {
+                    same--;
+                }
+                if (same < floor) {
+                    if (now.length > same) {
+                        // The keyboard rewrote text that is no longer where the caret is: nothing to do for it
+                        // on the machine. From here on the field counts as it is.
+                        floor = now.length;
+                        return;
+                    }
+                    // Backspace past what was typed here - it deletes on the machine all the same.
+                    floor = same;
+                }
+                // The placeholder is no character on the machine; when it alone goes, that is Backspace in a
+                // field with nothing typed.
+                let gone = [...before.slice(Math.max(same, MARK.length))].length;
+                if (same < MARK.length && gone === 0 && now.length === 0) {
+                    gone = 1;
+                }
+                for (let i = 0; i < gone; i++) {
+                    tapKey(BACKSPACE);
+                }
+                const added = now.slice(same);
+                typeText(added);
+                if (/[\r\n]/.test(added)) {
+                    // A finished line: what follows is new text.
+                    floor = typed.length;
+                }
+            };
+            const settleText = () => {
+                if (!composing && sink.value === '') {
+                    clearText();
+                }
+            };
+            sink.addEventListener('compositionstart', () => composing = true);
+            sink.addEventListener('compositionend', () => {
+                composing = false;
+                syncText();
+                settleText();
             });
             sink.addEventListener('beforeinput', event => {
-                if (composing || event.isComposing) {
-                    return;
+                // Pasting has its own way (the machine's clipboard), and the field's own undo means nothing there.
+                if (/^(insertFromPaste|insertFromDrop|historyUndo|historyRedo)$/.test(event.inputType)) {
+                    event.preventDefault();
                 }
-                const tapKey = scan => {
-                    key(scan, true);
-                    key(scan, false);
-                };
-                if (event.inputType === 'insertText' && event.data) {
-                    send('screen.input', { t: 'u', text: event.data });
-                }
-                else if (event.inputType === 'deleteContentBackward') {
-                    tapKey({ s: 0x0e, e: false });
-                }
-                else if (event.inputType === 'insertLineBreak' || event.inputType === 'insertParagraph') {
-                    tapKey({ s: 0x1c, e: false });
-                }
-                else if (event.inputType === 'insertFromPaste') {
-                    return;
-                }
-                event.preventDefault();
             });
             sink.addEventListener('input', () => {
-                if (!composing) {
-                    sink.value = '';
+                syncText();
+                settleText();
+            });
+            sink.addEventListener('focus', () => {
+                if (quiet()) {
+                    clearText();
                 }
+            });
+            sink.addEventListener('blur', () => {
+                composing = false;
+                syncText();
             });
 
             // Nothing stays pressed on the machine when this page loses the keyboard.
@@ -1222,6 +1338,7 @@ public static class AgentScreenPage
                 const scan = parse(item.dataset.key);
                 key(scan, true);
                 key(scan, false);
+                textBoundary();
                 sticky.forEach(value => key(parse(value), false));
                 sticky.clear();
                 keyBar.querySelectorAll('[data-sticky]').forEach(button => button.classList.remove('on'));
