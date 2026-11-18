@@ -83,6 +83,11 @@ public sealed class MatgateUser
     // user opens, on any device. Configured under Account -> Session.
     public SessionPreferences Session { get; set; } = new();
 
+    // The key bar of a session: the buttons a phone's keyboard has no keys for, and the user's own
+    // shortcuts. Null means the default (see KeyBar.Defaults) - so a button added to it later shows up
+    // for everyone who never configured anything. An empty list is a choice: no bar.
+    public List<KeyBarButton>? KeyBar { get; set; }
+
     // Which of the gateway's file areas this user may use. A permission, not a preference: only an
     // admin sets it, and the user never sees it in their own account.
     public FileSharePermissions FileShare { get; set; } = new();

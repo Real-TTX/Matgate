@@ -26,6 +26,9 @@ public static class AgentTerminalPage
             .keys { border-top: 1px solid #263029; display: none; gap: 4px; overflow-x: auto; padding: 4px 6px calc(4px + env(safe-area-inset-bottom)); }
             .keys button { flex: 0 0 auto; min-height: 36px; min-width: 44px; }
             @media (pointer: coarse) { .keys { display: flex; } }
+            /* Someone who removed every button has no bar. */
+            .keys.none { display: none !important; }
+            button.on { border-color: #4f8a6c; color: #9fe0bd; }
             .hidden { display: none !important; }
             button.icon { align-items: center; display: inline-flex; justify-content: center; min-width: 32px; padding: 2px 6px; }
             body.embedded .bar { display: none; }
@@ -33,7 +36,7 @@ public static class AgentTerminalPage
             .note.bad { border-color: #f0a92b; color: #f0a92b; }
         </style>
         </head>
-        <body data-server="__SERVER__" data-csrf="__CSRF__" data-text="__TEXT__" data-kind="__KIND__" data-base="__BASE__" data-font="__FONT__">
+        <body data-server="__SERVER__" data-csrf="__CSRF__" data-text="__TEXT__" data-kind="__KIND__" data-base="__BASE__" data-font="__FONT__" data-keys="__KEYS__">
         <div class="bar">
             <button id="home" type="button" class="icon" title=""><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></button>
             <strong>__TITLE__</strong>
@@ -42,17 +45,7 @@ public static class AgentTerminalPage
             <button id="kill" type="button"></button>
         </div>
         <div id="screen"></div>
-        <div class="keys" id="keys">
-            <button type="button" data-send="1b">Esc</button>
-            <button type="button" data-send="09">Tab</button>
-            <button type="button" data-send="1b5b5a">&#8679;Tab</button>
-            <button type="button" data-send="03">Strg+C</button>
-            <button type="button" data-send="1b5b41">&#8593;</button>
-            <button type="button" data-send="1b5b42">&#8595;</button>
-            <button type="button" data-send="1b5b44">&#8592;</button>
-            <button type="button" data-send="1b5b43">&#8594;</button>
-            <button type="button" data-send="0d">&#9166;</button>
-        </div>
+        <div class="keys" id="keys"></div>
         <div id="note" class="note hidden"></div>
         <input id="pick" type="file" multiple class="hidden">
         <script src="/assets/xterm/xterm.js"></script>
@@ -141,22 +134,85 @@ public static class AgentTerminalPage
                 }
             };
 
-            term.onData(data => sendBytes(encoder.encode(data)));
+            // ---- the key bar: the user's own buttons (Account -> Key bar) ------------------------------------
+            const barButtons = JSON.parse(document.body.dataset.keys || '[]');
+            const keyBar = document.getElementById('keys');
+            keyBar.classList.toggle('none', !barButtons.length);
+            // What the sticky buttons hold for the next key: id -> modifiers (Shift 1, Alt 2, Ctrl 4).
+            const sticky = new Map();
+            const stickyMask = () => [...sticky.values()].reduce((mask, mods) => mask | mods, 0);
+            const dropSticky = () => {
+                sticky.clear();
+                keyBar.querySelectorAll('.on').forEach(item => item.classList.remove('on'));
+            };
+            // One typed character with the modifiers a sticky button holds: Ctrl makes the control character
+            // of it, Alt puts an Escape in front. Anything longer is text and stays as it is.
+            const withSticky = data => {
+                const mask = stickyMask();
+                if (!mask) {
+                    return data;
+                }
+                dropSticky();
+                if ([...data].length !== 1 || data.charCodeAt(0) < 0x20) {
+                    return data;
+                }
+                let out = mask & 1 ? data.toUpperCase() : data;
+                if (mask & 4 && out.length === 1) {
+                    const code = out.toUpperCase().charCodeAt(0);
+                    out = code >= 0x40 && code <= 0x5f ? String.fromCharCode(code & 0x1f) : code === 0x20 ? '\x00' : code === 0x3f ? '\x7f' : out;
+                }
+                return mask & 2 ? '\x1b' + out : out;
+            };
+            const fromHex = hex => Uint8Array.from(hex.match(/../g) || [], pair => parseInt(pair, 16));
+            const pressBarButton = async (button, item) => {
+                if (button.sticky) {
+                    if (sticky.has(button.id)) {
+                        sticky.delete(button.id);
+                    }
+                    else {
+                        sticky.set(button.id, button.mods);
+                    }
+                    item.classList.toggle('on', sticky.has(button.id));
+                    term.focus();
+                    return;
+                }
+                const mask = stickyMask();
+                dropSticky();
+                if (button.action === 'paste' && !mask) {
+                    // What is on this device's clipboard; without access to it the key goes as it is.
+                    let clip = '';
+                    try {
+                        clip = await navigator.clipboard.readText();
+                    }
+                    catch {
+                    }
+                    if (clip) {
+                        term.paste(clip);
+                        term.focus();
+                        return;
+                    }
+                }
+                // A program that switched the cursor keys to application mode (an editor, a pager) expects them so.
+                const application = !mask && button.app && term.modes && term.modes.applicationCursorKeysMode;
+                sendBytes(fromHex(application ? button.app : button.send[mask]));
+                term.focus();
+            };
+            barButtons.forEach(button => {
+                const item = document.createElement('button');
+                item.type = 'button';
+                item.textContent = button.label;
+                item.title = button.title;
+                item.dataset.id = button.id;
+                // The bar's buttons must not take the keyboard away from the terminal.
+                item.addEventListener('mousedown', event => event.preventDefault());
+                item.addEventListener('click', () => pressBarButton(button, item));
+                keyBar.appendChild(item);
+            });
+
+            term.onData(data => sendBytes(encoder.encode(withSticky(data))));
             term.onBinary(data => sendBytes(Uint8Array.from(data, c => c.charCodeAt(0))));
             term.onResize(size => sendControl({ type: 'resize', cols: size.cols, rows: size.rows }));
             new ResizeObserver(() => fit.fit()).observe(document.getElementById('screen'));
-
-            document.getElementById('keys').addEventListener('click', event => {
-                const button = event.target.closest('[data-send]');
-                if (!button) {
-                    return;
-                }
-                const hex = button.dataset.send;
-                sendBytes(Uint8Array.from(hex.match(/../g), pair => parseInt(pair, 16)));
-                term.focus();
-            });
-            // The bar's buttons must not take the keyboard away from the terminal.
-            document.querySelectorAll('.keys button').forEach(button => button.addEventListener('mousedown', event => event.preventDefault()));
 
             const connect = () => {
                 window.clearTimeout(retryTimer);
@@ -392,7 +448,8 @@ public static class AgentTerminalPage
                         gone = 1;
                     }
                     const added = now.slice(same).replace(/\r\n?|\n/g, '\r');
-                    const bytes = encoder.encode('\x7f'.repeat(gone) + added);
+                    // A modifier that a sticky button of the key bar holds counts for the one character typed next.
+                    const bytes = encoder.encode('\x7f'.repeat(gone) + (gone ? added : withSticky(added)));
                     if (bytes.length) {
                         sendBytes(bytes);
                     }

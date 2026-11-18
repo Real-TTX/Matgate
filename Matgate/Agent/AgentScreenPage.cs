@@ -54,6 +54,26 @@ public static class AgentScreenPage
             body.embedded .bar { display: none !important; }
             body.embedded .keys:not(.open) { display: none !important; }
             .keys.open { display: flex; }
+            /* Someone who removed every button has no bar. */
+            .keys.none { display: none !important; }
+            /* The machine's windows: a list over the picture, a sheet on a phone. */
+            .windows { align-items: center; background: rgba(11, 15, 13, .72); display: flex; inset: 0; justify-content: center; padding: 16px; position: fixed; z-index: 7; }
+            .windows-box { background: #18211d; border: 1px solid #33413a; border-radius: 12px; box-shadow: 0 12px 32px rgba(0,0,0,.5); display: flex; flex-direction: column; max-height: 100%; max-width: 100%; width: 460px; }
+            .windows-head { align-items: center; border-bottom: 1px solid #263029; display: flex; gap: 8px; justify-content: space-between; padding: 10px 12px 10px 16px; }
+            .windows-head strong { font-size: 15px; }
+            .windows-only { align-items: flex-start; border-bottom: 1px solid #263029; cursor: pointer; display: flex; gap: 10px; padding: 10px 16px; }
+            .windows-only input { height: 18px; margin: 1px 0 0; width: 18px; }
+            .windows-only small { color: #8fa39a; display: block; margin-top: 2px; }
+            .windows-list { display: flex; flex-direction: column; gap: 4px; overflow-y: auto; padding: 8px; }
+            .windows-row { align-items: flex-start; background: transparent; border-color: transparent; display: flex; flex-direction: column; gap: 2px; min-height: 44px; padding: 6px 10px; text-align: left; }
+            .windows-row.on { background: #1f2c26; border-color: #4f8a6c; }
+            .windows-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .windows-note { color: #8fa39a; font-size: 12px; }
+            @media (pointer: coarse) {
+                .windows { align-items: flex-end; padding: 0; }
+                .windows-box { border-radius: 14px 14px 0 0; max-height: 80%; padding-bottom: env(safe-area-inset-bottom); width: 100%; }
+                .windows-row { min-height: 52px; }
+            }
             /* Full screen: the picture fills the screen; the bar waits above it and comes down at the top edge, as with RDP. */
             body.fs .bar { background: rgba(16, 22, 19, .96); border: 1px solid #33413a; border-radius: 0 0 10px 10px; border-top: 0; left: 50%; max-width: calc(100% - 24px); position: absolute; top: 0; transform: translate(-50%, calc(-100% - 2px)); transition: transform .18s ease; z-index: 6; }
             body.fs .bar.show { transform: translate(-50%, 0); }
@@ -63,7 +83,7 @@ public static class AgentScreenPage
             body.fs .keys { display: none !important; }
         </style>
         </head>
-        <body data-server="__SERVER__" data-text="__TEXT__" data-kind="__KIND__" data-base="__BASE__">
+        <body data-server="__SERVER__" data-text="__TEXT__" data-kind="__KIND__" data-base="__BASE__" data-keys="__KEYS__">
         <div class="bar">
             <button id="home" type="button" class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></button>
             <strong>__TITLE__</strong>
@@ -72,6 +92,7 @@ public static class AgentScreenPage
             <select id="monitor" class="hidden"></select>
             <select id="resolution" class="wide"></select>
             <select id="quality" class="wide"></select>
+            <button id="windows-button" type="button" class="icon hidden"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="13" height="13" rx="2"/><path d="M8 7V6a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-3"/></svg></button>
             <button id="cad" type="button" class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></button>
             <button id="sound" type="button" class="icon"></button>
             <button id="keyboard" type="button" class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M7 14h10"/></svg></button>
@@ -93,18 +114,13 @@ public static class AgentScreenPage
                 </form>
             </div>
         </div>
-        <div class="keys" id="keys">
-            <button type="button" data-key="01">Esc</button>
-            <button type="button" data-key="0f">Tab</button>
-            <button type="button" data-key="5be">&#8862;</button>
-            <button type="button" data-sticky="1d">Strg</button>
-            <button type="button" data-sticky="38">Alt</button>
-            <button type="button" data-key="53e">Entf</button>
-            <button type="button" data-cad="1">Strg+Alt+Entf</button>
-            <button type="button" data-key="4be">&#8592;</button>
-            <button type="button" data-key="48e">&#8593;</button>
-            <button type="button" data-key="50e">&#8595;</button>
-            <button type="button" data-key="4de">&#8594;</button>
+        <div class="keys" id="keys"></div>
+        <div id="windows" class="windows hidden">
+            <div class="windows-box">
+                <div class="windows-head"><strong id="windows-title"></strong><button id="windows-close" type="button" class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+                <label class="windows-only"><input id="windows-only" type="checkbox"><span><span id="windows-only-text"></span><small id="windows-only-hint"></small></span></label>
+                <div id="windows-list" class="windows-list"></div>
+            </div>
         </div>
         <textarea id="sink" autocapitalize="off" autocomplete="off" autocorrect="off" spellcheck="false" aria-hidden="true"></textarea>
         <script>
@@ -540,6 +556,10 @@ public static class AgentScreenPage
                         clipFiles = data.clipFiles !== false;
                         canSound = data.audio !== false;
                         window.setTimeout(notifyShell, 0);
+                        if (kind === 'agent') {
+                            // Whether this agent knows its windows: it answers, or it does not.
+                            send('screen.windows', {});
+                        }
                         if (video) {
                             // A new helper on the machine (another Windows session): its pictures count from 1 again.
                             pending = [];
@@ -559,8 +579,9 @@ public static class AgentScreenPage
                         remote.width = data.width;
                         remote.height = data.height;
                         // The monitor's entry shows its size as it is now.
+                        // (While one window is the picture, width and height are that window's.)
                         [...monitorSelect.options].filter(option => Number(option.value) === data.monitor)
-                            .forEach(option => option.textContent = `${data.monitor + 1}: ${data.width}×${data.height}`);
+                            .forEach(option => option.textContent = `${data.monitor + 1}: ${data.monitorWidth || data.width}×${data.monitorHeight || data.height}`);
                         if (data.modes) {
                             fillResolutions(data.modes, resolution);
                             resolutionSelect.classList.toggle('hidden', data.modes.length < 2);
@@ -568,6 +589,9 @@ public static class AgentScreenPage
                         notifyShell();
                         monitorSelect.value = String(data.monitor);
                         localStorage.setItem('matgate.screen.monitor.' + server, String(data.monitor));
+                        break;
+                    case 'screen.windows':
+                        onWindows(data);
                         break;
                     case 'screen.video':
                         onVideo(data, payload);
@@ -1081,8 +1105,8 @@ public static class AgentScreenPage
                 }
                 keysDown.clear();
                 buttonsDown.clear();
-                sticky.clear();
-                document.querySelectorAll('[data-sticky]').forEach(item => item.classList.remove('on'));
+                // The machine has let go of everything; the bar only has to show it.
+                dropSticky(false);
                 heldPaste && window.clearTimeout(heldPaste.timer);
                 heldPaste = null;
             };
@@ -1110,7 +1134,7 @@ public static class AgentScreenPage
                 unlockSound();
                 writePendingClipboard();
                 // The bar's own controls keep their keys (choosing a monitor with the arrow keys).
-                if (event.target instanceof HTMLSelectElement || (event.target instanceof Element && event.target.closest('#auth'))) {
+                if (event.target instanceof HTMLSelectElement || (event.target instanceof Element && event.target.closest('#auth, #windows'))) {
                     return;
                 }
                 if (event.isComposing || event.key === 'Process' || event.keyCode === 229 || typesText(event)) {
@@ -1214,11 +1238,9 @@ public static class AgentScreenPage
                     }
                 }
                 flush();
-                if (added && sticky.size) {
+                if (added) {
                     // Ctrl or Alt from the key bar counted for this one key.
-                    sticky.forEach(value => key({ s: parseInt(value.replace('e', ''), 16), e: value.endsWith('e') }, false));
-                    sticky.clear();
-                    document.querySelectorAll('[data-sticky]').forEach(item => item.classList.remove('on'));
+                    dropSticky(true);
                 }
             };
             // Brings the machine up to date with the field.
@@ -1307,41 +1329,82 @@ public static class AgentScreenPage
                 }
             });
 
-            // The key bar of a phone: single keys, and Ctrl/Alt that stay down for the next key.
-            const sticky = new Set();
+            // The key bar: the user's own buttons (Account -> Key bar) - single keys, shortcuts, and modifiers
+            // that stay down for the next key.
+            const barButtons = JSON.parse(document.body.dataset.keys || '[]');
             const keyBar = $('keys');
-            keyBar.querySelectorAll('button').forEach(item => item.addEventListener('pointerdown', event => event.preventDefault()));
-            keyBar.addEventListener('click', event => {
-                const item = event.target.closest('button');
-                if (!item) {
+            keyBar.classList.toggle('none', !barButtons.length);
+            // The sticky buttons that are down: id -> their modifiers.
+            const sticky = new Map();
+            const scanId = scan => scan.s + (scan.e ? 'e' : '');
+            // Lets go of what the sticky buttons hold; `tell` is false when the machine has done so already.
+            const dropSticky = tell => {
+                if (tell) {
+                    sticky.forEach(mods => [...mods].reverse().forEach(mod => key(mod, false)));
+                }
+                sticky.clear();
+                keyBar.querySelectorAll('.on').forEach(item => item.classList.remove('on'));
+            };
+            const pressBarButton = async (button, item) => {
+                if (button.sticky) {
+                    if (sticky.has(button.id)) {
+                        [...button.mods].reverse().forEach(mod => key(mod, false));
+                        sticky.delete(button.id);
+                    }
+                    else {
+                        button.mods.forEach(mod => key(mod, true));
+                        sticky.set(button.id, button.mods);
+                    }
+                    item.classList.toggle('on', sticky.has(button.id));
                     return;
                 }
-                const parse = value => ({ s: parseInt(value.replace('e', ''), 16), e: value.endsWith('e') });
-                if (item.dataset.cad) {
+                if (button.action === 'cad') {
+                    // Windows takes Ctrl+Alt+Del from nobody but itself.
+                    dropSticky(true);
                     send('screen.sas', {});
                     return;
                 }
-                if (item.dataset.sticky) {
-                    const scan = parse(item.dataset.sticky);
-                    if (sticky.has(item.dataset.sticky)) {
-                        sticky.delete(item.dataset.sticky);
-                        key(scan, false);
-                        item.classList.remove('on');
+                if (button.action === 'paste') {
+                    // What is on this device's clipboard goes along; without access to it the keys go alone.
+                    let clip = '';
+                    try {
+                        clip = await navigator.clipboard.readText();
                     }
-                    else {
-                        sticky.add(item.dataset.sticky);
-                        key(scan, true);
-                        item.classList.add('on');
+                    catch {
                     }
-                    return;
+                    if (clip) {
+                        dropSticky(true);
+                        textBoundary();
+                        setStatus(text.pasting);
+                        send('screen.clip.set', { kind: 'text', paste: true }, encoder.encode(clip));
+                        return;
+                    }
                 }
-                const scan = parse(item.dataset.key);
-                key(scan, true);
-                key(scan, false);
+                // A modifier that a sticky button holds already is not pressed a second time.
+                const mods = button.mods.filter(mod => !keysDown.has(scanId(mod)));
+                mods.forEach(mod => key(mod, true));
+                if (button.key) {
+                    tapKey(button.key);
+                }
+                else if (button.text) {
+                    // A character: as text, so that the machine's own keyboard layout decides where it sits.
+                    send('screen.input', { t: 'u', text: button.text });
+                }
+                [...mods].reverse().forEach(mod => key(mod, false));
+                // What is typed next does not continue what was typed before.
                 textBoundary();
-                sticky.forEach(value => key(parse(value), false));
-                sticky.clear();
-                keyBar.querySelectorAll('[data-sticky]').forEach(button => button.classList.remove('on'));
+                dropSticky(true);
+            };
+            barButtons.forEach(button => {
+                const item = document.createElement('button');
+                item.type = 'button';
+                item.textContent = button.label;
+                item.title = button.title;
+                item.dataset.id = button.id;
+                // The bar's buttons must not take the keyboard away from the picture.
+                item.addEventListener('pointerdown', event => event.preventDefault());
+                item.addEventListener('click', () => pressBarButton(button, item));
+                keyBar.appendChild(item);
             });
 
             sink.addEventListener('focus', notifyShell);
@@ -1726,6 +1789,119 @@ public static class AgentScreenPage
             });
             paintSound();
 
+            // ---- the machine's windows: a list to switch by, and one window as the whole picture ----------
+            // What Alt+Tab is on the machine itself. An agent that does not answer the first question (an
+            // older one) offers nothing; RDP and VNC have no such list.
+            const windowsPanel = $('windows');
+            const windowsList = $('windows-list');
+            const windowsOnly = $('windows-only');
+            const windowsButton = $('windows-button');
+            let windowList = [];
+            let windowOnly = '';
+            let canWindows = false;
+            let windowsTimer = 0;
+            $('windows-title').textContent = text.windows;
+            $('windows-only-text').textContent = text.onlyWindow;
+            $('windows-only-hint').textContent = text.onlyWindowHint;
+            $('windows-close').title = text.close;
+            windowsButton.title = text.windows;
+            windowsOnly.checked = localStorage.getItem('matgate.screen.window.only') === '1';
+            const windowsOpen = () => !windowsPanel.classList.contains('hidden');
+            const renderWindows = () => {
+                const row = (id, title, note, on) => {
+                    const item = document.createElement('button');
+                    item.type = 'button';
+                    item.className = 'windows-row' + (on ? ' on' : '');
+                    item.dataset.id = id;
+                    const name = document.createElement('span');
+                    name.className = 'windows-name';
+                    name.textContent = title;
+                    const detail = document.createElement('span');
+                    detail.className = 'windows-note';
+                    detail.textContent = note;
+                    item.append(name, detail);
+                    return item;
+                };
+                const rows = [row('0', text.wholeScreen, '', !windowOnly)];
+                windowList.forEach(item => {
+                    const notes = [item.app, item.minimized ? text.minimized : item.active ? text.frontWindow : ''].filter(Boolean);
+                    rows.push(row(item.id, item.title, notes.join(' · '), item.id === windowOnly));
+                });
+                windowsList.replaceChildren(...rows);
+            };
+            const closeWindows = () => {
+                windowsPanel.classList.add('hidden');
+                window.clearInterval(windowsTimer);
+                notifyShell();
+                if (!coarse) {
+                    sink.focus({ preventScroll: true });
+                }
+            };
+            const openWindows = () => {
+                send('screen.windows', {});
+                renderWindows();
+                windowsPanel.classList.remove('hidden');
+                // Windows open and close on the machine while the list is up.
+                window.clearInterval(windowsTimer);
+                windowsTimer = window.setInterval(() => send('screen.windows', {}), 2000);
+                notifyShell();
+            };
+            const toggleWindows = () => windowsOpen() ? closeWindows() : openWindows();
+            const showWindow = (id, only) => {
+                // Nothing may stay pressed in the window that is left.
+                releaseAll();
+                send('screen.window', { id: String(id), only: !!only });
+            };
+            windowsList.addEventListener('click', event => {
+                const item = event.target.closest('.windows-row');
+                if (!item) {
+                    return;
+                }
+                showWindow(item.dataset.id, item.dataset.id !== '0' && windowsOnly.checked);
+                closeWindows();
+            });
+            windowsOnly.addEventListener('change', () => {
+                localStorage.setItem('matgate.screen.window.only', windowsOnly.checked ? '1' : '0');
+                if (!windowsOnly.checked && windowOnly) {
+                    showWindow('0', false);
+                }
+                else if (windowsOnly.checked && !windowOnly) {
+                    // The window in front is the one meant.
+                    const front = windowList.find(item => item.active && !item.minimized);
+                    if (front) {
+                        showWindow(front.id, true);
+                    }
+                }
+            });
+            $('windows-close').addEventListener('click', closeWindows);
+            windowsButton.addEventListener('click', toggleWindows);
+            // Beside the list is "close".
+            windowsPanel.addEventListener('pointerdown', event => {
+                if (event.target === windowsPanel) {
+                    closeWindows();
+                }
+            });
+            windowsPanel.addEventListener('keydown', event => {
+                if (event.key === 'Escape') {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    closeWindows();
+                }
+            });
+            const onWindows = data => {
+                windowList = data.windows || [];
+                windowOnly = data.only || '';
+                if (!canWindows) {
+                    canWindows = true;
+                    windowsButton.classList.remove('hidden');
+                }
+                windowsButton.classList.toggle('on', !!windowOnly);
+                if (windowsOpen()) {
+                    renderWindows();
+                }
+                notifyShell();
+            };
+
             const optionList = select => [...select.options].map(option => ({ value: option.value, label: option.textContent, active: option.selected }));
             window.MatgateScreen = {
                 state: () => ({
@@ -1741,6 +1917,10 @@ public static class AgentScreenPage
                     canSound,
                     keyboardOpen: coarse && document.activeElement === sink,
                     keyBarOpen: keyBar.classList.contains('open'),
+                    canWindows,
+                    windowsOpen: windowsOpen(),
+                    windowOnly,
+                    windows: windowList,
                     pointerMode,
                     kind,
                     texts: { monitor: text.monitor, quality: text.quality, target: kind === 'agent' ? text.target : 'Matgate' },
@@ -1770,6 +1950,8 @@ public static class AgentScreenPage
                     send('screen.clip.set', { kind: 'text', paste: true }, encoder.encode(value));
                 },
                 sas: () => send('screen.sas', {}),
+                toggleWindows,
+                showWindow,
                 setPointerMode: mode => {
                     pointerMode = mode === 'touchpad' ? 'touchpad' : 'direct';
                 },

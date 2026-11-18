@@ -40,6 +40,9 @@ usable from a laptop or a phone – installable as a PWA.
 - Several sessions open at once as **draggable tabs**, with session restore
 - **Pop a session out into its own window** and re-attach it later (great for multi-monitor)
 - **Real fullscreen / immersive mode** (safe-area aware on iPhone), clipboard sync, a live status bar
+- On phones and tablets a **key bar of your own** under every session: the keys a phone's keyboard does not
+  have (Esc, Tab, Ctrl, Alt, the arrows) and your own shortcuts (Ctrl+C, Ctrl+V, ...), set up under
+  Account -> Key bar - which buttons, in which order, for desktops, terminals or both
 - Per-session **scale** for VNC through Guacamole (Auto / 75% / 50%) so more fits on screen
 
 **Files**
@@ -55,7 +58,8 @@ usable from a laptop or a phone – installable as a PWA.
 
 **Organizing & sharing**
 - **Quick connect** for ad-hoc sessions without saving anything
-- **Folders**, per-user **favorites**, search across names, folders and hosts
+- **Folders** with a page of their own (name, icon, which connections lie in them), per-user **favorites**,
+  search across names, folders and hosts
 - **Workspaces**: shareable bundles with public links, password protection, shared text and file exchange
 - Live **network tools**: ping, DNS lookup, port check, streamed download test
 

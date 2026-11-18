@@ -38,13 +38,13 @@ public static partial class EndpointMapping
 
     private static async Task<IResult> DisplayScreenPageAsync(Guid id, HttpContext context, JsonDataStore store)
     {
-        var (server, result, _) = await RequireDisplayAsync(id, context, store);
+        var (server, result, user) = await RequireDisplayAsync(id, context, store);
         if (result is not null)
         {
             return result;
         }
 
-        return Results.Content(ScreenPageHtml(context, server!.Name, server.Id, "display", "/api/display/" + server.Id), "text/html; charset=utf-8");
+        return Results.Content(ScreenPageHtml(context, user!, server!.Name, server.Id, "display", "/api/display/" + server.Id), "text/html; charset=utf-8");
     }
 
     private static async Task DisplayScreenSocketAsync(Guid id, HttpContext context, JsonDataStore store, DisplayBridge bridge)

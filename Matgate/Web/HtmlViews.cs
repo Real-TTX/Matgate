@@ -898,7 +898,8 @@ public sealed class HtmlViews
 
         var tabs = new List<TabItem>
         {
-            new("servers", T(context, "Servers"), Icon("server"), serversPanel)
+            new("servers", T(context, "Servers"), Icon("server"), serversPanel),
+            new("folders", de ? "Ordner" : "Folders", Icon("folder"), FoldersPanel(context, servers)),
         };
         if (currentUser.IsAdmin)
         {
@@ -1057,56 +1058,113 @@ public sealed class HtmlViews
         return Layout(context, currentUser, T(context, "Servers"), body);
     }
 
-    public string ServerDetail(HttpContext context, MatgateUser currentUser, ServerEndpoint server, IReadOnlyList<MatgateUser> users)
+    // Where "Back" and a finished save lead: a connection opened from the home page was opened in a tab of
+    // its own, and that tab closes again (the page behind /admin/servers/done does it); from the
+    // administration it is the list there.
+    private static string ServerFormBackUrl(string returnTo) => returnTo == "home" ? "/admin/servers/done" : "/admin?tab=servers";
+
+    public string ServerDetail(
+        HttpContext context,
+        MatgateUser currentUser,
+        ServerEndpoint server,
+        IReadOnlyList<MatgateUser> users,
+        IReadOnlyList<string>? folders = null,
+        string returnTo = "")
     {
+        var de = Language(context) == "de";
         var body = $$"""
-            <section class="page-head">
-                <div>
-                    <p class="eyebrow">{{T(context, "Server")}}</p>
-                    <h1>{{E(server.Name)}}</h1>
-                    <p class="muted">{{ServerScopeText(context, server, users)}}{{(string.IsNullOrWhiteSpace(server.FolderName) ? "" : $" &middot; {ServerFolderBadge(context, server)}")}}</p>
-                </div>
-            </section>
-            <form id="server-edit-form" method="post" action="/admin/servers/{{server.Id}}" class="stack server-form" data-server-form>
-                {{Csrf(context)}}
-                {{ServerFields(context, currentUser, server)}}
-            </form>
-            {{ServerFormScript()}}
-            <section class="panel">
-                <div class="form-actions">
-                    <button type="submit" form="server-edit-form" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button>
-                    <a class="button" href="/admin?tab=servers">{{Icon("arrow-left")}}{{T(context, "Back")}}</a>
-                    <span class="spacer"></span>
-                    <form method="post" action="/admin/servers/{{server.Id}}/delete" data-confirm="{{A(Language(context) == "de" ? "Server wirklich löschen?" : "Delete this server?")}}">
-                        {{Csrf(context)}}
-                        <button type="submit" class="danger">{{Icon("trash")}}{{T(context, "Delete server")}}</button>
-                    </form>
-                </div>
-            </section>
+            <div class="conn-page">
+                <section class="page-head">
+                    <div>
+                        <p class="eyebrow">{{(de ? "Verbindung" : "Connection")}}</p>
+                        <h1>{{E(server.Name)}}</h1>
+                        <p class="muted">{{E(ServerProtocolLabel(server.Protocol))}} &middot; {{E(ServerTargetValue(server))}} &middot; {{ServerScopeText(context, server, users)}}</p>
+                    </div>
+                </section>
+                <form id="server-edit-form" method="post" action="/admin/servers/{{server.Id}}" class="stack server-form" data-server-form>
+                    {{Csrf(context)}}
+                    {{ServerFields(context, currentUser, server, null, folders, returnTo)}}
+                </form>
+                {{ServerFormScript()}}
+                <section class="panel conn-actions">
+                    <div class="form-actions">
+                        <button type="submit" form="server-edit-form" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button>
+                        <a class="button" href="{{ServerFormBackUrl(returnTo)}}">{{Icon("arrow-left")}}{{T(context, "Back")}}</a>
+                        <span class="spacer"></span>
+                        <form method="post" action="/admin/servers/{{server.Id}}/delete" data-confirm="{{A(de ? $"Verbindung „{server.Name}“ wirklich löschen?" : $"Delete the connection \"{server.Name}\"?")}}">
+                            {{Csrf(context)}}
+                            <input type="hidden" name="return" value="{{A(returnTo)}}">
+                            <button type="submit" class="danger">{{Icon("trash")}}{{(de ? "Löschen" : "Delete")}}</button>
+                        </form>
+                    </div>
+                </section>
+            </div>
             """;
 
-        return Layout(context, currentUser, Language(context) == "de" ? "Server bearbeiten" : "Edit server", body);
+        return Layout(context, currentUser, de ? "Verbindung bearbeiten" : "Edit connection", body);
     }
 
-    public string ServerCreate(HttpContext context, MatgateUser currentUser, ServerProtocol? preferredProtocol = null)
+    public string ServerCreate(
+        HttpContext context,
+        MatgateUser currentUser,
+        ServerProtocol? preferredProtocol = null,
+        IReadOnlyList<string>? folders = null,
+        string returnTo = "")
     {
+        var de = Language(context) == "de";
         var body = $$"""
-            <section class="page-head">
-                <div>
-                    <p class="eyebrow">{{T(context, "Server")}}</p>
-                    <h1>{{T(context, "Create server")}}</h1>
-                </div>
-                <a class="button" href="/admin/servers">{{Icon("server")}}{{T(context, "Servers")}}</a>
-            </section>
-            <form method="post" action="/admin/servers" class="stack server-form" data-server-form>
-                {{Csrf(context)}}
-                {{ServerFields(context, currentUser, null, preferredProtocol)}}
-                <div class="actions"><button type="submit" class="primary">{{Icon("plus")}}{{T(context, "Create")}}</button></div>
-            </form>
-            {{ServerFormScript()}}
+            <div class="conn-page">
+                <section class="page-head">
+                    <div>
+                        <p class="eyebrow">{{(de ? "Verbindung" : "Connection")}}</p>
+                        <h1>{{(de ? "Neue Verbindung" : "New connection")}}</h1>
+                    </div>
+                </section>
+                <form id="server-create-form" method="post" action="/admin/servers" class="stack server-form" data-server-form>
+                    {{Csrf(context)}}
+                    {{ServerFields(context, currentUser, null, preferredProtocol, folders, returnTo)}}
+                </form>
+                {{ServerFormScript()}}
+                <section class="panel conn-actions">
+                    <div class="form-actions">
+                        <button type="submit" form="server-create-form" class="primary">{{Icon("plus")}}{{(de ? "Anlegen" : "Create")}}</button>
+                        <a class="button" href="{{ServerFormBackUrl(returnTo)}}">{{Icon("arrow-left")}}{{T(context, "Back")}}</a>
+                    </div>
+                </section>
+            </div>
             """;
 
-        return Layout(context, currentUser, T(context, "Create server"), body);
+        return Layout(context, currentUser, de ? "Neue Verbindung" : "New connection", body);
+    }
+
+    // The last page of a connection that was opened from the home page: it has nothing to show. Inside the
+    // shell it asks for its own tab to be closed, which brings the home page back with the list read anew;
+    // on its own it goes there.
+    public string ServerFormDone(HttpContext context, MatgateUser currentUser)
+    {
+        var de = Language(context) == "de";
+        var body = $$"""
+            <section class="panel">
+                <p class="muted">{{(de ? "Gespeichert." : "Saved.")}} <a href="/">{{(de ? "Zu den Verbindungen" : "To the connections")}}</a></p>
+            </section>
+            <script>
+                (() => {
+                    try {
+                        if (window.parent !== window && typeof window.parent.MatgateCloseShellTabOf === 'function' && window.parent.MatgateCloseShellTabOf(window)) {
+                            return;
+                        }
+                    }
+                    catch {
+                        // Not inside the shell: the link above is the way on.
+                    }
+                    if (window.parent === window) {
+                        window.location.replace('/');
+                    }
+                })();
+            </script>
+            """;
+
+        return Layout(context, currentUser, de ? "Verbindungen" : "Connections", body);
     }
 
     public string Account(
@@ -1133,7 +1191,7 @@ public sealed class HtmlViews
                 </tr>
                 """));
         var tab = context.Request.Query["tab"].ToString().ToLowerInvariant();
-        if (tab is not ("security" or "favorites" or "session" or "home"))
+        if (tab is not ("security" or "favorites" or "session" or "keys" or "home"))
         {
             tab = "profile";
         }
@@ -1226,6 +1284,7 @@ public sealed class HtmlViews
                     <a class="tab-button{{(tab == "profile" ? " active" : "")}}" href="?tab=profile" data-tab-target="profile" role="tab" aria-selected="{{(tab == "profile" ? "true" : "false")}}">{{Icon("user")}}<span>{{(de ? "Profil" : "Profile")}}</span></a>
                     <a class="tab-button{{(tab == "security" ? " active" : "")}}" href="?tab=security" data-tab-target="security" role="tab" aria-selected="{{(tab == "security" ? "true" : "false")}}">{{Icon("key")}}<span>{{(de ? "Sicherheit" : "Security")}}</span></a>
                     <a class="tab-button{{(tab == "session" ? " active" : "")}}" href="?tab=session" data-tab-target="session" role="tab" aria-selected="{{(tab == "session" ? "true" : "false")}}">{{Icon("monitor")}}<span>{{(de ? "Sitzung" : "Session")}}</span></a>
+                    <a class="tab-button{{(tab == "keys" ? " active" : "")}}" href="?tab=keys" data-tab-target="keys" role="tab" aria-selected="{{(tab == "keys" ? "true" : "false")}}">{{Icon("keyboard")}}<span>{{(de ? "Tastenleiste" : "Key bar")}}</span></a>
                     <a class="tab-button{{(tab == "home" ? " active" : "")}}" href="?tab=home" data-tab-target="home" role="tab" aria-selected="{{(tab == "home" ? "true" : "false")}}">{{Icon("home")}}<span>{{(de ? "Startseite" : "Start page")}}</span></a>
                     <a class="tab-button{{(tab == "favorites" ? " active" : "")}}" href="?tab=favorites" data-tab-target="favorites" role="tab" aria-selected="{{(tab == "favorites" ? "true" : "false")}}">{{Icon("star")}}<span>{{(de ? "Favoriten" : "Favorites")}}</span></a>
                 </div>
@@ -1823,6 +1882,9 @@ public sealed class HtmlViews
                             </script>
                         </section>
                     </div>
+                    <div class="tab-panel{{(tab == "keys" ? "" : " hidden")}}" data-tab-panel="keys">
+                        {{KeyBarPanel(context, user)}}
+                    </div>
                     <div class="tab-panel{{(tab == "home" ? "" : " hidden")}}" data-tab-panel="home">
                         <section class="panel">
                             <h2>{{(de ? "Startseite" : "Start page")}}</h2>
@@ -1888,6 +1950,349 @@ public sealed class HtmlViews
             """;
 
         return Layout(context, user, T(context, "Account"), body);
+    }
+
+    private static string FolderIcon(string iconKey) => Icon(string.IsNullOrWhiteSpace(iconKey) ? "folder" : iconKey);
+
+    private static string FolderEditUrl(string name) => "/admin/folders/edit?name=" + Uri.EscapeDataString(name);
+
+    // The folders in the administration: the list. A folder is created and edited on a page of its own.
+    private static string FoldersPanel(HttpContext context, IReadOnlyList<ServerEndpoint> servers)
+    {
+        var de = Language(context) == "de";
+        var folders = ServerFolders.List(servers);
+        var editLabel = de ? "Bearbeiten" : "Edit";
+        var dissolveLabel = de ? "Ordner auflösen" : "Dissolve folder";
+        var rows = string.Join("", folders.Select(folder => $$"""
+            <tr data-folder-row="{{A(folder.Name)}}">
+                <td><span class="server-name-cell"><span class="server-icon small">{{FolderIcon(folder.IconKey)}}</span><a href="{{A(FolderEditUrl(folder.Name))}}">{{E(folder.Name)}}</a></span></td>
+                <td data-sort-value="{{folder.Servers.Count}}">{{folder.Servers.Count}}</td>
+                <td class="muted">{{E(string.Join(", ", folder.Servers.Take(6).Select(server => server.Name)) + (folder.Servers.Count > 6 ? ", ..." : ""))}}</td>
+                <td class="table-actions"><div class="row-actions"><a class="icon-button" href="{{A(FolderEditUrl(folder.Name))}}" title="{{A(editLabel)}}" aria-label="{{A(editLabel)}}">{{Icon("edit")}}</a><form method="post" action="/admin/folders/delete" data-confirm="{{A(de ? $"Ordner „{folder.Name}“ auflösen? Seine {folder.Servers.Count} Verbindung(en) bleiben erhalten, nur ohne Ordner." : $"Dissolve the folder \"{folder.Name}\"? Its {folder.Servers.Count} connection(s) stay, only without a folder.")}}">{{Csrf(context)}}<input type="hidden" name="name" value="{{A(folder.Name)}}"><button type="submit" class="icon-button danger-action" title="{{A(dissolveLabel)}}" aria-label="{{A(dissolveLabel)}}">{{Icon("trash")}}</button></form></div></td>
+            </tr>
+            """));
+        var headers = $$"""<th data-sortable>{{(de ? "Ordner" : "Folder")}}</th><th data-sortable>{{(de ? "Verbindungen" : "Connections")}}</th><th>{{(de ? "Darin" : "In it")}}</th><th class="table-actions">{{T(context, "Actions")}}</th>""";
+        var create = servers.Count == 0
+            ? ""
+            : $$"""<a class="button primary" href="/admin/folders/new" data-folder-new-link>{{Icon("plus")}}{{(de ? "Neuer Ordner" : "New folder")}}</a>""";
+        var table = DataTable(
+            de ? "Ordner suchen..." : "Search folders...",
+            headers,
+            rows,
+            de ? "Noch kein Ordner." : "No folder yet.",
+            4,
+            15,
+            create);
+
+        return $$"""
+            <section class="panel" data-folders>
+                <p class="muted settings-lead">{{(de
+                    ? "Ordner fassen Verbindungen auf der Startseite zusammen. Ein Ordner besteht, solange eine Verbindung darin liegt - Name und Symbol gelten für alle darin."
+                    : "Folders group connections on the start page. A folder exists as long as a connection lies in it - its name and icon apply to all of them.")}}</p>
+                {{table}}
+            </section>
+            """;
+    }
+
+    // One folder: its name, its icon, and which connections lie in it.
+    public string FolderPage(
+        HttpContext context,
+        MatgateUser user,
+        string original,
+        string name,
+        string iconKey,
+        IReadOnlyList<ServerEndpoint> servers,
+        IReadOnlySet<Guid> chosen,
+        string? error = null)
+    {
+        var de = Language(context) == "de";
+        var isNew = string.IsNullOrEmpty(original);
+        var checks = string.Join("", servers.Select(server =>
+        {
+            // Where the connection lies now, when that is somewhere else: ticking it moves it.
+            var elsewhere = !string.IsNullOrWhiteSpace(server.FolderName) && !ServerFolders.Same(server.FolderName, original)
+                ? $"""<small class="muted">{E(server.FolderName)}</small>"""
+                : "";
+            return $$"""
+                <label class="check" data-search="{{A($"{server.Name} {ServerTargetValue(server)} {server.FolderName}".ToLowerInvariant())}}"><input type="checkbox" name="server" value="{{server.Id}}"{{Checked(chosen.Contains(server.Id))}}> {{ServerIcon(server, "small")}}<span>{{E(server.Name)}}</span>{{elsewhere}}</label>
+                """;
+        }));
+
+        // Plain (non-interpolated) raw string: keeps all JS braces literal.
+        var script = """
+            <script>
+                (() => {
+                    const form = document.getElementById('folder-form');
+                    if (!form) { return; }
+                    form.querySelectorAll('[data-icon-picker]').forEach((iconPicker) => {
+                        const iconInput = iconPicker.querySelector('[data-icon-input]');
+                        iconPicker.querySelectorAll('[data-icon-option]').forEach((option) => {
+                            option.addEventListener('click', () => {
+                                iconInput.value = option.dataset.iconOption;
+                                iconPicker.querySelectorAll('[data-icon-option]').forEach((other) => {
+                                    other.classList.toggle('active', other === option);
+                                });
+                            });
+                        });
+                    });
+                    // Many connections: the list narrows to what is typed.
+                    const search = form.querySelector('[data-folder-search]');
+                    if (search) {
+                        search.addEventListener('input', () => {
+                            const term = search.value.trim().toLowerCase();
+                            form.querySelectorAll('.conn-check-list .check').forEach((row) => {
+                                row.hidden = !!term && !(row.getAttribute('data-search') || '').includes(term);
+                            });
+                        });
+                    }
+                })();
+            </script>
+            """;
+
+        var dissolve = isNew
+            ? ""
+            : $$"""
+                <span class="spacer"></span>
+                <form method="post" action="/admin/folders/delete" data-confirm="{{A(de ? $"Ordner „{original}“ auflösen? Seine Verbindungen bleiben erhalten, nur ohne Ordner." : $"Dissolve the folder \"{original}\"? Its connections stay, only without a folder.")}}">
+                    {{Csrf(context)}}
+                    <input type="hidden" name="name" value="{{A(original)}}">
+                    <button type="submit" class="danger" data-folder-dissolve>{{Icon("trash")}}{{(de ? "Ordner auflösen" : "Dissolve folder")}}</button>
+                </form>
+                """;
+        var body = $$"""
+            <div class="conn-page">
+                <section class="page-head">
+                    <div>
+                        <p class="eyebrow">{{(de ? "Ordner" : "Folder")}}</p>
+                        <h1>{{E(isNew ? (de ? "Neuer Ordner" : "New folder") : original)}}</h1>
+                    </div>
+                </section>
+                <form id="folder-form" method="post" action="/admin/folders/save" class="stack server-form">
+                    {{Csrf(context)}}
+                    <input type="hidden" name="original" value="{{A(original)}}">
+                    <section class="panel server-form-section">
+                        {{(string.IsNullOrWhiteSpace(error) ? "" : $"<p class=\"error\" data-folder-error>{E(error)}</p>")}}
+                        <h2>{{(de ? "Ordner" : "Folder")}}</h2>
+                        <div class="conn-grid">
+                            <label class="conn-wide"><span>{{T(context, "Name")}}<span class="req" aria-hidden="true">*</span></span>
+                                <input name="name" value="{{A(name)}}" required aria-required="true" maxlength="{{ServerFolders.MaxNameLength}}" placeholder="NAS, Work, Lab">
+                            </label>
+                        </div>
+                        <div class="conn-icon">
+                            <span class="conn-field-label">{{(de ? "Symbol" : "Icon")}}</span>
+                            <div class="conn-icon-body">{{ServerIconPicker("iconKey", iconKey, T(context, "Default folder icon"), "Auto")}}</div>
+                        </div>
+                    </section>
+                    <section class="panel server-form-section">
+                        <h2>{{(de ? "Verbindungen in diesem Ordner" : "Connections in this folder")}}</h2>
+                        <p class="muted conn-lead">{{(de
+                            ? "Angekreuzt liegt die Verbindung in diesem Ordner. Steht hinter ihr ein anderer Ordner, zieht sie von dort hierher um."
+                            : "Ticked, the connection lies in this folder. With another folder named behind it, it moves here from there.")}}</p>
+                        {{(servers.Count > 8 ? $$"""<label class="data-table-search"><input type="search" data-folder-search placeholder="{{A(de ? "Verbindung suchen..." : "Search connections...")}}" aria-label="{{A(de ? "Verbindung suchen..." : "Search connections...")}}"></label>""" : "")}}
+                        <div class="conn-check-list">{{checks}}</div>
+                    </section>
+                </form>
+                {{script}}
+                <section class="panel conn-actions">
+                    <div class="form-actions">
+                        <button type="submit" form="folder-form" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button>
+                        <a class="button" href="/admin?tab=folders">{{Icon("arrow-left")}}{{T(context, "Back")}}</a>
+                        {{dissolve}}
+                    </div>
+                </section>
+            </div>
+            """;
+
+        return Layout(context, user, de ? "Ordner" : "Folder", body);
+    }
+
+    private static string KeyBarScopeLabel(string scope, bool de) => scope switch
+    {
+        KeyBar.ScopeScreen => de ? "Desktop (RDP, VNC, Bildschirm)" : "Desktops (RDP, VNC, screen)",
+        KeyBar.ScopeTerminal => de ? "Terminal (SSH, Programme)" : "Terminals (SSH, programs)",
+        _ => de ? "Überall" : "Everywhere",
+    };
+
+    // The key bar in the account: the list of buttons. Creating and editing happen on a page of their own
+    // (KeyBarButtonPage); the order is changed here, one place at a time.
+    private static string KeyBarPanel(HttpContext context, MatgateUser user)
+    {
+        var de = Language(context) == "de";
+        var buttons = KeyBar.For(user);
+        var editLabel = de ? "Bearbeiten" : "Edit";
+        var deleteLabel = de ? "Löschen" : "Delete";
+        var upLabel = de ? "Weiter nach vorn" : "Move forward";
+        var downLabel = de ? "Weiter nach hinten" : "Move back";
+
+        string Move(KeyBarButton button, string direction, string label, bool possible) => $$"""
+            <form method="post" action="/account/keys/{{A(button.Id)}}/move">{{Csrf(context)}}<input type="hidden" name="direction" value="{{direction}}"><button type="submit" class="icon-button" data-key-move="{{direction}}" title="{{A(label)}}" aria-label="{{A(label)}}"{{(possible ? "" : " disabled")}}>{{Icon(direction == "up" ? "arrow-up" : "arrow-down")}}</button></form>
+            """;
+
+        var rows = string.Join("", buttons.Select((button, index) => $$"""
+            <tr data-key-button="{{A(button.Id)}}">
+                <td><a class="key-cap" href="/account/keys/{{A(button.Id)}}">{{E(KeyBar.Label(button, de))}}</a><span class="key-row-note muted">{{E(KeyBar.Describe(button, de))}}{{(button.Sticky ? (de ? " · bleibt gedrückt" : " · stays down") : "")}}{{(button.Scope == KeyBar.ScopeAll ? "" : " · " + E(button.Scope == KeyBar.ScopeScreen ? "Desktop" : "Terminal"))}}</span></td>
+                <td>{{E(KeyBar.Describe(button, de))}}</td>
+                <td>{{E(button.Sticky ? (de ? "bleibt für die nächste Taste gedrückt" : "stays down for the next key") : (de ? "drückt einmal" : "presses once"))}}</td>
+                <td>{{E(KeyBarScopeLabel(button.Scope, de))}}</td>
+                <td class="table-actions"><div class="row-actions">{{Move(button, "up", upLabel, index > 0)}}{{Move(button, "down", downLabel, index < buttons.Count - 1)}}<a class="icon-button" href="/account/keys/{{A(button.Id)}}" title="{{A(editLabel)}}" aria-label="{{A(editLabel)}}">{{Icon("edit")}}</a><form method="post" action="/account/keys/{{A(button.Id)}}/delete" data-confirm="{{A(de ? $"Knopf „{KeyBar.Label(button, de)}“ entfernen?" : $"Remove the button \"{KeyBar.Label(button, de)}\"?")}}">{{Csrf(context)}}<button type="submit" class="icon-button danger-action" title="{{A(deleteLabel)}}" aria-label="{{A(deleteLabel)}}">{{Icon("trash")}}</button></form></div></td>
+            </tr>
+            """));
+        var headers = $$"""<th>{{(de ? "Knopf" : "Button")}}</th><th>{{(de ? "Tasten" : "Keys")}}</th><th>{{(de ? "Verhalten" : "Behaviour")}}</th><th>{{(de ? "Zeigen in" : "Shown in")}}</th><th class="table-actions">{{T(context, "Actions")}}</th>""";
+        var create = buttons.Count >= KeyBar.MaxButtons
+            ? ""
+            : $$"""<a class="button primary" href="/account/keys/new" data-key-new>{{Icon("plus")}}{{(de ? "Neuer Knopf" : "New button")}}</a>""";
+        // Only someone who has a list of their own has something to reset.
+        var reset = user.KeyBar is null
+            ? ""
+            : $$"""
+                <form method="post" action="/account/keys/reset" data-confirm="{{A(de ? "Die Tastenleiste auf die Vorgabe zurücksetzen? Eigene Knöpfe und die eigene Reihenfolge gehen dabei verloren." : "Reset the key bar to the default? Your own buttons and your own order are lost.")}}">{{Csrf(context)}}<button type="submit" class="danger" data-key-reset>{{Icon("refresh")}}{{(de ? "Auf Vorgabe zurücksetzen" : "Reset to default")}}</button></form>
+                """;
+        var table = DataTable(
+            de ? "Knopf suchen..." : "Search buttons...",
+            headers,
+            rows,
+            de ? "Die Leiste hat keinen Knopf." : "The bar has no button.",
+            5,
+            0,
+            create,
+            reset);
+
+        return $$"""
+            <section class="panel" data-key-bar>
+                <h2>{{(de ? "Tastenleiste" : "Key bar")}}</h2>
+                <p class="muted settings-lead">{{(de
+                    ? "Die Knöpfe unter einer Sitzung am Telefon oder Tablet: Tasten, die dessen Tastatur nicht hat, und deine eigenen Tastenkürzel. In Guacamole-Sitzungen sind sie die oberste Reihe der Bildschirmtastatur. Eine Änderung gilt für Sitzungen, die danach geöffnet werden."
+                    : "The buttons below a session on a phone or tablet: keys its keyboard does not have, and your own shortcuts. In Guacamole sessions they are the top row of the on-screen keyboard. A change applies to sessions opened afterwards.")}}</p>
+                {{table}}
+            </section>
+            """;
+    }
+
+    // One button of the key bar: its keys, what is written on it, where it shows.
+    public string KeyBarButtonPage(HttpContext context, MatgateUser user, KeyBarButton button, bool isNew, string? error = null)
+    {
+        var de = Language(context) == "de";
+        var main = button.Keys.FirstOrDefault(key => !KeyBar.IsModifier(key));
+        var named = main is not null && KeyBar.IsNamed(main)
+            ? KeyBar.Named.First(key => string.Equals(key.Name, main, StringComparison.OrdinalIgnoreCase)).Name
+            : "";
+        var isCharacter = main is not null && named.Length == 0;
+        var character = isCharacter && KeyBar.IsCharacter(main!) ? main! : "";
+        var clean = KeyBar.Clean(button);
+        var title = isNew ? (de ? "Neuer Knopf" : "New button") : (clean is null ? (de ? "Knopf" : "Button") : KeyBar.Label(clean, de));
+
+        var modifierChecks = string.Join("", KeyBar.Modifiers.Select(modifier => $$"""
+            <label class="check"><input type="checkbox" name="mod{{modifier.Name}}"{{Checked(button.Keys.Contains(modifier.Name, StringComparer.OrdinalIgnoreCase))}}> <span>{{E(de ? modifier.LongDe : modifier.LongEn)}}</span></label>
+            """));
+        var keyOptions = string.Join("", KeyBar.Named.Select(key =>
+        {
+            var name = de ? key.LongDe : key.LongEn;
+            var cap = de ? key.De : key.En;
+            return $"""<option value="{A(key.Name)}"{(key.Name == named ? " selected" : "")}>{E(cap == name ? name : $"{name}  {cap}")}</option>""";
+        }));
+        var scopeOptions = string.Join("", new[] { KeyBar.ScopeAll, KeyBar.ScopeScreen, KeyBar.ScopeTerminal }.Select(scope =>
+            $"""<option value="{scope}"{((KeyBar.IsScope(button.Scope) ? button.Scope : KeyBar.ScopeAll) == scope ? " selected" : "")}>{E(KeyBarScopeLabel(scope, de))}</option>"""));
+
+        // Plain (non-interpolated) raw string: keeps all JS braces literal.
+        var script = """
+            <script>
+                (() => {
+                    const form = document.getElementById('key-button-form');
+                    if (!form) { return; }
+                    const key = form.querySelector('[name="key"]');
+                    const characterRow = form.querySelector('[data-key-character]');
+                    const character = form.querySelector('[name="character"]');
+                    const stickyRow = form.querySelector('[data-key-sticky]');
+                    const sticky = form.querySelector('[name="sticky"]');
+                    const apply = () => {
+                        const isCharacter = key.value === 'char';
+                        characterRow.hidden = !isCharacter;
+                        character.required = isCharacter;
+                        // Only modifiers can wait for the next key.
+                        const alone = key.value === '';
+                        stickyRow.hidden = !alone;
+                        if (!alone) { sticky.checked = false; }
+                    };
+                    key.addEventListener('change', () => {
+                        apply();
+                        if (key.value === 'char') { character.focus(); }
+                    });
+                    apply();
+                })();
+            </script>
+            """;
+
+        var deleteForm = isNew
+            ? ""
+            : $$"""
+                <form method="post" action="/account/keys/{{A(button.Id)}}/delete" data-confirm="{{A(de ? "Diesen Knopf entfernen?" : "Remove this button?")}}">
+                    {{Csrf(context)}}
+                    <button type="submit" class="danger" data-key-delete>{{Icon("trash")}}{{(de ? "Knopf entfernen" : "Remove button")}}</button>
+                </form>
+                """;
+        var body = $$"""
+            <section class="page-head">
+                <div>
+                    <p class="eyebrow">{{(de ? "Tastenleiste" : "Key bar")}}</p>
+                    <h1>{{E(title)}}</h1>
+                </div>
+            </section>
+            <section class="panel">
+                {{(string.IsNullOrWhiteSpace(error) ? "" : $"<p class=\"error\" data-key-error>{E(error)}</p>")}}
+                <form id="key-button-form" method="post" action="{{(isNew ? "/account/keys" : $"/account/keys/{A(button.Id)}")}}" class="settings-form">
+                    {{Csrf(context)}}
+                    <fieldset class="settings-group">
+                        <legend>{{(de ? "Tasten" : "Keys")}}</legend>
+                        <p class="muted settings-hint">{{(de
+                            ? "Die Zusatztasten werden gehalten, während die Taste gedrückt wird - Strg und C ergeben Strg+C. Strg+V fügt ein, was auf diesem Gerät in der Zwischenablage liegt; Strg+Alt+Entf geht an Windows selbst."
+                            : "The modifiers are held while the key is pressed - Ctrl and C make Ctrl+C. Ctrl+V pastes what is on this device's clipboard; Ctrl+Alt+Del goes to Windows itself.")}}</p>
+                        <div class="quick-protocol-grid">{{modifierChecks}}</div>
+                        <div class="form-grid">
+                            <label>{{(de ? "Taste" : "Key")}}
+                                <select name="key">
+                                    <option value=""{{(main is null ? " selected" : "")}}>{{(de ? "Keine - nur die Zusatztasten" : "None - the modifiers alone")}}</option>
+                                    <option value="char"{{(isCharacter ? " selected" : "")}}>{{(de ? "Buchstabe, Ziffer oder Zeichen ..." : "Letter, digit or character ...")}}</option>
+                                    {{keyOptions}}
+                                </select>
+                            </label>
+                            <label data-key-character{{(isCharacter ? "" : " hidden")}}>{{(de ? "Zeichen" : "Character")}}
+                                <input name="character" maxlength="2" size="3" autocomplete="off" autocapitalize="off" spellcheck="false" value="{{A(character)}}">
+                            </label>
+                        </div>
+                        <label class="toggle-row" data-key-sticky{{(main is null ? "" : " hidden")}}>
+                            <input type="checkbox" name="sticky"{{Checked(button.Sticky)}}>
+                            <span class="toggle-switch" aria-hidden="true"></span>
+                            <span class="toggle-copy"><strong>{{(de ? "Bleibt für die nächste Taste gedrückt" : "Stays down for the next key")}}</strong><small>{{(de ? "Erst der Knopf, dann eine Taste der Tastatur oder ein anderer Knopf - wie Strg und Alt in der Vorgabe. Ausgeschaltet wird die Zusatztaste nur einmal angetippt." : "First the button, then a key of the keyboard or another button - like Ctrl and Alt in the default. Switched off, the modifier is only tapped once.")}}</small></span>
+                        </label>
+                    </fieldset>
+                    <fieldset class="settings-group">
+                        <legend>{{(de ? "Aussehen und Ort" : "Look and place")}}</legend>
+                        <div class="form-grid">
+                            <label>{{(de ? "Beschriftung" : "Label")}}
+                                <input name="label" maxlength="{{KeyBar.MaxLabelLength}}" autocomplete="off" value="{{A(button.Label)}}" placeholder="{{A(de ? "automatisch aus den Tasten" : "from the keys")}}">
+                            </label>
+                            <label>{{(de ? "Zeigen in" : "Show in")}}
+                                <select name="scope">{{scopeOptions}}</select>
+                            </label>
+                        </div>
+                        <p class="muted settings-hint">{{(de
+                            ? "Ein Terminal kennt keine Windows-Taste: Knöpfe mit ihr erscheinen dort nicht, was auch eingestellt ist."
+                            : "A terminal knows no Windows key: buttons with it do not appear there, whatever is set.")}}</p>
+                    </fieldset>
+                </form>
+                {{script}}
+            </section>
+            <section class="panel">
+                <div class="form-actions">
+                    <button type="submit" form="key-button-form" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button>
+                    <a class="button" href="/account?tab=keys">{{Icon("arrow-left")}}{{T(context, "Back")}}</a>
+                    {{(deleteForm.Length == 0 ? "" : """<span class="spacer"></span>""")}}
+                    {{deleteForm}}
+                </div>
+            </section>
+            """;
+
+        return Layout(context, user, de ? "Tastenleiste" : "Key bar", body);
     }
 
     public string WorkspaceCreate(HttpContext context, MatgateUser currentUser, string defaultRootPath)
@@ -3272,7 +3677,7 @@ public sealed class HtmlViews
             : "";
         var createButtons = canCreate
             ? $$"""
-                <a class="button{{(canQuick ? "" : " primary")}} home2-new-folder" href="/admin/servers/new" data-shell-open-tab="1" data-shell-title="{{A(de ? "Neue Verbindung" : "New connection")}}">{{Icon("plus")}}<span>{{(de ? "Neue Verbindung" : "New connection")}}</span></a>
+                <a class="button{{(canQuick ? "" : " primary")}} home2-new-folder" href="/admin/servers/new?return=home" data-shell-open-tab="1" data-shell-title="{{A(de ? "Neue Verbindung" : "New connection")}}">{{Icon("plus")}}<span>{{(de ? "Neue Verbindung" : "New connection")}}</span></a>
                 """
             : "";
         var headerActions = (canQuick || canCreate)
@@ -3570,10 +3975,15 @@ public sealed class HtmlViews
                 """);
         }
 
+        // Whoever may create connections may sort them into folders: the way there, where the folders are.
+        var manageFolders = hasNamedFolder && (user.IsAdmin || user.CanManageServers || user.CanCreateServers)
+            ? $$"""<a class="home2-manage-link" href="/admin?tab=folders" data-shell-open-tab="1" data-shell-title="{{A(de ? "Ordner" : "Folders")}}">{{Icon("settings")}}<span>{{(de ? "Ordner verwalten" : "Manage folders")}}</span></a>"""
+            : "";
         return $$"""
             <section class="home2-section home2-folders-section">
                 <div class="home2-section-head">
                     <h2>{{(de ? "Filter" : "Filter")}}</h2>
+                    {{manageFolders}}
                 </div>
                 <div class="home2-folder-grid">
                     {{string.Join("", tiles)}}
@@ -4207,7 +4617,7 @@ public sealed class HtmlViews
         // favorite-toggle class). data-shell-open-tab makes it open inside the shell as its own tab
         // instead of a full-page navigation away from the home screen.
         var settingsCorner = canEdit
-            ? $$"""<a class="button favorite-toggle connection-choice-settings-corner" href="/admin/servers/{{server.Id}}" data-shell-open-tab="1" data-shell-title="{{A(server.Name)}}" data-shell-description="{{A(T(context, "Settings"))}}" title="{{A(T(context, "Settings"))}}" aria-label="{{A(T(context, "Settings"))}}">{{Icon("settings")}}</a>"""
+            ? $$"""<a class="button favorite-toggle connection-choice-settings-corner" href="/admin/servers/{{server.Id}}?return=home" data-shell-open-tab="1" data-shell-title="{{A(server.Name)}}" data-shell-description="{{A(T(context, "Settings"))}}" title="{{A(T(context, "Settings"))}}" aria-label="{{A(T(context, "Settings"))}}">{{Icon("settings")}}</a>"""
             : "";
 
         return $$"""
@@ -4434,6 +4844,7 @@ public sealed class HtmlViews
         var initialOpenServerId = JsonSerializer.Serialize(openServerId?.ToString() ?? "");
         var csrfToken = JsonSerializer.Serialize(context.User.FindFirstValue("csrf") ?? "");
         var sessionPrefs = JsonSerializer.Serialize(user.Session, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        var keyBar = KeyBar.GuacamoleJson(user, Language(context) == "de");
         var version = ApplicationVersion();
         var aboutTitle = $"MATGATE {version}";
         var fileIcons = JsonSerializer.Serialize(new
@@ -4483,6 +4894,7 @@ public sealed class HtmlViews
             autoResize = Icon("refresh"),
             systemKeys = Icon("command"),
             popOut = Icon("external-link"),
+            windows = Icon("copy"),
             reattach = Icon("arrow-left"),
             folder = Icon("folder"),
             disconnect = Icon("logout")
@@ -4867,6 +5279,8 @@ public sealed class HtmlViews
                 // Connections that should sit on the home page as a button in the bar.
                 const actionBarServers = {{actionBarServers}};
                 const sessionPrefs = Object.assign({ edgePanning: true, dragPanning: true, stretchToWindow: false, systemCombos: true, functionKeys: false, ctrlAltDelHotkey: true, pasteAsKeystrokes: false, actionOrder: [], hiddenActions: [] }, {{sessionPrefs}});
+                // The user's key bar (Account -> Key bar), as Guacamole sessions take it: keysyms.
+                const keyBarButtons = {{keyBar}};
                 const initialOpenServerId = {{initialOpenServerId}};
                 // This window was popped out of another (a tab opened in its own window). It shows a
                 // "re-attach" control instead of "pop out", and re-attach hands the session back.
@@ -6076,6 +6490,20 @@ public sealed class HtmlViews
                 }
 
                 window.MatgateOpenShellTab = openShellTab;
+                // From a page that is done (a connection saved from the home page): its own tab closes, and the
+                // home page behind it reads the connections anew. False when the page is in no tab of this shell.
+                window.MatgateCloseShellTabOf = child => {
+                    const entry = Array.from(shellTabs.values()).find(tab => {
+                        const frame = tab.panel ? tab.panel.querySelector('iframe') : null;
+                        return !!frame && frame.contentWindow === child;
+                    });
+                    if (!entry) {
+                        return false;
+                    }
+                    refreshConnectionsPanel();
+                    closeShellTab(entry.id);
+                    return true;
+                };
                 // From an agent's terminal page: back to that agent's start screen (its tab, or a new one).
                 window.MatgateShowAgent = serverId => {
                     const existing = [...tabs.values()].find(candidate => candidate.serverId === serverId && isAgentTab(candidate));
@@ -7225,7 +7653,8 @@ public sealed class HtmlViews
                     return cp < 0x100 ? cp : 0x01000000 + cp;
                 };
                 const OSK_COMBO_ICON = '<svg class="icon osk-combo-icon" viewBox="0 0 46 24" aria-hidden="true"><rect x="1.5" y="6" width="12" height="12" rx="2.5"/><rect x="17" y="6" width="12" height="12" rx="2.5"/><rect x="32.5" y="6" width="12" height="12" rx="2.5"/></svg>';
-                // Shared special keys (identical on both layouts).
+                // The special keys there were before the key bar could be configured. In a layout this row
+                // only marks the place of the top row: what is shown there is the user's own key bar.
                 const OSK_FN_ROW = [
                     { t: 'Esc', sym: 0xFF1B }, { t: 'Tab', sym: 0xFF09 },
                     { t: '←', sym: 0xFF51 }, { t: '↑', sym: 0xFF52 }, { t: '↓', sym: 0xFF54 }, { t: '→', sym: 0xFF53 },
@@ -7279,8 +7708,14 @@ public sealed class HtmlViews
                 function buildSessionOsk(tab) {
                     const osk = document.createElement('div');
                     osk.className = 'matgate-osk';
-                    const state = { shift: false, ctrl: false, alt: false };
+                    const state = { shift: false, ctrl: false, alt: false, win: false };
+                    const MOD_SYMS = { ctrl: 0xFFE3, alt: 0xFFE9, shift: 0xFFE1, win: 0xFFEB };
                     let modButtons = {};
+                    // The sticky buttons of the user's key bar: lit while all of their modifiers are held.
+                    let ownSticky = [];
+                    // Which of the user's buttons this session shows: those for terminals or those for desktops.
+                    const ownScope = (tab.protocol || '').toUpperCase() === 'SSH' ? 'terminal' : 'screen';
+                    const ownButtons = keyBarButtons.filter(button => button.scope === 'all' || button.scope === ownScope);
 
                     const applyShiftLabels = () => {
                         osk.querySelectorAll('[data-osk-cap]').forEach(el => {
@@ -7289,6 +7724,7 @@ public sealed class HtmlViews
                     };
                     const refreshMods = () => {
                         Object.keys(modButtons).forEach(name => modButtons[name].classList.toggle('active', !!state[name]));
+                        ownSticky.forEach(entry => entry.btn.classList.toggle('active', entry.mods.every(name => state[name])));
                     };
                     const sendPress = keysym => {
                         if (!tab.client) {
@@ -7301,15 +7737,68 @@ public sealed class HtmlViews
                         if (state.alt) {
                             held.push(0xFFE9);
                         }
+                        if (state.win) {
+                            held.push(0xFFEB);
+                        }
                         held.forEach(m => tab.client.sendKeyEvent(1, m));
                         tab.client.sendKeyEvent(1, keysym);
                         tab.client.sendKeyEvent(0, keysym);
                         held.slice().reverse().forEach(m => tab.client.sendKeyEvent(0, m));
-                        if (state.ctrl || state.alt) {
+                        if (state.ctrl || state.alt || state.win) {
                             state.ctrl = false;
                             state.alt = false;
+                            state.win = false;
                             refreshMods();
                         }
+                    };
+                    // A button of the user's key bar: its keys, together with whatever the keyboard holds.
+                    const sendOwn = syms => {
+                        if (!tab.client) {
+                            return;
+                        }
+                        const held = Object.keys(MOD_SYMS).filter(name => state[name]).map(name => MOD_SYMS[name]).filter(sym => !syms.includes(sym));
+                        const all = held.concat(syms);
+                        all.forEach(sym => tab.client.sendKeyEvent(1, sym));
+                        all.slice().reverse().forEach(sym => tab.client.sendKeyEvent(0, sym));
+                        Object.keys(MOD_SYMS).forEach(name => {
+                            state[name] = false;
+                        });
+                        applyShiftLabels();
+                        refreshMods();
+                    };
+                    const pressOwn = async button => {
+                        if (button.sticky) {
+                            const on = !button.mods.every(name => state[name]);
+                            button.mods.forEach(name => {
+                                state[name] = on;
+                            });
+                            applyShiftLabels();
+                            refreshMods();
+                            return;
+                        }
+                        if (button.action === 'paste') {
+                            // What is on this device's clipboard goes along; without access to it the keys go alone.
+                            let clip = '';
+                            try {
+                                clip = await readBrowserClipboard();
+                            }
+                            catch {
+                                clip = '';
+                            }
+                            if (clip && (ownScope === 'terminal' || sessionPrefs.pasteAsKeystrokes)) {
+                                // A terminal has no clipboard it would paste from: the text is typed.
+                                typeTextToRemote(tab, clip);
+                                return;
+                            }
+                            if (clip) {
+                                tab.lastSentClipboard = clip;
+                                sendClipboardText(tab, clip, true);
+                                // The remote clipboard first, then the keys that paste from it.
+                                window.setTimeout(() => sendOwn(button.syms), 150);
+                                return;
+                            }
+                        }
+                        sendOwn(button.syms);
                     };
                     const sendCombo = syms => {
                         if (!tab.client) {
@@ -7323,10 +7812,14 @@ public sealed class HtmlViews
                         osk.replaceChildren();
                         modButtons = {};
                         const layout = OSK_LAYOUTS[oskLayout] || OSK_LAYOUTS.de;
-                        const rows = sessionPrefs.functionKeys ? [OSK_FKEY_ROW, ...layout.rows] : layout.rows;
+                        ownSticky = [];
+                        const ownRow = ownButtons.map(button => ({ t: button.label, title: button.title, own: button, cls: 'osk-own' }));
+                        // Someone who removed every button has no top row.
+                        const laid = layout.rows.map(row => row === OSK_FN_ROW ? ownRow : row).filter(row => row.length);
+                        const rows = sessionPrefs.functionKeys ? [OSK_FKEY_ROW, ...laid] : laid;
                         rows.forEach(row => {
                             const rowEl = document.createElement('div');
-                            rowEl.className = 'matgate-osk-row';
+                            rowEl.className = 'matgate-osk-row' + (row === ownRow ? ' osk-own-row' : '');
                             row.forEach(def => {
                                 const key = typeof def === 'string' ? { c: def } : def;
                                 const btn = document.createElement('button');
@@ -7353,9 +7846,18 @@ public sealed class HtmlViews
                                 }
                                 else {
                                     btn.textContent = key.t;
+                                    if (key.title) {
+                                        btn.title = key.title;
+                                    }
                                 }
                                 if (key.mod) {
                                     modButtons[key.mod] = btn;
+                                }
+                                if (key.own) {
+                                    btn.dataset.id = key.own.id;
+                                    if (key.own.sticky) {
+                                        ownSticky.push({ btn, mods: key.own.mods });
+                                    }
                                 }
                                 btn.addEventListener('pointerdown', event => {
                                     event.preventDefault();
@@ -7364,6 +7866,10 @@ public sealed class HtmlViews
                                         try { localStorage.setItem('matgate-osk-layout', oskLayout); }
                                         catch { /* private mode: keep the choice for this session only */ }
                                         renderLayout();
+                                        return;
+                                    }
+                                    if (key.own) {
+                                        pressOwn(key.own);
                                         return;
                                     }
                                     if (key.mod) {
@@ -7967,6 +8473,17 @@ public sealed class HtmlViews
                         () => openResolutionDialog(),
                         state.resolution === 'auto' ? 'active' : '',
                         true));
+
+                    // The machine's windows (an agent that knows them): a list to switch by, and one window
+                    // as the whole picture. The list itself belongs to the page.
+                    if (state.canWindows) {
+                        addTabAction('windows', createTabActionButton(
+                            actionIcons.windows || actionIcons.popOut,
+                            agentTexts.windows,
+                            () => api()?.toggleWindows(),
+                            'tab-action-keep' + (state.windowsOpen || state.windowOnly ? ' active' : ''),
+                            true));
+                    }
 
                     // VNC carries no sound.
                     if (state.canSound !== false) {
@@ -10830,6 +11347,7 @@ public sealed class HtmlViews
                     unreachable: agentGerman ? 'Nicht erreichbar' : 'Unreachable',
                     offlineHint: agentGerman ? 'Matgate erreicht den Agent nicht. Läuft er auf dem Rechner, und stimmen Host, Port und Token?' : 'Matgate cannot reach the agent. Is it running on the machine, and are host, port and token right?',
                     retry: agentGerman ? 'Erneut versuchen' : 'Try again',
+                    windows: agentGerman ? 'Fenster des Rechners' : 'Windows of the machine',
                     plugins: agentGerman ? 'Was dieser Rechner anbietet' : 'What this machine offers',
                     files: agentGerman ? 'Dateien' : 'Files',
                     filesHint: agentGerman ? 'Freigegebene Ordner durchsuchen, hoch- und herunterladen' : 'Browse the shared folders, upload and download',
@@ -15934,6 +16452,88 @@ public sealed class HtmlViews
                     .totp-state { align-items: center; display: flex; gap: 8px; margin: 12px 0 0; }
                     .totp-codes { columns: 2; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 15px; letter-spacing: .06em; list-style: none; margin: 10px 0 0; padding: 0; }
                     .totp-codes li { padding: 2px 0; }
+                    .home2-manage-link { align-items: center; color: var(--muted); display: inline-flex; font-size: 13px; gap: 6px; margin-left: auto; min-height: 32px; text-decoration: none; }
+                    .home2-manage-link:hover { color: var(--accent); }
+                    .home2-manage-link .icon { height: 15px; width: 15px; }
+                    /* The page of one connection (and of one folder): a column of its own, as wide as a form
+                       reads well - not the full width of a list. */
+                    .conn-page { margin: 0 auto; max-width: 880px; }
+                    .conn-page .server-form { gap: 14px; }
+                    .conn-page .server-form-section > h2 { margin-bottom: 12px; }
+                    .conn-page [hidden] { display: none !important; }
+                    .conn-grid { align-items: start; display: grid; gap: 14px; grid-template-columns: repeat(6, minmax(0, 1fr)); }
+                    .conn-grid + .conn-grid { margin-top: 14px; }
+                    .conn-grid > label { grid-column: span 3; min-width: 0; }
+                    .conn-grid > .conn-wide { grid-column: 1 / -1; }
+                    .conn-grid > .conn-host { grid-column: span 4; }
+                    .conn-grid > .conn-port { grid-column: span 2; }
+                    .conn-lead { font-size: 13px; margin: -6px 0 12px; }
+                    .conn-note { background: var(--surface-2); border-radius: var(--radius); font-size: 13px; margin-top: 14px; padding: 10px 12px; }
+                    .conn-note p { margin: 0; }
+                    .conn-note p + p { margin-top: 6px; }
+                    .conn-icon { align-items: center; display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0 6px; }
+                    .conn-field-label { font-weight: 600; }
+                    .conn-icon-current { align-items: center; display: inline-flex; gap: 8px; min-height: 40px; }
+                    .conn-icon-shown { align-items: center; display: inline-flex; justify-content: center; min-width: 22px; }
+                    .conn-icon-shown .icon { height: 18px; width: 18px; }
+                    .conn-icon-body { flex: 1 0 100%; }
+                    .conn-more-toggle {
+                        align-items: center;
+                        background: transparent;
+                        border: 0;
+                        color: var(--text);
+                        cursor: pointer;
+                        display: flex;
+                        flex-wrap: wrap;
+                        font: inherit;
+                        gap: 4px 10px;
+                        min-height: 40px;
+                        padding: 0;
+                        text-align: left;
+                        width: 100%;
+                    }
+                    .conn-more-title { font-size: 17px; font-weight: 700; }
+                    .conn-more-chevron { color: var(--muted); display: inline-flex; transition: transform .15s ease; }
+                    .conn-more-toggle[aria-expanded="true"] .conn-more-chevron { transform: rotate(90deg); }
+                    .conn-more-body { margin-top: 14px; }
+                    /* Save stays within reach however long the form is. */
+                    .conn-actions { bottom: 12px; box-shadow: var(--shadow-strong); margin-top: 14px; position: sticky; z-index: 2; }
+                    .conn-check-list { display: grid; gap: 4px 16px; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+                    .conn-check-list .check { align-items: center; display: flex; gap: 8px; min-height: 36px; }
+                    .conn-check-list .check small { margin-left: auto; }
+                    @media (max-width: 640px) {
+                        .conn-grid { grid-template-columns: minmax(0, 1fr); }
+                        .conn-grid > label, .conn-grid > .conn-host, .conn-grid > .conn-port { grid-column: 1 / -1; }
+                        .conn-actions { bottom: 0; border-radius: var(--radius) var(--radius) 0 0; margin-left: -4px; margin-right: -4px; }
+                    }
+                    /* A button of the key bar, as it looks under a session. */
+                    .key-cap {
+                        align-items: center;
+                        background: var(--surface-2);
+                        border: 1px solid var(--line);
+                        border-radius: 8px;
+                        color: var(--text);
+                        display: inline-flex;
+                        font-weight: 600;
+                        justify-content: center;
+                        min-height: 34px;
+                        min-width: 44px;
+                        padding: 2px 10px;
+                        text-decoration: none;
+                        white-space: nowrap;
+                    }
+                    a.key-cap:hover { border-color: var(--accent); color: var(--accent); }
+                    /* A rule of their own for display would otherwise win over the attribute. */
+                    #key-button-form [hidden] { display: none; }
+                    #key-button-form .form-grid { margin-top: 12px; }
+                    /* On a phone the list is the button and what to do with it; what the columns in between
+                       say moves under the button. */
+                    .key-row-note { display: none; font-size: 12px; margin-top: 4px; }
+                    @media (max-width: 700px) {
+                        [data-key-bar] th:nth-child(n+2):nth-child(-n+4),
+                        [data-key-bar] td:nth-child(n+2):nth-child(-n+4) { display: none; }
+                        .key-row-note { display: block; }
+                    }
                     .action-order-list { display: flex; flex-direction: column; gap: 6px; list-style: none; margin: 6px 0 0; padding: 0; }
                     .action-order-item {
                         align-items: center;
@@ -16568,6 +17168,11 @@ public sealed class HtmlViews
                     .matgate-osk-key.osk-layout { flex: 1.2 1 0; font-size: 12px; font-weight: 700; letter-spacing: .04em; }
                     /* F1-F12 row (optional): 12 narrow keys, smaller label. */
                     .matgate-osk-key.osk-fkey { font-size: 12px; }
+                    /* The user's key bar as the top row: as many buttons as they made, so it scrolls sideways
+                       instead of squeezing them. */
+                    .matgate-osk-row.osk-own-row { overflow-x: auto; scrollbar-width: none; }
+                    .matgate-osk-row.osk-own-row::-webkit-scrollbar { display: none; }
+                    .matgate-osk-key.osk-own { flex: 1 0 auto; font-size: 13px; min-width: 42px; padding: 2px 8px; white-space: nowrap; }
                     .tab-action-button .icon {
                         height: 15px;
                         width: 15px;
@@ -21279,16 +21884,19 @@ public sealed class HtmlViews
             """;
     }
 
-    private static string ServerFields(HttpContext context, MatgateUser currentUser, ServerEndpoint? server = null, ServerProtocol? preferredProtocol = null)
+    private static string ServerFields(
+        HttpContext context,
+        MatgateUser currentUser,
+        ServerEndpoint? server = null,
+        ServerProtocol? preferredProtocol = null,
+        IReadOnlyList<string>? folders = null,
+        string returnTo = "")
     {
         // For a new server (server is null) an optional preferred protocol preselects the dropdown;
         // if neither is set, RDP stays the default.
         var effectiveProtocol = server?.Protocol ?? preferredProtocol;
         var iconKey = ServerEndpoint.NormalizeIconKey(server?.IconKey);
         var folderName = Clean(server?.FolderName, "");
-        var folderIconKey = string.IsNullOrWhiteSpace(folderName)
-            ? ""
-            : ServerEndpoint.NormalizeIconKey(server?.FolderIconKey);
         var port = server?.Port.ToString() ?? "";
         var websiteUrl = string.IsNullOrWhiteSpace(server?.WebsiteUrl)
             ? (string.IsNullOrWhiteSpace(server?.Host) ? "" : server.Host)
@@ -21298,7 +21906,12 @@ public sealed class HtmlViews
             : server.KeyboardLayout;
         var terminalFontSize = ServerEndpoint.NormalizeTerminalFontSize(
             server?.TerminalFontSize ?? ServerEndpoint.DefaultTerminalFontSize);
-        var passwordHelp = server is null ? "" : $"""<p class="muted">{T(context, "Leave password empty to keep it unchanged.")}</p>""";
+        // Whether a password is stored is all the form says about it - it never shows one.
+        var passwordPlaceholder = server is null
+            ? ""
+            : string.IsNullOrEmpty(server.Password)
+                ? (Language(context) == "de" ? "keins gespeichert" : "none stored")
+                : (Language(context) == "de" ? "gespeichert - leer lassen behält es" : "stored - leave empty to keep it");
         var clearPassword = server is null ? "" : $"""<label class="check" data-protocols="rdp,vnc,ssh,sftp,ftp,smb,webdav,agent"><input type="checkbox" name="clearPassword"> {T(context, "Clear saved target password")}</label>""";
         var canManageGlobal = currentUser.IsAdmin || currentUser.CanManageServers;
         var canCreatePrivate = currentUser.IsAdmin || currentUser.CanCreateServers;
@@ -21323,158 +21936,174 @@ public sealed class HtmlViews
             ? $"""<select name="scope"><option value="global"{Selected(scopeValue == "global")}>{T(context, "Global")}</option><option value="private"{Selected(scopeValue == "private")}>{T(context, "Own server")}</option></select>"""
             : $"""<span class="static-field">{T(context, scopeValue == "private" ? "Own server" : "Global")}</span><input type="hidden" name="scope" value="{A(scopeValue)}">""";
 
+        var de = Language(context) == "de";
+
+        // The folders there are - a folder exists as long as a connection lies in it - and this connection's
+        // own, even when it is alone in it.
+        var folderNames = (folders ?? [])
+            .Append(folderName)
+            .Select(name => (name ?? "").Trim())
+            .Where(name => name.Length > 0)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .OrderBy(name => name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var folderOptions = string.Join("", folderNames.Select(name =>
+            $"""<option value="{A(name)}"{Selected(string.Equals(name, folderName, StringComparison.OrdinalIgnoreCase))}>{E(name)}</option>"""));
+        var shownIcon = string.IsNullOrWhiteSpace(iconKey)
+            ? """<span class="icon-picker-auto">Auto</span>"""
+            : Icon(iconKey);
+
+        // What most connections never need sits behind one button. A connection that has something set there
+        // shows it right away - nobody should have to guess where the setting went.
+        var moreOpen = server is not null
+            && (!string.IsNullOrWhiteSpace(server.Notes)
+                || !string.IsNullOrWhiteSpace(server.FileRootPath)
+                || ServerEndpoint.NormalizeEngine(server.Engine) == "guacamole"
+                || !server.IgnoreCertificate);
+
         var basicSection = $$"""
+            <input type="hidden" name="return" value="{{A(returnTo)}}">
             <section class="panel server-form-section">
-                <h2>{{T(context, "Basics")}}</h2>
-                <div class="stack">
-                    <label class="server-protocol-field">
-                        <span>{{T(context, "Protocol")}}</span>
-                        {{ServerProtocolPicker(context, effectiveProtocol)}}
-                    </label>
-                    <div class="form-grid">
-                        <label><span>{{T(context, "Name")}}<span class="req" aria-hidden="true">*</span></span>
-                            <input name="name" value="{{A(server?.Name)}}" required aria-required="true">
-                        </label>
-                        <label>{{T(context, "Scope")}}
-                            {{scopeControl}}
-                        </label>
-                    </div>
-                    <label class="icon-picker-field">
-                        <span>{{T(context, "Server icon")}}</span>
-                        {{ServerIconPicker("iconKey", iconKey, T(context, "Default by connection type"), "Auto")}}
-                    </label>
-                </div>
+                <h2>{{(de ? "Art der Verbindung" : "Kind of connection")}}</h2>
+                {{ServerProtocolPicker(context, effectiveProtocol)}}
             </section>
             <section class="panel server-form-section">
-                <h2>{{T(context, "Folder")}}</h2>
-                <p class="muted">{{T(context, "Optional. Used for grouping in lists.")}}</p>
-                <div class="stack">
-                    <div class="form-grid">
-                        <label>{{T(context, "Folder name")}}
-                            <input name="folderName" value="{{A(folderName)}}" placeholder="NAS, Work, Lab">
-                        </label>
-                    </div>
-                    <label class="icon-picker-field">
-                        <span>{{T(context, "Folder icon")}}</span>
-                        {{ServerIconPicker("folderIconKey", folderIconKey, T(context, "Default folder icon"), "Auto")}}
+                <h2>{{(de ? "Ziel" : "Target")}}</h2>
+                <div class="conn-grid">
+                    <label class="conn-wide"><span>{{T(context, "Name")}}<span class="req" aria-hidden="true">*</span></span>
+                        <input name="name" value="{{A(server?.Name)}}" required aria-required="true" placeholder="{{A(de ? "z. B. Büro-PC" : "e.g. Office PC")}}">
                     </label>
-                </div>
-            </section>
-            <section class="panel server-form-section" data-protocols="rdp,vnc,ssh,sftp,ftp,smb,webdav,agent">
-                <h2>{{T(context, "Target")}}</h2>
-                <div class="form-grid">
-                    <label><span>{{T(context, "Host or IP")}}<span class="req" aria-hidden="true">*</span></span>
-                        <input name="host" value="{{A(server?.Host)}}" placeholder="PC-Terminal / Host" required aria-required="true">
+                    <label class="conn-host" data-protocols="rdp,vnc,ssh,sftp,ftp,smb,webdav,agent"><span>{{T(context, "Host or IP")}}<span class="req" aria-hidden="true">*</span></span>
+                        <input name="host" value="{{A(server?.Host)}}" placeholder="{{A(de ? "Name oder Adresse des Rechners" : "the machine's name or address")}}" required aria-required="true" autocapitalize="off" spellcheck="false">
                     </label>
-                    <label>Port
-                        <input name="port" type="number" min="1" max="65535" value="{{A(port)}}" placeholder="3389 / 5900 / 22 / 21 / 445 / 7488">
+                    <label class="conn-port" data-protocols="rdp,vnc,ssh,sftp,ftp,smb,webdav,agent">Port
+                        <input name="port" type="number" min="1" max="65535" value="{{A(port)}}" placeholder="3389" data-port-input>
                     </label>
-                </div>
-            </section>
-            <section class="panel server-form-section" data-protocols="website">
-                <h2>{{T(context, "Website settings")}}</h2>
-                <div class="form-grid">
-                    <label><span>{{T(context, "Website URL")}}<span class="req" aria-hidden="true">*</span></span>
-                        <input name="websiteUrl" value="{{A(websiteUrl)}}" placeholder="https://nas.local/admin/" required aria-required="true">
+                    <label class="conn-wide" data-protocols="website"><span>{{T(context, "Website URL")}}<span class="req" aria-hidden="true">*</span></span>
+                        <input name="websiteUrl" value="{{A(websiteUrl)}}" placeholder="https://nas.local/admin/" required aria-required="true" autocapitalize="off" spellcheck="false">
                     </label>
-                    <label>{{T(context, "Open as")}}
+                    <label class="conn-wide" data-protocols="website">{{T(context, "Open as")}}
                         <select name="websiteRenderMode">
-                            <option value="native"{{((server?.WebsiteRenderMode ?? WebsiteRenderMode.Native) == WebsiteRenderMode.Native ? " selected" : "")}}>{{(Language(context) == "de" ? "Nativ (Reverse-Proxy)" : "Native (reverse proxy)")}}</option>
-                            <option value="chromiumvnc"{{(server?.WebsiteRenderMode == WebsiteRenderMode.ChromiumVnc ? " selected" : "")}}>{{(Language(context) == "de" ? "via Chromium VNC" : "via Chromium VNC")}}</option>
-                            <option value="firefoxvnc"{{(server?.WebsiteRenderMode == WebsiteRenderMode.FirefoxVnc ? " selected" : "")}}>{{(Language(context) == "de" ? "via Firefox VNC" : "via Firefox VNC")}}</option>
+                            <option value="native"{{((server?.WebsiteRenderMode ?? WebsiteRenderMode.Native) == WebsiteRenderMode.Native ? " selected" : "")}}>{{(de ? "Nativ (Reverse-Proxy)" : "Native (reverse proxy)")}}</option>
+                            <option value="chromiumvnc"{{(server?.WebsiteRenderMode == WebsiteRenderMode.ChromiumVnc ? " selected" : "")}}>via Chromium VNC</option>
+                            <option value="firefoxvnc"{{(server?.WebsiteRenderMode == WebsiteRenderMode.FirefoxVnc ? " selected" : "")}}>via Firefox VNC</option>
                         </select>
-                        <small class="muted">{{(Language(context) == "de" ? "\"via ... VNC\" öffnet die Seite in einem echten Browser (Browser-Dienst nötig) - Fallback für Seiten, die der Proxy nicht darstellt." : "\"via ... VNC\" opens the page in a real browser (requires the browser service) - a fallback for pages the proxy can't render.")}}</small>
+                        <small class="muted">{{(de ? "\"via ... VNC\" öffnet die Seite in einem echten Browser (Browser-Dienst nötig) - für Seiten, die der Proxy nicht darstellt." : "\"via ... VNC\" opens the page in a real browser (requires the browser service) - for pages the proxy can't render.")}}</small>
                     </label>
-                    <label class="check"><input type="checkbox" name="websiteFarmToolbar"{{Checked(server?.WebsiteFarmToolbar ?? false)}}> {{(Language(context) == "de" ? "Browser-Bedienleiste zeigen (sonst Kiosk-Vollbild) – nur VNC-Modi" : "Show browser toolbar (otherwise kiosk fullscreen) – VNC modes only")}}</label>
-                    <label class="check"><input type="checkbox" name="ignoreCertificate"{{Checked(server?.IgnoreCertificate ?? true)}}> {{T(context, "Ignore certificate")}}</label>
+                </div>
+                <div class="conn-note" data-protocols="agent">
+                    <p>{{(de
+                        ? "Der Agent läuft auf dem Rechner und lauscht auf einem Port (Standard 7488). Als Token gehört hierher, was das Setup des Agents anzeigt. Was er anbietet (Dateien, Programme, Bildschirm), legt der Agent selbst fest."
+                        : "The agent runs on the machine and listens on a port (default 7488). The token is what the agent's setup shows. What it offers (files, programs, the screen) is up to the agent.")}}</p>
+                    <p><a href="https://github.com/Real-TTX/Matgate/releases/download/agent-latest/matgate-agent.exe" target="_blank" rel="noopener">{{(de ? "Agent für Windows herunterladen" : "Download the agent for Windows")}}</a>
+                        <span class="muted">{{(de ? " - doppelklicken, Installieren; das Setup zeigt danach Port, Token und Fingerabdruck." : " - double-click, Install; the setup then shows port, token and fingerprint.")}}</span></p>
                 </div>
             </section>
             <section class="panel server-form-section" data-protocols="rdp,vnc,ssh,sftp,ftp,smb,webdav,agent">
-                <h2>{{T(context, "Credentials")}}</h2>
-                <div class="form-grid">
-                    <label data-protocols="rdp,ssh,sftp,ftp,smb,webdav">{{T(context, "Target user")}}
-                        <input name="targetUserName" value="{{A(server?.UserName)}}" autocomplete="off">
+                <h2>{{(de ? "Anmeldung" : "Sign-in")}}</h2>
+                <p class="muted conn-lead" data-protocols="rdp,vnc,ssh">{{(de
+                    ? "Was hier leer bleibt, fragt Matgate beim Verbinden ab."
+                    : "Whatever stays empty here, Matgate asks for when connecting.")}}</p>
+                <div class="conn-grid">
+                    <label data-protocols="rdp,ssh,sftp,ftp,smb,webdav">{{(de ? "Benutzer" : "User")}}
+                        <input name="targetUserName" value="{{A(server?.UserName)}}" autocomplete="off" autocapitalize="off" spellcheck="false">
                     </label>
-                    <label data-protocols="rdp,vnc,ssh,sftp,ftp,smb,webdav">{{T(context, "Connection password")}}
-                        <input name="targetPassword" type="password" autocomplete="new-password">
-                        {{passwordHelp}}
+                    <label data-protocols="rdp,vnc,ssh,sftp,ftp,smb,webdav">{{(de ? "Passwort" : "Password")}}
+                        <input name="targetPassword" type="password" autocomplete="new-password" placeholder="{{A(passwordPlaceholder)}}">
                     </label>
                     <!-- An agent has no user, only the token its setup shows. -->
-                    <label data-protocols="agent">{{(Language(context) == "de" ? "Token des Agents" : "Agent token")}}
-                        <input name="targetPassword" type="password" autocomplete="new-password" placeholder="{{A(Language(context) == "de" ? "wird im Setup des Agents angezeigt" : "shown by the agent's setup")}}">
-                        {{passwordHelp}}
+                    <label class="conn-wide" data-protocols="agent">{{(de ? "Token des Agents" : "Agent token")}}
+                        <input name="targetPassword" type="password" autocomplete="new-password" placeholder="{{A(server is null ? (de ? "wird im Setup des Agents angezeigt" : "shown by the agent's setup") : passwordPlaceholder)}}">
                     </label>
-                    {{clearPassword}}
-                </div>
-            </section>
-            <section class="panel server-form-section" data-protocols="rdp,smb">
-                <h2>{{T(context, "Domain (RDP/SMB)")}}</h2>
-                <div class="form-grid">
-                    <label>{{T(context, "Domain")}}
-                        <input name="domain" value="{{A(server?.Domain)}}">
+                    <label data-protocols="rdp,smb"><span>{{(de ? "Domäne" : "Domain")}} <small class="muted">(optional)</small></span>
+                        <input name="domain" value="{{A(server?.Domain)}}" autocapitalize="off" spellcheck="false">
                     </label>
                 </div>
-            </section>
-            <section class="panel server-form-section" data-protocols="rdp">
-                <h2>{{T(context, "RDP settings")}}</h2>
-                <div class="form-grid">
-                    {{EngineSelect(context, server, ServerProtocol.Rdp)}}
-                    <label>{{T(context, "RDP keyboard layout")}}
-                        <input name="keyboardLayout" list="keyboardLayouts" value="{{A(keyboardLayout)}}" autocomplete="off">
-                        <datalist id="keyboardLayouts">
-                            <option value="de-de-qwertz">Deutsch (QWERTZ)</option>
-                            <option value="de-ch-qwertz">Schweiz Deutsch (QWERTZ)</option>
-                            <option value="en-us-qwerty">English US (QWERTY)</option>
-                            <option value="en-gb-qwerty">English UK (QWERTY)</option>
-                            <option value="fr-fr-azerty">Francais (AZERTY)</option>
-                            <option value="it-it-qwerty">Italiano (QWERTY)</option>
-                            <option value="es-es-qwerty">Espanol (QWERTY)</option>
-                        </datalist>
-                    </label>
-                    <label class="check"><input type="checkbox" name="ignoreCertificate"{{Checked(server?.IgnoreCertificate ?? true)}}> {{T(context, "Ignore RDP certificate")}}</label>
-                </div>
-            </section>
-            <section class="panel server-form-section" data-protocols="vnc">
-                <h2>{{(Language(context) == "de" ? "VNC-Einstellungen" : "VNC settings")}}</h2>
-                <div class="form-grid">
-                    {{EngineSelect(context, server, ServerProtocol.Vnc)}}
-                </div>
-            </section>
-            <section class="panel server-form-section" data-protocols="ssh">
-                <h2>{{T(context, "SSH settings")}}</h2>
-                <div class="form-grid">
-                    {{EngineSelect(context, server, ServerProtocol.Ssh)}}
-                    <label>{{T(context, "SSH font size")}}
-                        <input name="terminalFontSize" type="number" min="8" max="24" value="{{terminalFontSize}}">
-                    </label>
-                </div>
-            </section>
-            <section class="panel server-form-section" data-protocols="agent">
-                <h2>{{(Language(context) == "de" ? "Matgate-Agent" : "Matgate agent")}}</h2>
-                <p class="muted">{{(Language(context) == "de"
-                    ? "Der Agent läuft auf dem Rechner und lauscht auf einem Port (Standard 7488). Host und Port hier eintragen, als Verbindungspasswort das Token, das das Setup des Agents anzeigt. Was der Agent anbietet (Dateien, Claude Code, ...), legt er selbst fest."
-                    : "The agent runs on the machine and listens on a port (default 7488). Enter host and port here, and as connection password the token the agent prints on its first start and keeps in matgate-agent.json. What the agent offers (files, Claude Code, ...) is up to the agent.")}}</p>
-                <p><a href="https://github.com/Real-TTX/Matgate/releases/download/agent-latest/matgate-agent.exe" target="_blank" rel="noopener">{{(Language(context) == "de" ? "Agent für Windows herunterladen" : "Download the agent for Windows")}}</a>
-                    <span class="muted">{{(Language(context) == "de" ? " - doppelklicken, Installieren; das Setup zeigt danach Port, Token und Fingerabdruck. Entfernen über Einstellungen > Apps." : " - double-click, Install; the setup then shows port, token and fingerprint. Remove it under Settings > Apps.")}}</span></p>
-                <div class="form-grid">
-                    <label class="check"><input type="checkbox" name="ignoreCertificate"{{Checked(server?.IgnoreCertificate ?? true)}}> {{(Language(context) == "de" ? "Zertifikat ignorieren (selbst signiertes Zertifikat des Agents)" : "Ignore certificate (the agent's self-signed certificate)")}}</label>
-                </div>
-            </section>
-            <section class="panel server-form-section" data-protocols="sftp,ftp,smb">
-                <h2>{{T(context, "File access")}}</h2>
-                <div class="form-grid">
-                    <label>{{T(context, "File start path / SMB share")}}
-                        <input name="fileRootPath" value="{{A(server?.FileRootPath)}}" placeholder="/home/user oder Share/Ordner">
-                    </label>
-                </div>
+                {{clearPassword}}
             </section>
             <section class="panel server-form-section">
-                <h2>{{T(context, "Status")}}</h2>
-                <div class="form-grid">
-                    <label class="check"><input type="checkbox" name="isEnabled"{{Checked(server?.IsEnabled ?? true)}}> {{T(context, "Enabled")}}</label>
-                    <label class="wide">{{T(context, "Notes")}}
-                        <textarea name="notes">{{E(server?.Notes)}}</textarea>
+                <h2>{{(de ? "Einordnung" : "Filing")}}</h2>
+                <div class="conn-grid">
+                    <label>{{(de ? "Ordner" : "Folder")}}
+                        <select data-folder-select aria-label="{{A(de ? "Ordner" : "Folder")}}">
+                            <option value="">{{(de ? "Kein Ordner" : "No folder")}}</option>
+                            {{folderOptions}}
+                            <option value="__new__">{{(de ? "Neuer Ordner ..." : "New folder ...")}}</option>
+                        </select>
                     </label>
+                    <label data-folder-new hidden>{{(de ? "Name des neuen Ordners" : "Name of the new folder")}}
+                        <input data-folder-new-input maxlength="80" placeholder="NAS, Work, Lab">
+                    </label>
+                    <input type="hidden" name="folderName" value="{{A(folderName)}}" data-folder-value>
+                    <label>{{(de ? "Sichtbar für" : "Visible to")}}
+                        {{scopeControl}}
+                    </label>
+                </div>
+                <div class="conn-icon" data-icon-collapse>
+                    <span class="conn-field-label">{{(de ? "Symbol" : "Icon")}}</span>
+                    <button type="button" class="conn-icon-current" data-icon-toggle aria-expanded="false">
+                        <span class="conn-icon-shown" data-icon-shown>{{shownIcon}}</span>
+                        <span>{{(de ? "Ändern" : "Change")}}</span>
+                    </button>
+                    <div class="conn-icon-body" data-icon-body hidden>
+                        {{ServerIconPicker("iconKey", iconKey, T(context, "Default by connection type"), "Auto")}}
+                    </div>
+                </div>
+                <label class="toggle-row">
+                    <input type="checkbox" name="isEnabled"{{Checked(server?.IsEnabled ?? true)}}>
+                    <span class="toggle-switch" aria-hidden="true"></span>
+                    <span class="toggle-copy"><strong>{{(de ? "Aktiv" : "Enabled")}}</strong><small>{{(de ? "Ausgeschaltet bleibt die Verbindung gespeichert, wird aber niemandem angeboten." : "Switched off, the connection stays stored but is offered to nobody.")}}</small></span>
+                </label>
+            </section>
+            <section class="panel server-form-section conn-more">
+                <button type="button" class="conn-more-toggle" data-more-toggle aria-expanded="{{(moreOpen ? "true" : "false")}}">
+                    <span class="conn-more-chevron" aria-hidden="true">{{Icon("chevron-right")}}</span>
+                    <span class="conn-more-title">{{(de ? "Weitere Einstellungen" : "More settings")}}</span>
+                    <small class="muted">{{(de ? "Öffnen als, Zertifikat, Startpfad, Notizen" : "Open as, certificate, start path, notes")}}</small>
+                </button>
+                <div class="conn-more-body" data-more-body{{(moreOpen ? "" : " hidden")}}>
+                    <div class="conn-grid" data-protocols="rdp">
+                        {{EngineSelect(context, server, ServerProtocol.Rdp)}}
+                        <label>{{T(context, "RDP keyboard layout")}}
+                            <input name="keyboardLayout" list="keyboardLayouts" value="{{A(keyboardLayout)}}" autocomplete="off">
+                            <datalist id="keyboardLayouts">
+                                <option value="de-de-qwertz">Deutsch (QWERTZ)</option>
+                                <option value="de-ch-qwertz">Schweiz Deutsch (QWERTZ)</option>
+                                <option value="en-us-qwerty">English US (QWERTY)</option>
+                                <option value="en-gb-qwerty">English UK (QWERTY)</option>
+                                <option value="fr-fr-azerty">Francais (AZERTY)</option>
+                                <option value="it-it-qwerty">Italiano (QWERTY)</option>
+                                <option value="es-es-qwerty">Espanol (QWERTY)</option>
+                            </datalist>
+                        </label>
+                        <label class="check conn-wide"><input type="checkbox" name="ignoreCertificate"{{Checked(server?.IgnoreCertificate ?? true)}}> {{T(context, "Ignore RDP certificate")}}</label>
+                    </div>
+                    <div class="conn-grid" data-protocols="vnc">
+                        {{EngineSelect(context, server, ServerProtocol.Vnc)}}
+                    </div>
+                    <div class="conn-grid" data-protocols="ssh">
+                        {{EngineSelect(context, server, ServerProtocol.Ssh)}}
+                        <label>{{T(context, "SSH font size")}}
+                            <input name="terminalFontSize" type="number" min="8" max="24" value="{{terminalFontSize}}">
+                        </label>
+                    </div>
+                    <div class="conn-grid" data-protocols="website">
+                        <label class="check conn-wide"><input type="checkbox" name="websiteFarmToolbar"{{Checked(server?.WebsiteFarmToolbar ?? false)}}> {{(de ? "Browser-Bedienleiste zeigen (sonst Kiosk-Vollbild) – nur VNC-Modi" : "Show browser toolbar (otherwise kiosk fullscreen) – VNC modes only")}}</label>
+                        <label class="check conn-wide"><input type="checkbox" name="ignoreCertificate"{{Checked(server?.IgnoreCertificate ?? true)}}> {{T(context, "Ignore certificate")}}</label>
+                    </div>
+                    <div class="conn-grid" data-protocols="agent">
+                        <label class="check conn-wide"><input type="checkbox" name="ignoreCertificate"{{Checked(server?.IgnoreCertificate ?? true)}}> {{(de ? "Zertifikat ignorieren (selbst signiertes Zertifikat des Agents)" : "Ignore certificate (the agent's self-signed certificate)")}}</label>
+                    </div>
+                    <div class="conn-grid" data-protocols="sftp,ftp,smb">
+                        <label class="conn-wide">{{T(context, "File start path / SMB share")}}
+                            <input name="fileRootPath" value="{{A(server?.FileRootPath)}}" placeholder="{{A(de ? "/home/user oder Freigabe/Ordner" : "/home/user or share/folder")}}" autocapitalize="off" spellcheck="false">
+                        </label>
+                    </div>
+                    <div class="conn-grid">
+                        <label class="conn-wide">{{T(context, "Notes")}}
+                            <textarea name="notes" rows="3">{{E(server?.Notes)}}</textarea>
+                        </label>
+                    </div>
                 </div>
             </section>
             """;
@@ -21569,6 +22198,16 @@ public sealed class HtmlViews
                         });
                     };
 
+                    // The port field says which port is taken when it stays empty.
+                    const defaultPorts = { rdp: '3389', vnc: '5900', ssh: '22', sftp: '22', ftp: '21', smb: '445', webdav: '443', agent: '7488' };
+                    const portInput = form.querySelector('[data-port-input]');
+                    const showDefaultPort = () => {
+                        if (portInput) {
+                            portInput.placeholder = defaultPorts[normalize(protocolInput.value)] || '';
+                        }
+                    };
+                    showDefaultPort();
+
                     if (picker) {
                         picker.querySelectorAll('[data-protocol-option]').forEach((option) => {
                             option.addEventListener('click', () => {
@@ -21577,6 +22216,7 @@ public sealed class HtmlViews
                                     other.classList.toggle('active', other === option);
                                 });
                                 update();
+                                showDefaultPort();
                             });
                         });
                     }
@@ -21584,7 +22224,60 @@ public sealed class HtmlViews
                         protocolInput.addEventListener('change', update);
                     }
 
-                    // Visual icon pickers (server icon, folder icon): tile click -> hidden input.
+                    // The folder: one of those there are, none, or a new one by name. What is sent is the name.
+                    const folderSelect = form.querySelector('[data-folder-select]');
+                    const folderValue = form.querySelector('[data-folder-value]');
+                    const folderNewRow = form.querySelector('[data-folder-new]');
+                    const folderNewInput = form.querySelector('[data-folder-new-input]');
+                    if (folderSelect && folderValue && folderNewRow && folderNewInput) {
+                        const syncFolder = () => {
+                            const isNew = folderSelect.value === '__new__';
+                            folderNewRow.hidden = !isNew;
+                            folderValue.value = isNew ? folderNewInput.value.trim() : folderSelect.value;
+                        };
+                        folderSelect.addEventListener('change', () => {
+                            syncFolder();
+                            if (folderSelect.value === '__new__') {
+                                folderNewInput.focus();
+                            }
+                        });
+                        folderNewInput.addEventListener('input', syncFolder);
+                    }
+
+                    // The icon: shown small, the choice opens on request.
+                    form.querySelectorAll('[data-icon-collapse]').forEach((box) => {
+                        const toggle = box.querySelector('[data-icon-toggle]');
+                        const body = box.querySelector('[data-icon-body]');
+                        const shown = box.querySelector('[data-icon-shown]');
+                        if (!toggle || !body) {
+                            return;
+                        }
+                        toggle.addEventListener('click', () => {
+                            body.hidden = !body.hidden;
+                            toggle.setAttribute('aria-expanded', body.hidden ? 'false' : 'true');
+                        });
+                        box.querySelectorAll('[data-icon-option]').forEach((option) => {
+                            option.addEventListener('click', () => {
+                                if (shown) {
+                                    shown.innerHTML = option.innerHTML;
+                                }
+                                body.hidden = true;
+                                toggle.setAttribute('aria-expanded', 'false');
+                            });
+                        });
+                    });
+
+                    // What most connections never need: behind one button.
+                    const moreToggle = form.querySelector('[data-more-toggle]');
+                    const moreBody = form.querySelector('[data-more-body]');
+                    if (moreToggle && moreBody) {
+                        moreToggle.addEventListener('click', () => {
+                            moreBody.hidden = !moreBody.hidden;
+                            moreToggle.setAttribute('aria-expanded', moreBody.hidden ? 'false' : 'true');
+                        });
+                    }
+
+                    // Visual icon pickers: tile click -> hidden input.
                     form.querySelectorAll('[data-icon-picker]').forEach((iconPicker) => {
                         const iconInput = iconPicker.querySelector('[data-icon-input]');
                         if (!iconInput) {
@@ -22441,6 +23134,8 @@ public sealed class HtmlViews
             "users" => """<path d="M16 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="9.5" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>""",
             "arrow-left" => """<path d="M11 19 4 12l7-7"/><path d="M20 12H5"/>""",
             "arrow-right" => """<path d="m13 5 7 7-7 7"/><path d="M4 12h15"/>""",
+            "arrow-up" => """<path d="m5 11 7-7 7 7"/><path d="M12 20V5"/>""",
+            "arrow-down" => """<path d="m19 13-7 7-7-7"/><path d="M12 4v15"/>""",
             "external-link" => """<path d="M14 3h7v7"/><path d="M10 14 21 3"/><path d="M21 14v5a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5"/>""",
             "logout" => """<path d="M10 17l5-5-5-5"/><path d="M15 12H3"/><path d="M21 3v18"/>""",
             "volume" => """<path d="M11 5 6 9H3v6h3l5 4z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M18.5 5.5a9 9 0 0 1 0 13"/>""",
