@@ -1,8 +1,9 @@
 // The browser of quick connect where Matgate has no host names for websites - the way it runs where nobody
 // set them up (the second Matgate of the test stack, port 18092). It is Matgate's own browser there as well:
 // the page is fetched by Matgate and shown in the tab, under a path of Matgate's address - never the browser
-// farm's picture of one. Under a path a tab shows one website, so the browser asks for the address to start
-// with; an empty one is refused with words that say so.
+// farm's picture of one. And it is a browser: the address bar takes any address, a link or a redirect to
+// another machine inside the network is followed through Matgate (each website in a frame of its own under
+// the path), and what lies outside the network is offered to the user's own browser instead.
 const { chromium } = require("playwright-core");
 const BASE = "http://127.0.0.1:18092";
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -30,6 +31,19 @@ const check = (name, got, want) => {
   const chips = await page.evaluate(() => [...document.querySelectorAll(".home2-quick-row [data-home2-qc]")].map(chip => chip.dataset.home2Qc + ":" + chip.textContent.trim()));
   check("the browser is one of the chips - where the website was, not in front", [chips.indexOf("website:Browser"), chips.some(chip => /^browser:/.test(chip)), chips[0]], [5, false, "rdp:RDP"]);
 
+  // On a phone every chip is in sight: the row used to scroll sideways with no sign of it, and the browser
+  // stood behind the edge of the screen.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await sleep(300);
+  check("on a phone all chips are on the screen, the browser among them", await page.evaluate(() => {
+    const boxes = [...document.querySelectorAll(".home2-quick-row .home2-proto-chip")].map(chip => chip.getBoundingClientRect());
+    const row = document.querySelector(".home2-quick-row");
+    return [boxes.length, boxes.every(box => box.left >= 0 && box.right <= window.innerWidth && box.width > 40), row.scrollWidth <= row.clientWidth + 1];
+  }), [9, true, true]);
+  check("and their names are not cut off", await page.evaluate(() => [...document.querySelectorAll(".home2-quick-row .home2-proto-chip-name")].every(name => name.scrollWidth <= name.clientWidth + 1)), true);
+  await page.setViewportSize({ width: 1300, height: 860 });
+  await sleep(300);
+
   await page.click(".home2-quick-row [data-home2-qc='website']");
   await page.waitForSelector("[data-home2-proto-dialog][open]", { timeout: 10000 });
   const asked = () => page.evaluate(() => ({
@@ -39,35 +53,114 @@ const check = (name, got, want) => {
     button: document.querySelector("[data-home2-qc-submit]").textContent,
     fields: [...document.querySelectorAll("[data-home2-qc-form] input:not([type='hidden'])")].filter(field => field.offsetParent !== null).map(field => field.name),
   }));
-  check("the chip asks for the address to start with", await asked(), { label: "Start URL", required: true, focused: true, button: "Open browser", fields: ["host", "username", "password"] });
-  check("an example instead of a promise of an empty browser", await page.evaluate(() => /empty/i.test(document.querySelector("[data-home2-qc-host]").placeholder)), false);
+  check("the chip asks for the address to start with, and takes none as well", await asked(), { label: "Start URL", required: false, focused: true, button: "Open browser", fields: ["host", "username", "password"] });
+  check("and says so", await page.evaluate(() => /empty/i.test(document.querySelector("[data-home2-qc-host]").placeholder)), true);
   await page.click("[data-home2-qc-proto='rdp']");
-  check("another protocol has its own words again", [(await asked()).label, (await asked()).button], ["Host", "Connect"]);
+  check("another protocol has its own words again", [(await asked()).label, (await asked()).button, (await asked()).required], ["Host", "Connect", true]);
   await page.click("[data-home2-qc-proto='website']");
 
-  check("without an address the browser is refused, and it says why", await page.evaluate(async () => {
-    const body = new FormData();
-    body.append("protocol", "website");
-    const token = (document.documentElement.innerHTML.match(/csrfToken = ["']([^"']+)["']/) || [])[1];
-    const answer = await fetch("/api/quick-connect", { method: "POST", headers: { "X-Matgate-Csrf": token }, body });
-    return [answer.status, (await answer.json()).error];
-  }), [400, "Please enter the address the browser should start with."]);
-
-  await page.fill("[data-home2-qc-host]", "http://site:8080/");
+  // ---------------------------------------------------------------- started with an address, written without http://
+  await page.fill("[data-home2-qc-host]", "site:8080");
   await page.click("[data-home2-qc-form] button[type='submit']");
   await page.waitForSelector(".website-frame", { timeout: 20000 });
-  const frame = async () => (await page.$(".website-frame")).contentFrame();
-  let shown = "";
-  for (let i = 0; i < 60 && shown !== "Fixture Home"; i++) {
-    try { shown = await (await frame()).evaluate(() => (document.querySelector("#what") || {}).textContent || ""); } catch { /* loading */ }
-    if (shown !== "Fixture Home") { await sleep(250); }
-  }
+  const frameOf = async shell => (await shell.$(".website-frame")).contentFrame();
+  const shows = async (shell, wanted, selector = "#what") => {
+    let text = "";
+    for (let i = 0; i < 80 && text !== wanted; i++) {
+      try { text = await (await frameOf(shell)).evaluate(sel => (document.querySelector(sel) || {}).textContent || "", selector); } catch { /* loading */ }
+      if (text !== wanted) { await sleep(250); }
+    }
+    return text;
+  };
+  const frameId = async shell => ((await frameOf(shell)).url().match(/\/website\/[0-9a-f-]+\/([0-9a-f-]+)\/proxy\//) || [])[1] || "";
+  const address = shell => shell.inputValue(".website-address");
+  const type = async (shell, to) => {
+    await shell.fill(".website-address", to);
+    await shell.press(".website-address", "Enter");
+  };
+
   check("the address opens in Matgate's own browser: the page itself, under a path of Matgate's", [
-    shown,
-    /^http:\/\/127\.0\.0\.1:18092\/website\/[0-9a-f-]+\/[^/]+\/proxy\//.test((await frame()).url()),
+    await shows(page, "Fixture Home"),
+    /^http:\/\/127\.0\.0\.1:18092\/website\/[0-9a-f-]+\/[^/]+\/proxy\//.test((await frameOf(page)).url()),
     await page.evaluate(() => !!document.querySelector(".guac-display canvas")),
   ], ["Fixture Home", true, false]);
+  check("written without http:// it found that the machine speaks http", await address(page), "http://site:8080/");
   check("the tab is named after the address", await page.evaluate(() => [...document.querySelectorAll(".session-tab .session-tab-title")].some(title => /site:8080/.test(title.textContent))), true);
+  check("the address bar is one to type into", await page.evaluate(() => document.querySelector(".website-address").readOnly), false);
+  const firstFrame = await frameId(page);
+
+  // ---------------------------------------------------------------- a link to another machine
+  await (await frameOf(page)).click("#external");
+  check("a link to another machine is followed through Matgate", [await shows(page, "hello from other"), await shows(page, "other:8080", "#host")], ["hello from other", "other:8080"]);
+  await sleep(300);
+  const otherFrame = await frameId(page);
+  check("in a frame of its own under the path - what the browser keeps for one website is not sent to the next", [otherFrame.length > 0, otherFrame !== firstFrame], [true, true]);
+  check("the address bar shows where the tab is", await address(page), "http://other:8080/hello");
+  await (await frameOf(page)).click("#back");
+  check("and a link back lands in the first website's frame again", [await shows(page, "page two"), await frameId(page) === firstFrame], ["page two", true]);
+  await sleep(300);
+  check("with its address", await address(page), "http://site:8080/page2");
+
+  // ---------------------------------------------------------------- a redirect to another machine
+  await type(page, "http://site:8080/redirect-port");
+  check("a redirect to another port - what http-to-https looks like - is followed", [await shows(page, "the same machine, another port"), await shows(page, "site:8081", "#host"), await shows(page, "?from=redirect", "#query")], ["the same machine, another port", "site:8081", "?from=redirect"]);
+  await sleep(300);
+  check("the address bar shows where it led", await address(page), "http://site:8081/second?from=redirect");
+
+  // ---------------------------------------------------------------- typed into the address bar
+  await type(page, "other:8080/hello");
+  check("an address typed into the bar opens, written without http:// as well", [await shows(page, "hello from other"), await frameId(page) === otherFrame], ["hello from other", true]);
+  await type(page, "not an address");
+  await sleep(800);
+  check("what is no address changes nothing", [await shows(page, "hello from other"), dialogs], ["hello from other", []]);
+  await (await frameOf(page)).click("#what");
+  check("and once the bar is left it shows where the tab is again", await address(page), "http://other:8080/hello");
+
+  // ---------------------------------------------------------------- out of the network
+  // A page cannot send the tab to a machine on the internet on its own: it would run under Matgate's address.
+  await (await frameOf(page)).evaluate(() => { window.location.assign("https://203.0.113.5/somewhere?x=1"); });
+  let outside = null;
+  for (let i = 0; i < 60 && !outside; i++) {
+    try {
+      outside = await (await frameOf(page)).evaluate(() => {
+        const box = document.querySelector("[data-matgate-outside]");
+        return box ? { link: box.querySelector("a").href, target: box.querySelector("a").target, shown: box.querySelector("code").textContent } : null;
+      });
+    } catch { /* loading */ }
+    if (!outside) { await sleep(250); }
+  }
+  check("a page that sends the tab out of the network is stopped, and the address is offered to the user's own browser", outside, { link: "https://203.0.113.5/somewhere?x=1", target: "_blank", shown: "https://203.0.113.5/somewhere?x=1" });
+  await sleep(300);
+  check("the address bar shows where the page wanted to go", await address(page), "https://203.0.113.5/somewhere?x=1");
+  await (await frameOf(page)).click("button");
+  check("back leads to the page before", await shows(page, "hello from other"), "hello from other");
+
+  // What Matgate itself is asked: only a browser tab is taken elsewhere, and only its owner's.
+  check("the way to another website is a browser tab's alone", await page.evaluate(async () => {
+    const answer = await fetch("/website/" + crypto.randomUUID() + "/" + crypto.randomUUID() + "/go?u=" + encodeURIComponent("http://site:8080/"), { credentials: "same-origin", redirect: "manual" });
+    return answer.status;
+  }), 404);
+
+  // ---------------------------------------------------------------- started without an address
+  const blank = await context.newPage();
+  blank.on("pageerror", e => { console.log("JS ERROR: " + e.message); failures.push("JS error"); });
+  await blank.goto(BASE + "/", { waitUntil: "networkidle" });
+  await sleep(800);
+  await blank.click(".home2-quick-row [data-home2-qc='website']");
+  await blank.waitForSelector("[data-home2-proto-dialog][open]", { timeout: 10000 });
+  await blank.click("[data-home2-qc-form] button[type='submit']");
+  await blank.waitForSelector(".website-frame", { timeout: 20000 });
+  await sleep(800);
+  check("without an address it is an empty browser: an address bar to type into, focused", [
+    await address(blank),
+    await blank.evaluate(() => document.activeElement === document.querySelector(".website-address")),
+    await blank.evaluate(() => document.querySelector(".website-address").readOnly),
+    (await frameOf(blank)).url(),
+  ], ["", true, false, "about:blank"]);
+  check("the tab is called Browser", await blank.evaluate(() => [...document.querySelectorAll(".session-tab .session-tab-title")].some(title => title.textContent.trim() === "Browser")), true);
+  await type(blank, "http://site:8080/page2");
+  check("the first address typed opens", [await shows(blank, "page two"), await address(blank)], ["page two", "http://site:8080/page2"]);
+
   check("no dialog of the browser was involved", dialogs, []);
 
   await b.close();

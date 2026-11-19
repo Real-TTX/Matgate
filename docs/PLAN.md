@@ -1,7 +1,7 @@
 # Matgate – Plan zum Weitermachen
 
-Stand: 2026-11-19, Version 0.26.0 auf `main` (`v0.26.0`), Agent 0.14.0; auf ve-docker-1
-(matgate.schmoldt.it) läuft seit dem 2026-11-19 ebenfalls 0.26.0 (Websites dort weiter über den Pfad, bis
+Stand: 2026-11-19, Version 0.27.0 auf `main` (`v0.27.0`), Agent 0.14.0; auf ve-docker-1
+(matgate.schmoldt.it) läuft seit dem 2026-11-19 noch 0.26.0 (Websites dort weiter über den Pfad, bis
 Route und Variable stehen; Einspielen trennt laufende Sitzungen, nur auf ausdrücklichen Wunsch). Der Agent
 auf dem Entwicklungsrechner ist der offizielle Build aus dem Release `agent-latest`. Geschrieben als Übergabe an eine andere Sitzung.
 
@@ -237,12 +237,33 @@ Der Nutzer: „Kannst du das Website-Feature mit dem Proxy nochmal überarbeiten
   **Start-URL**. Mit eigenen Hostnamen darf sie leer bleiben: leerer Tab mit Adressleiste, jede Adresse,
   Links laufen über Matgate weiter. Ohne Hostnamen (Pfad-Weg) ist sie Pflicht - dort zeigt ein Tab genau
   eine Website, die Adressleiste ist nur Anzeige, Links zu anderen Rechnern verlassen Matgate (leere
-  Anfrage: 400 mit Klartext). **Bewusst nicht gebaut:** freies Surfen unter dem Pfad - die Seiten liefen
+  Anfrage: 400 mit Klartext) - **überholt durch 0.27.0, siehe den nächsten Punkt**. Damals bewusst nicht gebaut: freies Surfen unter dem Pfad - die Seiten liefen
   dann unter Matgates eigener Adresse und könnten als der angemeldete Benutzer mit Matgate reden; dafür
   sind die Hostnamen da. 0.25.1 hatte dafür kurz einen eigenen Chip `browser` vorn in der Reihe mit
   Farm-Rückfall; der Nutzer wollte den eingebauten Browser mit Start-URL und fragte, warum er vorn steht.
   Tests: `tests/browser-under-path.js` gegen ein zweites Matgate ohne Hostnamen im Teststapel
   (`matgate-plain`, Port 18092), `tests/website.js` mit Hostnamen.
+- **Surfen unter dem Pfad (0.27.0):** Der Nutzer fand den Browser auf dem Homelab nicht und wollte „einfach
+  im Netzwerk browsen“ - ohne Route im Matcad (seine Wahl, 2026-11-19). Seitdem ist ein Browser-Tab auch
+  ohne Hostnamen ein Browser: Die Adressleiste nimmt jede Adresse (auch ohne `http://` - Matgate probiert
+  https, sonst http: `WebsiteProxyService.WithSchemeAsync`), die Start-URL darf leer bleiben, und Links,
+  Formulare und Weiterleitungen zu **anderen Rechnern im Netz** laufen über Matgate weiter. Dafür bekommt
+  jede Website im Tab einen **eigenen Rahmen unter dem Pfad** (`/website/<Verbindung>/<Rahmen>/proxy/`;
+  Rahmen = Tab-ID für die Start-Website, sonst aus Tab und Origin abgeleitet: `WebsiteProxyService.Browse`,
+  `_browseTargets`) - Cookies hängen am Pfad, also bekommt keine Website die einer anderen. Der Sprung geht
+  über `/website/<id>/<tab>/go?u=…` (`WebsiteGoAsync`): nur für Browser-Tabs, nur zu Adressen, die auf
+  private Netze auflösen (`IsInsideNetworkAsync`); was draußen liegt, zeigt eine kleine Seite mit „In
+  meinem Browser öffnen“. Getippte Adressen sind nicht beschränkt (wie die Start-URL schon immer). Im
+  Seitenskript: Klick-, Formular- und Navigation-API-Haken (`hopUrl`); `location.assign` ist in Chromium
+  nicht patchbar, deshalb die Navigation API - **Safari vor 26.2 hat sie nicht**, dort fängt Matgate nur
+  Klicks, Formulare und Weiterleitungen. **Grenzen bleiben:** Die Seiten laufen unter Matgates eigener
+  Adresse (schwächere Trennung als mit Hostnamen), und Oberflächen wie UniFi, die ihre eigene Adresse
+  auswerten, gehen unter einem Pfad weiterhin nicht - dafür bleiben die Hostnamen (eine Route im Matcad).
+  Nebenbei behoben: Die Seite meldete der Hülle ihren Ort nie (`window.name` kam leer an) - die Tab-ID
+  kommt jetzt aus der Sitzung; Proxy-Sitzungen wurden nie aufgeräumt (jetzt nach 13 h ohne Zugriff).
+  **Chips am Telefon:** Die Reihe „Schnell verbinden“ scrollte seitwärts ohne sichtbaren Hinweis, der
+  Browser stand als sechster Chip außerhalb des Bildschirms. Jetzt bricht die Reihe um, am Telefon als
+  kleine Kacheln (fünf je Reihe). Test: `tests/browser-under-path.js`.
 - **Chips sortierbar (0.26.0):** Konto → Sitzung → „Schnell verbinden“ ist jetzt dieselbe Ziehliste wie die
   Aktionen (`data-order-group`): Reihenfolge und Haken. `SessionPreferences.QuickProtocolOrder` +
   `HiddenQuickProtocols`, `OrderedQuickProtocols` hängt Unbekanntes hinten an. Startseite und Dialog

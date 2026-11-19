@@ -65,6 +65,11 @@ public sealed class WebsiteProxyService
     private static readonly JsonSerializerOptions StorageStateJsonOptions = new(JsonSerializerDefaults.Web);
 
     private readonly ConcurrentDictionary<string, WebsiteProxySession> _sessions = new(StringComparer.OrdinalIgnoreCase);
+
+    // Where a frame of a browser tab was sent (see Browse): the website's root, and the tab the frame belongs to.
+    private sealed record BrowseTarget(string Url, Guid RootTabId);
+    private readonly ConcurrentDictionary<string, BrowseTarget> _browseTargets = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly TimeSpan SessionIdleLife = TimeSpan.FromHours(13);
     private readonly ILogger<WebsiteProxyService> _logger;
 
     public sealed record WebsiteStorageSnapshot(
@@ -517,12 +522,9 @@ public sealed class WebsiteProxyService
         var session = GetOrCreateSession(context, server, tabId);
         session.Touch();
 
-        var normalizedUrl = ServerEndpoint.NormalizeWebsiteUrl(server.WebsiteUrl, server.Host);
-        var baseUri = string.IsNullOrWhiteSpace(normalizedUrl)
-            ? null
-            : new Uri(normalizedUrl, UriKind.Absolute);
+        // The session's website, not the connection's: a frame of a browser tab may show another one.
         var proxyPrefix = session.ProxyPrefix;
-        var targetOrigin = baseUri is null ? "" : baseUri.GetLeftPart(UriPartial.Authority);
+        var targetOrigin = session.TargetOrigin;
         var hasTabId = tabId.HasValue && tabId.Value != Guid.Empty;
         var stateSyncUrl = session.StateSyncUrl;
         var storageStateJson = JsonSerializer.Serialize(session.GetStorageSnapshot(), StorageStateJsonOptions);
@@ -531,9 +533,13 @@ public sealed class WebsiteProxyService
             (() => {
                 const proxyPrefix = {{JsonSerializer.Serialize(proxyPrefix)}};
                 const targetOrigin = {{JsonSerializer.Serialize(targetOrigin)}};
+                const targetBase = {{JsonSerializer.Serialize(session.BaseUri.AbsoluteUri)}};
+                const hopPrefix = {{JsonSerializer.Serialize(session.HopPrefix)}};
                 const stateSyncUrl = {{JsonSerializer.Serialize(stateSyncUrl)}};
                 const currentOrigin = window.location.origin;
-                const tabId = window.name || '';
+                // The shell's tab this frame belongs to. The frame's name says it where the browser kept it; it
+                // did not always (the name came back empty, and the shell never heard where the page was).
+                const tabId = window.name || {{JsonSerializer.Serialize(session.RootTabId == Guid.Empty ? "" : session.RootTabId.ToString("D"))}};
                 const routeHasTabId = {{JsonSerializer.Serialize(hasTabId)}};
                 const originalFetch = window.fetch.bind(window);
                 const originalOpen = XMLHttpRequest.prototype.open;
@@ -626,6 +632,33 @@ public sealed class WebsiteProxyService
                     }
 
                     return value;
+                }
+
+                // A browser tab: an address of another website is not left to the browser - which would ask
+                // that machine itself, from wherever the user sits - but handed to Matgate, which takes the
+                // tab there. Null for everything that stays within this website.
+                function hopUrl(value) {
+                    if (!hopPrefix || typeof value !== 'string' || !value) {
+                        return null;
+                    }
+
+                    try {
+                        const absolute = new URL(value, document.baseURI);
+                        if ((absolute.protocol !== 'http:' && absolute.protocol !== 'https:')
+                            || absolute.origin === currentOrigin
+                            || absolute.origin === targetOrigin) {
+                            return null;
+                        }
+
+                        return hopPrefix + encodeURIComponent(absolute.href);
+                    }
+                    catch {
+                        return null;
+                    }
+                }
+
+                function navigationUrl(value) {
+                    return hopUrl(value) || rewriteUrl(value);
                 }
 
                 function toWebSocketProxyUrl(value) {
@@ -1213,7 +1246,7 @@ public sealed class WebsiteProxyService
                 function notifyParent() {
                     try {
                         if (tabId && window.parent && window.parent !== window && typeof window.parent.MatgateWebsiteLocationChanged === 'function') {
-                            window.parent.MatgateWebsiteLocationChanged(tabId, window.location.href);
+                            window.parent.MatgateWebsiteLocationChanged(tabId, window.location.href, targetBase);
                         }
                     }
                     catch {
@@ -1242,7 +1275,7 @@ public sealed class WebsiteProxyService
                 patchSourceUrl(HTMLEmbedElement && HTMLEmbedElement.prototype, 'src');
                 patchSourceUrl(SVGUseElement && SVGUseElement.prototype, 'href');
                 patchSourceUrl(SVGUseElement && SVGUseElement.prototype, 'xlinkHref');
-                patchSourceUrl(locationProto, 'href');
+                patchUrlProperty(locationProto, 'href', navigationUrl);
                 patchMarkupSetter(Element.prototype, 'innerHTML');
                 patchMarkupSetter(Element.prototype, 'outerHTML');
 
@@ -1428,12 +1461,12 @@ public sealed class WebsiteProxyService
                 };
 
                 window.open = function(url, target, features) {
-                    return originalWindowOpen(typeof url === 'string' ? rewriteUrl(url) : url, target, features);
+                    return originalWindowOpen(typeof url === 'string' ? navigationUrl(url) : url, target, features);
                 };
 
                 try {
                     window.location.assign = function(url) {
-                        return originalLocationAssign(typeof url === 'string' ? rewriteUrl(url) : url);
+                        return originalLocationAssign(typeof url === 'string' ? navigationUrl(url) : url);
                     };
                 }
                 catch {
@@ -1442,11 +1475,85 @@ public sealed class WebsiteProxyService
 
                 try {
                     window.location.replace = function(url) {
-                        return originalLocationReplace(typeof url === 'string' ? rewriteUrl(url) : url);
+                        return originalLocationReplace(typeof url === 'string' ? navigationUrl(url) : url);
                     };
                 }
                 catch {
                     // Ignore read-only navigation hooks.
+                }
+
+                if (hopPrefix) {
+                    // What a page's script starts (location.href = ..., location.assign): the hooks above do not
+                    // take in every browser - location is not theirs to patch -, the Navigation API does where it exists.
+                    if (window.navigation && typeof window.navigation.addEventListener === 'function') {
+                        window.navigation.addEventListener('navigate', event => {
+                            if (!event.cancelable || event.hashChange || event.downloadRequest != null || event.formData) {
+                                return;
+                            }
+
+                            const hop = hopUrl(event.destination && event.destination.url);
+                            if (hop) {
+                                event.preventDefault();
+                                originalLocationAssign(hop);
+                            }
+                        });
+                    }
+
+                    // A link to another website. Last in line, so that a page which handles its own clicks
+                    // has had its say; a plain click stays in the tab, one meant for a new tab gets one.
+                    const followLink = event => {
+                        if (event.defaultPrevented || (event.type === 'click' && event.button !== 0) || (event.type === 'auxclick' && event.button !== 1)) {
+                            return;
+                        }
+
+                        const link = event.target instanceof Element ? event.target.closest('a[href], area[href]') : null;
+                        const hop = link ? hopUrl(link.getAttribute('href')) : null;
+                        if (!hop) {
+                            return;
+                        }
+
+                        event.preventDefault();
+                        if (event.type === 'auxclick' || event.ctrlKey || event.metaKey || event.shiftKey) {
+                            originalWindowOpen(hop, '_blank', 'noopener');
+                        }
+                        else {
+                            originalLocationAssign(hop);
+                        }
+                    };
+                    window.addEventListener('click', followLink);
+                    window.addEventListener('auxclick', followLink);
+
+                    // And a form that is sent to another website: one that asks (GET) becomes an address,
+                    // one that posts keeps its body - Matgate answers with a redirect that repeats it.
+                    window.addEventListener('submit', event => {
+                        const form = event.target;
+                        if (event.defaultPrevented || !(form instanceof HTMLFormElement)) {
+                            return;
+                        }
+
+                        const submitter = event.submitter instanceof Element ? event.submitter : null;
+                        const action = (submitter && submitter.getAttribute('formaction')) || form.getAttribute('action') || '';
+                        if (!hopUrl(action)) {
+                            return;
+                        }
+
+                        const method = ((submitter && submitter.getAttribute('formmethod')) || form.getAttribute('method') || 'get').toLowerCase();
+                        if (method === 'post') {
+                            if (submitter && submitter.hasAttribute('formaction')) {
+                                originalSetAttribute.call(submitter, 'formaction', hopUrl(action));
+                            }
+                            else {
+                                originalSetAttribute.call(form, 'action', hopUrl(action));
+                            }
+
+                            return;
+                        }
+
+                        event.preventDefault();
+                        const asked = new URL(action, document.baseURI);
+                        asked.search = new URLSearchParams(new FormData(form, submitter instanceof HTMLElement ? submitter : undefined)).toString();
+                        originalLocationAssign(hopUrl(asked.href));
+                    });
                 }
 
                 window.addEventListener('load', notifyParent);
@@ -1483,23 +1590,192 @@ public sealed class WebsiteProxyService
 
     public void ForgetServer(Guid serverId)
     {
-        foreach (var entry in _sessions.Where(entry =>
-                     entry.Key.Contains($":{serverId:N}:", StringComparison.OrdinalIgnoreCase)
-                     || entry.Key.EndsWith($":{serverId:N}", StringComparison.OrdinalIgnoreCase)).ToList())
+        bool OfServer(string key) =>
+            key.Contains($":{serverId:N}:", StringComparison.OrdinalIgnoreCase)
+            || key.EndsWith($":{serverId:N}", StringComparison.OrdinalIgnoreCase);
+
+        foreach (var entry in _sessions.Where(entry => OfServer(entry.Key)).ToList())
         {
             if (_sessions.TryRemove(entry.Key, out var session))
             {
                 session.Dispose();
             }
         }
+
+        foreach (var key in _browseTargets.Keys.Where(OfServer).ToList())
+        {
+            _browseTargets.TryRemove(key, out _);
+        }
+    }
+
+    // ---- a browser tab under a path of Matgate's ------------------------------------------------------
+    // A quick-connect website is a browser: its tab goes from website to website. Under a path each website
+    // gets a frame of its own - /website/<connection>/<frame>/proxy/ - so that what the browser keeps for
+    // one (cookies are bound to that path) is never sent to the next. The frame of the website the tab
+    // started with is the tab's own id; any other is derived from the tab and the website's origin, so
+    // coming back to a website finds its sign-in again.
+
+    // Where the frame for this address is, as a path under Matgate's address.
+    public string Browse(HttpContext context, ServerEndpoint server, Guid tabId, Uri address)
+    {
+        var origin = address.GetLeftPart(UriPartial.Authority).ToLowerInvariant();
+        var start = WebsiteSiteService.StartUri(server);
+        var frameId = tabId;
+        if (start is null || !string.Equals(start.GetLeftPart(UriPartial.Authority), origin, StringComparison.OrdinalIgnoreCase))
+        {
+            frameId = FrameIdFor(tabId, origin);
+            _browseTargets[SessionKey(context, server, frameId)] = new BrowseTarget(origin + "/", tabId);
+        }
+
+        return BuildProxyPrefix(server.Id, frameId) + address.PathAndQuery.TrimStart('/') + address.Fragment;
+    }
+
+    // Whether there is a website behind this frame at all: a browser tab that started without an address
+    // has none until one is typed.
+    public bool HasTarget(HttpContext context, ServerEndpoint server, Guid? tabId) =>
+        _browseTargets.ContainsKey(SessionKey(context, server, tabId.GetValueOrDefault()))
+        || !string.IsNullOrWhiteSpace(ServerEndpoint.NormalizeWebsiteUrl(server.WebsiteUrl, server.Host));
+
+    // Inside the network means: the name resolves, and only to addresses that are not routed on the internet.
+    // This is what a page may send a browser tab to on its own (a link, a redirect); what the user types is
+    // the user's business.
+    public static async Task<bool> IsInsideNetworkAsync(string host, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var addresses = IPAddress.TryParse(host.Trim('[', ']'), out var literal)
+                ? [literal]
+                : await Dns.GetHostAddressesAsync(host, cancellationToken);
+            return addresses.Length > 0 && addresses.All(IsPrivateAddress);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            return false;
+        }
+    }
+
+    internal static bool IsPrivateAddress(IPAddress address)
+    {
+        if (address.IsIPv4MappedToIPv6)
+        {
+            address = address.MapToIPv4();
+        }
+
+        // Not the machine Matgate itself runs on: nothing a page links to lives there.
+        if (IPAddress.IsLoopback(address))
+        {
+            return false;
+        }
+
+        if (address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+        {
+            var bytes = address.GetAddressBytes();
+            return bytes[0] == 10
+                || (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31)
+                || (bytes[0] == 192 && bytes[1] == 168)
+                || (bytes[0] == 169 && bytes[1] == 254)
+                || (bytes[0] == 100 && bytes[1] >= 64 && bytes[1] <= 127);
+        }
+
+        return address.IsIPv6LinkLocal || address.IsIPv6SiteLocal || address.IsIPv6UniqueLocal;
+    }
+
+    // An address written without http:// or https://: https where something answers there, http otherwise.
+    // Half the devices of a home network only speak http, and nobody types the scheme.
+    public static async Task<string> WithSchemeAsync(string written, CancellationToken cancellationToken)
+    {
+        var text = (written ?? "").Trim();
+        if (text.Length == 0 || text.Contains("://", StringComparison.Ordinal) || text.Any(char.IsWhiteSpace))
+        {
+            return text;
+        }
+
+        if (!Uri.TryCreate("https://" + text, UriKind.Absolute, out var secure) || secure.Host.Length == 0)
+        {
+            return text;
+        }
+
+        // A port that was written says which of the two it is only for the well-known ones.
+        if (!secure.IsDefaultPort)
+        {
+            if (secure.Port == 80)
+            {
+                return "http://" + text;
+            }
+
+            return await AnswersTlsAsync(secure.Host, secure.Port, cancellationToken) ? "https://" + text : "http://" + text;
+        }
+
+        return await AnswersAsync(secure.Host, 443, cancellationToken) || !await AnswersAsync(secure.Host, 80, cancellationToken)
+            ? "https://" + text
+            : "http://" + text;
+    }
+
+    private static async Task<bool> AnswersAsync(string host, int port, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            limit.CancelAfter(TimeSpan.FromSeconds(2));
+            using var socket = new System.Net.Sockets.TcpClient();
+            await socket.ConnectAsync(host, port, limit.Token);
+            return true;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            return false;
+        }
+    }
+
+    private static async Task<bool> AnswersTlsAsync(string host, int port, CancellationToken cancellationToken)
+    {
+        try
+        {
+            using var limit = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            limit.CancelAfter(TimeSpan.FromSeconds(3));
+            using var socket = new System.Net.Sockets.TcpClient();
+            await socket.ConnectAsync(host, port, limit.Token);
+            await using var tls = new System.Net.Security.SslStream(socket.GetStream(), false, (_, _, _, _) => true);
+            await tls.AuthenticateAsClientAsync(new System.Net.Security.SslClientAuthenticationOptions { TargetHost = host }, limit.Token);
+            return true;
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        {
+            return false;
+        }
+    }
+
+    private static Guid FrameIdFor(Guid tabId, string origin) =>
+        new(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes($"matgate-frame|{tabId:N}|{origin}")).AsSpan(0, 16));
+
+    private static string SessionKey(HttpContext context, ServerEndpoint server, Guid tabId)
+    {
+        var userId = context.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "anonymous";
+        return $"{userId}:{server.Id:N}:{tabId:N}";
+    }
+
+    // The website a frame shows: the one a browser tab was sent to, or the connection's own. A browser tab
+    // is rooted at the top of its website - its pages are reached by their own paths, whatever the address
+    // it started with was.
+    private static string TargetUrl(ServerEndpoint server, BrowseTarget? chosen)
+    {
+        if (chosen is not null)
+        {
+            return chosen.Url;
+        }
+
+        return server.WebsiteBrowse && WebsiteSiteService.StartUri(server) is { } start
+            ? start.GetLeftPart(UriPartial.Authority) + "/"
+            : ServerEndpoint.NormalizeWebsiteUrl(server.WebsiteUrl, server.Host);
     }
 
     private WebsiteProxySession GetOrCreateSession(HttpContext context, ServerEndpoint server, Guid? tabId)
     {
-        var userId = context.User.FindFirstValue(ClaimTypes.NameIdentifier) ?? "anonymous";
         var normalizedTabId = tabId.GetValueOrDefault();
-        var key = $"{userId}:{server.Id:N}:{normalizedTabId:N}";
-        var signature = BuildSignature(server);
+        var key = SessionKey(context, server, normalizedTabId);
+        var chosen = _browseTargets.GetValueOrDefault(key);
+        var url = TargetUrl(server, chosen);
+        var signature = BuildSignature(server, url);
 
         while (true)
         {
@@ -1518,7 +1794,8 @@ public sealed class WebsiteProxyService
                 continue;
             }
 
-            var created = new WebsiteProxySession(server, signature, normalizedTabId);
+            SweepIdleSessions();
+            var created = new WebsiteProxySession(server, url, signature, normalizedTabId, chosen?.RootTabId ?? normalizedTabId);
             if (_sessions.TryAdd(key, created))
             {
                 return created;
@@ -1528,10 +1805,26 @@ public sealed class WebsiteProxyService
         }
     }
 
-    private static string BuildSignature(ServerEndpoint server)
+    // Sessions were never let go of before: every quick-connect website left its HTTP client behind until
+    // Matgate restarted. A browser tab makes one per website it visits, so what nobody has used for longer
+    // than a quick-connect endpoint lives is dropped when a new one is made.
+    private void SweepIdleSessions()
+    {
+        var limit = DateTimeOffset.UtcNow - SessionIdleLife;
+        foreach (var entry in _sessions.Where(entry => entry.Value.LastAccessUtc < limit).ToList())
+        {
+            if (_sessions.TryRemove(entry.Key, out var idle))
+            {
+                idle.Dispose();
+                _browseTargets.TryRemove(entry.Key, out _);
+            }
+        }
+    }
+
+    private static string BuildSignature(ServerEndpoint server, string url)
     {
         return string.Join("|",
-            ServerEndpoint.NormalizeWebsiteUrl(server.WebsiteUrl, server.Host),
+            url,
             server.UserName,
             server.Password,
             server.IgnoreCertificate ? "1" : "0");
@@ -1852,6 +2145,18 @@ public sealed class WebsiteProxyService
             ? location.ToString()
             : new Uri(responseUri, location).ToString();
 
+        // A redirect to another website - http://nas to https://nas:5001 is the everyday case - used to be
+        // handed to the browser as it was, which then asked the other machine itself: from outside the
+        // network that is the end of the page. A browser tab is taken there through Matgate.
+        if (session.HopPrefix.Length > 0
+            && Uri.TryCreate(value, UriKind.Absolute, out var absolute)
+            && (absolute.Scheme == Uri.UriSchemeHttp || absolute.Scheme == Uri.UriSchemeHttps)
+            && !string.Equals(absolute.GetLeftPart(UriPartial.Authority), session.TargetOrigin, StringComparison.OrdinalIgnoreCase)
+            && !MatgateProxyPathRegex.IsMatch(absolute.AbsolutePath))
+        {
+            return session.HopPrefix + Uri.EscapeDataString(absolute.AbsoluteUri);
+        }
+
         return RewriteUrl(value, session, responseUri);
     }
 
@@ -2080,9 +2385,14 @@ public sealed class WebsiteProxyService
         private string? _csrfToken;
         private bool _authenticated;
 
-        public WebsiteProxySession(ServerEndpoint server, string signature, Guid tabId)
+        public WebsiteProxySession(ServerEndpoint server, string url, string signature, Guid tabId, Guid rootTabId)
         {
             Signature = signature;
+            RootTabId = rootTabId;
+            // A browser tab follows links to other websites through Matgate (see WebsiteGoAsync).
+            HopPrefix = server.WebsiteBrowse && rootTabId != Guid.Empty
+                ? $"/website/{server.Id:D}/{rootTabId:D}/go?u="
+                : "";
             ProxyPrefix = BuildProxyPrefix(server.Id, tabId == Guid.Empty ? null : tabId);
             var scriptVersion = $"{server.UpdatedAt.ToUnixTimeMilliseconds()}-{BootstrapCacheKey}";
             BootstrapScriptUrl = tabId == Guid.Empty
@@ -2092,8 +2402,7 @@ public sealed class WebsiteProxyService
                 ? $"/website/{server.Id:D}/state?v={scriptVersion}"
                 : $"/website/{server.Id:D}/{tabId:D}/state?v={scriptVersion}";
 
-            var normalized = ServerEndpoint.NormalizeWebsiteUrl(server.WebsiteUrl, server.Host);
-            if (!Uri.TryCreate(normalized, UriKind.Absolute, out var baseUri))
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var baseUri))
             {
                 throw new InvalidOperationException("Website URL is missing or invalid.");
             }
@@ -2119,6 +2428,12 @@ public sealed class WebsiteProxyService
         }
 
         public string Signature { get; }
+
+        // The shell's tab: the frame's own id, or - for a frame a browser tab was sent to - the tab it belongs to.
+        public Guid RootTabId { get; }
+
+        // Empty unless this is a browser tab: what an address of another website is appended to.
+        public string HopPrefix { get; }
 
         public string ProxyPrefix { get; }
 

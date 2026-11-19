@@ -42,6 +42,39 @@ public static partial class EndpointMapping
         });
     }
 
+    // A browser tab where websites have no host names of their own: the frame stays under a path of
+    // Matgate's, and the address bar still takes any address - each website gets a frame of its own there
+    // (see WebsiteProxyService.Browse). Without an address the tab starts empty.
+    private static async Task<IResult> WebsiteBrowseUnderPathAsync(HttpContext context, ServerEndpoint server, string typed)
+    {
+        if (!Guid.TryParse(context.Request.Query["tab"].ToString(), out var tabId) || tabId == Guid.Empty)
+        {
+            return Results.Ok(new { available = false });
+        }
+
+        var address = typed.Length > 0
+            ? WebsiteSiteService.ParseAddress(await WebsiteProxyService.WithSchemeAsync(typed, context.RequestAborted))
+            : WebsiteSiteService.StartUri(server);
+        if (typed.Length > 0 && address is null)
+        {
+            return Results.BadRequest(new { error = HtmlViews.Translate(context, "This is not a web address.") });
+        }
+
+        if (address is null)
+        {
+            return Results.Ok(new { available = false, browse = true, url = (string?)null });
+        }
+
+        var proxy = context.RequestServices.GetRequiredService<WebsiteProxyService>();
+        return Results.Ok(new
+        {
+            available = false,
+            browse = true,
+            address = address.AbsoluteUri,
+            url = proxy.Browse(context, server, tabId, address),
+        });
+    }
+
     // The shell asks where a website tab's frame should point. With host names for websites that is an
     // address under the website's own name, carrying a ticket that lets this browser in; without, the shell
     // falls back to the path under Matgate's address.
@@ -59,21 +92,26 @@ public static partial class EndpointMapping
         }
 
         var server = access.Server!;
+        var typed = context.Request.Query["url"].ToString().Trim();
         if (!WebsiteSiteService.Available
             || server.WebsiteRenderMode != WebsiteRenderMode.Native
             || server.WebsitePathMode
+            // The shell found that this browser does not keep a website's cookie inside the frame.
+            || context.Request.Query["path"] == "1"
             || !Guid.TryParse(context.User.FindFirstValue(ClaimTypes.NameIdentifier), out var userId))
         {
-            return Results.Ok(new { available = false });
+            return server.WebsiteBrowse && server.WebsiteRenderMode == WebsiteRenderMode.Native
+                ? await WebsiteBrowseUnderPathAsync(context, server, typed)
+                : Results.Ok(new { available = false });
         }
 
         var start = WebsiteSiteService.StartUri(server);
         Uri? address = null;
-        var typed = context.Request.Query["url"].ToString().Trim();
         if (typed.Length > 0)
         {
             // An address from the address bar: within this website, or - in a browser tab - anywhere.
-            address = WebsiteSiteService.ParseAddress(typed);
+            // Only a browser tab has Matgate find out whether a machine speaks https: a connection stays on its own.
+            address = WebsiteSiteService.ParseAddress(server.WebsiteBrowse ? await WebsiteProxyService.WithSchemeAsync(typed, context.RequestAborted) : typed);
             if (address is null)
             {
                 return Results.BadRequest(new { error = HtmlViews.Translate(context, "This is not a web address.") });

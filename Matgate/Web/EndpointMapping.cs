@@ -518,6 +518,7 @@ public static partial class EndpointMapping
         app.MapGet("/website/{id:guid}/{tabId:guid}/bootstrap.js", WebsiteBootstrapAsync).RequireAuthorization();
         app.MapMethods("/website/{id:guid}/state", new[] { "GET", "POST" }, WebsiteStateAsync).RequireAuthorization();
         app.MapMethods("/website/{id:guid}/{tabId:guid}/state", new[] { "GET", "POST" }, WebsiteStateAsync).RequireAuthorization();
+        app.MapMethods("/website/{id:guid}/{tabId:guid}/go", new[] { "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD" }, WebsiteGoAsync).RequireAuthorization();
         app.MapMethods("/website/{id:guid}/proxy", new[] { "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS" }, WebsiteProxyAsync).RequireAuthorization();
         app.MapMethods("/website/{id:guid}/proxy/{**path}", new[] { "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS" }, WebsiteProxyAsync).RequireAuthorization();
         app.MapMethods("/website/{id:guid}/{tabId:guid}/proxy", new[] { "GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS" }, WebsiteProxyAsync).RequireAuthorization();
@@ -1290,8 +1291,51 @@ public static partial class EndpointMapping
             return Results.Empty;
         }
 
+        if (!proxy.HasTarget(context, access.Server!, tabId))
+        {
+            // A browser tab that has no page yet, or a frame Matgate no longer knows where it was sent.
+            return Results.NotFound();
+        }
+
         await proxy.HandleProxyAsync(context, access.Server!, tabId, path, context.RequestAborted);
         return Results.Empty;
+    }
+
+    // A browser tab under a path of Matgate's follows a link or a redirect to another website: the page's
+    // script and the redirects Matgate passes on send the frame here, and from here it goes to that
+    // website's own frame. Only to machines inside the network - where a page sends the tab is the page's
+    // decision, not the user's, and a page from the internet would run under Matgate's own address. What
+    // lies outside is offered to the user's own browser instead.
+    private static async Task<IResult> WebsiteGoAsync(
+        Guid id,
+        Guid tabId,
+        HttpContext context,
+        JsonDataStore store,
+        WebsiteProxyService proxy)
+    {
+        var access = await RequireWebsiteServerAsync(id, context, store);
+        if (access.Result is not null)
+        {
+            return access.Result;
+        }
+
+        var server = access.Server!;
+        var address = WebsiteSiteService.ParseAddress(context.Request.Query["u"].ToString());
+        if (!server.WebsiteBrowse || server.WebsiteRenderMode != WebsiteRenderMode.Native || address is null)
+        {
+            return Results.BadRequest(new { error = HtmlViews.Translate(context, "This is not a web address.") });
+        }
+
+        WebsiteProxyService.PreventCaching(context.Response);
+        if (!await WebsiteProxyService.IsInsideNetworkAsync(address.Host, context.RequestAborted))
+        {
+            return Results.Content(HtmlViews.WebsiteOutsidePage(context, address), "text/html; charset=utf-8");
+        }
+
+        var url = proxy.Browse(context, server, tabId, address);
+        return HttpMethods.IsGet(context.Request.Method) || HttpMethods.IsHead(context.Request.Method)
+            ? Results.Redirect(url)
+            : Results.Redirect(url, permanent: false, preserveMethod: true);
     }
 
     private static async Task<IResult> SessionsAsync(HttpContext context, JsonDataStore store, HtmlViews views)
@@ -5183,12 +5227,12 @@ public static partial class EndpointMapping
         var target = (form["host"].ToString() ?? "").Trim();
         // The browser is Matgate's own: the page is fetched by Matgate and shown in the tab - never the
         // browser farm's picture of one. Without an address it is a tab with an address bar to type into,
-        // which takes host names for websites: under a path of Matgate's a tab shows one website, and that
-        // one has to be named here.
+        // with host names for websites and without them.
         var blankBrowser = isWebsite && string.IsNullOrWhiteSpace(target);
-        if (blankBrowser && !WebsiteSiteService.Available)
+        if (isWebsite && !blankBrowser)
         {
-            return Results.BadRequest(new { error = HtmlViews.Translate(context, "Please enter the address the browser should start with.") });
+            // "10.0.0.5" or "nas": https where something answers there, http otherwise.
+            target = await WebsiteProxyService.WithSchemeAsync(target, context.RequestAborted);
         }
 
         if (string.IsNullOrWhiteSpace(target) && !blankBrowser)

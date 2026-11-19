@@ -17,7 +17,10 @@ public sealed class HtmlViews
     private static readonly IReadOnlyDictionary<string, string> GermanText = new Dictionary<string, string>
     {
         ["Home Network Gateway"] = "Heimnetz-Gateway",
-        ["Please enter the address the browser should start with."] = "Bitte die Adresse eingeben, mit der der Browser starten soll.",
+        ["Outside the network"] = "Außerhalb des Netzwerks",
+        ["This address is not inside the network Matgate opens for you. A page cannot send the browser there on its own - open it in your own browser, or type it into the address bar."] = "Diese Adresse liegt nicht in dem Netzwerk, das Matgate für dich öffnet. Dorthin kann eine Seite den Browser nicht von selbst schicken – öffne sie in deinem eigenen Browser oder tippe sie in die Adressleiste.",
+        ["Open in my browser"] = "In meinem Browser öffnen",
+        ["Go back"] = "Zurück",
         ["Compact view"] = "Kompakte Ansicht",
         ["Normal view"] = "Normale Ansicht",
         ["Workspaces"] = "Workspaces",
@@ -3888,12 +3891,12 @@ public sealed class HtmlViews
     private static string ProtocolDialog(bool de, IReadOnlyCollection<string>? hiddenQuick, IReadOnlyList<string>? order)
     {
         var protocols = QuickProtocols(de, hiddenQuick, order);
-        // The browser may start without an address where a tab can go anywhere: with host names for websites.
-        // Under a path of Matgate's a tab shows one website, so it has to be named.
-        var blankBrowser = WebsiteSiteService.Available;
-        var browserPlaceholder = blankBrowser
-            ? (de ? "https://…  (leer: leerer Browser mit Adressleiste)" : "https://…  (empty: a browser with an address bar)")
-            : (de ? "z. B. https://10.0.0.1:8443 oder nas.local" : "e.g. https://10.0.0.1:8443 or nas.local");
+        // The browser may start without an address: its tab has an address bar to type into, with host names
+        // for websites and under a path of Matgate's alike.
+        const bool blankBrowser = true;
+        var browserPlaceholder = de
+            ? "z. B. nas.local oder 10.0.0.1:8443  (leer: leerer Browser)"
+            : "e.g. nas.local or 10.0.0.1:8443  (empty: a blank browser)";
 
         // The dialog starts on the first chip, so the hidden field has to name that one. A fixed
         // "rdp" here would be the wrong protocol the moment RDP is the one the user hid.
@@ -7642,13 +7645,17 @@ public sealed class HtmlViews
 
                     try {
                         const url = new URL(sourceUrl, window.location.origin);
-                        const proxyMatch = url.pathname.match(/^\/website\/[^/]+\/(?:[^/]+\/)?proxy\/?(.*)$/i);
+                        const proxyMatch = url.pathname.match(/^\/website\/[^/]+\/(?:([^/]+)\/)?proxy\/?(.*)$/i);
                         if (!proxyMatch) {
-                            return url.origin === window.location.origin ? fallbackUrl : sourceUrl;
+                            // A browser tab that was not let out of the network shows where it wanted to go.
+                            const wanted = /^\/website\/[^/]+\/[^/]+\/go$/i.test(url.pathname) ? url.searchParams.get('u') : '';
+                            return wanted || (url.origin === window.location.origin ? fallbackUrl : sourceUrl);
                         }
 
-                        const targetBase = new URL(tab.target || fallbackUrl || window.location.origin, window.location.origin);
-                        const relativePath = `${proxyMatch[1] || ''}${url.search}${url.hash}`;
+                        // A browser tab has a frame per website; the page told which website this one shows.
+                        const frameBase = tab.pathBrowse && tab.frameBases ? tab.frameBases[(proxyMatch[1] || '').toLowerCase()] : '';
+                        const targetBase = new URL(frameBase || tab.target || fallbackUrl || window.location.origin, window.location.origin);
+                        const relativePath = `${proxyMatch[2] || ''}${url.search}${url.hash}`;
                         return new URL(relativePath, targetBase).href;
                     }
                     catch {
@@ -7658,10 +7665,21 @@ public sealed class HtmlViews
                     return fallbackUrl || sourceUrl;
                 }
 
-                function updateWebsiteLocation(tabId, url) {
+                function updateWebsiteLocation(tabId, url, base = '') {
                     const tab = tabs.get(tabId);
                     if (!tab || !isWebsiteProtocol(tab.protocol)) {
                         return;
+                    }
+
+                    if (tab.pathBrowse) {
+                        if (url === 'about:blank') {
+                            return;
+                        }
+
+                        const frame = typeof url === 'string' ? url.match(/\/website\/[^/]+\/([^/]+)\/proxy(?:\/|$)/i) : null;
+                        if (base && frame) {
+                            tab.frameBases[frame[1].toLowerCase()] = base;
+                        }
                     }
 
                     const nextProxyUrl = typeof url === 'string' && url.trim()
@@ -7671,7 +7689,8 @@ public sealed class HtmlViews
 
                     tab.currentUrl = nextProxyUrl;
                     tab.displayUrl = nextDisplayUrl;
-                    if (tab.websiteUi?.address) {
+                    // Not while someone is typing the next address into it.
+                    if (tab.websiteUi?.address && !(tab.pathBrowse && document.activeElement === tab.websiteUi.address)) {
                         tab.websiteUi.address.value = nextDisplayUrl;
                     }
 
@@ -9685,17 +9704,23 @@ public sealed class HtmlViews
                             updateStatusBar();
                         });
                         tab.websiteUi.address.addEventListener('keydown', event => {
-                            if (event.key === 'Enter' && tab.site) {
+                            if (event.key === 'Enter' && (tab.site || tab.pathBrowse)) {
                                 event.preventDefault();
                                 navigateWebsiteTab(tab, tab.websiteUi.address.value.trim());
                             }
-                            else if (event.key === 'Escape' && tab.site) {
+                            else if (event.key === 'Escape' && (tab.site || tab.pathBrowse)) {
                                 tab.websiteUi.address.value = tab.displayUrl || '';
                                 tab.websiteUi.address.blur();
                             }
                         });
+                        // Left without sending it off: the bar shows where the tab is again, not what was typed.
+                        tab.websiteUi.address.addEventListener('blur', () => {
+                            if (tab.pathBrowse) {
+                                tab.websiteUi.address.value = tab.displayUrl || '';
+                            }
+                        });
                         tab.websiteUi.address.addEventListener('focus', () => {
-                            if (tab.site) {
+                            if (tab.site || tab.pathBrowse) {
                                 tab.websiteUi.address.select();
                             }
                         });
@@ -9760,6 +9785,23 @@ public sealed class HtmlViews
                                         opened.close();
                                     }
                                 }).catch(() => opened && opened.close());
+                                return;
+                            }
+
+                            if (tab.pathBrowse) {
+                                // The frame as it is: it belongs to the website it shows, a new tab id would not.
+                                let shown = '';
+                                try {
+                                    shown = tab.websiteUi.frame.contentWindow.location.href;
+                                }
+                                catch {
+                                    shown = '';
+                                }
+
+                                if (shown && shown !== 'about:blank') {
+                                    window.open(shown, '_blank', 'noopener');
+                                }
+
                                 return;
                             }
 
@@ -11320,8 +11362,8 @@ public sealed class HtmlViews
                     }
                 }
 
-                window.MatgateWebsiteLocationChanged = (tabId, url) => {
-                    updateWebsiteLocation(tabId, url);
+                window.MatgateWebsiteLocationChanged = (tabId, url, base) => {
+                    updateWebsiteLocation(tabId, url, typeof base === 'string' ? base : '');
                 };
 
                 function statusName(state) {
@@ -12716,7 +12758,7 @@ public sealed class HtmlViews
                             showWebsiteSite(tab, data);
                         }
                         else {
-                            showWebsitePathMode(tab);
+                            showWebsitePathMode(tab, data.available ? null : data);
                         }
                     }).catch(() => {
                         if (tabs.has(tab.id) && tab.websiteGeneration === generation) {
@@ -12732,7 +12774,16 @@ public sealed class HtmlViews
                 const websiteFrameSandbox = 'allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals allow-pointer-lock allow-presentation';
 
                 async function requestWebsiteSite(tab, address = '') {
-                    const response = await fetch(`/api/website/${tab.serverId}/site${address ? '?url=' + encodeURIComponent(address) : ''}`, {
+                    const asked = new URLSearchParams({ tab: tab.id });
+                    if (address) {
+                        asked.set('url', address);
+                    }
+
+                    if (tab.sitePathOnly) {
+                        asked.set('path', '1');
+                    }
+
+                    const response = await fetch(`/api/website/${tab.serverId}/site?${asked}`, {
                         method: 'POST',
                         credentials: 'same-origin',
                         headers: { 'X-Matgate-Csrf': csrfToken }
@@ -12752,11 +12803,37 @@ public sealed class HtmlViews
                     return data || { available: false };
                 }
 
-                function showWebsitePathMode(tab) {
+                // Under a path of Matgate's. A connection shows its one website there, with the address bar as
+                // a display; a browser tab (quick connect) takes any address - each website gets a frame of its
+                // own under the path, and the page says which website a frame shows (see updateWebsiteLocation).
+                function showWebsitePathMode(tab, data = null) {
                     tab.site = null;
                     const frame = tab.websiteUi.frame;
                     frame.removeAttribute('sandbox');
-                    tab.websiteUi.address.readOnly = true;
+                    tab.pathBrowse = !!(data && data.browse);
+                    tab.websiteUi.address.readOnly = !tab.pathBrowse;
+                    if (tab.pathBrowse) {
+                        tab.websiteUi.address.placeholder = uiText.websiteAddressHint || '';
+                        tab.frameBases = tab.frameBases || {};
+                        if (!data.url) {
+                            // A browser with no page yet: the address bar is where it starts.
+                            tab.currentUrl = '';
+                            tab.displayUrl = '';
+                            tab.websiteUi.address.value = '';
+                            frame.src = 'about:blank';
+                            hideOverlay(tab);
+                            setStatus(tab, ui('ready'));
+                            tab.websiteUi.address.focus();
+                            return;
+                        }
+
+                        tab.currentUrl = data.url;
+                        tab.displayUrl = data.address || '';
+                        tab.websiteUi.address.value = tab.displayUrl;
+                        frame.src = data.url;
+                        return;
+                    }
+
                     const proxyUrl = `/website/${tab.serverId}/${tab.id}/proxy/`;
                     tab.currentUrl = proxyUrl;
                     tab.displayUrl = buildWebsiteDisplayUrl(tab, proxyUrl);
@@ -12807,7 +12884,27 @@ public sealed class HtmlViews
                 // What was typed into the address bar. Within the page's own website the frame just goes there;
                 // anything else is asked for - a browser tab may go anywhere, a connection only to its own machine.
                 async function navigateWebsiteTab(tab, typed) {
-                    if (!typed || !tab.site) {
+                    if (!typed || !(tab.site || tab.pathBrowse)) {
+                        return;
+                    }
+
+                    if (tab.pathBrowse) {
+                        try {
+                            const data = await requestWebsiteSite(tab, typed);
+                            if (data.browse && data.url) {
+                                setStatus(tab, ui('loading'));
+                                tab.currentUrl = data.url;
+                                tab.displayUrl = data.address || typed;
+                                tab.websiteUi.address.value = tab.displayUrl;
+                                tab.websiteUi.frame.src = data.url;
+                                tab.websiteUi.frame.focus();
+                            }
+                        }
+                        catch (error) {
+                            flashStatus(tab, error instanceof Error ? error.message : String(error));
+                            tab.websiteUi.address.select();
+                        }
+
                         return;
                     }
 
@@ -18743,18 +18840,14 @@ public sealed class HtmlViews
                     .home2-farm-dot[data-state="free"] { background: var(--accent); }
                     .home2-farm-dot[data-state="busy"] { background: #e0863a; }
                     .home2-farm-dot[data-state="down"] { background: var(--danger, #b3261e); }
+                    /* Every chip is in sight: the row wraps. It used to scroll sideways with its scrollbar hidden,
+                       and on a phone whatever stood behind the fourth chip was simply not there for anyone who did
+                       not think of swiping - the browser among them. */
                     .home2-quick-row {
                         display: flex;
+                        flex-wrap: wrap;
                         gap: 10px;
-                        margin: -20px 0;
-                        overflow-x: auto;
-                        padding: 20px 0;
-                        /* Hide the scrollbar on ALL platforms: Android paints a resting thin bar for
-                           scrollbar-width:thin, while iOS/WebKit hides it until you scroll - which is why
-                           it only showed on Android. Still fully swipeable. */
-                        scrollbar-width: none;
                     }
-                    .home2-quick-row::-webkit-scrollbar { display: none; }
                     .home2-proto-chip {
                         align-items: center;
                         background: var(--surface);
@@ -18790,6 +18883,27 @@ public sealed class HtmlViews
                     .home2-proto-chip-name { font-weight: 700; white-space: nowrap; }
                     .home2-proto-more { --proto: var(--accent); }
                     .home2-proto-more .home2-proto-chip-icon { background: var(--surface-2); color: var(--muted); }
+                    /* On a phone the chips are small tiles - icon above name, five in a row -, so that all of them
+                       fit into two rows instead of filling half the screen. */
+                    @media (max-width: 720px) {
+                        .home2-quick-row {
+                            display: grid;
+                            gap: 8px;
+                            grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
+                        }
+                        .home2-proto-chip {
+                            flex-direction: column;
+                            gap: 6px;
+                            min-width: 0;
+                            padding: 10px 2px 8px;
+                        }
+                        .home2-proto-chip-name {
+                            font-size: 12px;
+                            max-width: 100%;
+                            overflow: hidden;
+                            text-overflow: ellipsis;
+                        }
+                    }
                     .home2-proto-dialog {
                         background: var(--panel);
                         border: 1px solid var(--line);
@@ -23690,6 +23804,46 @@ public sealed class HtmlViews
     }
 
     public static string Translate(HttpContext context, string key) => T(context, key);
+
+    // What a browser tab shows instead of a page a link or a redirect wanted to send it to, when that page
+    // lies outside the network (see WebsiteGoAsync). It stands inside the tab's frame, so it is a page of
+    // its own: no shell, no scripts but the one that goes back.
+    public static string WebsiteOutsidePage(HttpContext context, Uri address)
+    {
+        var language = Language(context);
+        return $$"""
+            <!doctype html>
+            <html lang="{{A(language)}}">
+            <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1">
+            <title>{{E(T(context, "Outside the network"))}}</title>
+            <style>
+                :root { color-scheme: light dark; }
+                body { align-items: center; display: flex; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; justify-content: center; margin: 0; min-height: 100vh; padding: 20px; box-sizing: border-box; }
+                main { border: 1px solid color-mix(in srgb, currentColor 18%, transparent); border-radius: 16px; max-width: 520px; padding: 22px 24px; }
+                h1 { font-size: 19px; margin: 0 0 8px; }
+                p { margin: 0 0 12px; }
+                code { background: color-mix(in srgb, currentColor 8%, transparent); border-radius: 8px; display: block; font: 13px/1.4 ui-monospace, Consolas, monospace; overflow-wrap: anywhere; padding: 8px 10px; }
+                .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
+                a, button { border: 1px solid color-mix(in srgb, currentColor 25%, transparent); border-radius: 10px; color: inherit; cursor: pointer; font: inherit; font-weight: 600; padding: 9px 14px; text-decoration: none; background: transparent; }
+                a { background: #2b6bff; border-color: #2b6bff; color: #fff; }
+            </style>
+            </head>
+            <body>
+            <main data-matgate-outside>
+                <h1>{{E(T(context, "Outside the network"))}}</h1>
+                <p>{{E(T(context, "This address is not inside the network Matgate opens for you. A page cannot send the browser there on its own - open it in your own browser, or type it into the address bar."))}}</p>
+                <code>{{E(address.AbsoluteUri)}}</code>
+                <div class="actions">
+                    <a href="{{A(address.AbsoluteUri)}}" target="_blank" rel="noopener noreferrer">{{E(T(context, "Open in my browser"))}}</a>
+                    <button type="button" onclick="history.back()">{{E(T(context, "Go back"))}}</button>
+                </div>
+            </main>
+            </body>
+            </html>
+            """;
+    }
 
     // Public accessor for the inline icon SVG (used by JSON responses such as quick-connect).
     public static string IconMarkup(string name) => Icon(name);
