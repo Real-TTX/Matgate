@@ -329,20 +329,16 @@ const SITE = /^http:\/\/[a-z2-7]{20}\.mg\.localhost:18091/;
   const home = await context.newPage();
   home.on("pageerror", e => { console.log("JS ERROR: " + e.message); failures.push("JS error"); });
   await home.goto(BASE + "/", { waitUntil: "networkidle" });
-  check("the home page offers a browser, first in the row", await home.evaluate(() => [...document.querySelectorAll(".home2-quick-row [data-home2-qc]")].map(chip => chip.dataset.home2Qc + ":" + chip.textContent.trim())[0]), "browser:Browser");
-  await home.evaluate(() => document.querySelector("[data-home2-more]").click());
+  check("the home page offers a browser: the website chip by that name", await home.evaluate(() => [...document.querySelectorAll(".home2-quick-row [data-home2-qc]")].map(chip => chip.dataset.home2Qc + ":" + chip.textContent.trim()).filter(chip => /website|browser/i.test(chip))), ["website:Browser"]);
+  await home.click(".home2-quick-row [data-home2-qc='website']");
   await home.waitForSelector("[data-home2-proto-dialog][open]", { timeout: 10000 });
-  const asked = () => home.evaluate(() => ({
-    fields: [...document.querySelectorAll("[data-home2-qc-form] input:not([type='hidden'])")].filter(field => field.offsetParent !== null).map(field => field.name),
-    hint: document.querySelector("[data-home2-qc-field='browserHint']").offsetParent !== null,
-    button: document.querySelector("[data-home2-qc-submit]").textContent,
+  // With host names for websites a tab can go anywhere - so the browser may start without an address.
+  check("it asks for a start address, and needs none", await home.evaluate(() => ({
+    label: document.querySelector("[data-home2-qc-hostlabel]").textContent,
     required: document.querySelector("[data-home2-qc-host]").required,
-  }));
-  await home.click("[data-home2-qc-proto='browser']");
-  check("in the dialog the browser asks for nothing", await asked(), { fields: [], hint: true, button: "Open browser", required: false });
-  await home.click("[data-home2-qc-proto='website']");
-  check("and a website asks for its address again", await asked(), { fields: ["host", "username", "password"], hint: false, button: "Connect", required: false });
-  check("quick connect: a website needs no address", await home.evaluate(() => document.querySelector("[data-home2-qc-host]").required), false);
+    button: document.querySelector("[data-home2-qc-submit]").textContent,
+    fields: [...document.querySelectorAll("[data-home2-qc-form] input:not([type='hidden'])")].filter(field => field.offsetParent !== null).map(field => field.name),
+  })), { label: "Start URL", required: false, button: "Open browser", fields: ["host", "username", "password"] });
   await home.click("[data-home2-qc-form] button[type='submit']");
   await home.waitForSelector(".website-frame", { timeout: 20000 });
   await sleep(1000);
@@ -357,31 +353,6 @@ const SITE = /^http:\/\/[a-z2-7]{20}\.mg\.localhost:18091/;
   await go(home, "http://site:8080/redirect-out");
   check("a redirect to another website is followed as well", await shown(home, "hello from other"), "hello from other");
   await home.close();
-
-  // The chip on the home page: one tap, no dialog, and whatever the form held before does not come along.
-  const tap = await context.newPage();
-  tap.on("pageerror", e => { console.log("JS ERROR: " + e.message); failures.push("JS error"); });
-  await tap.goto(BASE + "/", { waitUntil: "networkidle" });
-  await tap.click(".home2-quick-row [data-home2-qc='browser']");
-  await tap.waitForSelector(".website-frame", { timeout: 20000 });
-  await sleep(1000);
-  check("the chip opens the browser right away: no dialog, an empty address bar to type into", [
-    await tap.evaluate(() => !!document.querySelector("[data-home2-proto-dialog][open]")),
-    await address(tap),
-    await tap.evaluate(() => document.activeElement === document.querySelector(".website-address")),
-  ], [false, "", true]);
-  await go(tap, "http://site:8080/");
-  check("and it surfs", [await shown(tap, "Fixture Home"), await addressIs(tap, "http://site:8080/")], ["Fixture Home", "http://site:8080/"]);
-  check("asked for as a browser, an address sent along is left out", await tap.evaluate(async () => {
-    const body = new FormData();
-    body.append("protocol", "browser");
-    body.append("host", "http://site:8080/page2");
-    body.append("username", "someone");
-    const token = (document.documentElement.innerHTML.match(/csrfToken = ["']([^"']+)["']/) || [])[1];
-    const answer = await (await fetch("/api/quick-connect", { method: "POST", headers: { "X-Matgate-Csrf": token }, body })).json();
-    return [answer.server.name, answer.server.protocol, answer.server.target];
-  }), ["Browser", "WEBSITE", ""]);
-  await tap.close();
 
   // ================================================================================== the end of it
   await remove(["Test-Web-Basic"]);

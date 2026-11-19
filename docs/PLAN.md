@@ -1,7 +1,7 @@
 # Matgate – Plan zum Weitermachen
 
-Stand: 2026-11-19, Version 0.25.2 auf `main` (`v0.25.2`), Agent 0.14.0; auf ve-docker-1
-(matgate.schmoldt.it) läuft seit dem 2026-11-19 ebenfalls 0.25.2 (Websites dort weiter über den Pfad, bis
+Stand: 2026-11-19, Version 0.26.0 auf `main` (`v0.26.0`), Agent 0.14.0; auf ve-docker-1
+(matgate.schmoldt.it) läuft seit dem 2026-11-19 noch 0.25.2 (Websites dort weiter über den Pfad, bis
 Route und Variable stehen; Einspielen trennt laufende Sitzungen, nur auf ausdrücklichen Wunsch). Der Agent
 auf dem Entwicklungsrechner ist der offizielle Build aus dem Release `agent-latest`. Geschrieben als Übergabe an eine andere Sitzung.
 
@@ -231,15 +231,31 @@ Der Nutzer: „Kannst du das Website-Feature mit dem Proxy nochmal überarbeiten
   Hostnamen und wird per Ticket betreten (`Location`, Links über `/__matgate/go?u=`). Fremde Hosts:
   bei einer Verbindung öffnet der Link einen eigenen Browser-Tab; in einem **Browser-Tab**
   (`ServerEndpoint.WebsiteBrowse`, nur Quick-Connect, nur im Speicher) läuft alles über Matgate weiter.
-- **Quick-Connect ohne Adresse = Browser:** mit eigenen Hostnamen ein leerer Tab mit Adressleiste; ohne
-  sie ein Chromium der Browser-Farm mit Bedienleiste auf `about:blank` (dafür nimmt `farm.py` jetzt
-  `about:blank` an - das Farm-Image muss mit aktualisiert werden); ohne beides bleibt die Adresse Pflicht.
-  Seit **0.25.1** gibt es dafür einen eigenen Chip **„Browser“**: vorn in der Reihe „Schnell verbinden“
-  (ein Tipp öffnet ihn, ohne Dialog; scheitert es, zeigt der Dialog den Grund) und als letzter Eintrag im
-  Quick-Connect-Dialog (dann ohne Felder). Er ist kein Protokoll: `protocol=browser` wird in
-  `/api/quick-connect` zur Website ohne Adresse, was das Formular sonst noch hält, bleibt weg. Angeboten
-  wird er nur, wo ein Browser ohne Adresse möglich ist (Hostnamen oder Farm); abwählbar wie die anderen
-  Chips (Konto → Sitzung, Schlüssel `browser`).
+- **Der Browser im Quick-Connect (0.26.0):** Der Chip „HTTP / HTTPS“ heißt **„Browser“** und ist immer
+  Matgates eigener (die Seite holt Matgate und zeigt sie im Tab) - nie mehr das Bild aus der Browser-Farm;
+  die bleibt gespeicherten Verbindungen mit „via Chromium/Firefox VNC“. Der Dialog fragt nach der
+  **Start-URL**. Mit eigenen Hostnamen darf sie leer bleiben: leerer Tab mit Adressleiste, jede Adresse,
+  Links laufen über Matgate weiter. Ohne Hostnamen (Pfad-Weg) ist sie Pflicht - dort zeigt ein Tab genau
+  eine Website, die Adressleiste ist nur Anzeige, Links zu anderen Rechnern verlassen Matgate (leere
+  Anfrage: 400 mit Klartext). **Bewusst nicht gebaut:** freies Surfen unter dem Pfad - die Seiten liefen
+  dann unter Matgates eigener Adresse und könnten als der angemeldete Benutzer mit Matgate reden; dafür
+  sind die Hostnamen da. 0.25.1 hatte dafür kurz einen eigenen Chip `browser` vorn in der Reihe mit
+  Farm-Rückfall; der Nutzer wollte den eingebauten Browser mit Start-URL und fragte, warum er vorn steht.
+  Tests: `tests/browser-under-path.js` gegen ein zweites Matgate ohne Hostnamen im Teststapel
+  (`matgate-plain`, Port 18092), `tests/website.js` mit Hostnamen.
+- **Chips sortierbar (0.26.0):** Konto → Sitzung → „Schnell verbinden“ ist jetzt dieselbe Ziehliste wie die
+  Aktionen (`data-order-group`): Reihenfolge und Haken. `SessionPreferences.QuickProtocolOrder` +
+  `HiddenQuickProtocols`, `OrderedQuickProtocols` hängt Unbekanntes hinten an. Startseite und Dialog
+  folgen; der Dialog beginnt auf dem ersten Chip. Test: `tests/quick-connect-order.js`.
+- **Rechtsklick (0.26.0):** Ein Menü am Zeiger für Verbindungskarten (was die Knöpfe der Karte tun, dazu
+  „In neuem Browser-Tab öffnen“ und „Adresse kopieren“), Tabs (Neu laden bzw. eigenes Fenster, Schließen,
+  Andere schließen mit eigener Rückfrage), Chips (verbinden, Reihenfolge ändern) und Dateizeilen (die
+  Aktionen der Zeile). Es ist das vorhandene `MatgateOpenMenu` mit `at: { x, y }` - am Telefon also ein
+  Blatt. Karten- und Zeilenmenü werden aus den vorhandenen Knöpfen gelesen und klicken sie, damit es nur
+  eine Stelle gibt, die sagt, was sie tun. Nicht in Feldern, nicht in Sitzungen, mit Umschalt nie (der
+  Weg zum Menü des Browsers). Am Telefon nur, wo der Browser aus dem langen Druck ein `contextmenu`
+  macht (Android) - **ein iPhone tut das nicht**, dort bleiben die sichtbaren Knöpfe. Test:
+  `tests/context-menu.js`.
 - **Felder am Telefon (0.25.1):** iOS zoomt in jedes Feld, dessen Schrift kleiner als 16px ist, und bleibt
   gezoomt - Quick-Connect tat das schon beim Öffnen, weil es den Cursor ins erste Feld setzt (13px). Am
   Ende des Stylesheets steht jetzt für `(pointer: coarse)` eine Regel für alle Felder

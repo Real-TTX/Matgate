@@ -17,6 +17,7 @@ public sealed class HtmlViews
     private static readonly IReadOnlyDictionary<string, string> GermanText = new Dictionary<string, string>
     {
         ["Home Network Gateway"] = "Heimnetz-Gateway",
+        ["Please enter the address the browser should start with."] = "Bitte die Adresse eingeben, mit der der Browser starten soll.",
         ["Compact view"] = "Kompakte Ansicht",
         ["Normal view"] = "Normale Ansicht",
         ["Workspaces"] = "Workspaces",
@@ -1256,8 +1257,8 @@ public sealed class HtmlViews
         // Quick-connect chips, one tick each. Ticked means shown, which is the way round people read
         // a list of things they could have.
         var hiddenQuickProtocols = prefs.HiddenQuickProtocols ?? [];
-        var quickProtocolChecks = string.Join("", QuickProtocols(de).Select(protocol => $"""
-            <label class="check"><input type="checkbox" name="quick-{A(protocol.Protocol)}"{(hiddenQuickProtocols.Contains(protocol.Protocol) ? "" : " checked")}> {Icon(protocol.IconKey)} {E(protocol.Name)}</label>
+        var quickProtocolItems = string.Join("", QuickProtocols(de, null, prefs.QuickProtocolOrder).Select(protocol => $"""
+            <li class="action-order-item" data-order-key="{A(protocol.Protocol)}"><span class="action-order-grip" aria-hidden="true">{Icon("menu")}</span><span class="action-order-icon" aria-hidden="true">{Icon(protocol.IconKey)}</span><span class="action-order-name">{E(protocol.Name)}</span><label class="action-order-show"><input type="checkbox" data-order-visible{(hiddenQuickProtocols.Contains(protocol.Protocol) ? "" : " checked")}> {E(de ? "zeigen" : "show")}</label></li>
             """));
 
         var hiddenActions = prefs.HiddenActions ?? [];
@@ -1785,9 +1786,13 @@ public sealed class HtmlViews
                                 <fieldset class="settings-group">
                                     <legend>{{(de ? "Schnell verbinden" : "Quick connect")}}</legend>
                                     <p class="muted settings-hint">{{(de
-                                        ? "Welche Protokolle auf der Startseite als Kachel angeboten werden."
-                                        : "Which protocols are offered as a chip on the start page.")}}</p>
-                                <div class="quick-protocol-grid">{{quickProtocolChecks}}</div>
+                                        ? "Was auf der Startseite und im Quick-Connect-Dialog angeboten wird, und in welcher Reihenfolge: zum Sortieren ziehen, mit dem Haken ein- oder ausblenden."
+                                        : "What the start page and the quick-connect dialog offer, and in which order: drag to sort, use the tick to show or hide.")}}</p>
+                                <div data-order-group>
+                                    <ol id="quick-order-list" class="action-order-list" data-order-list>{{quickProtocolItems}}</ol>
+                                    <input type="hidden" name="quickProtocols" data-order-value value="">
+                                    <input type="hidden" name="hiddenQuickProtocols" data-order-hidden value="">
+                                </div>
                                 </fieldset>
                                 <fieldset class="settings-group">
                                     <legend>{{(de ? "Aktionen in der Sitzungsleiste" : "Actions in the session bar")}}</legend>
@@ -3707,14 +3712,8 @@ public sealed class HtmlViews
         // sections below as a possible null. Two lines further down it is used without one anyway;
         // one of the two readings had to go.
         var hiddenQuick = (user.Session?.HiddenQuickProtocols ?? []).ToHashSet(StringComparer.Ordinal);
-        // The browser is offered only where one without an address can be opened at all: with host names
-        // for websites, or with the browser farm.
-        if (!WebsiteSiteService.Available && !context.RequestServices.GetRequiredService<BrowserFarmClient>().IsConfigured)
-        {
-            hiddenQuick.Add("browser");
-        }
-
-        var protocolDialog = canQuick ? ProtocolDialog(de, hiddenQuick) : "";
+        var quickOrder = user.Session?.QuickProtocolOrder ?? [];
+        var protocolDialog = canQuick ? ProtocolDialog(de, hiddenQuick, quickOrder) : "";
 
         var head = $$"""
             <section class="home2-head">
@@ -3768,7 +3767,7 @@ public sealed class HtmlViews
             </section>
             """;
 
-        var quickConnect = canQuick ? QuickConnectSection(de, hiddenQuick) : "";
+        var quickConnect = canQuick ? QuickConnectSection(de, hiddenQuick, quickOrder) : "";
         var filterRow = FilterTilesSection(context, user, servers, de);
         var recentSection = RecentConnectionsSection(context, user, servers, includeEditButtons, returnUrl, de);
         // A place is a folder on the gateway, not a connection to a machine. As a card among the
@@ -3822,10 +3821,15 @@ public sealed class HtmlViews
 
     // All protocols offered for a new connection (order = row order; the row shows the first few,
     // the rest live in the "More" dialog).
-    // Only the protocols this user kept. The order is fixed; what is hidden simply falls out.
-    private static (string Protocol, string Name, string Desc, string IconKey, string Color)[] QuickProtocols(bool de, IReadOnlyCollection<string>? hidden = null)
+    // Only the protocols this user kept, in the order this user gave them; what is hidden simply falls out.
+    private static (string Protocol, string Name, string Desc, string IconKey, string Color)[] QuickProtocols(bool de, IReadOnlyCollection<string>? hidden = null, IReadOnlyList<string>? order = null)
     {
-        return All(de).Where(entry => hidden is null || !hidden.Contains(entry.Protocol)).ToArray();
+        var known = All(de).ToDictionary(entry => entry.Protocol, StringComparer.Ordinal);
+        return SessionPreferences.OrderedQuickProtocols(order)
+            .Where(known.ContainsKey)
+            .Select(key => known[key])
+            .Where(entry => hidden is null || !hidden.Contains(entry.Protocol))
+            .ToArray();
 
         static (string Protocol, string Name, string Desc, string IconKey, string Color)[] All(bool de) => new (string Protocol, string Name, string Desc, string IconKey, string Color)[]
         {
@@ -3834,18 +3838,17 @@ public sealed class HtmlViews
             ("vnc", "VNC", de ? "Remote-Desktop" : "Remote Desktop", "vnc", "#b06cff"),
             ("sftp", "SFTP", de ? "Sichere Dateien" : "Secure files", "sftp", "#f0a92b"),
             ("smb", "SMB", de ? "Netzwerkfreigabe" : "Network share", "smb", "#35c07f"),
-            ("website", "HTTP / HTTPS", de ? "Webseite" : "Website", "globe", "#3aa0ff"),
+            // The browser: a website or a device's page, fetched by Matgate and shown in the tab.
+            ("website", "Browser", de ? "Webseite oder Gerät über Matgate öffnen (HTTP / HTTPS)" : "Open a website or a device through Matgate (HTTP / HTTPS)", "globe", "#3aa0ff"),
             ("ftp", "FTP", de ? "Dateiübertragung" : "File transfer", "ftp", "#e0863a"),
             ("webdav", "WebDAV", de ? "Dateien über HTTP" : "Files over HTTP", "cloud", "#2bb3c0"),
-            // Not a protocol: a browser tab with an empty address bar (a website without an address).
-            ("browser", "Browser", de ? "Frei surfen über Matgate" : "Surf through Matgate", "compass", "#19b3a6"),
         };
     }
 
     // Single row of protocol chips + a "More" chip that opens the full protocol dialog.
-    private static string QuickConnectSection(bool de, IReadOnlyCollection<string>? hiddenQuick)
+    private static string QuickConnectSection(bool de, IReadOnlyCollection<string>? hiddenQuick, IReadOnlyList<string>? order)
     {
-        var protocols = QuickProtocols(de, hiddenQuick);
+        var protocols = QuickProtocols(de, hiddenQuick, order);
         if (protocols.Length == 0)
         {
             // Everything hidden means the user does not want quick connect at all - then the heading
@@ -3857,9 +3860,7 @@ public sealed class HtmlViews
         // eighth protocol never showed up on the home page even though it was ticked. Which ones
         // appear is decided by the setting, not by the order; the row can be dragged around when
         // it does not fit.
-        // The browser stands first: it is the one chip that opens something with a single tap, and at the
-        // end of the row a phone would keep it behind a swipe.
-        var chips = string.Join("", protocols.OrderBy(protocol => protocol.Protocol == "browser" ? 0 : 1).Select(protocol => $$"""
+        var chips = string.Join("", protocols.Select(protocol => $$"""
             <button type="button" class="home2-proto-chip" data-home2-qc="{{A(protocol.Protocol)}}" style="--proto: {{protocol.Color}}" title="{{A(protocol.Desc)}}">
                 <span class="home2-proto-chip-icon">{{Icon(protocol.IconKey)}}</span>
                 <span class="home2-proto-chip-name">{{E(protocol.Name)}}</span>
@@ -3884,9 +3885,15 @@ public sealed class HtmlViews
 
     // Ad-hoc Quick-Connect dialog: pick a protocol, enter host + credentials, connect immediately
     // (nothing is saved). Opened by the "Quick connect" chips/button. Fullscreen on phones (see CSS).
-    private static string ProtocolDialog(bool de, IReadOnlyCollection<string>? hiddenQuick)
+    private static string ProtocolDialog(bool de, IReadOnlyCollection<string>? hiddenQuick, IReadOnlyList<string>? order)
     {
-        var protocols = QuickProtocols(de, hiddenQuick);
+        var protocols = QuickProtocols(de, hiddenQuick, order);
+        // The browser may start without an address where a tab can go anywhere: with host names for websites.
+        // Under a path of Matgate's a tab shows one website, so it has to be named.
+        var blankBrowser = WebsiteSiteService.Available;
+        var browserPlaceholder = blankBrowser
+            ? (de ? "https://…  (leer: leerer Browser mit Adressleiste)" : "https://…  (empty: a browser with an address bar)")
+            : (de ? "z. B. https://10.0.0.1:8443 oder nas.local" : "e.g. https://10.0.0.1:8443 or nas.local");
 
         // The dialog starts on the first chip, so the hidden field has to name that one. A fixed
         // "rdp" here would be the wrong protocol the moment RDP is the one the user hid.
@@ -3910,10 +3917,9 @@ public sealed class HtmlViews
                 <form class="home2-qc-form" data-home2-qc-form>
                     <div class="home2-qc-protos">{{protoButtons}}</div>
                     <input type="hidden" name="protocol" value="{{A(firstProtocol)}}" data-home2-qc-proto-input>
-                    <p class="home2-qc-hint muted hidden" data-home2-qc-field="browserHint" hidden>{{(de ? "Öffnet einen Browser mit leerer Adressleiste. Was du dort aufrufst, lädt Matgate für dich – auch Adressen, die nur Matgate erreicht." : "Opens a browser with an empty address bar. Whatever you open there is loaded by Matgate - also addresses only Matgate can reach.")}}</p>
-                    <label class="home2-qc-label" data-home2-qc-field="host">
+                    <label class="home2-qc-label">
                         <span data-home2-qc-hostlabel>{{(de ? "Host" : "Host")}}</span>
-                        <input name="host" required autocomplete="off" spellcheck="false" data-home2-qc-host data-web-placeholder="{{A(de ? "https://…  (leer: Browser zum freien Surfen)" : "https://…  (empty: a browser to surf with)")}}" placeholder="{{A(de ? "z. B. 192.168.1.10" : "e.g. 192.168.1.10")}}">
+                        <input name="host" required autocomplete="off" spellcheck="false" data-home2-qc-host data-web-label="{{A(de ? "Start-URL" : "Start URL")}}" data-web-blank="{{(blankBrowser ? "1" : "0")}}" data-web-placeholder="{{A(browserPlaceholder)}}" placeholder="{{A(de ? "z. B. 192.168.1.10" : "e.g. 192.168.1.10")}}">
                     </label>
                     <div class="home2-qc-grid2">
                         <label class="home2-qc-label" data-home2-qc-field="port">
@@ -3925,7 +3931,7 @@ public sealed class HtmlViews
                             <input name="domain" autocomplete="off" spellcheck="false">
                         </label>
                     </div>
-                    <div class="home2-qc-grid2" data-home2-qc-field="credentials">
+                    <div class="home2-qc-grid2">
                         <label class="home2-qc-label">
                             <span>{{(de ? "Benutzer" : "Username")}}</span>
                             <input name="username" autocomplete="off" spellcheck="false">
@@ -5008,6 +5014,15 @@ public sealed class HtmlViews
             newConnection = T(context, "New connection"),
             ready = T(context, "Ready"),
             chooseConnection = Language(context) == "de" ? "Verbindung auswählen" : "Choose a connection",
+            ctxReload = Language(context) == "de" ? "Neu laden" : "Reload",
+            ctxCloseTab = Language(context) == "de" ? "Tab schließen" : "Close tab",
+            ctxCloseOthers = Language(context) == "de" ? "Andere Tabs schließen" : "Close other tabs",
+            ctxCloseOthersTitle = Language(context) == "de" ? "Andere Tabs schließen?" : "Close the other tabs?",
+            ctxCloseOthersText = Language(context) == "de" ? "Ihre Sitzungen werden dabei getrennt." : "Their sessions are disconnected.",
+            ctxOwnWindow = Language(context) == "de" ? "In eigenem Fenster öffnen" : "Open in a window of its own",
+            ctxBrowserTab = Language(context) == "de" ? "In neuem Browser-Tab öffnen" : "Open in a new browser tab",
+            ctxCopyAddress = Language(context) == "de" ? "Adresse kopieren" : "Copy address",
+            ctxCustomize = Language(context) == "de" ? "Reihenfolge und Auswahl ändern" : "Change order and selection",
             starting = Language(context) == "de" ? "Startet" : "Starting",
             // In front of a place's name in the tab: "Files: User" says what you are dealing with.
             // Without it there was just "User", next to tabs that are remote sessions.
@@ -6214,7 +6229,7 @@ public sealed class HtmlViews
                         const qcSubmitLabel = protoDialog.querySelector('[data-home2-qc-submit]');
                         const originalHostPlaceholder = qcHostInput ? (qcHostInput.getAttribute('placeholder') || '') : '';
                         const originalHostLabel = qcHostLabel ? qcHostLabel.textContent : 'Host';
-                        const defaultPorts = { rdp: '3389', ssh: '22', vnc: '5900', sftp: '22', ftp: '21', smb: '445', website: '', webdav: '', browser: '' };
+                        const defaultPorts = { rdp: '3389', ssh: '22', vnc: '5900', sftp: '22', ftp: '21', smb: '445', website: '', webdav: '' };
                         // Which chip the dialog starts on. Not a fixed protocol: the user decides
                         // which ones exist here, and the first surviving one is the only safe pick.
                         const qcDefaultProto = qcProtoButtons.length
@@ -6237,23 +6252,19 @@ public sealed class HtmlViews
                             qcProtoButtons.forEach(button => button.classList.toggle('active', button.dataset.home2QcProto === value));
                             const isWeb = value === 'website';
                             const isDav = value === 'webdav';
-                            // The browser is a website without an address: there is nothing to fill in.
-                            const isBrowser = value === 'browser';
-                            setField('host', !isBrowser);
-                            setField('credentials', !isBrowser);
-                            setField('browserHint', isBrowser);
                             if (qcSubmitLabel) {
-                                qcSubmitLabel.textContent = isBrowser ? qcSubmitLabel.dataset.browser : qcSubmitLabel.dataset.connect;
+                                qcSubmitLabel.textContent = isWeb ? qcSubmitLabel.dataset.browser : qcSubmitLabel.dataset.connect;
                             }
-                            setField('port', !isWeb && !isBrowser);
+                            setField('port', !isWeb);
                             setField('domain', value === 'rdp' || value === 'smb');
                             setField('fileRoot', isDav || value === 'sftp' || value === 'ftp' || value === 'smb');
                             if (qcHostLabel) {
-                                qcHostLabel.textContent = isWeb ? 'URL' : originalHostLabel;
+                                qcHostLabel.textContent = isWeb ? ((qcHostInput && qcHostInput.dataset.webLabel) || 'URL') : originalHostLabel;
                             }
                             if (qcHostInput) {
-                                // A website without an address is a browser: a tab to type addresses into.
-                                qcHostInput.required = !isWeb && !isBrowser;
+                                // The browser without an address is a tab to type addresses into - where a tab
+                                // can go anywhere (host names for websites); otherwise it starts with this one.
+                                qcHostInput.required = !(isWeb && qcHostInput.dataset.webBlank === '1');
                                 qcHostInput.placeholder = isWeb ? (qcHostInput.dataset.webPlaceholder || 'https://…') : (isDav ? 'nas.local  /  https://nas.local/dav' : originalHostPlaceholder);
                             }
                             if (qcPortInput) {
@@ -6277,7 +6288,7 @@ public sealed class HtmlViews
                             else {
                                 protoDialog.setAttribute('open', '');
                             }
-                            if (qcHostInput && !(qcProtoInput && qcProtoInput.value === 'browser')) {
+                            if (qcHostInput) {
                                 qcHostInput.focus();
                             }
                         };
@@ -6321,30 +6332,7 @@ public sealed class HtmlViews
                             button.addEventListener('click', () => openDialog(qcDefaultProto));
                         });
                         Array.from(root.querySelectorAll('[data-home2-qc]')).forEach(button => {
-                            button.addEventListener('click', async () => {
-                                if (button.dataset.home2Qc !== 'browser') {
-                                    openDialog(button.dataset.home2Qc);
-                                    return;
-                                }
-                                // The browser needs nothing typed in: one tap opens it. Where it cannot be
-                                // opened, the dialog says why.
-                                if (button.disabled) {
-                                    return;
-                                }
-                                button.disabled = true;
-                                try {
-                                    const body = new FormData();
-                                    body.append('protocol', 'browser');
-                                    openServer(await startQuick(body));
-                                }
-                                catch (error) {
-                                    openDialog('browser');
-                                    showQcError(error);
-                                }
-                                finally {
-                                    button.disabled = false;
-                                }
-                            });
+                            button.addEventListener('click', () => openDialog(button.dataset.home2Qc));
                         });
 
                         const protoClose = protoDialog.querySelector('[data-home2-proto-close]');
@@ -7044,6 +7032,151 @@ public sealed class HtmlViews
                             }
                         });
                     }
+
+                    // ---- Right click ----------------------------------------------------------------------
+                    // A menu at the pointer for the things one works with here: a connection's card, a tab, a
+                    // quick-connect chip, a row in the file list. Whatever a card or a row offers is read off
+                    // the buttons it already has, so there is one place that says what each of them does.
+                    // Not where text is typed or marked (the browser's menu is the right one there), not
+                    // inside a session (the click belongs to the machine), and never with Shift held: that
+                    // is the way to the browser's own menu.
+                    const contextIcon = source => {
+                        const svg = source ? source.querySelector('svg') : null;
+                        return svg ? svg.outerHTML : '';
+                    };
+                    const contextMenuOfCard = card => {
+                        const items = [];
+                        const open = card.querySelector('.connection-choice-actions button, .connection-choice-actions a');
+                        if (open) {
+                            items.push({ label: (open.textContent || '').trim(), iconHtml: contextIcon(open), onSelect: () => open.click() });
+                            const serverId = open.getAttribute('data-server-id');
+                            if (serverId) {
+                                items.push({
+                                    label: ui('ctxBrowserTab'),
+                                    iconHtml: actionIcons.popOut || '',
+                                    onSelect: () => window.open('/?open=' + encodeURIComponent(serverId), '_blank', 'noopener')
+                                });
+                            }
+                        }
+
+                        const corner = Array.from(card.querySelectorAll('.connection-choice-corner .favorite-toggle'));
+                        if (items.length && corner.length) {
+                            items.push({ separator: true });
+                        }
+                        // The star first, then the gear - the order of use, not of the corner.
+                        corner.sort((a, b) => (a.closest('form') ? 0 : 1) - (b.closest('form') ? 0 : 1)).forEach(control => {
+                            items.push({
+                                label: control.getAttribute('title') || control.getAttribute('aria-label') || '',
+                                iconHtml: contextIcon(control),
+                                onSelect: () => control.click()
+                            });
+                        });
+
+                        const address = ((card.querySelector('.target') || {}).textContent || '').trim();
+                        if (address) {
+                            items.push({ separator: true });
+                            items.push({ label: ui('ctxCopyAddress'), iconHtml: fileIcon('copy'), onSelect: () => window.MatgateCopyText?.(address) });
+                        }
+
+                        return { trigger: card, title: ((card.querySelector('h3') || {}).textContent || '').trim(), items };
+                    };
+                    const contextMenuOfTab = element => {
+                        const kind = element.getAttribute('data-tab-kind');
+                        if (kind !== 'connection' && kind !== 'page') {
+                            return null;
+                        }
+
+                        const id = element.getAttribute('data-tab-id');
+                        const close = which => which.getAttribute('data-tab-kind') === 'page'
+                            ? closeShellTab(which.getAttribute('data-shell-tab-id'))
+                            : closeTab(which.getAttribute('data-tab-id'));
+                        const others = Array.from(tabsRoot.querySelectorAll('.session-tab[data-tab-kind="connection"], .session-tab[data-tab-kind="page"]'))
+                            .filter(other => other !== element);
+                        const items = [];
+                        if (kind === 'page') {
+                            const page = shellTabs.get(id);
+                            items.push({
+                                label: ui('ctxReload'),
+                                iconHtml: fileIcon('refresh'),
+                                onSelect: () => { try { page.iframe.contentWindow.location.reload(); } catch { page.iframe.src = page.iframe.src; } }
+                            });
+                        }
+                        else if (tabs.get(id) && tabs.get(id).serverId) {
+                            items.push({ label: ui('ctxOwnWindow'), iconHtml: actionIcons.popOut || '', onSelect: () => popOutTab(tabs.get(id)) });
+                        }
+
+                        if (items.length) {
+                            items.push({ separator: true });
+                        }
+                        items.push({ label: ui('ctxCloseTab'), iconHtml: fileIcon('clear'), onSelect: () => close(element) });
+                        items.push({
+                            label: ui('ctxCloseOthers'),
+                            iconHtml: fileIcon('clear'),
+                            disabled: others.length === 0,
+                            onSelect: async () => {
+                                if (await askToConfirm({ title: ui('ctxCloseOthersTitle'), text: ui('ctxCloseOthersText'), confirm: ui('ctxCloseOthers') })) {
+                                    others.forEach(close);
+                                }
+                            }
+                        });
+                        return { trigger: element, title: ((element.querySelector('.session-tab-title') || {}).textContent || '').trim(), items };
+                    };
+                    const contextMenuOfChip = chip => ({
+                        trigger: chip,
+                        title: (chip.textContent || '').trim(),
+                        items: [
+                            { label: (chip.textContent || '').trim(), iconHtml: contextIcon(chip), onSelect: () => chip.click() },
+                            { separator: true },
+                            {
+                                label: ui('ctxCustomize'),
+                                iconHtml: fileIcon('settings'),
+                                onSelect: () => openShellTab('/account?tab=session#quick-order-list', ui('ctxCustomize'), fileIcon('settings'), '')
+                            }
+                        ]
+                    });
+                    const contextMenuOfFileRow = row => {
+                        const sources = Array.from(row.querySelectorAll('.file-row-actions .file-action-button'));
+                        return sources.length === 0 ? null : {
+                            trigger: row,
+                            title: ((row.querySelector('.file-name-button') || {}).textContent || '').trim(),
+                            items: sources.map(source => ({
+                                label: source.title,
+                                iconHtml: contextIcon(source),
+                                danger: source.classList.contains('danger'),
+                                onSelect: () => source.click()
+                            }))
+                        };
+                    };
+                    document.addEventListener('contextmenu', event => {
+                        const target = event.target instanceof Element ? event.target : null;
+                        if (!target || event.shiftKey || event.defaultPrevented
+                            || target.closest('input, textarea, select, [contenteditable], .toolbar-menu-panel')) {
+                            return;
+                        }
+
+                        const tab = target.closest('.session-tab');
+                        const card = target.closest('[data-home2-card]');
+                        const chip = target.closest('.home2-proto-chip[data-home2-qc]');
+                        const row = target.closest('.file-table tbody tr');
+                        // A finger held on a tab is the start of dragging it, not a wish for a menu.
+                        const menu = tab ? (event.pointerType === 'touch' ? null : contextMenuOfTab(tab))
+                            : card ? contextMenuOfCard(card)
+                            : chip ? contextMenuOfChip(chip)
+                            : row ? contextMenuOfFileRow(row)
+                            : null;
+                        if (!menu || menu.items.length === 0 || typeof window.MatgateOpenMenu !== 'function') {
+                            return;
+                        }
+
+                        event.preventDefault();
+                        window.MatgateOpenMenu({
+                            trigger: menu.trigger,
+                            at: { x: event.clientX, y: event.clientY },
+                            title: menu.title,
+                            closeLabel: ui('close'),
+                            items: menu.items
+                        });
+                    });
 
                     // Safety net: on the shell, NO internal navigation may replace the page - that would
                     // tear down every live session. Any internal <a> that isn't already a shell-tab link,
@@ -18827,9 +18960,7 @@ public sealed class HtmlViews
                     }
                     .home2-qc-actions { display: flex; justify-content: flex-end; margin-top: 2px; }
                     .home2-qc-actions .button { min-height: 40px; padding: 8px 18px; }
-                    .home2-qc-label[hidden], .home2-qc-error[hidden], .home2-qc-grid2[hidden], .home2-qc-hint[hidden] { display: none !important; }
-                    .home2-qc-hint { margin: 0; }
-                    .home2-proto-chip:disabled { cursor: progress; opacity: .6; }
+                    .home2-qc-label[hidden], .home2-qc-error[hidden] { display: none !important; }
                     .home2-folder-grid {
                         display: flex;
                         gap: 12px;
@@ -20147,6 +20278,10 @@ public sealed class HtmlViews
                     .toolbar-menu-panel[hidden] {
                         display: none;
                     }
+                    /* A context menu: an anchor of no size where the pointer was, the panel hanging from it. */
+                    .context-menu-home { height: 0; left: 0; position: fixed; top: 0; width: 0; z-index: 60; }
+                    .context-menu-home > .file-menu-panel { left: 2px; top: 2px; white-space: nowrap; width: max-content; }
+                    .toolbar-menu-separator { background: var(--line); height: 1px; margin: 2px 6px; }
                     /* The number of what is selected, on the button that opens the actions for it. On a phone
                        the button is an icon, and with the menu closed nothing else says that something is
                        selected. */
@@ -21983,6 +22118,8 @@ public sealed class HtmlViews
                             panel.style.left = '';
                             panel.style.right = '';
                             panel.hidden = true;
+                            panel.style.top = '';
+                            panel.style.bottom = '';
                             if (panel.hasAttribute('data-menu-dynamic')) {
                                 panel.remove();
                             }
@@ -21991,7 +22128,14 @@ public sealed class HtmlViews
                             }
 
                             home.classList.remove('is-open');
-                            trigger.setAttribute('aria-expanded', 'false');
+                            if (home.hasAttribute('data-menu-home-dynamic')) {
+                                // A context menu: its anchor goes with it, and what was right-clicked is no button.
+                                home.remove();
+                                trigger.removeAttribute('aria-expanded');
+                            }
+                            else {
+                                trigger.setAttribute('aria-expanded', 'false');
+                            }
                         };
 
                         const showToolbarMenu = (trigger, panel, home, title) => {
@@ -22033,11 +22177,13 @@ public sealed class HtmlViews
                         window.MatgateCloseMenus = closeToolbarMenu;
 
                         // A menu made on the spot - the actions of one row in the file list, say. Items are
-                        // { label, iconHtml, danger, disabled, onSelect }. The sheet is closed BEFORE onSelect
-                        // runs, so whatever the choice opens is not underneath it.
+                        // { label, iconHtml, danger, disabled, onSelect } or { separator: true }. The sheet is
+                        // closed BEFORE onSelect runs, so whatever the choice opens is not underneath it.
+                        // With options.at = { x, y } it is a context menu: it opens at that point instead of
+                        // beside its trigger, and the trigger is the thing that was right-clicked.
                         window.MatgateOpenMenu = (options) => {
                             const trigger = options.trigger;
-                            if (activeMenu && activeMenu.trigger === trigger) {
+                            if (activeMenu && activeMenu.trigger === trigger && !options.at) {
                                 closeToolbarMenu();
                                 return;
                             }
@@ -22049,6 +22195,14 @@ public sealed class HtmlViews
                             panel.setAttribute('data-menu-close', options.closeLabel || 'Close');
                             panel.hidden = true;
                             options.items.forEach((item) => {
+                                if (item.separator) {
+                                    const line = document.createElement('div');
+                                    line.className = 'toolbar-menu-separator';
+                                    line.setAttribute('role', 'separator');
+                                    panel.appendChild(line);
+                                    return;
+                                }
+
                                 const button = document.createElement('button');
                                 button.type = 'button';
                                 button.className = 'toolbar-button toolbar-menu-item file-menu-item' + (item.danger ? ' danger' : '');
@@ -22062,10 +22216,41 @@ public sealed class HtmlViews
                                 });
                                 panel.appendChild(button);
                             });
-                            const home = trigger.parentElement;
+                            let home = trigger.parentElement;
+                            if (options.at) {
+                                // An anchor of no size at the pointer: the panel hangs from it as from a button.
+                                // Inside an open dialog it has to live in the dialog, or it would lie beneath it.
+                                closeToolbarMenu();
+                                home = document.createElement('div');
+                                home.className = 'context-menu-home';
+                                home.setAttribute('data-menu-home-dynamic', '1');
+                                home.style.left = options.at.x + 'px';
+                                home.style.top = options.at.y + 'px';
+                                (trigger.closest('dialog[open]') || document.body).appendChild(home);
+                            }
+
                             home.appendChild(panel);
                             showToolbarMenu(trigger, panel, home, options.title);
+                            if (options.at && activeMenu) {
+                                activeMenu.context = true;
+                                if (!menuSheetMode() && panel.getBoundingClientRect().bottom > window.innerHeight - 8) {
+                                    // Near the lower edge it opens upwards.
+                                    panel.style.top = 'auto';
+                                    panel.style.bottom = '2px';
+                                }
+                            }
                         };
+
+                        // A context menu belongs to the place it was opened at: scrolled away, or the window
+                        // left, it would hang in the air.
+                        const closeContextMenu = (event) => {
+                            if (activeMenu && activeMenu.context && !(event && event.target instanceof Node && activeMenu.panel.contains(event.target))) {
+                                closeToolbarMenu();
+                            }
+                        };
+                        window.addEventListener('scroll', closeContextMenu, true);
+                        window.addEventListener('blur', closeContextMenu);
+                        window.addEventListener('resize', closeContextMenu);
 
                         document.addEventListener('click', (event) => {
                             const target = event.target instanceof Element ? event.target : null;
@@ -22107,7 +22292,9 @@ public sealed class HtmlViews
                             }
 
                             const target = event.target instanceof Element ? event.target : null;
-                            if (target && !activeMenu.panel.contains(target) && !activeMenu.trigger.contains(target)) {
+                            // A button's menu leaves presses on its button to the button; a context menu's trigger
+                            // is the whole thing that was right-clicked, and a press on it is a press beside the menu.
+                            if (target && !activeMenu.panel.contains(target) && (activeMenu.context || !activeMenu.trigger.contains(target))) {
                                 closeToolbarMenu();
                             }
                         }, true);
@@ -24060,7 +24247,6 @@ public sealed class HtmlViews
             "zoom-in" => """<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M11 8v6M8 11h6"/>""",
             "zoom-out" => """<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6"/>""",
             "globe" => """<circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15 15 0 0 1 0 20"/><path d="M12 2a15 15 0 0 0 0 20"/>""",
-            "compass" => """<circle cx="12" cy="12" r="10"/><path d="m16.2 7.8-2.1 6.3-6.3 2.1 2.1-6.3z"/>""",
             "search" => """<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>""",
             "more" => """<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>""",
             "clock" => """<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>""",

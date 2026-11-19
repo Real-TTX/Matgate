@@ -57,6 +57,20 @@ services:
       interval: 3s
       timeout: 3s
       retries: 30
+  # The same Matgate as nobody has set it up for websites: no host names of their own, so a website opens
+  # under a path of Matgate's address (tests/browser-under-path.js). Reached directly, on a port of its own.
+  matgate-plain:
+    build:
+      context: ..
+      dockerfile: Matgate/Dockerfile
+    ports: ["127.0.0.1:18092:8080"]
+    environment:
+      ASPNETCORE_URLS: http://+:8080
+      MATGATE_DATA_DIR: /data
+      MATGATE_ADMIN_USER: admin
+      MATGATE_ADMIN_PASSWORD: test-only-pw
+      MATGATE_ADMIN_EMAIL: admin@example.invalid
+    volumes: [mgdata-plain:/data, secrets-plain:/run/matgate-secrets]
   guacd:
     environment:
       GUACD_LOG_LEVEL: debug
@@ -101,7 +115,7 @@ services:
       context: ..
       dockerfile: tests/agent-linux/Dockerfile
     init: true
-volumes: { mgdata: , secrets: , files: }
+volumes: { mgdata: , secrets: , files: , mgdata-plain: , secrets-plain: }
 # A fixed subnet, because Docker's default pools run out on a machine with many stacks
 # ("all predefined address pools have been fully subnetted"). Change it if 10.253.81.0/24 is
 # already taken here.

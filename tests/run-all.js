@@ -51,8 +51,8 @@ const GROUPS = [
     scripts: ["key-bar.js", "screen-scale.js", "connection-form.js", "phone-field-zoom.js"],
   },
   {
-    name: "Group 10 - sessions that outlive the browser",
-    scripts: ["kept-sessions.js"],
+    name: "Group 10 - sessions that outlive the browser, right click, the order of the quick-connect chips, the browser under a path",
+    scripts: ["kept-sessions.js", "context-menu.js", "quick-connect-order.js", "browser-under-path.js"],
   },
   {
     name: "Group 11 - websites: an address of their own, the path under Matgate's, a browser tab",

@@ -4461,9 +4461,16 @@ public static partial class EndpointMapping
                 .Distinct(StringComparer.Ordinal)
                 .ToList();
 
-            // Quick-connect chips: what the form does NOT send is what the user unticked.
-            current.Session.HiddenQuickProtocols = SessionPreferences.QuickProtocolKeys
-                .Where(key => !Checked(form, "quick-" + key))
+            // Quick-connect chips: the same kind of list - their order, and the ones left out.
+            current.Session.QuickProtocolOrder = form["quickProtocols"].ToString()
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Where(SessionPreferences.IsKnownQuickProtocol)
+                .Distinct(StringComparer.Ordinal)
+                .ToList();
+            current.Session.HiddenQuickProtocols = form["hiddenQuickProtocols"].ToString()
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                .Where(SessionPreferences.IsKnownQuickProtocol)
+                .Distinct(StringComparer.Ordinal)
                 .ToList();
             current.UpdatedAt = DateTimeOffset.UtcNow;
         }, context.RequestAborted);
@@ -5155,14 +5162,9 @@ public static partial class EndpointMapping
         }
 
         var form = await context.Request.ReadFormAsync(context.RequestAborted);
-        // "browser" is no protocol of its own: it is a website without an address, whatever else the form
-        // still holds from the protocol chosen before.
-        var browserOnly = string.Equals(form["protocol"].ToString(), "browser", StringComparison.OrdinalIgnoreCase);
-        var protocol = browserOnly
-            ? ServerProtocol.Website
-            : Enum.TryParse<ServerProtocol>(form["protocol"].ToString(), ignoreCase: true, out var parsed)
-                ? parsed
-                : ServerProtocol.Rdp;
+        var protocol = Enum.TryParse<ServerProtocol>(form["protocol"].ToString(), ignoreCase: true, out var parsed)
+            ? parsed
+            : ServerProtocol.Rdp;
         if (protocol == ServerProtocol.LegacyBrowser)
         {
             protocol = ServerProtocol.Rdp;
@@ -5178,14 +5180,15 @@ public static partial class EndpointMapping
         }
 
         var isWebsite = ServerEndpoint.IsWebsiteProtocol(protocol);
-        var target = browserOnly ? "" : (form["host"].ToString() ?? "").Trim();
-        // A website without an address is a browser: a tab with an address bar to type into. That needs
-        // either host names for websites, or the browser farm (a real browser, shown as a picture).
+        var target = (form["host"].ToString() ?? "").Trim();
+        // The browser is Matgate's own: the page is fetched by Matgate and shown in the tab - never the
+        // browser farm's picture of one. Without an address it is a tab with an address bar to type into,
+        // which takes host names for websites: under a path of Matgate's a tab shows one website, and that
+        // one has to be named here.
         var blankBrowser = isWebsite && string.IsNullOrWhiteSpace(target);
-        var farmBrowser = blankBrowser && !WebsiteSiteService.Available;
-        if (farmBrowser && !context.RequestServices.GetRequiredService<BrowserFarmClient>().IsConfigured)
+        if (blankBrowser && !WebsiteSiteService.Available)
         {
-            return Results.BadRequest(new { error = HtmlViews.Translate(context, "A browser without an address needs host names for websites (MATGATE_WEBSITE_HOST) or the browser farm. Please enter an address.") });
+            return Results.BadRequest(new { error = HtmlViews.Translate(context, "Please enter the address the browser should start with.") });
         }
 
         if (string.IsNullOrWhiteSpace(target) && !blankBrowser)
@@ -5211,16 +5214,15 @@ public static partial class EndpointMapping
             // Whoever may quick-connect may open any address - so a website opened this way is a browser:
             // its address bar takes any address, and its links are followed through Matgate.
             WebsiteBrowse = isWebsite,
-            WebsiteRenderMode = farmBrowser ? WebsiteRenderMode.ChromiumVnc : WebsiteRenderMode.Native,
-            WebsiteFarmToolbar = farmBrowser,
+            WebsiteRenderMode = WebsiteRenderMode.Native,
             Protocol = protocol,
             Host = isWebsite ? "" : target,
             Port = port,
-            UserName = browserOnly ? "" : (form["username"].ToString() ?? "").Trim(),
-            Password = browserOnly ? "" : form["password"].ToString() ?? "",
+            UserName = (form["username"].ToString() ?? "").Trim(),
+            Password = form["password"].ToString() ?? "",
             Domain = (form["domain"].ToString() ?? "").Trim(),
             FileRootPath = (form["fileRoot"].ToString() ?? "").Trim(),
-            WebsiteUrl = !isWebsite ? "" : farmBrowser ? "about:blank" : target,
+            WebsiteUrl = isWebsite ? target : "",
             Notes = HtmlViews.Translate(context, "Quick connect")
         };
 
