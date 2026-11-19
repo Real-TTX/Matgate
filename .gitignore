@@ -10,6 +10,8 @@ data/
 # UI tests pull playwright-core; the browser itself is the one already on the machine.
 tests/node_modules/
 tests/*.png
+# The pictures of the tour (tests/gallery.js): made anew by every run.
+tests/gallery/
 run-out.txt
 suite-out.txt
 tests/*-out.txt

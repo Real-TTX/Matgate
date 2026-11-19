@@ -329,10 +329,10 @@ public sealed class HtmlViews
         var body = $$"""
             <section class="login-shell">
                 <div class="login-card">
-                    <div class="login-brand">
-                        <span class="login-glyph" aria-hidden="true"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><path d="M17 48 V16 H47 V48 H40 V23 H24 V48 Z" fill="currentColor"/></svg></span>
-                        <span class="login-word"><span>MAT</span>GATE</span>
-                    </div>
+                    {{LoginAside(context)}}
+                    <div class="login-pane">
+                    <h1 class="login-title">{{T(context, "Sign in")}}</h1>
+                    <p class="login-sub">{{(Language(context) == "de" ? "Melde dich an, um deine Verbindungen zu öffnen." : "Sign in to open your connections.")}}</p>
                     {{errorHtml}}
                     <form method="post" action="/login" class="login-form">
                         {{returnUrlField}}
@@ -344,11 +344,32 @@ public sealed class HtmlViews
                         </label>
                         <button type="submit" class="login-submit">{{Icon("arrow-right")}}{{T(context, "Sign in")}}</button>
                     </form>
+                    </div>
                 </div>
             </section>
             """;
 
         return Layout(context, null, "Login", body, "login-main");
+    }
+
+    // The brand's side of the sign-in pages: the mark, the name, and in three lines what this is.
+    private static string LoginAside(HttpContext context)
+    {
+        var de = Language(context) == "de";
+        return $$"""
+            <aside class="login-aside">
+                <div class="login-brand">
+                    <span class="login-glyph" aria-hidden="true"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><path d="M17 48 V16 H47 V48 H40 V23 H24 V48 Z" fill="currentColor"/></svg></span>
+                    <span class="login-word"><span>MAT</span>GATE</span>
+                </div>
+                <p class="login-tagline">{{(de ? "Deine Rechner, Dateien und Seiten – von überall, im Browser." : "Your machines, files and pages – from anywhere, in the browser.")}}</p>
+                <ul class="login-points">
+                    <li>{{Icon("monitor")}}<span>{{(de ? "RDP, VNC und SSH ohne Client" : "RDP, VNC and SSH without a client")}}</span></li>
+                    <li>{{Icon("folder")}}<span>{{(de ? "Dateien über SFTP, SMB, FTP und WebDAV" : "Files over SFTP, SMB, FTP and WebDAV")}}</span></li>
+                    <li>{{Icon("globe")}}<span>{{(de ? "Ein Browser im eigenen Netz" : "A browser inside your network")}}</span></li>
+                </ul>
+            </aside>
+            """;
     }
 
     // The second step of signing in. Nobody is signed in here yet - what brings the browser here
@@ -365,10 +386,8 @@ public sealed class HtmlViews
         var body = $$"""
             <section class="login-shell">
                 <div class="login-card">
-                    <div class="login-brand">
-                        <span class="login-glyph" aria-hidden="true"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><path d="M17 48 V16 H47 V48 H40 V23 H24 V48 Z" fill="currentColor"/></svg></span>
-                        <span class="login-word"><span>MAT</span>GATE</span>
-                    </div>
+                    {{LoginAside(context)}}
+                    <div class="login-pane">
                     <h1 class="login-title">{{(de ? "Zweiter Schritt" : "Second step")}}</h1>
                     <p class="login-sub">{{(de
                         ? "Der sechsstellige Code aus deiner Authenticator-App. Ein Wiederherstellungs-Code geht auch."
@@ -381,6 +400,7 @@ public sealed class HtmlViews
                         <button type="submit" class="login-submit">{{Icon("arrow-right")}}{{T(context, "Sign in")}}</button>
                     </form>
                     <p class="login-sub"><a href="/login">{{(de ? "Noch einmal von vorn" : "Start over")}}</a></p>
+                    </div>
                 </div>
             </section>
             """;
@@ -399,10 +419,8 @@ public sealed class HtmlViews
         var body = $$"""
             <section class="login-shell">
                 <div class="login-card login-card-wide">
-                    <div class="login-brand">
-                        <span class="login-glyph" aria-hidden="true"><svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg"><path d="M17 48 V16 H47 V48 H40 V23 H24 V48 Z" fill="currentColor"/></svg></span>
-                        <span class="login-word"><span>MAT</span>GATE</span>
-                    </div>
+                    {{LoginAside(context)}}
+                    <div class="login-pane">
                     <h1 class="login-title">{{T(context, "Initial setup")}}</h1>
                     <p class="login-sub">{{T(context, "Welcome to Matgate! Create the administrator account to get started.")}}</p>
                     {{errorHtml}}
@@ -421,6 +439,7 @@ public sealed class HtmlViews
                         </label>
                         <button type="submit" class="login-submit">{{Icon("arrow-right")}}{{T(context, "Create admin account")}}</button>
                     </form>
+                    </div>
                 </div>
             </section>
             """;
@@ -1074,7 +1093,8 @@ public sealed class HtmlViews
         var de = Language(context) == "de";
         var body = $$"""
             <div class="conn-page">
-                <section class="page-head">
+                <section class="page-head conn-head">
+                    <span class="conn-head-icon" style="--proto: {{ProtocolAccent(server.Protocol)}}" aria-hidden="true">{{Icon(ServerEndpoint.EffectiveIconKey(server.Protocol, server.IconKey))}}</span>
                     <div>
                         <p class="eyebrow">{{(de ? "Verbindung" : "Connection")}}</p>
                         <h1>{{E(server.Name)}}</h1>
@@ -1114,7 +1134,8 @@ public sealed class HtmlViews
         var de = Language(context) == "de";
         var body = $$"""
             <div class="conn-page">
-                <section class="page-head">
+                <section class="page-head conn-head">
+                    <span class="conn-head-icon" aria-hidden="true">{{Icon("plus")}}</span>
                     <div>
                         <p class="eyebrow">{{(de ? "Verbindung" : "Connection")}}</p>
                         <h1>{{(de ? "Neue Verbindung" : "New connection")}}</h1>
@@ -3644,6 +3665,8 @@ public sealed class HtmlViews
         areaSourceId = server.AreaSourceId?.ToString() ?? "",
         id = server.Id.ToString(),
         name = server.Name,
+        // The folder it is filed in, for the server manager's tree.
+        folder = (server.FolderName ?? "").Trim(),
         protocol = server.Protocol.ToString().ToUpperInvariant(),
         iconKey = ServerEndpoint.EffectiveIconKey(server.Protocol, server.IconKey),
         iconHtml = Icon(ServerEndpoint.EffectiveIconKey(server.Protocol, server.IconKey)),
@@ -5003,6 +5026,16 @@ public sealed class HtmlViews
                 : "On: resizing renegotiates the remote (sharp, RDP reconnects). Off: the image stretches to fill (no reconnect).",
             fitNow = Language(context) == "de" ? "Jetzt anpassen" : "Fit now",
             onLabel = Language(context) == "de" ? "An" : "On",
+            managerTitle = Language(context) == "de" ? "Verbindungen" : "Connections",
+            managerToggle = Language(context) == "de" ? "Server-Manager ein-/ausblenden" : "Show/hide the server manager",
+            managerSearch = Language(context) == "de" ? "Suchen ..." : "Search ...",
+            managerNoFolder = Language(context) == "de" ? "Ohne Ordner" : "No folder",
+            managerEmpty = Language(context) == "de" ? "Keine Treffer." : "No matches.",
+            managerOpen = Language(context) == "de" ? "Sitzung offen" : "Session open",
+            managerConnect = Language(context) == "de" ? "Verbinden" : "Connect",
+            managerNewSession = Language(context) == "de" ? "Weitere Sitzung öffnen" : "Open another session",
+            sizeHeading = Language(context) == "de" ? "Größe" : "Size",
+            optionsHeading = Language(context) == "de" ? "Optionen" : "Options",
             offLabel = Language(context) == "de" ? "Aus" : "Off",
             zoomInLabel = Language(context) == "de" ? "Vergrößern" : "Zoom in",
             zoomOutLabel = Language(context) == "de" ? "Verkleinern" : "Zoom out",
@@ -5032,6 +5065,13 @@ public sealed class HtmlViews
             websiteOpening = T(context, "Opening website"),
             websiteLoaded = T(context, "Website loaded"),
             websiteAddressHint = Language(context) == "de" ? "Adresse eingeben" : "Type an address",
+            websiteStartTitle = "Browser",
+            websiteStartHint = Language(context) == "de"
+                ? "Gib oben eine Adresse ein – auch eine aus dem Netz, das nur Matgate erreicht, zum Beispiel nas.local oder 10.0.0.1:8443."
+                : "Type an address above – also one from the network only Matgate reaches, for example nas.local or 10.0.0.1:8443.",
+            websiteStartSaved = Language(context) == "de" ? "Gespeicherte Websites" : "Saved websites",
+            websiteStartRecent = Language(context) == "de" ? "Zuletzt besucht" : "Recently visited",
+            websiteStartClear = Language(context) == "de" ? "Liste leeren" : "Clear the list",
             forward = T(context, "Forward"),
             openInNewTab = T(context, "Open in new tab"),
             waiting = Language(context) == "de" ? "Wartet" : "Waiting",
@@ -5175,6 +5215,7 @@ public sealed class HtmlViews
         var body = $$"""
             <div id="matgate-shell" class="matgate-shell">
             <div class="shell-page-row">
+                <button id="server-manager-toggle" type="button" class="tab-action-button icon-only server-manager-toggle" aria-pressed="false" aria-controls="server-manager" title="{{A(Language(context) == "de" ? "Server-Manager ein-/ausblenden" : "Show/hide the server manager")}}" aria-label="{{A(Language(context) == "de" ? "Server-Manager ein-/ausblenden" : "Show/hide the server manager")}}">{{Icon("panel-left")}}</button>
                 <div id="session-tabs" class="session-tabs shell-page-tabs" role="tablist">
                     <div id="new-connection-tab" class="session-tab session-tab--add" role="tab" data-tab-kind="add" aria-label="{{A(T(context, "New connection"))}}">
                         <button type="button" class="session-tab-main">
@@ -5187,6 +5228,17 @@ public sealed class HtmlViews
             <div id="connection-tab-actions" class="tab-actions" aria-label="{{A(T(context, "Actions for the active tab"))}}"></div>
             </div>
             <button id="immersive-handle" type="button" class="immersive-handle" data-hint="{{A(Language(context) == "de" ? "Leiste zurückholen: oben antippen - oder mit drei Fingern ins Bild tippen" : "Bring the bar back: tap the top edge - or tap the picture with three fingers")}}" aria-label="{{A(Language(context) == "de" ? "Steuerung ein-/ausblenden" : "Show/hide controls")}}" title="{{A(Language(context) == "de" ? "Steuerung ein-/ausblenden" : "Show/hide controls")}}">{{Icon("chevron-down")}}</button>
+            <div class="shell-body">
+            <!-- The server manager: the connections by folder, beside the sessions - for a wide screen, where
+                 one switches between many machines and does not want to go back to the start page for each. -->
+            <aside id="server-manager" class="server-manager" hidden aria-label="{{A(Language(context) == "de" ? "Server-Manager" : "Server manager")}}">
+                <div class="server-manager-head">
+                    <strong>{{(Language(context) == "de" ? "Verbindungen" : "Connections")}}</strong>
+                    <a class="tab-action-button icon-only" href="/admin/servers/new" data-shell-open-tab="1" data-shell-title="{{A(T(context, "New connection"))}}" title="{{A(T(context, "New connection"))}}" aria-label="{{A(T(context, "New connection"))}}">{{Icon("plus")}}</a>
+                </div>
+                <label class="server-manager-search">{{Icon("search")}}<input id="server-manager-filter" type="search" autocomplete="off" spellcheck="false" placeholder="{{A(Language(context) == "de" ? "Suchen ..." : "Search ...")}}" aria-label="{{A(Language(context) == "de" ? "Verbindungen durchsuchen" : "Search the connections")}}"></label>
+                <div id="server-manager-tree" class="server-manager-tree" role="tree"></div>
+            </aside>
             <div id="shell-page-panels" class="shell-page-panels">
             <section id="home-view" class="app-view session-page multi-session-page active">
                 <div id="session-deck" class="session-deck">
@@ -5197,22 +5249,26 @@ public sealed class HtmlViews
                     </div>
                 </div>
                 <form id="credential-dialog" class="credential-dialog hidden">
-                    <h2>{{T(context, "Credentials")}}</h2>
-                    <div id="credential-fields" class="stack"></div>
-                    <div class="actions">
+                    <div class="dialog-head"><h2>{{T(context, "Credentials")}}</h2><button type="button" class="dialog-x" data-dialog-x aria-label="{{A(T(context, "Close"))}}" title="{{A(T(context, "Close"))}}">&times;</button></div>
+                    <div class="dialog-body">
+                        <div id="credential-fields" class="stack"></div>
+                    </div>
+                    <div class="actions dialog-foot">
                         <button type="submit" class="primary">{{Icon("save")}}{{T(context, "Send")}}</button>
-                        <button id="credential-cancel" type="button">{{T(context, "Cancel")}}</button>
+                        <button id="credential-cancel" type="button" data-dialog-close>{{T(context, "Cancel")}}</button>
                     </div>
                 </form>
                 <form id="clipboard-dialog" class="credential-dialog clipboard-dialog hidden">
-                    <h2>{{T(context, "Send clipboard")}}</h2>
-                    <label>{{T(context, "Text")}}
-                        <textarea id="clipboard-text" required></textarea>
-                    </label>
-                    <div class="actions">
+                    <div class="dialog-head"><h2>{{T(context, "Send clipboard")}}</h2><button type="button" class="dialog-x" data-dialog-x aria-label="{{A(T(context, "Close"))}}" title="{{A(T(context, "Close"))}}">&times;</button></div>
+                    <div class="dialog-body">
+                        <label>{{T(context, "Text")}}
+                            <textarea id="clipboard-text" required></textarea>
+                        </label>
+                    </div>
+                    <div class="actions dialog-foot">
                         <button type="submit" class="primary">{{Icon("save")}}{{T(context, "Send to active tab")}}</button>
                         <button id="clipboard-type" type="button">{{Icon("keyboard")}}{{(Language(context) == "de" ? "Als Tasten tippen" : "Type as keystrokes")}}</button>
-                        <button id="clipboard-close" type="button">{{T(context, "Close")}}</button>
+                        <button id="clipboard-close" type="button" data-dialog-close>{{T(context, "Close")}}</button>
                     </div>
                 </form>
                 <!-- This sheet has exactly one job: handing files from this device to the open session. It once
@@ -5220,7 +5276,8 @@ public sealed class HtmlViews
                      which "from a place into a place" had nothing to do with a session at all. Copying now
                      happens where one browses anyway: in the file manager. -->
                 <form id="sftp-target-dialog" class="credential-dialog send-files-dialog hidden">
-                    <h2>{{(Language(context) == "de" ? "Dateien in die Sitzung" : "Send files into the session")}}</h2>
+                    <div class="dialog-head"><h2>{{(Language(context) == "de" ? "Dateien in die Sitzung" : "Send files into the session")}}</h2><button type="button" class="dialog-x" data-dialog-x aria-label="{{A(T(context, "Close"))}}" title="{{A(T(context, "Close"))}}">&times;</button></div>
+                    <div class="dialog-body">
                     <button id="send-files-drop" type="button" class="send-files-drop">
                         {{Icon("upload")}}
                         <strong>{{(Language(context) == "de" ? "Dateien hierher ziehen" : "Drop files here")}}</strong>
@@ -5234,15 +5291,17 @@ public sealed class HtmlViews
                         <select id="sftp-target-area" class="hidden"></select>
                         <small id="send-target-hint" class="muted"></small>
                     </label>
-                    <div class="actions">
-                        <button type="submit" class="primary">{{Icon("save")}}{{(Language(context) == "de" ? "Senden" : "Send")}}</button>
-                        <button id="sftp-target-close" type="button">{{T(context, "Close")}}</button>
+                    </div>
+                    <div class="actions dialog-foot">
+                        <button type="submit" class="primary">{{Icon("upload")}}{{(Language(context) == "de" ? "Senden" : "Send")}}</button>
+                        <button id="sftp-target-close" type="button" data-dialog-close>{{T(context, "Close")}}</button>
                     </div>
                 </form>
                 <!-- Copying from one place to another. This used to be possible only as a detour through the
                      send dialog of a running session - now it is where one browses anyway. -->
                 <form id="copy-to-dialog" class="credential-dialog copy-to-dialog hidden">
-                    <h2>{{(Language(context) == "de" ? "Kopieren nach" : "Copy to")}}</h2>
+                    <div class="dialog-head"><h2>{{(Language(context) == "de" ? "Kopieren nach" : "Copy to")}}</h2><button type="button" class="dialog-x" data-dialog-x aria-label="{{A(T(context, "Close"))}}" title="{{A(T(context, "Close"))}}">&times;</button></div>
+                    <div class="dialog-body">
                     <p id="copy-to-files" class="muted"></p>
                     <label>{{(Language(context) == "de" ? "Zielort" : "Target place")}}
                         <select id="copy-to-target"></select>
@@ -5251,9 +5310,10 @@ public sealed class HtmlViews
                         <input id="copy-to-path" type="text" spellcheck="false" autocapitalize="off" autocomplete="off" placeholder="/" value="/">
                     </label>
                     <p id="copy-to-error" class="muted hidden"></p>
-                    <div class="actions">
+                    </div>
+                    <div class="actions dialog-foot">
                         <button type="submit" class="primary">{{Icon("copy")}}{{(Language(context) == "de" ? "Kopieren" : "Copy")}}</button>
-                        <button id="copy-to-close" type="button">{{T(context, "Close")}}</button>
+                        <button id="copy-to-close" type="button" data-dialog-close>{{T(context, "Close")}}</button>
                     </div>
                 </form>
                 <!-- Asks for the name of a new place. A dialog of the app's own rather than the
@@ -5264,15 +5324,17 @@ public sealed class HtmlViews
                      this before - it can be switched off, it looks nothing like the application,
                      and it cannot say why the gateway refused a name. -->
                 <form id="name-dialog" class="credential-dialog name-dialog hidden">
-                    <h2 data-name-title></h2>
-                    <p class="muted" data-name-hint></p>
-                    <label><span data-name-label>{{T(context, "Name")}}</span>
-                        <input id="name-dialog-input" type="text" maxlength="120" autocomplete="off" spellcheck="false" required>
-                    </label>
-                    <p class="muted hidden" data-name-error></p>
-                    <div class="actions">
+                    <div class="dialog-head"><h2 data-name-title></h2><button type="button" class="dialog-x" data-dialog-x aria-label="{{A(T(context, "Close"))}}" title="{{A(T(context, "Close"))}}">&times;</button></div>
+                    <div class="dialog-body">
+                        <p class="muted" data-name-hint></p>
+                        <label><span data-name-label>{{T(context, "Name")}}</span>
+                            <input id="name-dialog-input" type="text" maxlength="120" autocomplete="off" spellcheck="false" required>
+                        </label>
+                        <p class="muted hidden" data-name-error></p>
+                    </div>
+                    <div class="actions dialog-foot">
                         <button type="submit" class="primary" data-name-confirm>{{T(context, "Save")}}</button>
-                        <button type="button" data-name-close>{{T(context, "Close")}}</button>
+                        <button type="button" data-name-close data-dialog-close>{{T(context, "Close")}}</button>
                     </div>
                 </form>
                 <!-- Catches files dropped anywhere in the window. Without it the browser opens the file itself
@@ -5295,17 +5357,20 @@ public sealed class HtmlViews
                     </div>
                     <div id="file-area-dialog-body" class="file-area-dialog-body"></div>
                 </div>
-                <div id="resolution-dialog" class="credential-dialog resolution-dialog hidden">
-                    <h2>{{(Language(context) == "de" ? "Auflösung" : "Resolution")}}</h2>
-                    <div id="resolution-options" class="resolution-options"></div>
-                    <div id="resolution-extra" class="resolution-extra"></div>
-                    <div class="actions">
-                        <button id="resolution-close" type="button">{{T(context, "Close")}}</button>
+                <div id="resolution-dialog" class="credential-dialog resolution-dialog hidden" role="dialog" aria-labelledby="resolution-dialog-title">
+                    <div class="dialog-head"><h2 id="resolution-dialog-title">{{(Language(context) == "de" ? "Anzeige" : "Display")}}</h2><button type="button" class="dialog-x" data-dialog-x aria-label="{{A(T(context, "Close"))}}" title="{{A(T(context, "Close"))}}">&times;</button></div>
+                    <div class="dialog-body">
+                        <div id="resolution-options" class="resolution-options"></div>
+                        <div id="resolution-extra" class="resolution-extra"></div>
+                    </div>
+                    <div class="actions dialog-foot">
+                        <button id="resolution-close" type="button" class="primary" data-dialog-close>{{(Language(context) == "de" ? "Fertig" : "Done")}}</button>
                     </div>
                 </div>
                 <dialog id="file-viewer-dialog" class="matgate-dialog file-viewer-dialog"></dialog>
                 <dialog id="workspace-settings-dialog" class="matgate-dialog workspace-settings-dialog"></dialog>
             </section>
+            </div>
             </div>
             <div id="session-statusbar" class="session-statusbar">
                 <div class="status-primary">
@@ -6190,6 +6255,7 @@ public sealed class HtmlViews
                         if (Array.isArray(data.servers)) {
                             availableServers.length = 0;
                             availableServers.push(...data.servers);
+                            renderServerManager();
                         }
                         wireHome2();
                         wireOpenControls(inner || document);
@@ -6417,6 +6483,8 @@ public sealed class HtmlViews
                             if (!data || !data.server || !data.server.id) {
                                 throw new Error(ui('connectionStartFailed'));
                             }
+                            // Made for this once: it has no place among the saved connections of the server manager.
+                            data.server.ephemeral = true;
                             availableServers.push(data.server);
                             return data.server.id;
                         };
@@ -7191,6 +7259,20 @@ public sealed class HtmlViews
 
                         return { trigger: card, title: ((card.querySelector('h3') || {}).textContent || '').trim(), items };
                     };
+                    // A row of the server manager offers what the connection's card on the start page does (the
+                    // card is where its buttons are), and one thing of its own: a further session.
+                    const cardOfServer = serverId => Array.from(document.querySelectorAll('[data-home2-card]'))
+                        .find(card => card.querySelector('.connection-choice-actions [data-server-id="' + serverId + '"]')) || null;
+                    const contextMenuOfManaged = (row, card) => {
+                        const serverId = row.dataset.managerServer;
+                        const fromCard = card ? contextMenuOfCard(card).items : [];
+                        const items = fromCard.length ? fromCard : [{ label: uiText.managerConnect || 'Connect', iconHtml: contextIcon(row), onSelect: () => openServer(serverId) }];
+                        if (sessionsOfServer(serverId).length) {
+                            items.splice(1, 0, { label: uiText.managerNewSession || 'Open another session', iconHtml: fileIcon('plus'), onSelect: () => openServer(serverId) });
+                        }
+
+                        return { trigger: row, title: ((row.querySelector('strong') || {}).textContent || '').trim(), items };
+                    };
                     const contextMenuOfTab = element => {
                         const kind = element.getAttribute('data-tab-kind');
                         if (kind !== 'connection' && kind !== 'page') {
@@ -7266,11 +7348,13 @@ public sealed class HtmlViews
                         }
 
                         const tab = target.closest('.session-tab');
-                        const card = target.closest('[data-home2-card]');
+                        const managed = target.closest('[data-manager-server]');
+                        const card = target.closest('[data-home2-card]') || (managed ? cardOfServer(managed.dataset.managerServer) : null);
                         const chip = target.closest('.home2-proto-chip[data-home2-qc]');
                         const row = target.closest('.file-table tbody tr');
                         // A finger held on a tab is the start of dragging it, not a wish for a menu.
                         const menu = tab ? (event.pointerType === 'touch' ? null : contextMenuOfTab(tab))
+                            : managed ? contextMenuOfManaged(managed, card)
                             : card ? contextMenuOfCard(card)
                             : chip ? contextMenuOfChip(chip)
                             : row ? contextMenuOfFileRow(row)
@@ -8514,9 +8598,259 @@ public sealed class HtmlViews
                     updateSessionKeyboardShift();
                 }
 
+                // A button that is being pressed must still be there when the press ends. The row below is built
+                // anew whenever a session says that something changed - and pressing a button IS such a change:
+                // the picture loses the cursor. The button under the pointer was replaced between "down" and
+                // "up", the click went to nobody, and one had to press twice. While a press on the row (or on
+                // its "..." panel) lasts, the rebuild waits.
+                let tabActionsHeld = false;
+                let tabActionsStale = false;
+                let tabActionsHeldTimer = 0;
+                function releaseTabActions() {
+                    window.clearTimeout(tabActionsHeldTimer);
+                    if (!tabActionsHeld) {
+                        return;
+                    }
+
+                    tabActionsHeld = false;
+                    if (tabActionsStale) {
+                        tabActionsStale = false;
+                        updateTabActions();
+                    }
+                }
+                document.addEventListener('pointerdown', event => {
+                    const target = event.target instanceof Element ? event.target : null;
+                    if (!target || !target.closest('#connection-tab-actions, .tab-action-overflow-panel')) {
+                        return;
+                    }
+
+                    tabActionsHeld = true;
+                    window.clearTimeout(tabActionsHeldTimer);
+                    // A press that never ends (the pointer left the window) must not freeze the row.
+                    tabActionsHeldTimer = window.setTimeout(releaseTabActions, 4000);
+                }, true);
+                // The click comes after "up", in the same breath: let it through first.
+                ['pointerup', 'pointercancel'].forEach(name => document.addEventListener(name, () => {
+                    if (tabActionsHeld) {
+                        window.clearTimeout(tabActionsHeldTimer);
+                        tabActionsHeldTimer = window.setTimeout(releaseTabActions, 60);
+                    }
+                }, true));
+
+                // ---- The server manager -------------------------------------------------------------------
+                // A panel on the left, for a wide screen: the connections by folder, a field to search them, a
+                // mark at those with a session open. One click connects - or goes to the session that is
+                // already open; the middle button (or Ctrl) opens another one; the right button brings the
+                // menu the connection's card has on the start page. Whether it is shown, and which folders
+                // are closed, is kept in this browser.
+                const serverManager = document.getElementById('server-manager');
+                const serverManagerToggle = document.getElementById('server-manager-toggle');
+                const serverManagerTree = document.getElementById('server-manager-tree');
+                const serverManagerFilter = document.getElementById('server-manager-filter');
+                const serverManagerStore = {
+                    read(key, fallback) {
+                        try {
+                            const value = window.localStorage.getItem('matgate.serverManager.' + key);
+                            return value === null ? fallback : JSON.parse(value);
+                        }
+                        catch {
+                            return fallback;
+                        }
+                    },
+                    write(key, value) {
+                        try {
+                            window.localStorage.setItem('matgate.serverManager.' + key, JSON.stringify(value));
+                        }
+                        catch {
+                            // No storage: then it is not remembered.
+                        }
+                    }
+                };
+                let serverManagerShown = '';
+                // The sessions that are open for a connection: tabs of Guacamole and of the file manager, and
+                // the pages of Matgate's own engine.
+                function sessionsOfServer(serverId) {
+                    const found = [];
+                    for (const tab of tabs.values()) {
+                        if (tab.serverId === serverId) {
+                            found.push({ id: tab.id, kind: 'connection', active: tab.id === activeTabId });
+                        }
+                    }
+
+                    shellTabs.forEach(shellTab => {
+                        const screen = agentScreenOf(shellTab);
+                        const url = String(shellTab.url || (shellTab.iframe && shellTab.iframe.getAttribute('src')) || '');
+                        if ((screen && screen.serverId === serverId) || url.indexOf('/' + serverId + '/') >= 0) {
+                            found.push({ id: shellTab.id, kind: 'page', active: !activeTabId && shellTab.id === activeShellTabId });
+                        }
+                    });
+                    return found;
+                }
+                function renderServerManager(force = false) {
+                    if (!serverManager || serverManager.hidden) {
+                        return;
+                    }
+
+                    const wanted = (serverManagerFilter.value || '').trim().toLowerCase();
+                    const closed = serverManagerStore.read('closed', []);
+                    const groups = new Map();
+                    availableServers
+                        .filter(server => !server.areaKind && String(server.protocol || '').toUpperCase() !== 'LOCAL' && !server.ephemeral)
+                        .filter(server => !wanted || [server.name, server.target, server.folder, server.protocol].join(' ').toLowerCase().indexOf(wanted) >= 0)
+                        .forEach(server => {
+                            const folder = server.folder || '';
+                            if (!groups.has(folder)) {
+                                groups.set(folder, []);
+                            }
+
+                            groups.get(folder).push(server);
+                        });
+                    const names = Array.from(groups.keys()).sort((a, b) => (a === '') - (b === '') || a.localeCompare(b, undefined, { sensitivity: 'base' }));
+                    const model = names.map(name => ({
+                        name,
+                        closed: !wanted && closed.indexOf(name) >= 0,
+                        servers: groups.get(name)
+                            .slice()
+                            .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' }))
+                            .map(server => {
+                                const sessions = sessionsOfServer(server.id);
+                                return { server, open: sessions.length, active: sessions.some(session => session.active) };
+                            })
+                    }));
+                    // Built anew only when something it shows has changed: it is asked to on every change of a
+                    // tab, and a row that is replaced under the pointer loses its click.
+                    const signature = JSON.stringify(model.map(group => [group.name, group.closed, group.servers.map(entry => [entry.server.id, entry.server.name, entry.server.target, entry.open, entry.active])]));
+                    if (!force && signature === serverManagerShown) {
+                        return;
+                    }
+
+                    serverManagerShown = signature;
+                    const nodes = [];
+                    model.forEach(group => {
+                        // One group and no folders at all: then the heading says nothing.
+                        const lone = model.length === 1 && group.name === '';
+                        if (!lone) {
+                            const head = document.createElement('button');
+                            head.type = 'button';
+                            head.className = 'server-manager-folder' + (group.closed ? ' closed' : '');
+                            head.setAttribute('aria-expanded', group.closed ? 'false' : 'true');
+                            head.dataset.folder = group.name;
+                            head.innerHTML = `<span class="server-manager-caret" aria-hidden="true">${fileIcon('chevronDown')}</span><span class="server-manager-folder-icon" aria-hidden="true">${fileIcon('folder')}</span><span class="server-manager-folder-name">${escapeHtml(group.name || uiText.managerNoFolder || 'No folder')}</span><span class="server-manager-count">${group.servers.length}</span>`;
+                            nodes.push(head);
+                        }
+
+                        if (group.closed) {
+                            return;
+                        }
+
+                        group.servers.forEach(entry => {
+                            const row = document.createElement('button');
+                            row.type = 'button';
+                            row.className = 'server-manager-item' + (entry.active ? ' active' : '') + (entry.open ? ' open' : '') + (lone ? ' server-manager-item--flat' : '');
+                            row.setAttribute('role', 'treeitem');
+                            row.dataset.managerServer = entry.server.id;
+                            row.style.setProperty('--proto', entry.server.protoColor || 'var(--accent)');
+                            row.title = [entry.server.name, entry.server.protocol, entry.server.target].filter(Boolean).join(' · ');
+                            row.innerHTML = `<span class="server-manager-item-icon" aria-hidden="true">${entry.server.iconHtml || ''}</span><span class="server-manager-item-text"><strong>${escapeHtml(entry.server.name || '')}</strong><small>${escapeHtml(entry.server.target || '')}</small></span>${entry.open ? `<span class="server-manager-dot" title="${escapeHtml(uiText.managerOpen || 'Session open')}">${entry.open > 1 ? entry.open : ''}</span>` : ''}`;
+                            nodes.push(row);
+                        });
+                    });
+                    if (!nodes.length) {
+                        const none = document.createElement('p');
+                        none.className = 'muted server-manager-empty';
+                        none.textContent = uiText.managerEmpty || 'No matches.';
+                        nodes.push(none);
+                    }
+
+                    serverManagerTree.replaceChildren(...nodes);
+                }
+                function setServerManagerOpen(open, remember = true) {
+                    if (!serverManager) {
+                        return;
+                    }
+
+                    serverManager.hidden = !open;
+                    document.documentElement.toggleAttribute('data-server-manager', open);
+                    serverManagerToggle.classList.toggle('active', open);
+                    serverManagerToggle.setAttribute('aria-pressed', open ? 'true' : 'false');
+                    if (remember) {
+                        serverManagerStore.write('open', open);
+                    }
+
+                    renderServerManager(true);
+                    // The sessions beside it have a different width now.
+                    window.dispatchEvent(new Event('resize'));
+                }
+                if (serverManager && serverManagerToggle) {
+                    serverManagerToggle.addEventListener('click', () => setServerManagerOpen(serverManager.hidden));
+                    serverManagerFilter.addEventListener('input', () => renderServerManager());
+                    serverManagerFilter.addEventListener('keydown', event => {
+                        if (event.key === 'Escape' && serverManagerFilter.value) {
+                            serverManagerFilter.value = '';
+                            renderServerManager();
+                        }
+                        else if (event.key === 'Enter') {
+                            // Enter opens what the search leaves at the top.
+                            const first = serverManagerTree.querySelector('[data-manager-server]');
+                            if (first) {
+                                first.click();
+                            }
+                        }
+                    });
+                    const openFromManager = (serverId, another) => {
+                        const sessions = another ? [] : sessionsOfServer(serverId);
+                        if (sessions.length) {
+                            const session = sessions.find(item => item.active) || sessions[0];
+                            if (session.kind === 'page') {
+                                activateShellTab(session.id);
+                            }
+                            else {
+                                activateTab(session.id);
+                            }
+
+                            return;
+                        }
+
+                        openServer(serverId);
+                    };
+                    serverManagerTree.addEventListener('click', event => {
+                        const target = event.target instanceof Element ? event.target : null;
+                        const folder = target ? target.closest('.server-manager-folder') : null;
+                        if (folder) {
+                            const closed = serverManagerStore.read('closed', []).filter(name => name !== folder.dataset.folder);
+                            if (!folder.classList.contains('closed')) {
+                                closed.push(folder.dataset.folder);
+                            }
+
+                            serverManagerStore.write('closed', closed);
+                            renderServerManager();
+                            return;
+                        }
+
+                        const row = target ? target.closest('[data-manager-server]') : null;
+                        if (row) {
+                            openFromManager(row.dataset.managerServer, event.ctrlKey || event.metaKey);
+                        }
+                    });
+                    serverManagerTree.addEventListener('auxclick', event => {
+                        const row = event.button === 1 && event.target instanceof Element ? event.target.closest('[data-manager-server]') : null;
+                        if (row) {
+                            event.preventDefault();
+                            openFromManager(row.dataset.managerServer, true);
+                        }
+                    });
+                    setServerManagerOpen(serverManagerStore.read('open', false) === true, false);
+                }
+
                 function updateTabActions() {
+                    renderServerManager();
                     if (!connectionTabActions) {
                         updateStatusBar();
+                        return;
+                    }
+
+                    if (tabActionsHeld) {
+                        tabActionsStale = true;
                         return;
                     }
 
@@ -9107,7 +9441,49 @@ public sealed class HtmlViews
                         'danger tab-action-disconnect'));
                 }
 
-                // The resolution dialog of an RDP session, filled with what the agent's monitor offers.
+                // The parts the display dialog is made of - both of its kinds, this one and Guacamole's.
+                function resolutionHeading(label) {
+                    const heading = document.createElement('h3');
+                    heading.className = 'resolution-heading';
+                    heading.textContent = label;
+                    return heading;
+                }
+                // Something that is on or off, and is so at once: the name (and what it means) on the left, a
+                // switch on the right. The whole row is the button.
+                function resolutionSwitch(label, hint, on, onToggle) {
+                    const row = document.createElement('button');
+                    row.type = 'button';
+                    row.className = 'resolution-toggle' + (on ? ' active' : '');
+                    row.setAttribute('role', 'switch');
+                    row.setAttribute('aria-checked', on ? 'true' : 'false');
+                    const words = document.createElement('span');
+                    words.className = 'resolution-toggle-text';
+                    const name = document.createElement('strong');
+                    name.textContent = label;
+                    words.appendChild(name);
+                    if (hint) {
+                        const more = document.createElement('small');
+                        more.textContent = hint;
+                        words.appendChild(more);
+                    }
+                    const track = document.createElement('span');
+                    track.className = 'switch-track';
+                    track.setAttribute('aria-hidden', 'true');
+                    row.append(words, track);
+                    row.addEventListener('click', onToggle);
+                    return row;
+                }
+                // A few choices of which one applies, side by side.
+                function resolutionChoices(items) {
+                    const row = document.createElement('div');
+                    row.className = 'resolution-seg';
+                    row.style.setProperty('--count', String(Math.min(items.length, 3)));
+                    row.append(...items);
+                    return row;
+                }
+
+                // The display dialog of a session of Matgate's own engine (RDP, VNC, an agent's screen), filled
+                // with what the machine offers.
                 function openScreenResolutionDialog(screen) {
                     const api = screen.api;
                     if (!api || !resolutionDialog || !resolutionOptions) {
@@ -9133,13 +9509,32 @@ public sealed class HtmlViews
                         });
                         return button;
                     };
-                    // "Fit to window" and its scale come first - that is what nearly everyone wants, and nobody
-                    // should have to pick a resolution by its numbers. The machine's own size and the fixed sizes
-                    // follow below, the list of those behind a button.
+                    // "Fit to window" comes first - that is what nearly everyone wants, and nobody should have to
+                    // pick a resolution by its numbers. Next to it the machine's own size, and the fixed sizes
+                    // behind the third choice.
                     const choices = state.resolutionOptions || [];
-                    const others = choices.filter(item => item.value !== 'auto');
-                    resolutionOptions.replaceChildren(...choices.filter(item => item.value === 'auto').map(item =>
-                        option(item.label, item.value === state.resolution, () => api.setResolution(item.value))));
+                    const fixed = choices.filter(item => item.value !== 'auto' && item.value !== 'native');
+                    const chosenFixed = fixed.some(item => item.value === state.resolution);
+                    const list = document.createElement('div');
+                    list.className = 'resolution-fixed-list';
+                    list.hidden = !chosenFixed;
+                    fixed.forEach(item => list.appendChild(option(item.label, item.value === state.resolution, () => api.setResolution(item.value))));
+                    const sizes = choices.filter(item => item.value === 'auto' || item.value === 'native')
+                        .map(item => option(item.label, item.value === state.resolution, () => api.setResolution(item.value)));
+                    if (fixed.length) {
+                        const opener = document.createElement('button');
+                        opener.type = 'button';
+                        opener.className = 'resolution-seg-item' + (chosenFixed ? ' active' : '');
+                        opener.dataset.fixedSizes = '1';
+                        opener.setAttribute('aria-expanded', chosenFixed ? 'true' : 'false');
+                        opener.textContent = state.texts?.fixedSizes || 'A fixed resolution';
+                        opener.addEventListener('click', () => {
+                            list.hidden = !list.hidden;
+                            opener.setAttribute('aria-expanded', list.hidden ? 'false' : 'true');
+                        });
+                        sizes.push(opener);
+                    }
+                    resolutionOptions.replaceChildren(resolutionHeading(uiText.sizeHeading || 'Size'), resolutionChoices(sizes), list);
                     if (resolutionExtra) {
                         resolutionExtra.replaceChildren();
                         // The scale of "fit to window": a few steps to tap and a slider for everything between.
@@ -9168,6 +9563,7 @@ public sealed class HtmlViews
                             const show = () => {
                                 const percent = Number(slider.value);
                                 value.textContent = percent + ' %';
+                                slider.style.setProperty('--filled', ((percent - 25) / 2.75) + '%');
                                 const size = api.fitAt(percent);
                                 note.textContent = (state.texts?.remoteSize || uiText.scaleNote || 'Resolution') + ': ' + size.fitWidth + ' × ' + size.fitHeight;
                                 presets.querySelectorAll('button').forEach(item => item.classList.toggle('active', state.resolution === 'auto' && Number(item.dataset.scale) === percent));
@@ -9197,85 +9593,51 @@ public sealed class HtmlViews
                             box.append(head, presets, note);
                             resolutionExtra.appendChild(box);
                         }
-                        // A phone or tablet: what the device's keyboard does to the picture.
-                        if (state.touch && typeof api.setKeyboardResize === 'function') {
-                            const toggle = document.createElement('button');
-                            toggle.type = 'button';
-                            toggle.className = 'resolution-toggle' + (state.keyboardResize ? ' active' : '');
-                            toggle.dataset.keyboardResize = state.keyboardResize ? '1' : '0';
-                            const label = document.createElement('span');
-                            label.textContent = state.texts?.keyboardResize || 'Fit the resolution to the keyboard';
-                            const stateText = document.createElement('span');
-                            stateText.className = 'resolution-toggle-state';
-                            stateText.textContent = state.keyboardResize ? (uiText.onLabel || 'On') : (uiText.offLabel || 'Off');
-                            toggle.append(label, stateText);
-                            toggle.addEventListener('click', () => {
-                                api.setKeyboardResize(!state.keyboardResize);
-                                openScreenResolutionDialog(screen);
-                            });
-                            resolutionExtra.appendChild(toggle);
-                            const hint = document.createElement('p');
-                            hint.className = 'muted resolution-scale-note';
-                            hint.textContent = state.texts?.keyboardResizeHint || '';
-                            resolutionExtra.appendChild(hint);
-                        }
-                        // The session's numbers as a mark in the picture - on a phone the only place for them.
-                        if (typeof api.setPerf === 'function') {
-                            const toggle = document.createElement('button');
-                            toggle.type = 'button';
-                            toggle.className = 'resolution-toggle' + (state.perf ? ' active' : '');
-                            toggle.dataset.perf = state.perf ? '1' : '0';
-                            toggle.title = state.texts?.perfHint || '';
-                            const label = document.createElement('span');
-                            label.textContent = state.texts?.perf || 'Performance numbers in the picture';
-                            const stateText = document.createElement('span');
-                            stateText.className = 'resolution-toggle-state';
-                            stateText.textContent = state.perf ? (uiText.onLabel || 'On') : (uiText.offLabel || 'Off');
-                            toggle.append(label, stateText);
-                            toggle.addEventListener('click', () => {
-                                api.setPerf(!state.perf);
-                                openScreenResolutionDialog(screen);
-                            });
-                            resolutionExtra.appendChild(toggle);
-                        }
-                        // The machine's own size, and the fixed ones behind a button (open when one of them is set).
-                        others.filter(item => item.value === 'native').forEach(item =>
-                            resolutionExtra.appendChild(option(item.label, item.value === state.resolution, () => api.setResolution(item.value))));
-                        const fixed = others.filter(item => item.value !== 'native');
-                        if (fixed.length) {
-                            const chosen = fixed.some(item => item.value === state.resolution);
-                            const list = document.createElement('div');
-                            list.className = 'resolution-fixed-list';
-                            list.hidden = !chosen;
-                            fixed.forEach(item => list.appendChild(option(item.label, item.value === state.resolution, () => api.setResolution(item.value))));
-                            const opener = document.createElement('button');
-                            opener.type = 'button';
-                            opener.className = 'resolution-toggle' + (chosen ? ' active' : '');
-                            opener.dataset.fixedSizes = '1';
-                            const openerLabel = document.createElement('span');
-                            openerLabel.textContent = state.texts?.fixedSizes || 'A fixed resolution';
-                            const openerState = document.createElement('span');
-                            openerState.className = 'resolution-toggle-state';
-                            openerState.textContent = chosen ? (state.resolutionLabel || '') : '...';
-                            opener.append(openerLabel, openerState);
-                            opener.addEventListener('click', () => {
-                                list.hidden = !list.hidden;
-                            });
-                            resolutionExtra.append(opener, list);
-                        }
                         const group = (title, items, onPick) => {
                             if (!items || items.length < 2) {
                                 return;
                             }
 
-                            const heading = document.createElement('p');
-                            heading.className = 'muted';
-                            heading.textContent = title;
-                            resolutionExtra.appendChild(heading);
-                            items.forEach(item => resolutionExtra.appendChild(option(item.label, item.active, () => onPick(item.value))));
+                            resolutionExtra.appendChild(resolutionHeading(title));
+                            resolutionExtra.appendChild(resolutionChoices(items.map(item => option(item.label, item.active, () => onPick(item.value)))));
                         };
-                        group(state.texts?.monitor || 'Monitor', state.monitors, value => api.setMonitor(value));
                         group(state.texts?.quality || 'Quality', state.qualities, value => api.setQuality(value));
+                        group(state.texts?.monitor || 'Monitor', state.monitors, value => api.setMonitor(value));
+
+                        const switches = [];
+                        // A phone or tablet: what the device's keyboard does to the picture.
+                        if (state.touch && typeof api.setKeyboardResize === 'function') {
+                            const toggle = resolutionSwitch(
+                                state.texts?.keyboardResize || 'Fit the resolution to the keyboard',
+                                state.texts?.keyboardResizeHint || '',
+                                !!state.keyboardResize,
+                                () => {
+                                    api.setKeyboardResize(!state.keyboardResize);
+                                    openScreenResolutionDialog(screen);
+                                });
+                            toggle.dataset.keyboardResize = state.keyboardResize ? '1' : '0';
+                            switches.push(toggle);
+                        }
+                        // The session's numbers as a mark in the picture - on a phone the only place for them.
+                        if (typeof api.setPerf === 'function') {
+                            const toggle = resolutionSwitch(
+                                state.texts?.perf || 'Performance numbers in the picture',
+                                '',
+                                !!state.perf,
+                                () => {
+                                    api.setPerf(!state.perf);
+                                    openScreenResolutionDialog(screen);
+                                });
+                            toggle.dataset.perf = state.perf ? '1' : '0';
+                            toggle.title = state.texts?.perfHint || '';
+                            switches.push(toggle);
+                        }
+                        if (switches.length) {
+                            const rows = document.createElement('div');
+                            rows.className = 'resolution-switches';
+                            rows.append(...switches);
+                            resolutionExtra.append(resolutionHeading(uiText.optionsHeading || 'Options'), rows);
+                        }
                     }
 
                     resolutionDialog.classList.remove('hidden');
@@ -9825,11 +10187,28 @@ public sealed class HtmlViews
                                     ToolbarButton(uiText.openInNewTab || 'Open in new tab', websiteIcons.open, 'website-tool-button', Attr('data-website-action', 'open') + Attr('title', uiText.openInNewTab || 'Open in new tab'))
                                 )
                             )}
-                            <iframe class="website-frame" title="${escapeHtml(server.name)}" allow="clipboard-read; clipboard-write; fullscreen"></iframe>`;
+                            <iframe class="website-frame" title="${escapeHtml(server.name)}" allow="clipboard-read; clipboard-write; fullscreen"></iframe>
+                            <div class="website-start" hidden>
+                                <div class="website-start-box">
+                                    <span class="website-start-icon" aria-hidden="true">${websiteIcons.globe}</span>
+                                    <h2>${escapeHtml(uiText.websiteStartTitle || 'Browser')}</h2>
+                                    <p class="muted">${escapeHtml(uiText.websiteStartHint || '')}</p>
+                                    <div class="website-start-group" data-website-start="saved" hidden>
+                                        <h3>${escapeHtml(uiText.websiteStartSaved || 'Saved websites')}</h3>
+                                        <div class="website-start-list"></div>
+                                    </div>
+                                    <div class="website-start-group" data-website-start="recent" hidden>
+                                        <h3>${escapeHtml(uiText.websiteStartRecent || 'Recently visited')}</h3>
+                                        <div class="website-start-list"></div>
+                                        <button type="button" class="website-start-clear">${escapeHtml(uiText.websiteStartClear || 'Clear the list')}</button>
+                                    </div>
+                                </div>
+                            </div>`;
                         displayRoot.appendChild(websiteShell);
                         tab.websiteUi = {
                             shell: websiteShell,
                             frame: websiteShell.querySelector('.website-frame'),
+                            start: websiteShell.querySelector('.website-start'),
                             address: websiteShell.querySelector('.website-address'),
                             backButton: websiteShell.querySelector('[data-website-action="back"]'),
                             forwardButton: websiteShell.querySelector('[data-website-action="forward"]'),
@@ -12973,6 +13352,77 @@ public sealed class HtmlViews
                 // Under a path of Matgate's. A connection shows its one website there, with the address bar as
                 // a display; a browser tab (quick connect) takes any address - each website gets a frame of its
                 // own under the path, and the page says which website a frame shows (see updateWebsiteLocation).
+                // What the browser was asked for lately, on this device: the start page of an empty browser tab
+                // offers it again. Kept in this browser only.
+                const websiteRecentKey = 'matgate.browser.recent';
+                function recentWebsiteAddresses() {
+                    try {
+                        const list = JSON.parse(window.localStorage.getItem(websiteRecentKey) || '[]');
+                        return Array.isArray(list) ? list.filter(item => typeof item === 'string' && item).slice(0, 8) : [];
+                    }
+                    catch {
+                        return [];
+                    }
+                }
+                function rememberWebsiteAddress(address) {
+                    if (!address) {
+                        return;
+                    }
+
+                    try {
+                        window.localStorage.setItem(websiteRecentKey, JSON.stringify([address, ...recentWebsiteAddresses().filter(item => item !== address)].slice(0, 8)));
+                    }
+                    catch {
+                        // No storage in this browser: then nothing is remembered.
+                    }
+                }
+
+                // A browser tab with no page yet shows a start page instead of an empty area: where to type,
+                // the websites that are saved as connections, and where this browser has been lately.
+                function setWebsiteBlank(tab, blank) {
+                    const start = tab.websiteUi && tab.websiteUi.start;
+                    if (!start) {
+                        return;
+                    }
+
+                    tab.websiteUi.shell.classList.toggle('website-shell--blank', blank);
+                    start.hidden = !blank;
+                    if (!blank) {
+                        return;
+                    }
+
+                    const entry = (iconHtml, label, note, onClick) => {
+                        const button = document.createElement('button');
+                        button.type = 'button';
+                        button.className = 'website-start-entry';
+                        button.innerHTML = `<span class="website-start-entry-icon" aria-hidden="true">${iconHtml || websiteIcons.globe}</span><span class="website-start-entry-text"><strong>${escapeHtml(label)}</strong>${note ? `<small>${escapeHtml(note)}</small>` : ''}</span>`;
+                        button.addEventListener('click', onClick);
+                        return button;
+                    };
+                    const fill = (name, entries) => {
+                        const group = start.querySelector(`[data-website-start="${name}"]`);
+                        group.hidden = !entries.length;
+                        group.querySelector('.website-start-list').replaceChildren(...entries);
+                    };
+                    fill('saved', availableServers
+                        .filter(server => String(server.protocol || '').toUpperCase() === 'WEBSITE' && server.id !== tab.serverId && !server.areaKind)
+                        .slice(0, 12)
+                        .map(server => entry(server.iconHtml, server.name || '', server.target || '', () => openServer(server.id))));
+                    fill('recent', recentWebsiteAddresses().map(address =>
+                        entry('', address.replace(/^https?:\/\//i, '').replace(/\/$/, ''), '', () => navigateWebsiteTab(tab, address))));
+                    const clear = start.querySelector('.website-start-clear');
+                    clear.onclick = () => {
+                        try {
+                            window.localStorage.removeItem(websiteRecentKey);
+                        }
+                        catch {
+                            // Nothing was kept, then.
+                        }
+
+                        setWebsiteBlank(tab, true);
+                    };
+                }
+
                 function showWebsitePathMode(tab, data = null) {
                     tab.site = null;
                     const frame = tab.websiteUi.frame;
@@ -12990,10 +13440,12 @@ public sealed class HtmlViews
                             frame.src = 'about:blank';
                             hideOverlay(tab);
                             setStatus(tab, ui('ready'));
+                            setWebsiteBlank(tab, true);
                             tab.websiteUi.address.focus();
                             return;
                         }
 
+                        setWebsiteBlank(tab, false);
                         tab.currentUrl = data.url;
                         tab.displayUrl = data.address || '';
                         tab.websiteUi.address.value = tab.displayUrl;
@@ -13029,8 +13481,14 @@ public sealed class HtmlViews
                         frame.src = 'about:blank';
                         hideOverlay(tab);
                         setStatus(tab, ui('ready'));
+                        setWebsiteBlank(tab, true);
                         tab.websiteUi.address.focus();
                         return;
+                    }
+
+                    setWebsiteBlank(tab, false);
+                    if (data.browse) {
+                        rememberWebsiteAddress(data.address || data.target || '');
                     }
 
                     tab.currentUrl = data.address || data.target || '';
@@ -13060,6 +13518,8 @@ public sealed class HtmlViews
                             const data = await requestWebsiteSite(tab, typed);
                             if (data.browse && data.url) {
                                 setStatus(tab, ui('loading'));
+                                setWebsiteBlank(tab, false);
+                                rememberWebsiteAddress(data.address || typed);
                                 tab.currentUrl = data.url;
                                 tab.displayUrl = data.address || typed;
                                 tab.websiteUi.address.value = tab.displayUrl;
@@ -13136,7 +13596,16 @@ public sealed class HtmlViews
                                 .then(next => next.available && next.url ? showWebsiteSite(tab, next) : showWebsitePathMode(tab))
                                 .catch(() => showWebsitePathMode(tab));
                         }
-                        else if (!tab.site.browse) {
+                        else if (tab.site.browse) {
+                            // The same for a browser tab, which may go anywhere: the address it was asked for,
+                            // under the path. (It used to stay on the page that said the address had run out.)
+                            const wanted = tab.displayUrl || '';
+                            tab.sitePathOnly = true;
+                            requestWebsiteSite(tab, wanted)
+                                .then(next => showWebsitePathMode(tab, next.available ? { browse: true } : next))
+                                .catch(() => showWebsitePathMode(tab, { browse: true }));
+                        }
+                        else {
                             // This browser does not keep the website's sign-in under its own host name (it treats
                             // the host as a stranger to Matgate's): the path under Matgate's address works there.
                             tab.sitePathOnly = true;
@@ -14752,7 +15221,8 @@ public sealed class HtmlViews
                     }
                     const scaleOnly = isScaleOnlyTab(tab);
                     const presets = scaleOnly ? ['fit', 'fit75', 'fit50'] : displayResPresets;
-                    resolutionOptions.replaceChildren();
+                    const picks = document.createElement('div');
+                    picks.className = 'resolution-fixed-list';
                     for (const preset of presets) {
                         const option = document.createElement('button');
                         option.type = 'button';
@@ -14762,24 +15232,28 @@ public sealed class HtmlViews
                             setDisplayRes(preset);
                             closeResolutionDialog();
                         });
-                        resolutionOptions.appendChild(option);
+                        picks.appendChild(option);
                     }
+                    resolutionOptions.replaceChildren(
+                        resolutionHeading(scaleOnly ? (uiText.scaleLabel || 'Scale') : (uiText.sizeHeading || 'Size')),
+                        picks);
                     // Auto-resize toggle + one-off "Fit Now" (fit modes only, and not farm VNC which always
                     // re-renders at the viewport size).
                     if (resolutionExtra) {
                         resolutionExtra.replaceChildren();
                         resolutionExtra.appendChild(buildScaleControls(tab));
                         if (!tab.farmWebsite) {
-                            const toggle = document.createElement('button');
-                            toggle.type = 'button';
-                            toggle.className = 'resolution-toggle' + (tab.autoResize ? ' active' : '');
-                            toggle.innerHTML = `<span>${uiText.autoResize || 'Auto-resize'}</span><span class="resolution-toggle-state">${tab.autoResize ? (uiText.onLabel || 'On') : (uiText.offLabel || 'Off')}</span>`;
-                            toggle.title = uiText.autoResizeHint || 'On: resize renegotiates the remote (sharp, RDP reconnects). Off: the image stretches to fill (no reconnect).';
-                            toggle.addEventListener('click', () => {
-                                setAutoResize(!tab.autoResize);
-                                openResolutionDialog();
-                            });
-                            resolutionExtra.appendChild(toggle);
+                            const toggle = resolutionSwitch(
+                                uiText.autoResize || 'Auto-resize',
+                                uiText.autoResizeHint || 'On: resize renegotiates the remote (sharp, RDP reconnects). Off: the image stretches to fill (no reconnect).',
+                                !!tab.autoResize,
+                                () => {
+                                    setAutoResize(!tab.autoResize);
+                                    openResolutionDialog();
+                                });
+                            const rows = document.createElement('div');
+                            rows.className = 'resolution-switches';
+                            rows.appendChild(toggle);
 
                             const fit = document.createElement('button');
                             fit.type = 'button';
@@ -14789,7 +15263,7 @@ public sealed class HtmlViews
                                 fitNow();
                                 closeResolutionDialog();
                             });
-                            resolutionExtra.appendChild(fit);
+                            resolutionExtra.append(resolutionHeading(uiText.optionsHeading || 'Options'), rows, fit);
                         }
                     }
                     resolutionDialog.classList.remove('hidden');
@@ -16138,9 +16612,11 @@ public sealed class HtmlViews
                         </div>
                     </div>
                     <form id="credential-dialog" class="credential-dialog hidden">
-                        <h2>Zugangsdaten</h2>
-                        <div id="credential-fields" class="stack"></div>
-                        <div class="actions">
+                        <div class="dialog-head"><h2>Zugangsdaten</h2></div>
+                        <div class="dialog-body">
+                            <div id="credential-fields" class="stack"></div>
+                        </div>
+                        <div class="actions dialog-foot">
                             <button type="submit" class="primary">Senden</button>
                             <a class="button" href="/">Abbrechen</a>
                         </div>
@@ -16574,18 +17050,23 @@ public sealed class HtmlViews
                 <summary class="shell-tab shell-menu-trigger shell-burger-trigger" aria-label="{{A(T(context, "Menu"))}}" title="{{A(T(context, "Menu"))}}">{{Icon("menu")}}</summary>
                 <div class="menu-panel shell-menu-panel shell-burger-panel">
                     <div class="shell-burger-sheet-head">
-                        <strong>{{T(context, "Menu")}}</strong>
+                        <span class="shell-burger-brand">{{Logo()}}</span>
                         <button type="button" class="shell-burger-sheet-close" aria-label="{{A(T(context, "Close"))}}" data-burger-close>&times;</button>
+                    </div>
+                    <div class="shell-burger-user">
+                        <span class="account-menu-avatar">{{Icon("user")}}</span>
+                        <span class="account-menu-id"><strong>{{E(displayName)}}</strong><small>{{E(user!.UserName)}}</small></span>
                     </div>
                     {{FilesEntry("shell-menu-item")}}
                     <a class="shell-menu-item{{toolsClass}}" href="/tools" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Tools"))}}">{{Icon("wrench")}}<span>{{T(context, "Tools")}}</span></a>
                     {{(canManageAdminArea ? $"""<a class="shell-menu-item{(adminActive ? " active" : "")}" href="/admin" data-shell-open-tab="1" data-shell-title="{A(T(context, "Administration"))}">{Icon("shield")}<span>{T(context, "Administration")}</span></a>""" : "")}}
-                    <a class="shell-menu-item account-trigger{{accountClass}}" href="/account" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Account"))}}">{{Icon("settings")}}<span class="account-name">{{E(displayName)}}</span></a>
+                    <a class="shell-menu-item account-trigger{{accountClass}}" href="/account" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Account"))}}">{{Icon("settings")}}<span class="account-name">{{E(displayName)}}</span><span class="shell-burger-settings-word">{{(Language(context) == "de" ? "Einstellungen" : "Settings")}}</span></a>
                     <button type="button" class="shell-menu-item" data-view-mode-toggle>{{Icon("chevrons-down-up")}}<span>{{(Language(context) == "de" ? "Kompakte Ansicht ein/aus" : "Toggle compact view")}}</span></button>
                     <form method="post" action="/logout" class="account-menu-logout">
                         {{Csrf(context)}}
                         <button type="submit" class="shell-menu-item shell-menu-logout">{{Icon("logout")}}<span>{{T(context, "Logout")}}</span></button>
                     </form>
+                    <div class="shell-burger-foot">Matgate {{E(ApplicationVersion())}}</div>
                 </div>
             </details>
             """;
@@ -16800,11 +17281,94 @@ public sealed class HtmlViews
                         flex: 1 1 auto;
                         min-width: 0;
                     }
+                    .shell-body { display: flex; flex: 1 1 auto; min-height: 0; min-width: 0; }
                     .shell-page-panels {
                         display: flex;
                         flex: 1 1 auto;
                         min-height: 0;
+                        min-width: 0;
                         position: relative;
+                    }
+                    /* The server manager: a panel beside the sessions. Only where there is room for both. */
+                    .server-manager-toggle { align-self: center; flex: 0 0 auto; margin: 0 2px 0 8px; }
+                    .server-manager {
+                        background: var(--surface);
+                        border-right: 1px solid var(--line);
+                        display: flex;
+                        flex: 0 0 280px;
+                        flex-direction: column;
+                        min-height: 0;
+                        width: 280px;
+                    }
+                    .server-manager[hidden] { display: none; }
+                    .server-manager-head { align-items: center; display: flex; flex: 0 0 auto; gap: 8px; justify-content: space-between; padding: 10px 10px 6px 14px; }
+                    .server-manager-head strong { font-size: 13px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+                    .server-manager-head a { color: var(--muted); text-decoration: none; }
+                    .server-manager-head a:hover { color: var(--text); }
+                    .server-manager-search { align-items: center; display: flex; flex: 0 0 auto; margin: 0 10px 8px; position: relative; }
+                    .server-manager-search > .icon { color: var(--muted); height: 15px; left: 10px; pointer-events: none; position: absolute; width: 15px; }
+                    .server-manager-search input:not([type="checkbox"]):not([type="radio"]) { border-radius: 10px; font-size: 13.5px; min-height: 34px; padding: 5px 10px 5px 32px; width: 100%; }
+                    .server-manager-tree { display: grid; align-content: start; flex: 1 1 auto; gap: 1px; min-height: 0; overflow-y: auto; padding: 0 6px 12px; }
+                    .server-manager-folder, .server-manager-item {
+                        align-items: center;
+                        background: transparent;
+                        border: 0;
+                        border-radius: 9px;
+                        box-shadow: none;
+                        display: flex;
+                        gap: 8px;
+                        justify-content: flex-start;
+                        min-height: 34px;
+                        padding: 4px 8px;
+                        text-align: left;
+                        width: 100%;
+                    }
+                    .server-manager-folder { color: var(--text); font-size: 13.5px; font-weight: 700; margin-top: 4px; }
+                    .server-manager-folder:hover, .server-manager-item:hover { background: var(--hover-bg); }
+                    .server-manager-caret { color: var(--muted); display: inline-flex; flex: 0 0 auto; transition: transform .15s ease; }
+                    .server-manager-caret .icon, .server-manager-folder-icon .icon { height: 15px; width: 15px; }
+                    .server-manager-folder.closed .server-manager-caret { transform: rotate(-90deg); }
+                    .server-manager-folder-icon { color: var(--accent); display: inline-flex; flex: 0 0 auto; }
+                    .server-manager-folder-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                    .server-manager-count { color: var(--muted); flex: 0 0 auto; font-size: 11.5px; font-weight: 600; }
+                    .server-manager-item { min-height: 40px; padding-left: 30px; }
+                    .server-manager-item--flat { padding-left: 8px; }
+                    .server-manager-item-icon {
+                        align-items: center;
+                        background: color-mix(in srgb, var(--proto) 14%, var(--surface));
+                        border-radius: 8px;
+                        color: var(--proto);
+                        display: inline-flex;
+                        flex: 0 0 auto;
+                        height: 28px;
+                        justify-content: center;
+                        width: 28px;
+                    }
+                    .server-manager-item-icon .icon { height: 15px; width: 15px; }
+                    .server-manager-item-text { display: grid; flex: 1 1 auto; line-height: 1.25; min-width: 0; }
+                    .server-manager-item-text strong { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                    .server-manager-item-text small { color: var(--muted); font-size: 11.5px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                    /* What is selected is a tint behind the whole row. */
+                    .server-manager-item.active { background: color-mix(in srgb, var(--accent) 13%, var(--surface)); }
+                    .server-manager-item.active strong { color: var(--accent); }
+                    .server-manager-dot {
+                        align-items: center;
+                        background: var(--accent);
+                        border-radius: 999px;
+                        color: var(--bg);
+                        display: inline-flex;
+                        flex: 0 0 auto;
+                        font-size: 10.5px;
+                        font-weight: 700;
+                        height: 9px;
+                        justify-content: center;
+                        min-width: 9px;
+                    }
+                    .server-manager-dot:not(:empty) { height: 17px; min-width: 17px; padding: 0 4px; }
+                    .server-manager-empty { font-size: 13px; margin: 10px 8px; }
+                    html.session-immersive .server-manager, html.session-immersive .server-manager-toggle { display: none; }
+                    @media (max-width: 900px) {
+                        .server-manager, .server-manager-toggle { display: none !important; }
                     }
                     .shell-page-panel {
                         inset: 0;
@@ -16923,7 +17487,7 @@ public sealed class HtmlViews
                         display: inline-flex;
                         margin-left: 2px;
                     }
-                    .shell-burger-sheet-head { display: none; }
+                    .shell-burger-sheet-head, .shell-burger-user, .shell-burger-foot, .shell-burger-settings-word { display: none; }
                     .shell-menu-item {
                         align-items: center;
                         color: var(--text);
@@ -17026,6 +17590,18 @@ public sealed class HtmlViews
                         font-weight: 600;
                     }
                     .tab-button .icon { height: 15px; width: 15px; }
+                    /* Narrow: one row that scrolls, instead of pills piled up in a blob three rows high. */
+                    @media (max-width: 760px) {
+                        .tab-strip {
+                            border-radius: 16px;
+                            flex-wrap: nowrap;
+                            overflow-x: auto;
+                            overscroll-behavior-x: contain;
+                            scrollbar-width: none;
+                        }
+                        .tab-strip::-webkit-scrollbar { display: none; }
+                        .tab-button { border-radius: 12px; flex: 0 0 auto; min-height: 42px; padding: 6px 14px; white-space: nowrap; }
+                    }
                     .tab-panel.hidden { display: none; }
                     .tab-panels > .tab-panel > .panel:first-child,
                     .tab-panels > .tab-panel > section:first-child { margin-top: 0; }
@@ -17250,7 +17826,26 @@ public sealed class HtmlViews
                     .row { display: flex; align-items: center; gap: 14px; }
                     .split { justify-content: space-between; }
                     .stack { display: grid; gap: 14px; }
+                    /* The head of a connection's page: its mark in its colour, so that one sees at once what kind it is. */
+                    .page-head.conn-head { align-items: center; display: flex; gap: 16px; justify-content: flex-start; }
+                    .conn-head-icon {
+                        align-items: center;
+                        background: color-mix(in srgb, var(--proto, var(--accent)) 14%, var(--surface));
+                        border-radius: 16px;
+                        color: var(--proto, var(--accent));
+                        display: inline-flex;
+                        flex: 0 0 auto;
+                        height: 56px;
+                        justify-content: center;
+                        width: 56px;
+                    }
+                    .conn-head-icon .icon { height: 26px; width: 26px; }
+                    .conn-head .eyebrow { margin: 0 0 2px; }
+                    .conn-head h1 { margin: 0; overflow-wrap: anywhere; }
+                    .conn-head .muted { margin: 4px 0 0; }
                     .form-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); align-items: end; }
+                    /* The buttons stand under the fields, in a row of their own - not as one more cell beside them. */
+                    .form-grid > .actions { grid-column: 1 / -1; }
                     /* Session-preferences toggle list (Account -> Session). */
                     /* The groups now come from .settings-group, as in the appearance tab. */
                     .quick-protocol-grid {
@@ -17405,7 +18000,7 @@ public sealed class HtmlViews
                     }
                     /* The colour sheet itself. Fixed, like the other small sheets: it is opened from a page that may be
                        scrolled, and must not depend on what it sits in. */
-                    .credential-dialog.colour-dialog { gap: 12px; }
+                    .colour-dialog .dialog-body { gap: 12px; }
                     /* The square: hue across the top edge fades to white on the left and to black at the bottom, so
                        every point in it is one saturation and one brightness of the hue chosen below. */
                     .colour-area {
@@ -17913,82 +18508,155 @@ public sealed class HtmlViews
                         z-index: 0;
                         pointer-events: none;
                         background:
-                            radial-gradient(60% 55% at 12% 8%, color-mix(in srgb, var(--accent) 26%, transparent), transparent 70%),
-                            radial-gradient(55% 50% at 92% 96%, color-mix(in srgb, var(--accent-2) 26%, transparent), transparent 72%);
+                            radial-gradient(60% 55% at 12% 8%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 70%),
+                            radial-gradient(55% 50% at 92% 96%, color-mix(in srgb, var(--accent-2) 18%, transparent), transparent 72%);
                     }
+                    /* Two halves: the brand, in its colours, and the form beside it. */
                     .login-card {
-                        position: relative;
-                        z-index: 1;
-                        width: 100%;
-                        max-width: 410px;
                         background: var(--surface);
                         border: 1px solid var(--line);
-                        border-radius: 20px;
-                        padding: 36px 32px 26px;
+                        border-radius: 22px;
                         box-shadow: var(--shadow-strong);
-                        text-align: center;
+                        display: grid;
+                        grid-template-columns: minmax(0, 5fr) minmax(0, 6fr);
+                        max-width: 860px;
+                        min-height: 480px;
+                        overflow: hidden;
+                        position: relative;
+                        width: 100%;
+                        z-index: 1;
                     }
-                    .login-card-wide { max-width: 460px; }
-                    .login-brand { display: inline-flex; align-items: center; gap: 12px; margin-bottom: 26px; }
-                    .login-glyph {
-                        display: inline-grid;
-                        place-items: center;
-                        width: 54px;
-                        height: 54px;
-                        border-radius: 15px;
+                    .login-card-wide { max-width: 920px; }
+                    .login-aside {
+                        background: linear-gradient(150deg, var(--accent), var(--accent-2));
                         color: var(--bg);
-                        background: linear-gradient(135deg, var(--accent), var(--accent-2));
-                        box-shadow: 0 10px 22px color-mix(in srgb, var(--accent) 40%, transparent);
+                        display: flex;
+                        flex-direction: column;
+                        gap: 18px;
+                        justify-content: center;
+                        overflow: hidden;
+                        padding: 40px 36px;
+                        position: relative;
+                    }
+                    /* The mark once more, large and faint, as the panel's own picture. */
+                    .login-aside::after {
+                        background: currentColor;
+                        bottom: -70px;
+                        content: "";
+                        height: 300px;
+                        -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath d='M17 48 V16 H47 V48 H40 V23 H24 V48 Z'/%3E%3C/svg%3E") center / contain no-repeat;
+                        mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Cpath d='M17 48 V16 H47 V48 H40 V23 H24 V48 Z'/%3E%3C/svg%3E") center / contain no-repeat;
+                        opacity: .08;
+                        pointer-events: none;
+                        position: absolute;
+                        right: -70px;
+                        width: 300px;
+                    }
+                    .login-brand { align-items: center; display: inline-flex; gap: 14px; position: relative; z-index: 1; }
+                    .login-glyph {
+                        background: color-mix(in srgb, currentColor 16%, transparent);
+                        border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
+                        border-radius: 16px;
+                        color: inherit;
+                        display: inline-grid;
+                        height: 56px;
+                        place-items: center;
+                        width: 56px;
                     }
                     .login-glyph svg { width: 30px; height: 30px; }
-                    .login-word { font-weight: 800; letter-spacing: .14em; font-size: 21px; color: var(--text); }
-                    .login-word span { color: var(--accent); }
-                    .login-title { margin: 8px 0 6px; font-size: 22px; line-height: 1.2; }
-                    .login-sub { color: var(--muted); margin: 0 0 22px; font-size: 13.5px; line-height: 1.55; }
-                    .login-form { display: grid; gap: 15px; text-align: left; }
+                    .login-word { color: inherit; font-size: 23px; font-weight: 800; letter-spacing: .14em; }
+                    .login-word span { opacity: .78; }
+                    .login-tagline { font-size: 17px; font-weight: 600; line-height: 1.45; margin: 6px 0 0; position: relative; z-index: 1; }
+                    .login-points { display: grid; gap: 10px; list-style: none; margin: 4px 0 0; padding: 0; position: relative; z-index: 1; }
+                    .login-points li { align-items: center; display: flex; font-size: 13.5px; gap: 10px; opacity: .92; }
+                    .login-points .icon { flex: 0 0 auto; height: 17px; width: 17px; }
+                    .login-pane { align-content: center; display: grid; padding: 40px 38px; }
+                    .login-title { margin: 0 0 6px; font-size: 24px; line-height: 1.2; }
+                    .login-sub { color: var(--muted); margin: 0 0 22px; font-size: 14px; line-height: 1.55; }
+                    .login-form { display: grid; gap: 16px; text-align: left; }
+                    .login-form + .login-sub { margin: 18px 0 0; }
                     .login-field { display: grid; gap: 7px; font-weight: 600; font-size: 13px; color: var(--text); }
                     .login-input-wrap { position: relative; display: flex; align-items: center; }
-                    .login-input-wrap > .icon { position: absolute; left: 13px; width: 17px; height: 17px; color: var(--muted); pointer-events: none; }
+                    .login-input-wrap > .icon { position: absolute; left: 14px; width: 17px; height: 17px; color: var(--muted); pointer-events: none; }
                     /* :not() guards match the base input rule's specificity so this padding-left wins
                        (otherwise the icon and the typed text overlap). */
                     .login-input-wrap input:not([type="checkbox"]):not([type="radio"]) {
                         width: 100%;
-                        padding: 12px 14px 12px 42px;
-                        border: 1px solid var(--line);
-                        border-radius: 11px;
-                        background: var(--surface-2);
+                        min-height: 48px;
+                        padding: 12px 14px 12px 44px;
+                        border: 1px solid color-mix(in srgb, var(--muted) 38%, var(--line));
+                        border-radius: 12px;
+                        background: var(--surface);
                         color: var(--text);
                         font: inherit;
-                        transition: border-color .12s ease, box-shadow .12s ease, background .12s ease;
+                        transition: border-color .12s ease, box-shadow .12s ease;
                     }
                     .login-input-wrap input:focus {
                         outline: none;
                         border-color: var(--accent);
-                        background: var(--surface);
                         box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
                     }
+                    .login-input-wrap:focus-within > .icon { color: var(--accent); }
                     .login-submit {
-                        margin-top: 4px;
+                        margin-top: 6px;
                         width: 100%;
                         display: inline-flex;
                         align-items: center;
                         justify-content: center;
                         gap: 8px;
+                        min-height: 50px;
                         padding: 13px;
                         border: 0;
-                        border-radius: 11px;
+                        border-radius: 12px;
                         cursor: pointer;
                         color: var(--bg);
-                        background: linear-gradient(135deg, var(--accent), var(--accent-2));
+                        background: var(--accent);
                         font: inherit;
                         font-weight: 700;
                         font-size: 15px;
-                        box-shadow: 0 10px 20px color-mix(in srgb, var(--accent) 34%, transparent);
-                        transition: transform .12s ease, box-shadow .12s ease, filter .12s ease;
+                        transition: transform .12s ease, filter .12s ease;
                     }
-                    .login-submit:hover { filter: brightness(1.06); box-shadow: 0 12px 24px color-mix(in srgb, var(--accent) 42%, transparent); }
+                    .login-submit:hover { filter: brightness(1.08); }
                     .login-submit:active { transform: translateY(1px); }
                     .login-submit .icon { width: 18px; height: 18px; }
+                    /* A phone: the brand on top, over the whole width, and the form as a sheet that rises
+                       over its lower edge - no box floating in the middle of an empty screen. */
+                    @media (max-width: 760px) {
+                        .login-shell { align-items: stretch; padding: 0; place-items: stretch; }
+                        .login-shell::before { display: none; }
+                        .login-card {
+                            background: linear-gradient(150deg, var(--accent), var(--accent-2));
+                            border: 0;
+                            border-radius: 0;
+                            box-shadow: none;
+                            display: flex;
+                            flex-direction: column;
+                            max-width: none;
+                            min-height: 100vh;
+                            min-height: 100dvh;
+                        }
+                        .login-aside {
+                            align-items: center;
+                            background: none;
+                            flex: 0 0 auto;
+                            gap: 12px;
+                            padding: calc(44px + env(safe-area-inset-top)) 24px 56px;
+                            text-align: center;
+                        }
+                        .login-aside::after { height: 220px; right: -60px; top: -40px; bottom: auto; width: 220px; }
+                        .login-tagline { font-size: 15px; font-weight: 500; margin: 0; max-width: 30ch; opacity: .92; }
+                        .login-points { display: none; }
+                        .login-pane {
+                            align-content: start;
+                            background: var(--surface);
+                            border-radius: 26px 26px 0 0;
+                            flex: 1 1 auto;
+                            margin-top: -26px;
+                            padding: 30px 22px calc(28px + env(safe-area-inset-bottom));
+                            position: relative;
+                            z-index: 1;
+                        }
+                    }
                     .login-protos { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 24px; padding-top: 18px; border-top: 1px solid var(--line); }
                     .login-proto { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; font-weight: 600; color: var(--muted); background: var(--surface-2); border: 1px solid var(--line); border-radius: 999px; padding: 5px 11px; }
                     .login-proto .icon { width: 13px; height: 13px; }
@@ -18166,38 +18834,167 @@ public sealed class HtmlViews
                         text-overflow: ellipsis;
                         white-space: nowrap;
                     }
-                    .resolution-options {
-                        display: grid;
-                        gap: 8px;
-                        margin: 10px 0 16px;
+                    /* The display dialog: headings, and under each one thing to choose. */
+                    .credential-dialog.resolution-dialog { width: min(460px, calc(100% - 32px)); }
+                    .resolution-options, .resolution-extra { display: grid; gap: 10px; }
+                    .resolution-extra:empty { display: none; }
+                    .resolution-heading {
+                        color: var(--muted);
+                        font-size: 12px;
+                        font-weight: 700;
+                        letter-spacing: .04em;
+                        margin: 6px 0 -2px;
+                        text-transform: uppercase;
                     }
-                    .resolution-option {
-                        justify-content: flex-start;
+                    .resolution-options > .resolution-heading:first-child { margin-top: 0; }
+                    /* A few choices side by side, as one control: one border around them, the chosen one filled. */
+                    .resolution-seg {
+                        background: var(--surface-2);
+                        border: 1px solid var(--line);
+                        border-radius: 12px;
+                        display: grid;
+                        gap: 3px;
+                        grid-template-columns: repeat(var(--count, 3), minmax(0, 1fr));
+                        padding: 3px;
+                    }
+                    .resolution-seg > button {
+                        background: transparent;
+                        border: 0;
+                        border-radius: 9px;
+                        box-shadow: none;
+                        color: var(--muted);
+                        font-size: 13.5px;
+                        font-weight: 600;
+                        justify-content: center;
+                        line-height: 1.2;
+                        min-height: 40px;
+                        padding: 6px 8px;
+                        text-align: center;
+                        white-space: normal;
+                        width: 100%;
+                    }
+                    .resolution-seg > button:hover, .resolution-seg > button[aria-expanded="true"] { color: var(--text); }
+                    .resolution-seg > button.active {
+                        background: var(--surface);
+                        box-shadow: 0 1px 2px rgb(0 0 0 / 14%), 0 0 0 1px var(--line);
+                        color: var(--accent);
+                    }
+                    /* The fixed sizes (and Guacamole's list): small tiles, three in a row. */
+                    .resolution-fixed-list { display: grid; gap: 6px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+                    .resolution-fixed-list[hidden] { display: none; }
+                    .resolution-fixed-list > .resolution-option {
+                        font-size: 13.5px;
+                        justify-content: center;
+                        min-height: 38px;
+                        padding: 4px 6px;
                         width: 100%;
                     }
                     .resolution-option.active {
                         border-color: var(--accent);
                         color: var(--accent);
                     }
-                    /* Auto-resize toggle + "Fit now" row under the resolution presets. */
-                    .resolution-extra { display: grid; gap: 8px; margin: 0 0 16px; padding-top: 12px; border-top: 1px solid var(--line); }
-                    .resolution-toggle { display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; }
-                    .resolution-toggle.active { border-color: var(--accent); }
-                    .resolution-toggle-state { font-weight: 700; font-size: 12px; color: var(--muted); }
-                    .resolution-toggle.active .resolution-toggle-state { color: var(--accent); }
-                    .resolution-fit-now { width: 100%; justify-content: center; }
-                    /* The scale without steps: name and value on one line, the slider under them. The general
-                       input rule gives every field a border and padding, which a slider does not want. */
-                    .resolution-scale { border-bottom: 1px solid var(--line); display: grid; gap: 8px; padding-bottom: 14px; }
-                    .resolution-scale-head { align-items: center; display: grid; font-weight: 600; gap: 6px 10px; grid-template-columns: 1fr auto; }
-                    .resolution-scale-slider { accent-color: var(--accent); background: transparent; border: 0; grid-column: 1 / -1; min-height: 32px; padding: 0; width: 100%; }
+                    .resolution-fixed-list > .resolution-option.active { background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
+                    /* On or off: the row is the button, the switch says which. */
+                    .resolution-switches { border: 1px solid var(--line); border-radius: 12px; display: grid; overflow: hidden; }
+                    .resolution-toggle {
+                        align-items: center;
+                        background: transparent;
+                        border: 0;
+                        border-radius: 0;
+                        box-shadow: none;
+                        display: flex;
+                        gap: 14px;
+                        justify-content: space-between;
+                        min-height: 48px;
+                        padding: 10px 12px;
+                        text-align: left;
+                        white-space: normal;
+                        width: 100%;
+                    }
+                    .resolution-toggle + .resolution-toggle { border-top: 1px solid var(--line); }
+                    .resolution-toggle:hover { background: var(--surface-2); }
+                    .resolution-toggle-text { display: grid; gap: 2px; min-width: 0; }
+                    .resolution-toggle-text strong { font-weight: 600; }
+                    .resolution-toggle-text small { color: var(--muted); font-size: 12px; font-weight: 400; line-height: 1.35; }
+                    .switch-track {
+                        background: color-mix(in srgb, var(--muted) 45%, transparent);
+                        border-radius: 999px;
+                        flex: 0 0 auto;
+                        height: 24px;
+                        position: relative;
+                        transition: background .18s ease;
+                        width: 42px;
+                    }
+                    .switch-track::after {
+                        background: #fff;
+                        border-radius: 50%;
+                        box-shadow: 0 1px 2px rgb(0 0 0 / 30%);
+                        content: "";
+                        height: 18px;
+                        left: 3px;
+                        position: absolute;
+                        top: 3px;
+                        transition: transform .18s ease;
+                        width: 18px;
+                    }
+                    [aria-checked="true"] > .switch-track { background: var(--accent); }
+                    [aria-checked="true"] > .switch-track::after { transform: translateX(18px); }
+                    .resolution-fit-now { justify-content: center; width: 100%; }
+                    /* The scale without steps: name and value on one line, the slider under them, the steps to
+                       tap below. The general input rule gives every field a border and padding, which a slider
+                       does not want. */
+                    .resolution-scale { display: grid; gap: 8px; }
+                    .resolution-scale-head { align-items: center; display: grid; font-weight: 600; gap: 4px 10px; grid-template-columns: 1fr auto; }
+                    .resolution-scale-head span {
+                        color: var(--muted);
+                        font-size: 12px;
+                        font-weight: 700;
+                        letter-spacing: .04em;
+                        margin-top: 6px;
+                        text-transform: uppercase;
+                    }
+                    .resolution-scale-head strong { font-variant-numeric: tabular-nums; margin-top: 6px; }
+                    .resolution-dialog input.resolution-scale-slider {
+                        -webkit-appearance: none;
+                        appearance: none;
+                        background: transparent;
+                        border: 0;
+                        border-radius: 0;
+                        box-shadow: none;
+                        cursor: pointer;
+                        grid-column: 1 / -1;
+                        height: 28px;
+                        min-height: 28px;
+                        padding: 0;
+                        width: 100%;
+                    }
+                    .resolution-scale-slider::-webkit-slider-runnable-track {
+                        background: linear-gradient(to right, var(--accent) var(--filled, 0%), color-mix(in srgb, var(--muted) 30%, transparent) var(--filled, 0%));
+                        border-radius: 999px;
+                        height: 6px;
+                    }
+                    .resolution-scale-slider::-moz-range-track { background: color-mix(in srgb, var(--muted) 30%, transparent); border-radius: 999px; height: 6px; }
+                    .resolution-scale-slider::-moz-range-progress { background: var(--accent); border-radius: 999px; height: 6px; }
+                    .resolution-scale-slider::-webkit-slider-thumb {
+                        -webkit-appearance: none;
+                        background: #fff;
+                        border: 2px solid var(--accent);
+                        border-radius: 50%;
+                        box-shadow: 0 1px 2px rgb(0 0 0 / 25%);
+                        height: 20px;
+                        margin-top: -7px;
+                        width: 20px;
+                    }
+                    .resolution-scale-slider::-moz-range-thumb { background: #fff; border: 2px solid var(--accent); border-radius: 50%; height: 16px; width: 16px; }
                     .resolution-scale-note { font-size: 12px; margin: 0; }
-                    .resolution-fixed-list { display: grid; gap: 8px; }
-                    .resolution-fixed-list[hidden] { display: none; }
-                    .resolution-scale-presets { display: grid; gap: 6px; grid-template-columns: repeat(3, minmax(0, 1fr)); }
-                    .resolution-scale-preset { justify-content: center; min-height: 40px; }
-                    .resolution-scale-preset.active { border-color: var(--accent); color: var(--accent); }
+                    .resolution-scale-presets { display: grid; gap: 6px; grid-template-columns: repeat(6, minmax(0, 1fr)); }
+                    .resolution-scale-preset { font-size: 13px; justify-content: center; min-height: 36px; padding: 4px 2px; }
+                    .resolution-scale-preset.active { background: color-mix(in srgb, var(--accent) 10%, var(--surface)); border-color: var(--accent); color: var(--accent); }
                     .resolution-scale-apply { justify-content: center; width: 100%; }
+                    @media (max-width: 420px) {
+                        .resolution-scale-presets { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+                        .resolution-scale-preset { min-height: 42px; }
+                    }
                     /* What happened to files pasted into a session, over the picture and long enough to read. */
                     .session-note {
                         align-items: flex-start;
@@ -20380,6 +21177,66 @@ public sealed class HtmlViews
                         min-height: 0;
                         width: 100%;
                     }
+                    /* An empty browser: a start page where the website will be. */
+                    .website-shell--blank .website-frame { display: none; }
+                    .website-start {
+                        background: var(--bg);
+                        display: grid;
+                        flex: 1 1 auto;
+                        min-height: 0;
+                        overflow-y: auto;
+                        padding: 32px 18px;
+                        place-items: start center;
+                    }
+                    .website-start[hidden] { display: none; }
+                    .website-start-box { display: grid; gap: 10px; justify-items: center; margin-top: min(9vh, 80px); max-width: 640px; text-align: center; width: 100%; }
+                    .website-start-icon {
+                        align-items: center;
+                        background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+                        border-radius: 20px;
+                        color: var(--accent);
+                        display: inline-flex;
+                        height: 68px;
+                        justify-content: center;
+                        width: 68px;
+                    }
+                    .website-start-icon .icon { height: 32px; width: 32px; }
+                    .website-start-box h2 { font-size: 24px; margin: 6px 0 0; }
+                    .website-start-box > p { line-height: 1.55; margin: 0; max-width: 46ch; }
+                    .website-start-group { display: grid; gap: 8px; justify-items: stretch; margin-top: 18px; text-align: left; width: 100%; }
+                    .website-start-group[hidden] { display: none; }
+                    .website-start-group h3 { color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: .04em; margin: 0; text-transform: uppercase; }
+                    .website-start-list { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); }
+                    .website-start-entry {
+                        align-items: center;
+                        background: var(--surface);
+                        border: 1px solid var(--line);
+                        border-radius: var(--radius);
+                        display: flex;
+                        gap: 12px;
+                        justify-content: flex-start;
+                        min-height: 52px;
+                        padding: 8px 12px;
+                        text-align: left;
+                        width: 100%;
+                    }
+                    .website-start-entry:hover { border-color: var(--accent); }
+                    .website-start-entry-icon {
+                        align-items: center;
+                        background: var(--surface-2);
+                        border-radius: 10px;
+                        color: var(--accent);
+                        display: inline-flex;
+                        flex: 0 0 auto;
+                        height: 34px;
+                        justify-content: center;
+                        width: 34px;
+                    }
+                    .website-start-entry-icon .icon { height: 17px; width: 17px; }
+                    .website-start-entry-text { display: grid; min-width: 0; }
+                    .website-start-entry-text strong, .website-start-entry-text small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                    .website-start-entry-text small { color: var(--muted); font-size: 12px; font-weight: 400; }
+                    .website-start-clear { background: transparent; border: 0; box-shadow: none; color: var(--muted); font-size: 12.5px; justify-self: start; min-height: 32px; padding: 0 2px; text-decoration: underline; }
                     /* Read-only: away with everything that wants to write. Create, upload, the queue
                        for it, and in the action menu move and delete - copy and download stay, those
                        only take something out. */
@@ -21194,6 +22051,7 @@ public sealed class HtmlViews
                     .credential-dialog.confirm-dialog,
                     .credential-dialog.colour-dialog,
                     .credential-dialog.name-dialog {
+                        max-height: calc(100vh - 32px);
                         position: fixed;
                         width: min(420px, calc(100vw - 32px));
                         z-index: 40;
@@ -21462,13 +22320,20 @@ public sealed class HtmlViews
                     }
                     /* While the dialog shows an area, its tab stays out of the strip. */
                     .tab-in-dialog { display: none; }
+                    /* Every sheet has the same frame: a head with its title and the way out, a body that scrolls
+                       on its own, and a foot with the buttons - the one that does it first, the way out last. */
                     .credential-dialog {
                         background: var(--surface);
                         border: 1px solid var(--line);
                         border-radius: var(--radius);
-                        box-shadow: var(--shadow-strong);
+                        /* The second shadow dims what lies around the sheet: it is the thing to deal with now. */
+                        box-shadow: var(--shadow-strong), 0 0 0 200vmax rgb(10 14 12 / 36%);
+                        display: flex;
+                        flex-direction: column;
                         left: 50%;
-                        padding: 18px;
+                        max-height: min(calc(100% - 32px), 780px);
+                        overflow: hidden;
+                        padding: 0;
                         position: absolute;
                         top: 50%;
                         transform: translate(-50%, -50%) scale(1);
@@ -21485,8 +22350,6 @@ public sealed class HtmlViews
                        which you really write something - so wider, a field that fits a paragraph, and
                        air between the parts. */
                     .credential-dialog.clipboard-dialog {
-                        display: grid;
-                        gap: 14px;
                         width: min(560px, calc(100% - 32px));
                     }
                     .clipboard-dialog h2 { margin: 0; }
@@ -21502,9 +22365,67 @@ public sealed class HtmlViews
                     /* The main thing first and set apart: send on the left, the rest on the right. */
                     .clipboard-dialog .actions .primary { margin-right: auto; }
                     .credential-dialog.hidden {
+                        display: none;
                         opacity: 0;
                         pointer-events: none;
                         transform: translate(-50%, -50%) scale(.96);
+                    }
+                    .dialog-head {
+                        align-items: center;
+                        border-bottom: 1px solid var(--line);
+                        display: flex;
+                        flex: 0 0 auto;
+                        gap: 12px;
+                        min-height: 56px;
+                        padding: 8px 10px 8px 20px;
+                    }
+                    .dialog-head h2 { flex: 1 1 auto; font-size: 17px; line-height: 1.25; margin: 0; min-width: 0; overflow-wrap: anywhere; }
+                    .dialog-x {
+                        align-items: center;
+                        background: transparent;
+                        border: 0;
+                        border-radius: 10px;
+                        box-shadow: none;
+                        color: var(--muted);
+                        cursor: pointer;
+                        display: inline-flex;
+                        flex: 0 0 auto;
+                        font-size: 24px;
+                        height: 38px;
+                        justify-content: center;
+                        line-height: 1;
+                        min-height: 0;
+                        padding: 0 0 2px;
+                        width: 38px;
+                    }
+                    .dialog-x:hover { background: var(--surface-2); color: var(--text); }
+                    .dialog-body {
+                        align-content: start;
+                        display: grid;
+                        flex: 1 1 auto;
+                        gap: 14px;
+                        min-height: 0;
+                        overflow-y: auto;
+                        overscroll-behavior: contain;
+                        padding: 18px 20px 20px;
+                    }
+                    .dialog-body > p, .dialog-body > h3 { margin-bottom: 0; margin-top: 0; }
+                    .dialog-body > .hidden, .dialog-body > [hidden] { display: none; }
+                    .credential-dialog > .dialog-foot {
+                        align-items: center;
+                        background: var(--surface-2);
+                        border-top: 1px solid var(--line);
+                        flex: 0 0 auto;
+                        flex-wrap: wrap;
+                        gap: 10px;
+                        margin: 0;
+                        padding: 12px 20px;
+                    }
+                    .confirm-dialog .dialog-body > p { font-size: 15px; line-height: 1.5; overflow-wrap: anywhere; }
+                    /* What deletes stands last and apart, the way out first. */
+                    .confirm-dialog .dialog-foot > .danger { margin-left: auto; order: 2; }
+                    @media (pointer: coarse) {
+                        .dialog-x { height: 44px; width: 44px; }
                     }
                     @starting-style {
                         .credential-dialog:not(.hidden) {
@@ -21925,6 +22846,7 @@ public sealed class HtmlViews
                         .credential-dialog.copy-to-dialog,
                         .credential-dialog.confirm-dialog,
                         .credential-dialog.colour-dialog,
+                        .credential-dialog.resolution-dialog,
                         .credential-dialog.name-dialog {
                             border: 0;
                             border-radius: 0;
@@ -21933,9 +22855,10 @@ public sealed class HtmlViews
                             height: var(--matgate-viewport-height, 100vh);
                             inset: 0;
                             left: 0;
+                            max-height: none;
                             max-width: none;
-                            overflow-y: auto;
-                            padding: 16px;
+                            overflow: hidden;
+                            padding: 0;
                             position: fixed;
                             /* With the keyboard up the sheet ends where the keyboard begins (see updateViewportHeight). */
                             top: var(--matgate-viewport-top, 0px);
@@ -21944,7 +22867,11 @@ public sealed class HtmlViews
                         }
                         /* The paste dialog is the one sheet in which one writes: its field takes what is left over, so
                            with the keyboard up the buttons stay in view and the field gets smaller instead. */
-                        .clipboard-dialog > label {
+                        .dialog-head { padding: calc(8px + env(safe-area-inset-top)) calc(8px + env(safe-area-inset-right)) 8px calc(16px + env(safe-area-inset-left)); }
+                        .dialog-body { padding: 16px calc(16px + env(safe-area-inset-right)) 18px calc(16px + env(safe-area-inset-left)); }
+                        .credential-dialog > .dialog-foot { padding: 12px calc(16px + env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left)); }
+                        .clipboard-dialog .dialog-body { display: flex; flex-direction: column; }
+                        .clipboard-dialog .dialog-body > label {
                             display: flex;
                             flex: 1 1 auto;
                             flex-direction: column;
@@ -22178,51 +23105,112 @@ public sealed class HtmlViews
                            own way back, because tapping beside it is none once it covers everything. */
                         .shell-burger[open] > .shell-burger-panel {
                             align-content: start;
+                            background: var(--bg);
                             border: 0;
                             border-radius: 0;
                             bottom: 0;
-                            gap: 2px;
+                            display: flex;
+                            flex-direction: column;
+                            gap: 6px;
                             left: 0;
                             max-width: none;
                             min-width: 0;
                             overflow-y: auto;
-                            padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+                            padding: env(safe-area-inset-top) calc(12px + env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom)) calc(12px + env(safe-area-inset-left));
                             position: fixed;
                             right: 0;
                             top: 0;
                             width: auto;
                             z-index: 60;
                         }
+                        /* The head says where one is: the logo and the name, and the way back. */
                         .shell-burger[open] > .shell-burger-panel .shell-burger-sheet-head {
                             align-items: center;
-                            border-bottom: 1px solid var(--line);
                             display: flex;
-                            font-size: 16px;
+                            flex: 0 0 auto;
                             justify-content: space-between;
-                            min-height: 52px;
-                            padding: 0 6px 0 14px;
+                            min-height: 60px;
+                            padding: 0 0 0 4px;
                         }
+                        .shell-burger-brand { align-items: center; display: inline-flex; gap: 10px; }
+                        .shell-burger-brand .brand-word { color: var(--text); display: inline; font-size: 20px; font-weight: 800; letter-spacing: .04em; }
+                        .shell-burger-brand .brand-word span { color: var(--accent); }
                         /* Every button in a menu panel is stretched to the full width - which would
-                           turn this one into a 326px target sitting next to the title, closing the
+                           turn this one into a 326px target sitting next to the logo, closing the
                            sheet wherever the thumb lands to its right. */
                         .shell-burger[open] > .shell-burger-panel .shell-burger-sheet-close {
-                            background: none;
-                            border: 0;
+                            align-items: center;
+                            background: var(--surface);
+                            border: 1px solid var(--line);
+                            border-radius: 12px;
                             color: inherit;
+                            display: inline-flex;
                             flex: 0 0 auto;
-                            font-size: 22px;
+                            font-size: 24px;
+                            height: 44px;
+                            justify-content: center;
+                            line-height: 1;
                             min-height: 44px;
                             min-width: 44px;
-                            width: auto;
+                            padding: 0 0 2px;
+                            width: 44px;
                         }
+                        /* Who is signed in. */
+                        .shell-burger[open] > .shell-burger-panel .shell-burger-user {
+                            align-items: center;
+                            background: var(--surface);
+                            border: 1px solid var(--line);
+                            border-radius: var(--radius);
+                            display: flex;
+                            flex: 0 0 auto;
+                            gap: 12px;
+                            margin-bottom: 8px;
+                            padding: 12px 14px;
+                        }
+                        .shell-burger-user .account-menu-avatar { background: color-mix(in srgb, var(--accent) 12%, var(--surface)); border-color: transparent; height: 42px; width: 42px; }
+                        .shell-burger-user .account-menu-avatar .icon { height: 20px; width: 20px; }
+                        .shell-burger-user .account-menu-id strong { font-size: 16px; }
+                        .shell-burger-user .account-menu-id small { font-size: 13px; }
+                        /* The entries: a row each, the icon in a tile of its own. */
                         .shell-burger[open] > .shell-burger-panel .shell-menu-item {
-                            border: 0;
-                            border-bottom: 1px solid var(--line);
-                            border-radius: 0;
+                            background: var(--surface);
+                            border: 1px solid var(--line);
+                            border-radius: var(--radius);
+                            flex: 0 0 auto;
+                            font-size: 16px;
+                            font-weight: 600;
+                            gap: 14px;
                             /* The account entry is capped at 260px in a dropdown; here that cap cut
-                               its divider off two thirds across. */
+                               it off two thirds across. */
                             max-width: none;
                             min-height: 56px;
+                            padding: 8px 14px;
+                        }
+                        .shell-burger[open] > .shell-burger-panel .shell-menu-item.active { border-color: var(--accent); color: var(--accent); }
+                        .shell-burger[open] > .shell-burger-panel .shell-menu-item > .icon {
+                            background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+                            border-radius: 10px;
+                            box-sizing: content-box;
+                            color: var(--accent);
+                            flex: 0 0 auto;
+                            height: 20px;
+                            padding: 8px;
+                            width: 20px;
+                        }
+                        /* The account entry carries the user's name in a dropdown; here the user stands above. */
+                        .shell-burger[open] > .shell-burger-panel .account-trigger .account-name { display: none; }
+                        .shell-burger[open] > .shell-burger-panel .shell-burger-settings-word { display: inline; }
+                        /* Leaving stands apart, at the end. */
+                        .shell-burger[open] > .shell-burger-panel .account-menu-logout { margin: auto 0 0; padding-top: 14px; }
+                        .shell-burger[open] > .shell-burger-panel .shell-menu-logout { color: var(--danger); }
+                        .shell-burger[open] > .shell-burger-panel .shell-menu-logout > .icon { background: color-mix(in srgb, var(--danger) 10%, var(--surface)); color: var(--danger); }
+                        .shell-burger[open] > .shell-burger-panel .shell-burger-foot {
+                            color: var(--muted);
+                            display: block;
+                            flex: 0 0 auto;
+                            font-size: 12px;
+                            padding: 10px 0 2px;
+                            text-align: center;
                         }
                         /* Compact view on phones is one row, read left to right: logo, menu, a rule,
                            the connection, then its actions taking whatever is left. Ordered with
@@ -22345,11 +23333,13 @@ public sealed class HtmlViews
                      switched off, and in an installed app it looks like something went wrong rather
                      than like a question. -->
                 <form id="confirm-dialog" class="credential-dialog confirm-dialog hidden" data-default-title="{{A(Language(context) == "de" ? "Bestätigen" : "Confirm")}}" data-default-ok="{{A(T(context, "Delete"))}}">
-                    <h2 data-confirm-title></h2>
-                    <p data-confirm-text></p>
-                    <div class="actions">
+                    <div class="dialog-head"><h2 data-confirm-title></h2><button type="button" class="dialog-x" data-dialog-x aria-label="{{A(T(context, "Close"))}}" title="{{A(T(context, "Close"))}}">&times;</button></div>
+                    <div class="dialog-body">
+                        <p data-confirm-text></p>
+                    </div>
+                    <div class="actions dialog-foot">
                         <button type="submit" class="primary" data-confirm-ok>{{T(context, "Delete")}}</button>
-                        <button type="button" data-confirm-cancel>{{T(context, "Close")}}</button>
+                        <button type="button" data-confirm-cancel data-dialog-close>{{T(context, "Close")}}</button>
                     </div>
                 </form>
                 <script>
@@ -22401,6 +23391,34 @@ public sealed class HtmlViews
                             });
                         };
                         window.MatgateAskToConfirm = askToConfirm;
+
+                        // The X in a sheet's head is its closing button once more - whatever that one does
+                        // (cancel a sign-in, answer "no", just close), the X does the same.
+                        const closeSheet = sheet => {
+                            const closer = sheet ? sheet.querySelector('[data-dialog-close]') : null;
+                            if (closer) {
+                                closer.click();
+                            }
+                        };
+                        document.addEventListener('click', event => {
+                            const x = event.target instanceof Element ? event.target.closest('[data-dialog-x]') : null;
+                            if (x) {
+                                closeSheet(x.closest('.credential-dialog'));
+                            }
+                        });
+                        // Escape is the other way out people reach for. The sheets that are asked for from inside
+                        // another one (a question, a name, a colour) and the ones for files deal with it themselves.
+                        document.addEventListener('keydown', event => {
+                            if (event.key !== 'Escape' || event.defaultPrevented
+                                || document.querySelector('.confirm-dialog:not(.hidden), .name-dialog:not(.hidden), .colour-dialog:not(.hidden), dialog[open]')) {
+                                return;
+                            }
+
+                            const open = document.querySelector('#resolution-dialog:not(.hidden), #clipboard-dialog:not(.hidden), #credential-dialog:not(.hidden)');
+                            if (open) {
+                                closeSheet(open);
+                            }
+                        });
 
                         const closeOpenMenus = (keepMenu) => {
                             document.querySelectorAll('details.toolbar-menu[open], details.file-menu[open], details.shell-menu[open], details.tab-action-more[open]').forEach((menu) => {
@@ -22648,11 +23666,21 @@ public sealed class HtmlViews
                                 });
                                 panels.forEach((p) => p.classList.toggle('hidden', p.dataset.tabPanel !== key));
                                 try { history.replaceState(null, '', '?tab=' + encodeURIComponent(key)); } catch (e) { /* ignore */ }
+                                reveal();
+                            };
+                            // On a narrow screen the strip scrolls: the chosen tab is brought into view.
+                            const reveal = () => {
+                                const chosen = buttons.find((b) => b.classList.contains('active'));
+                                const strip = chosen ? chosen.closest('.tab-strip') : null;
+                                if (strip && strip.scrollWidth > strip.clientWidth) {
+                                    strip.scrollLeft = chosen.offsetLeft - (strip.clientWidth - chosen.offsetWidth) / 2;
+                                }
                             };
                             buttons.forEach((b) => b.addEventListener('click', (event) => {
                                 event.preventDefault();
                                 activate(b.dataset.tabTarget);
                             }));
+                            reveal();
                         });
 
                         // Reusable client-side data table: [data-table] with a [data-table-search] input,
@@ -24156,7 +25184,8 @@ public sealed class HtmlViews
     {
         return $$"""
             <div id="colour-dialog" class="credential-dialog colour-dialog hidden" role="dialog" aria-modal="true" aria-labelledby="colour-dialog-title">
-                <h2 id="colour-dialog-title" data-colour-title></h2>
+                <div class="dialog-head"><h2 id="colour-dialog-title" data-colour-title></h2><button type="button" class="dialog-x" data-dialog-x aria-label="{{A(de ? "Schließen" : "Close")}}" title="{{A(de ? "Schließen" : "Close")}}">&times;</button></div>
+                <div class="dialog-body">
                 <div class="colour-area" data-colour-area tabindex="0" role="application" aria-label="{{A(de ? "Sättigung und Helligkeit - mit den Pfeiltasten verstellen" : "Saturation and brightness - adjust with the arrow keys")}}">
                     <span class="colour-handle"></span>
                 </div>
@@ -24170,9 +25199,10 @@ public sealed class HtmlViews
                     <button type="button" class="colour-eyedropper" data-colour-eyedropper hidden title="{{A(de ? "Farbe vom Bildschirm aufnehmen" : "Pick a colour from the screen")}}" aria-label="{{A(de ? "Farbe vom Bildschirm aufnehmen" : "Pick a colour from the screen")}}">{{Icon("pipette")}}</button>
                 </div>
                 <p class="muted hidden" data-colour-problem>{{E(de ? "Bitte eine Farbe wie #1a2b3c eingeben." : "Enter a colour like #1a2b3c.")}}</p>
-                <div class="actions">
+                </div>
+                <div class="actions dialog-foot">
                     <button type="button" class="primary" data-colour-done>{{(de ? "Fertig" : "Done")}}</button>
-                    <button type="button" data-colour-cancel>{{(de ? "Abbrechen" : "Cancel")}}</button>
+                    <button type="button" data-colour-cancel data-dialog-close>{{(de ? "Abbrechen" : "Cancel")}}</button>
                 </div>
             </div>
             """;
@@ -24530,6 +25560,7 @@ public sealed class HtmlViews
             "gamepad" => """<path d="M6 8h12a4 4 0 0 1 4 4v1.5a3.5 3.5 0 0 1-6.3 2.1L15 15H9l-.7.6A3.5 3.5 0 0 1 2 13.500V12a4 4 0 0 1 4-4z"/><path d="M7 11v3"/><path d="M5.5 12.500h3"/><path d="M16 11.500h.01"/><path d="M18 13.500h.01"/>""",
             "play" => """<path d="m8 5 11 7-11 7z"/>""",
             "menu" => """<path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/>""",
+            "panel-left" => """<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>""",
             "list" => """<path d="M8 7h12"/><path d="M8 12h12"/><path d="M8 17h12"/><path d="M4 7h.01"/><path d="M4 12h.01"/><path d="M4 17h.01"/>""",
             "x" => """<path d="M6 6l12 12"/><path d="M18 6 6 18"/>""",
             "music" => """<path d="M9 18V5l10-2v13"/><circle cx="7" cy="18" r="3"/><circle cx="17" cy="16" r="3"/>""",

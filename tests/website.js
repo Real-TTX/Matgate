@@ -329,6 +329,17 @@ const SITE = /^http:\/\/[a-z2-7]{20}\.mg\.localhost:18091/;
   await signIn(foreignPage, "http://127.0.0.1:18091");
   other = await open(web, "http://127.0.0.1:18091", foreign);
   check("where the browser keeps no cookie for the website's host, the shell falls back to the path", [await shown(other, "Fixture Home"), /^http:\/\/127\.0\.0\.1:18091\/website\//.test(await frameUrl(other))], ["Fixture Home", true]);
+  // A browser tab does the same - it used to stay on "This address belongs to a Matgate session".
+  await foreignPage.goto("http://127.0.0.1:18091/", { waitUntil: "networkidle" });
+  await sleep(600);
+  await foreignPage.click(".home2-quick-row [data-home2-qc='website']");
+  await foreignPage.waitForSelector(".website-frame", { state: "attached", timeout: 20000 });
+  await sleep(800);
+  await go(foreignPage, "http://site:8080/page2");
+  const underPath = async shell => /^http:\/\/127\.0\.0\.1:18091\/website\//.test(await (await frameOf(shell)).evaluate(() => typeof window.__matgateRealUrl === "function" ? window.__matgateRealUrl() : location.href));
+  check("and so does a browser tab: the address typed there opens under the path", [await shown(foreignPage, "page two"), await underPath(foreignPage), await address(foreignPage)], ["page two", true, "http://site:8080/page2"]);
+  await go(foreignPage, "other:8080/hello");
+  check("and the next one as well, without trying the host name again", [await shown(foreignPage, "hello from other"), await address(foreignPage)], ["hello from other", "http://other:8080/hello"]);
   await foreign.close();
 
   // ================================================================================== a browser (quick connect)
@@ -349,7 +360,7 @@ const SITE = /^http:\/\/[a-z2-7]{20}\.mg\.localhost:18091/;
     fields: [...document.querySelectorAll("[data-home2-qc-form] input:not([type='hidden'])")].filter(field => field.offsetParent !== null).map(field => field.name),
   })), { label: "Start URL", required: false, button: "Open browser", fields: ["host", "username", "password"] });
   await home.click("[data-home2-qc-form] button[type='submit']");
-  await home.waitForSelector(".website-frame", { timeout: 20000 });
+  await home.waitForSelector(".website-frame", { state: "attached", timeout: 20000 });
   await sleep(1000);
   check("it opens a browser: an empty address bar to type into", [await address(home), await home.evaluate(() => document.activeElement === document.querySelector(".website-address"))], ["", true]);
   await go(home, "http://site:8080/");

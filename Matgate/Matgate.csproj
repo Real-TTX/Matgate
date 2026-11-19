@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <!-- The H.264 encoder of Matgate's own display engine is called through function pointers. -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <VersionPrefix>0.28.0</VersionPrefix>
+    <VersionPrefix>0.29.0</VersionPrefix>
   </PropertyGroup>
 
   <ItemGroup>

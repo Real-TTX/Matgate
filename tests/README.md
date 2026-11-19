@@ -41,6 +41,21 @@ Requirements: Node, Docker, and a Chromium-based browser Playwright can drive - 
 `chrome`, whichever is installed. `npm install` in this folder pulls `playwright-core`; the browser
 itself is the one already on the machine, so nothing downloads a second Chromium.
 
+## Pictures
+
+`gallery.js` is not a check but a tour: it walks through the application - the sign-in page, the start
+page, the menu, the dialogs, real RDP, VNC and SSH sessions with their toolbar, the display dialog, the
+browser, the server manager, the settings - once on a desktop and once on a phone, and writes a picture of
+every stop into `tests/gallery/`, with an `index.html` that shows desktop and phone side by side.
+
+```bash
+node gallery.js            # every stop
+node gallery.js phone      # only the phone
+```
+
+Nothing is compared. The pictures are for looking at - before and after a change to the interface, which is
+what no `ok` line can show. It is not part of `run-all.js`.
+
 ## What the output means
 
 Every check prints one line, `ok` or `FAIL`, with what it got and what it wanted. A script exits

@@ -175,7 +175,7 @@ const check = (name, got, want) => {
   await sleep(800);
   // The chip opens the browser at once: no dialog, no address asked for - the tab has the address bar.
   await blank.click(".home2-quick-row [data-home2-qc='website']");
-  await blank.waitForSelector(".website-frame", { timeout: 20000 });
+  await blank.waitForSelector(".website-frame", { state: "attached", timeout: 20000 });
   await sleep(800);
   check("the chip asked nothing", await blank.evaluate(() => !!document.querySelector("[data-home2-proto-dialog][open]")), false);
   check("it is an empty browser: an address bar to type into, focused", [
@@ -185,8 +185,25 @@ const check = (name, got, want) => {
     (await frameOf(blank)).url(),
   ], ["", true, false, "about:blank"]);
   check("the tab is called Browser", await blank.evaluate(() => [...document.querySelectorAll(".session-tab .session-tab-title")].some(title => title.textContent.trim() === "Browser")), true);
+  // Where the website will be there is a start page, not an empty area.
+  const startPage = shell => shell.evaluate(() => {
+    const start = document.querySelector(".website-start");
+    return { shown: !!start && !start.hidden && start.offsetHeight > 100, says: !!start && /nas.local/.test(start.textContent), frame: document.querySelector(".website-frame").offsetHeight };
+  });
+  check("the empty browser shows a start page that says where to type", await startPage(blank), { shown: true, says: true, frame: 0 });
   await type(blank, "http://site:8080/page2");
   check("the first address typed opens", [await shows(blank, "page two"), await address(blank)], ["page two", "http://site:8080/page2"]);
+  check("and the start page makes room for the website", [(await startPage(blank)).shown, (await startPage(blank)).frame > 100], [false, true]);
+  // The next empty browser offers where this one has been.
+  await blank.evaluate(() => document.querySelector("#connection-tab-actions [data-action='disconnect']").click());
+  await sleep(800);
+  await blank.click(".home2-quick-row [data-home2-qc='website']");
+  await blank.waitForSelector(".website-start:not([hidden])", { timeout: 20000 });
+  await sleep(500);
+  const offered = await blank.evaluate(() => [...document.querySelectorAll("[data-website-start='recent'] .website-start-entry strong")].map(entry => entry.textContent));
+  check("the next empty browser offers where this one has been - the last address first, each one once", [offered[0], offered.includes("other:8080/hello"), new Set(offered).size === offered.length, offered.length <= 8], ["site:8080/page2", true, true, true]);
+  await blank.click("[data-website-start='recent'] .website-start-entry");
+  check("and one click on it opens it", [await shows(blank, "page two"), await address(blank)], ["page two", "http://site:8080/page2"]);
 
 
   // On a phone the browser's bar is one row: back, forward, reload, the address, open.

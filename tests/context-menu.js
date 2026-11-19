@@ -71,7 +71,13 @@ const FOLDER = "Rechtsklick";
   check("Escape closes it, and nothing of it stays behind", [await menu(page), await page.evaluate(() => document.querySelectorAll(".context-menu-home").length)], [null, 0]);
 
   await rightClick(card("Linux-Testhost"));
-  await page.mouse.click(900, 700);
+  // Beside it: on the heading of the page, where nothing reacts to a click. (A fixed point further down lay
+  // on a card's Connect button as soon as the stack had a few more connections.)
+  const beside = await page.evaluate(() => {
+    const rect = [...document.querySelectorAll("h1")].find(heading => heading.offsetParent).getBoundingClientRect();
+    return { x: rect.left + 20, y: rect.top + rect.height / 2 };
+  });
+  await page.mouse.click(beside.x, beside.y);
   await sleep(200);
   check("a click beside it closes it", await menu(page), null);
   await rightClick(card("Linux-Testhost"));

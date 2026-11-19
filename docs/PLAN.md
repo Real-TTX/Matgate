@@ -1,7 +1,7 @@
 # Matgate – Plan zum Weitermachen
 
-Stand: 2026-11-19, Version 0.28.0 auf `main` (`v0.28.0`), Agent 0.14.0; auf ve-docker-1
-(matgate.schmoldt.it) läuft seit dem 2026-11-19 ebenfalls 0.28.0 (Websites dort weiter über den Pfad, bis
+Stand: 2026-11-19, Version 0.29.0 auf `main` (`v0.29.0`), Agent 0.14.0; auf ve-docker-1
+(matgate.schmoldt.it) läuft seit dem 2026-11-19 noch 0.28.0 (Websites dort weiter über den Pfad, bis
 Route und Variable stehen; Einspielen trennt laufende Sitzungen, nur auf ausdrücklichen Wunsch). Der Agent
 auf dem Entwicklungsrechner ist der offizielle Build aus dem Release `agent-latest`. Geschrieben als Übergabe an eine andere Sitzung.
 
@@ -585,6 +585,63 @@ Anmeldebildschirm. Etappen:
   Änderungen statt Vergleich (ScreenCaptureKit/CGDisplayStream brauchen Objective-C-Blöcke), echte
   Zeigerform, Fensterliste, Ton, Mikrofon, Controller, `.app`/dmg mit Signatur (dann blieben auch die
   Freigaben über Updates erhalten).
+
+## Oberfläche aufräumen (0.29.0, Wunsch vom 2026-11-19)
+
+Der Nutzer: „Die App grundsätzlich ist gut. Aber mich stören die Details“ - Knöpfe, die man zweimal drücken
+muss („Ton aus“), unaufgeräumte Dialoge („Screen Resolution“), Einstellungen, Verbindung bearbeiten und
+Browser „nicht hübsch“, das Handy-Menü ohne Logo, die Anmeldeseite; dazu ein Test mit Bildern und ein
+Server-Manager links „wie RoyalTS“. MatUi (`../MatDesign/src/MatUi`) als Vorlage für einzelne Elemente,
+„aber nicht grundlegend“: übernommen sind Aufbau und Aussehen, nicht das Toolkit.
+
+- **Zweimal drücken - Ursache und Abhilfe:** `updateTabActions` baute die Aktionsleiste bei jeder Meldung
+  einer Sitzung neu (`replaceChildren`). Einen Knopf zu drücken **ist** so eine Meldung - das Bild verliert
+  den Cursor -, also wurde der Knopf zwischen „runter“ und „hoch“ ersetzt, und der Klick ging an niemanden.
+  Solange ein Druck auf der Leiste (oder ihrem „...“-Panel) dauert, wartet der Neuaufbau jetzt
+  (`tabActionsHeld`/`tabActionsStale`, höchstens 4 s). `tests/action-press.js` drückt wie eine Hand
+  (runter, 120 ms, hoch) und schlug vorher in drei von vier Prüfungen fehl.
+- **Ein Rahmen für alle Dialoge:** `.credential-dialog` hat jetzt überall `.dialog-head` (Titel, ✕ mit
+  `data-dialog-x`), `.dialog-body` (scrollt für sich) und `.dialog-foot` (Knöpfe, positiv zuerst; bei der
+  Löschfrage steht „Löschen“ rechts abgesetzt). Das ✕ drückt den Schließen-Knopf des Dialogs
+  (`data-dialog-close`), tut also dasselbe wie er; Escape schließt Anzeige, Zwischenablage und
+  Zugangsdaten. Das Umfeld wird abgedunkelt (zweiter Schatten des Dialogs - kein eigenes Element, klickt
+  also nichts weg). Am Telefon bleiben es Vollbild-Blätter, mit sicheren Rändern.
+- **Dialog „Anzeige“ (vorher „Auflösung“):** Abschnitte mit Überschrift statt einer gemischten Knopfliste -
+  Größe (An Fenster anpassen | Wie am Rechner | Feste Auflösung, die Liste als Kacheln dahinter),
+  Skalierung (Regler, sechs Stufen), Bildqualität und Monitor als Auswahl nebeneinander, Optionen als echte
+  Schalter (`role="switch"`). Klassen und Datenattribute, an denen die Tests hängen, sind geblieben
+  (`.resolution-option`, `.resolution-scale-preset`, `[data-fixed-sizes]`, `[data-perf]`,
+  `[data-keyboard-resize]`); eine Wahl schließt den Dialog wie bisher, ein Schalter nicht.
+- **Handy-Menü:** Kopf mit Logo und Namen, darunter wer angemeldet ist, die Einträge als Zeilen mit
+  Symbolkachel, Abmelden abgesetzt am Ende, Version als Fußzeile. Im Dropdown der Kompaktansicht am Desktop
+  unverändert.
+- **Anmeldung, zweiter Schritt, Ersteinrichtung:** zwei Hälften - links die Marke in ihren Farben mit drei
+  Zeilen, was Matgate ist (`LoginAside`), rechts das Formular. Am Telefon die Marke oben über die ganze
+  Breite, das Formular als Blatt darunter. Keine Version auf der Seite (nicht angemeldet).
+- **Browser:** Der leere Tab zeigt eine Startseite statt einer leeren Fläche - wo man tippt, die als
+  Verbindung gespeicherten Websites und die zuletzt besuchten Adressen (nur in diesem Browser gemerkt,
+  `matgate.browser.recent`, leerbar). Der Rahmen bleibt dabei `about:blank`.
+  **Dabei gefunden:** Mit Hostnamen für Websites blieb ein Browser-Tab auf „This address belongs to a
+  Matgate session“ stehen, wenn der Browser den Hostnamen nicht als zu Matgate gehörig behandelt (Matgate
+  über eine IP geöffnet) - nur gespeicherte Verbindungen fielen auf den Pfad zurück. Der Browser-Tab tut es
+  jetzt auch (`sitePathOnly`, die gewünschte Adresse unter dem Pfad); `tests/website.js`.
+- **Einstellungen und Verwaltung:** Die Tab-Leiste scrollt auf schmalen Schirmen in einer Zeile, statt sich
+  dreizeilig zu stapeln; der Knopf eines `form-grid` steht unter den Feldern. Die Seite einer Verbindung
+  hat einen Kopf mit ihrem Symbol in ihrer Farbe.
+- **Server-Manager (Desktop):** Knopf links in der Tab-Zeile blendet eine Leiste ein (`#server-manager`,
+  280 px, neben den Sitzungen): Suche, Ordner zum Auf- und Zuklappen, Verbindungen mit Symbol und Ziel, ein
+  Punkt an denen mit offener Sitzung (Zahl ab zwei). Klick verbindet oder springt zur offenen Sitzung,
+  Strg+Klick und mittlere Taste öffnen eine weitere, Rechtsklick bringt das Menü der Karte von der
+  Startseite. Zustand und zugeklappte Ordner stehen im Browser (`matgate.serverManager.*`). Unter 900 px
+  und im Vollbild gibt es sie nicht. Die Liste kommt aus `availableServers` (neu: `folder`), ohne Ablagen
+  und ohne Einmal-Verbindungen aus Quick-Connect (`ephemeral`). `tests/server-manager.js`.
+- **Bilder:** `tests/gallery.js` ist eine Tour, kein Vergleich: Anmeldung, Start, Menü, Dialoge, echte
+  RDP-/VNC-/SSH-Sitzungen, Browser, Server-Manager, Einstellungen - je am Desktop und am Handy, als PNG nach
+  `tests/gallery/` mit `index.html`. So ist der Umbau beurteilt worden.
+
+**Nicht angefasst:** der Inhalt der einzelnen Einstellungs-Tabs und die Felder der Verbindungs-Seite -
+dort ist nur Rahmen und Kopf neu. **Ungeprüft:** alles davon auf einem echten iPhone; der Server-Manager
+mit vielen Ordnern und Verbindungen (im Teststapel gibt es fünf, ohne Ordner).
 
 ## Offene Prüfungen am echten Gerät
 

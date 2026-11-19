@@ -62,6 +62,10 @@ const GROUPS = [
     name: "Group 12 - the agent on Linux",
     scripts: ["agent-linux.js"],
   },
+  {
+    name: "Group 13 - one press on a toolbar button, the frame of the dialogs, the server manager",
+    scripts: ["action-press.js", "server-manager.js"],
+  },
 ];
 
 const PAUSE = 310000;
