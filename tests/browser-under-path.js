@@ -194,6 +194,12 @@ const check = (name, got, want) => {
   await type(blank, "http://site:8080/page2");
   check("the first address typed opens", [await shows(blank, "page two"), await address(blank)], ["page two", "http://site:8080/page2"]);
   check("and the start page makes room for the website", [(await startPage(blank)).shown, (await startPage(blank)).frame > 100], [false, true]);
+  // The mark in front of the address: a globe for a plain address - the lock is for an encrypted one.
+  check("the address bar carries a mark, and no lock for a plain http address", await blank.evaluate(() => {
+    const bar = document.querySelector(".website-toolbar-address");
+    const seen = name => getComputedStyle(bar.querySelector(name)).display !== "none";
+    return [bar.classList.contains("is-secure"), seen(".website-address-globe"), seen(".website-address-lock")];
+  }), [false, true, false]);
   // The next empty browser offers where this one has been.
   await blank.evaluate(() => document.querySelector("#connection-tab-actions [data-action='disconnect']").click());
   await sleep(800);

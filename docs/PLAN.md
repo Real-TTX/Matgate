@@ -1,7 +1,7 @@
 # Matgate – Plan zum Weitermachen
 
-Stand: 2026-11-19, Version 0.29.0 auf `main` (`v0.29.0`), Agent 0.14.0; auf ve-docker-1
-(matgate.schmoldt.it) läuft seit dem 2026-11-19 ebenfalls 0.29.0 (Websites dort weiter über den Pfad, bis
+Stand: 2026-11-19, Version 0.29.1 auf `main` (`v0.29.1`), Agent 0.14.0; auf ve-docker-1
+(matgate.schmoldt.it) läuft seit dem 2026-11-19 noch 0.29.0 (Websites dort weiter über den Pfad, bis
 Route und Variable stehen; Einspielen trennt laufende Sitzungen, nur auf ausdrücklichen Wunsch). Der Agent
 auf dem Entwicklungsrechner ist der offizielle Build aus dem Release `agent-latest`. Geschrieben als Übergabe an eine andere Sitzung.
 
@@ -639,9 +639,29 @@ Server-Manager links „wie RoyalTS“. MatUi (`../MatDesign/src/MatUi`) als Vor
   RDP-/VNC-/SSH-Sitzungen, Browser, Server-Manager, Einstellungen - je am Desktop und am Handy, als PNG nach
   `tests/gallery/` mit `index.html`. So ist der Umbau beurteilt worden.
 
-**Nicht angefasst:** der Inhalt der einzelnen Einstellungs-Tabs und die Felder der Verbindungs-Seite -
-dort ist nur Rahmen und Kopf neu. **Ungeprüft:** alles davon auf einem echten iPhone; der Server-Manager
-mit vielen Ordnern und Verbindungen (im Teststapel gibt es fünf, ohne Ordner).
+**0.29.1 - der Inhalt der Einstellungen und die Leiste des Browsers** (der Nutzer: „weiter“):
+
+- **Schalter-Zeilen** (`.toggle-row`, überall): was es ist links, der Schalter rechts, im Aussehen des
+  Dialogs „Anzeige“ (Spur in der Akzentfarbe, weißer Knopf); Zeilen, die aufeinander folgen, stehen in einem
+  Kasten mit Linie dazwischen (`:has(+ .toggle-row)`). Vorher: Schalter links, jede Zeile lose.
+- **Kontoseite** in einer Spalte in der Mitte (`.settings-page`, 880 px wie die Seite einer Verbindung)
+  statt eines 640-px-Streifens links in einem fensterbreiten Kasten; Kopf mit Symbol, Name und Kontoname.
+  Ein Kopf mit Symbol (`.conn-head`) bleibt auch am Telefon eine Zeile.
+- **Browser-Leiste:** die Adresse als ein rundes Feld mit Zeichen davor - Globus, bei `https:` ein Schloss
+  (`markWebsiteAddress`, Klasse `is-secure`) -, Zurück/Vor/Neu laden und „In neuem Tab öffnen“ als Zeichen
+  ohne Rahmen; die Schrift der Adresse ist die der Oberfläche, nicht mehr Consolas.
+
+**Dabei gesehen, nicht geändert:** Eine **eigene dunkle Hintergrundfarbe im hellen Modus** lässt die
+Eingabefelder weiß - `color-scheme` folgt dem Modus (hell/dunkel), nicht der gewählten Farbe, und die Felder
+haben keine eigene Hintergrundfarbe. Der Teststapel stand nach `colours.js` so da. Abhilfe wäre,
+`color-scheme` aus der Helligkeit der Palette zu bestimmen; nicht gebaut, weil es das Aussehen der Felder
+im dunklen Modus überall mitändern kann.
+
+**Nicht angefasst:** die Felder der Verbindungs-Seite und die Verwaltungsseiten. **Ungeprüft:** alles davon
+auf einem echten iPhone; der Server-Manager mit vielen Ordnern und Verbindungen (im Teststapel gibt es
+fünf Verbindungen und im Test einen Ordner). Das Schloss ist echt über den Dev-Stack geprüft
+(`https://10.10.0.1/login`: Schloss; leer und `http`: Globus) - **es sagt nur „verschlüsselt“, nicht
+„Zertifikat geprüft“**: Browser-Tabs ignorieren Zertifikatsfehler in der Voreinstellung (`IgnoreCertificate`).
 
 ## Offene Prüfungen am echten Gerät
 

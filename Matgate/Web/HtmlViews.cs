@@ -1294,10 +1294,13 @@ public sealed class HtmlViews
             </label>
             """;
         var body = $$"""
-            <section class="page-head">
+            <div class="settings-page">
+            <section class="page-head conn-head">
+                <span class="conn-head-icon" aria-hidden="true">{{Icon("user")}}</span>
                 <div>
                     <p class="eyebrow">{{T(context, "Account")}}</p>
                     <h1>{{E(displayName)}}</h1>
+                    <p class="muted">{{E(user.UserName)}}</p>
                 </div>
             </section>
             <section class="tabs" data-tabs>
@@ -1983,6 +1986,7 @@ public sealed class HtmlViews
                     </div>
                 </div>
             </section>
+            </div>
             """;
 
         return Layout(context, user, T(context, "Account"), body);
@@ -4973,6 +4977,7 @@ public sealed class HtmlViews
             forward = Icon("arrow-right"),
             refresh = Icon("refresh"),
             open = Icon("external-link"),
+            secure = Icon("lock"),
             globe = Icon("globe")
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
         var archiveExtensions = JsonSerializer.Serialize(FileArchiveFormats.SupportedExtensions, new JsonSerializerOptions(JsonSerializerDefaults.Web));
@@ -7933,10 +7938,20 @@ public sealed class HtmlViews
 
                     tab.lastSyncAt = Date.now();
                     tab.lastMessage = uiText.websiteLoaded || 'Website loaded';
+                    markWebsiteAddress(tab);
                     updateStatusBar();
                 }
 
+                // The mark in a browser tab's address bar: a lock where the website is reached encrypted.
+                function markWebsiteAddress(tab) {
+                    const bar = tab && tab.websiteUi && tab.websiteUi.address ? tab.websiteUi.address.closest('.website-toolbar-address') : null;
+                    if (bar) {
+                        bar.classList.toggle('is-secure', /^https:/i.test(tab.displayUrl || ''));
+                    }
+                }
+
                 function setStatus(tab, status) {
+                    markWebsiteAddress(tab);
                     tab.status = status;
                     tab.statusUpdatedAt = Date.now();
                     tab.statusLabel.textContent = status;
@@ -10181,7 +10196,8 @@ public sealed class HtmlViews
                                     ToolbarIconButton(uiText.refresh || 'Refresh', websiteIcons.refresh, 'website-tool-button', Attr('data-website-action', 'reload') + Attr('title', uiText.refresh || 'Refresh'))
                                 ),
                                 ToolbarGroup('website-toolbar-group website-toolbar-address toolbar-group--grow',
-                                    ToolbarInput('website-address', server.target || '', uiText.website || 'Website', true)
+                                    `<span class="website-address-mark" aria-hidden="true"><span class="website-address-globe">${websiteIcons.globe}</span><span class="website-address-lock">${websiteIcons.secure}</span></span>`
+                                    + ToolbarInput('website-address', server.target || '', uiText.website || 'Website', true)
                                 ),
                                 ToolbarGroup('website-toolbar-group toolbar-group--end',
                                     ToolbarButton(uiText.openInNewTab || 'Open in new tab', websiteIcons.open, 'website-tool-button', Attr('data-website-action', 'open') + Attr('title', uiText.openInNewTab || 'Open in new tab'))
@@ -17859,6 +17875,16 @@ public sealed class HtmlViews
                     /* Settings: sections with air, label above the field, one column of at most
                        640px - nobody enjoys reading longer lines. */
                     .settings-form { display: grid; gap: 22px; max-width: 640px; }
+                    /* The account page is one column in the middle, as a connection's page is - not a strip of
+                       fields at the left of a panel as wide as the window. Inside it the form takes the width. */
+                    .settings-page { margin: 0 auto; max-width: 880px; }
+                    .settings-page .settings-form { gap: 26px; max-width: none; }
+                    .settings-page .settings-hint, .settings-page .settings-lead { max-width: 72ch; }
+                    .settings-page .action-order-list, .settings-page .mode-choice, .settings-page .scheme-choice { max-width: 640px; }
+                    .settings-group > legend { margin-bottom: 8px; }
+                    .settings-group > legend + .settings-hint { margin: -2px 0 10px; }
+                    /* A field of its own in a group (a select, a number): its label above it, not as wide as the page. */
+                    .settings-group > label:not(.toggle-row):not(.check) { display: grid; gap: 6px; margin-top: 12px; max-width: 360px; }
                     .settings-lead { margin: -6px 0 16px; }
                     .settings-group { border: 0; margin: 0; padding: 0; }
                     .settings-group > legend {
@@ -18294,10 +18320,27 @@ public sealed class HtmlViews
                         font-size: 13px;
                         gap: 6px;
                     }
-                    .toggle-row { display: grid; grid-template-columns: auto 1fr; gap: 12px; align-items: start; font-weight: 500; cursor: pointer; padding: 6px 0; position: relative; }
-                    /* display: none takes the checkbox out of the tab order AND out of the
-                       accessibility tree - the whole page could only be used with a mouse. It stays,
-                       only invisible, and the visible switch shows the focus. */
+                    /* Something that is on or off: what it is (and what that means) on the left, the switch on the
+                       right, as in the display dialog. Rows that follow each other stand in one box, a line between. */
+                    .toggle-row {
+                        align-items: center;
+                        background: var(--surface);
+                        border: 1px solid var(--line);
+                        border-radius: 12px;
+                        cursor: pointer;
+                        display: grid;
+                        font-weight: 500;
+                        gap: 16px;
+                        grid-template-columns: 1fr auto;
+                        min-height: 52px;
+                        padding: 10px 14px;
+                        position: relative;
+                    }
+                    .toggle-row:hover { background: var(--surface-2); }
+                    .toggle-row + .toggle-row { border-top-left-radius: 0; border-top-right-radius: 0; margin-top: -1px; }
+                    .toggle-row:has(+ .toggle-row) { border-bottom-left-radius: 0; border-bottom-right-radius: 0; }
+                    .toggle-row > .toggle-copy { grid-column: 1; grid-row: 1; }
+                    .toggle-row > .toggle-switch { grid-column: 2; grid-row: 1; }
                     .toggle-row > input[type="checkbox"] {
                         border: 0;
                         clip-path: inset(50%);
@@ -18309,17 +18352,36 @@ public sealed class HtmlViews
                         white-space: nowrap;
                         width: 1px;
                     }
-                    .toggle-row > input[type="checkbox"]:focus-visible + .toggle-switch {
-                        outline: 2px solid var(--accent);
-                        outline-offset: 2px;
+                    .toggle-row > input[type="checkbox"]:focus-visible ~ .toggle-switch {
+                        box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent);
                     }
-                    .toggle-switch { position: relative; width: 40px; height: 24px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--line); transition: background .15s ease, border-color .15s ease; margin-top: 1px; flex: 0 0 auto; }
-                    .toggle-switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 18px; height: 18px; border-radius: 50%; background: var(--muted); transition: transform .15s ease, background .15s ease; }
-                    .toggle-row > input:checked + .toggle-switch { background: color-mix(in srgb, var(--accent) 30%, transparent); border-color: var(--accent); }
-                    .toggle-row > input:checked + .toggle-switch::after { transform: translateX(16px); background: var(--accent); }
+                    .toggle-switch {
+                        background: color-mix(in srgb, var(--muted) 45%, transparent);
+                        border-radius: 999px;
+                        flex: 0 0 auto;
+                        height: 24px;
+                        position: relative;
+                        transition: background .18s ease;
+                        width: 42px;
+                    }
+                    .toggle-switch::after {
+                        background: #fff;
+                        border-radius: 50%;
+                        box-shadow: 0 1px 2px rgb(0 0 0 / 30%);
+                        content: "";
+                        height: 18px;
+                        left: 3px;
+                        position: absolute;
+                        top: 3px;
+                        transition: transform .18s ease;
+                        width: 18px;
+                    }
+                    .toggle-row > input:checked ~ .toggle-switch { background: var(--accent); }
+                    .toggle-row > input:checked ~ .toggle-switch::after { transform: translateX(18px); }
+                    .toggle-row > input:disabled ~ .toggle-switch { opacity: .5; }
                     .toggle-copy { display: grid; gap: 2px; min-width: 0; }
                     .toggle-copy strong { font-weight: 650; }
-                    .toggle-copy small { color: var(--muted); font-weight: 400; }
+                    .toggle-copy small { color: var(--muted); font-size: 13px; font-weight: 400; line-height: 1.4; }
                     label { display: grid; gap: 6px; font-weight: 600; }
                     .check {
                         align-items: center;
@@ -21117,7 +21179,7 @@ public sealed class HtmlViews
                     .website-toolbar-group {
                         align-items: center;
                         display: flex;
-                        gap: 8px;
+                        gap: 2px;
                         min-width: 0;
                     }
                     .website-toolbar-address {
@@ -21149,27 +21211,52 @@ public sealed class HtmlViews
                             width: 1px;
                         }
                     }
-                    .website-address {
-                        font-family: Consolas, ui-monospace, monospace;
-                        min-height: 32px;
+                    /* The address: one rounded field with a mark in front, as a browser's is. */
+                    .website-toolbar-address { position: relative; }
+                    .website-toolbar .website-address:not([type="checkbox"]):not([type="radio"]) {
+                        background: var(--surface-2);
+                        border-color: transparent;
+                        border-radius: 999px;
+                        font-size: 14px;
+                        min-height: 36px;
+                        padding: 6px 14px 6px 36px;
                     }
+                    .website-toolbar .website-address:not([type="checkbox"]):not([type="radio"]):hover { border-color: var(--line); }
+                    .website-toolbar .website-address:not([type="checkbox"]):not([type="radio"]):focus { background: var(--surface); border-color: var(--accent); }
+                    .website-address-mark { color: var(--muted); display: inline-flex; left: 12px; pointer-events: none; position: absolute; top: 50%; transform: translateY(-50%); z-index: 1; }
+                    .website-address-mark .icon { height: 15px; width: 15px; }
+                    .website-address-lock, .is-secure .website-address-globe { display: none; }
+                    .is-secure .website-address-lock { color: var(--accent); display: inline-flex; }
+                    .website-address-globe { display: inline-flex; }
+                    /* The buttons beside it: marks without a frame, until the pointer is on them. */
                     .website-tool-button {
                         align-items: center;
-                        background: var(--surface);
-                        border: 1px solid var(--line);
-                        border-radius: var(--radius);
-                        color: var(--text);
+                        background: transparent;
+                        border: 1px solid transparent;
+                        border-radius: 10px;
+                        box-shadow: none;
+                        color: var(--muted);
                         cursor: pointer;
                         display: inline-flex;
                         gap: 7px;
                         justify-content: center;
-                        min-height: 32px;
+                        min-height: 36px;
+                        min-width: 36px;
                         padding: 4px 8px;
                     }
                     .website-tool-button:hover {
                         background: var(--hover-bg);
-                        border-color: var(--surface-3);
                         color: var(--text);
+                    }
+                    .website-tool-button:disabled { opacity: .4; }
+                    /* "Open in a new tab" is its mark; the words are its title. */
+                    .website-toolbar [data-website-action="open"] > span {
+                        clip-path: inset(50%);
+                        height: 1px;
+                        overflow: hidden;
+                        position: absolute;
+                        white-space: nowrap;
+                        width: 1px;
                     }
                     .website-frame {
                         border: 0;
@@ -22448,6 +22535,11 @@ public sealed class HtmlViews
 
                     @media (max-width: 720px) {
                         .page-head, .auth-panel { align-items: stretch; flex-direction: column; grid-template-columns: 1fr; }
+                        /* A head with a mark stays a row: the mark beside the name, not above it. */
+                        .page-head.conn-head { align-items: center; flex-direction: row; gap: 12px; }
+                        .conn-head-icon { border-radius: 14px; height: 48px; width: 48px; }
+                        .conn-head-icon .icon { height: 22px; width: 22px; }
+                        .conn-head > div { min-width: 0; }
                         /* Compact single-row header on phones: the global nav folds into the burger menu. */
                         header {
                             align-items: center;
@@ -25561,6 +25653,7 @@ public sealed class HtmlViews
             "play" => """<path d="m8 5 11 7-11 7z"/>""",
             "menu" => """<path d="M4 7h16"/><path d="M4 12h16"/><path d="M4 17h16"/>""",
             "panel-left" => """<rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/>""",
+            "lock" => """<rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/>""",
             "list" => """<path d="M8 7h12"/><path d="M8 12h12"/><path d="M8 17h12"/><path d="M4 7h.01"/><path d="M4 12h.01"/><path d="M4 17h.01"/>""",
             "x" => """<path d="M6 6l12 12"/><path d="M18 6 6 18"/>""",
             "music" => """<path d="M9 18V5l10-2v13"/><circle cx="7" cy="18" r="3"/><circle cx="17" cy="16" r="3"/>""",
