@@ -17,10 +17,6 @@ public sealed class HtmlViews
     private static readonly IReadOnlyDictionary<string, string> GermanText = new Dictionary<string, string>
     {
         ["Home Network Gateway"] = "Heimnetz-Gateway",
-        ["Outside the network"] = "Außerhalb des Netzwerks",
-        ["This address is not inside the network Matgate opens for you. A page cannot send the browser there on its own - open it in your own browser, or type it into the address bar."] = "Diese Adresse liegt nicht in dem Netzwerk, das Matgate für dich öffnet. Dorthin kann eine Seite den Browser nicht von selbst schicken – öffne sie in deinem eigenen Browser oder tippe sie in die Adressleiste.",
-        ["Open in my browser"] = "In meinem Browser öffnen",
-        ["Go back"] = "Zurück",
         ["Compact view"] = "Kompakte Ansicht",
         ["Normal view"] = "Normale Ansicht",
         ["Workspaces"] = "Workspaces",
@@ -5035,7 +5031,7 @@ public sealed class HtmlViews
             websiteProxy = T(context, "Website proxy"),
             websiteOpening = T(context, "Opening website"),
             websiteLoaded = T(context, "Website loaded"),
-            websiteAddressHint = Language(context) == "de" ? "Adresse eingeben und Enter drücken" : "Type an address and press Enter",
+            websiteAddressHint = Language(context) == "de" ? "Adresse eingeben" : "Type an address",
             forward = T(context, "Forward"),
             openInNewTab = T(context, "Open in new tab"),
             waiting = Language(context) == "de" ? "Wartet" : "Waiting",
@@ -6335,7 +6331,24 @@ public sealed class HtmlViews
                             button.addEventListener('click', () => openDialog(qcDefaultProto));
                         });
                         Array.from(root.querySelectorAll('[data-home2-qc]')).forEach(button => {
-                            button.addEventListener('click', () => openDialog(button.dataset.home2Qc));
+                            button.addEventListener('click', async () => {
+                                if (button.dataset.home2Qc !== 'website') {
+                                    openDialog(button.dataset.home2Qc);
+                                    return;
+                                }
+
+                                // The browser needs no dialog: its tab has an address bar, and that is where
+                                // an address is typed. (With a start address or a sign-in: the dialog, under "More".)
+                                const body = new FormData();
+                                body.append('protocol', 'website');
+                                try {
+                                    openServer(await startQuick(body));
+                                }
+                                catch (error) {
+                                    openDialog('website');
+                                    showQcError(error);
+                                }
+                            });
                         });
 
                         const protoClose = protoDialog.querySelector('[data-home2-proto-close]');
@@ -7647,7 +7660,7 @@ public sealed class HtmlViews
                         const url = new URL(sourceUrl, window.location.origin);
                         const proxyMatch = url.pathname.match(/^\/website\/[^/]+\/(?:([^/]+)\/)?proxy\/?(.*)$/i);
                         if (!proxyMatch) {
-                            // A browser tab that was not let out of the network shows where it wanted to go.
+                            // On its way to another website: where it is going.
                             const wanted = /^\/website\/[^/]+\/[^/]+\/go$/i.test(url.pathname) ? url.searchParams.get('u') : '';
                             return wanted || (url.origin === window.location.origin ? fallbackUrl : sourceUrl);
                         }
@@ -20148,6 +20161,32 @@ public sealed class HtmlViews
                     .website-toolbar-address {
                         flex: 1 1 340px;
                     }
+                    /* On a phone the browser's bar is one row, as a browser's is: back, forward, reload, the
+                       address, open. It used to wrap into three and took a fifth of the screen. */
+                    @media (max-width: 720px) {
+                        .website-toolbar,
+                        .website-toolbar-group {
+                            flex-wrap: nowrap;
+                            gap: 4px;
+                        }
+                        .website-toolbar-address {
+                            flex: 1 1 0;
+                            min-width: 0;
+                        }
+                        .website-toolbar .toolbar-group--end { margin-left: 0; }
+                        .website-toolbar .website-address {
+                            min-width: 0;
+                            width: 100%;
+                        }
+                        .website-toolbar [data-website-action="open"] > span {
+                            clip-path: inset(50%);
+                            height: 1px;
+                            overflow: hidden;
+                            position: absolute;
+                            white-space: nowrap;
+                            width: 1px;
+                        }
+                    }
                     .website-address {
                         font-family: Consolas, ui-monospace, monospace;
                         min-height: 32px;
@@ -23804,46 +23843,6 @@ public sealed class HtmlViews
     }
 
     public static string Translate(HttpContext context, string key) => T(context, key);
-
-    // What a browser tab shows instead of a page a link or a redirect wanted to send it to, when that page
-    // lies outside the network (see WebsiteGoAsync). It stands inside the tab's frame, so it is a page of
-    // its own: no shell, no scripts but the one that goes back.
-    public static string WebsiteOutsidePage(HttpContext context, Uri address)
-    {
-        var language = Language(context);
-        return $$"""
-            <!doctype html>
-            <html lang="{{A(language)}}">
-            <head>
-            <meta charset="utf-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1">
-            <title>{{E(T(context, "Outside the network"))}}</title>
-            <style>
-                :root { color-scheme: light dark; }
-                body { align-items: center; display: flex; font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; justify-content: center; margin: 0; min-height: 100vh; padding: 20px; box-sizing: border-box; }
-                main { border: 1px solid color-mix(in srgb, currentColor 18%, transparent); border-radius: 16px; max-width: 520px; padding: 22px 24px; }
-                h1 { font-size: 19px; margin: 0 0 8px; }
-                p { margin: 0 0 12px; }
-                code { background: color-mix(in srgb, currentColor 8%, transparent); border-radius: 8px; display: block; font: 13px/1.4 ui-monospace, Consolas, monospace; overflow-wrap: anywhere; padding: 8px 10px; }
-                .actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 16px; }
-                a, button { border: 1px solid color-mix(in srgb, currentColor 25%, transparent); border-radius: 10px; color: inherit; cursor: pointer; font: inherit; font-weight: 600; padding: 9px 14px; text-decoration: none; background: transparent; }
-                a { background: #2b6bff; border-color: #2b6bff; color: #fff; }
-            </style>
-            </head>
-            <body>
-            <main data-matgate-outside>
-                <h1>{{E(T(context, "Outside the network"))}}</h1>
-                <p>{{E(T(context, "This address is not inside the network Matgate opens for you. A page cannot send the browser there on its own - open it in your own browser, or type it into the address bar."))}}</p>
-                <code>{{E(address.AbsoluteUri)}}</code>
-                <div class="actions">
-                    <a href="{{A(address.AbsoluteUri)}}" target="_blank" rel="noopener noreferrer">{{E(T(context, "Open in my browser"))}}</a>
-                    <button type="button" onclick="history.back()">{{E(T(context, "Go back"))}}</button>
-                </div>
-            </main>
-            </body>
-            </html>
-            """;
-    }
 
     // Public accessor for the inline icon SVG (used by JSON responses such as quick-connect).
     public static string IconMarkup(string name) => Icon(name);

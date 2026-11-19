@@ -1636,50 +1636,6 @@ public sealed class WebsiteProxyService
         _browseTargets.ContainsKey(SessionKey(context, server, tabId.GetValueOrDefault()))
         || !string.IsNullOrWhiteSpace(ServerEndpoint.NormalizeWebsiteUrl(server.WebsiteUrl, server.Host));
 
-    // Inside the network means: the name resolves, and only to addresses that are not routed on the internet.
-    // This is what a page may send a browser tab to on its own (a link, a redirect); what the user types is
-    // the user's business.
-    public static async Task<bool> IsInsideNetworkAsync(string host, CancellationToken cancellationToken)
-    {
-        try
-        {
-            var addresses = IPAddress.TryParse(host.Trim('[', ']'), out var literal)
-                ? [literal]
-                : await Dns.GetHostAddressesAsync(host, cancellationToken);
-            return addresses.Length > 0 && addresses.All(IsPrivateAddress);
-        }
-        catch (Exception exception) when (exception is not OperationCanceledException)
-        {
-            return false;
-        }
-    }
-
-    internal static bool IsPrivateAddress(IPAddress address)
-    {
-        if (address.IsIPv4MappedToIPv6)
-        {
-            address = address.MapToIPv4();
-        }
-
-        // Not the machine Matgate itself runs on: nothing a page links to lives there.
-        if (IPAddress.IsLoopback(address))
-        {
-            return false;
-        }
-
-        if (address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
-        {
-            var bytes = address.GetAddressBytes();
-            return bytes[0] == 10
-                || (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31)
-                || (bytes[0] == 192 && bytes[1] == 168)
-                || (bytes[0] == 169 && bytes[1] == 254)
-                || (bytes[0] == 100 && bytes[1] >= 64 && bytes[1] <= 127);
-        }
-
-        return address.IsIPv6LinkLocal || address.IsIPv6SiteLocal || address.IsIPv6UniqueLocal;
-    }
-
     // An address written without http:// or https://: https where something answers there, http otherwise.
     // Half the devices of a home network only speak http, and nobody types the scheme.
     public static async Task<string> WithSchemeAsync(string written, CancellationToken cancellationToken)

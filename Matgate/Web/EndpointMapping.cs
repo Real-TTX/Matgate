@@ -1303,9 +1303,11 @@ public static partial class EndpointMapping
 
     // A browser tab under a path of Matgate's follows a link or a redirect to another website: the page's
     // script and the redirects Matgate passes on send the frame here, and from here it goes to that
-    // website's own frame. Only to machines inside the network - where a page sends the tab is the page's
-    // decision, not the user's, and a page from the internet would run under Matgate's own address. What
-    // lies outside is offered to the user's own browser instead.
+    // website's own frame. Anywhere: 0.27.0 let a page send the tab only to machines inside the network
+    // and showed a page of its own for the rest - which stopped the owner's own names (they resolve to the
+    // public address) and was not what he wanted from a browser. Whoever may quick-connect may open any
+    // address anyway. What it costs is known: under a path every page runs under Matgate's own address;
+    // the separation that keeps a page away from Matgate is a host name of its own (MATGATE_WEBSITE_HOST).
     private static async Task<IResult> WebsiteGoAsync(
         Guid id,
         Guid tabId,
@@ -1327,11 +1329,6 @@ public static partial class EndpointMapping
         }
 
         WebsiteProxyService.PreventCaching(context.Response);
-        if (!await WebsiteProxyService.IsInsideNetworkAsync(address.Host, context.RequestAborted))
-        {
-            return Results.Content(HtmlViews.WebsiteOutsidePage(context, address), "text/html; charset=utf-8");
-        }
-
         var url = proxy.Browse(context, server, tabId, address);
         return HttpMethods.IsGet(context.Request.Method) || HttpMethods.IsHead(context.Request.Method)
             ? Results.Redirect(url)

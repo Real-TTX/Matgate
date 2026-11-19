@@ -1,9 +1,9 @@
 // The browser of quick connect where Matgate has no host names for websites - the way it runs where nobody
 // set them up (the second Matgate of the test stack, port 18092). It is Matgate's own browser there as well:
 // the page is fetched by Matgate and shown in the tab, under a path of Matgate's address - never the browser
-// farm's picture of one. And it is a browser: the address bar takes any address, a link or a redirect to
-// another machine inside the network is followed through Matgate (each website in a frame of its own under
-// the path), and what lies outside the network is offered to the user's own browser instead.
+// farm's picture of one. And it is a browser: its chip opens it at once, the address bar takes any address,
+// and a link or a redirect to another machine is followed through Matgate - each website in a frame of its
+// own under the path. Anywhere: 0.27.0 stopped at the edge of the network, which the owner did not want.
 const { chromium } = require("playwright-core");
 const BASE = "http://127.0.0.1:18092";
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -44,8 +44,10 @@ const check = (name, got, want) => {
   await page.setViewportSize({ width: 1300, height: 860 });
   await sleep(300);
 
-  await page.click(".home2-quick-row [data-home2-qc='website']");
+  // The dialog (under "More") still has the browser, for a start address or a sign-in.
+  await page.click(".home2-quick-row [data-home2-more]");
   await page.waitForSelector("[data-home2-proto-dialog][open]", { timeout: 10000 });
+  await page.click("[data-home2-qc-proto='website']");
   const asked = () => page.evaluate(() => ({
     label: document.querySelector("[data-home2-qc-hostlabel]").textContent,
     required: document.querySelector("[data-home2-qc-host]").required,
@@ -53,7 +55,7 @@ const check = (name, got, want) => {
     button: document.querySelector("[data-home2-qc-submit]").textContent,
     fields: [...document.querySelectorAll("[data-home2-qc-form] input:not([type='hidden'])")].filter(field => field.offsetParent !== null).map(field => field.name),
   }));
-  check("the chip asks for the address to start with, and takes none as well", await asked(), { label: "Start URL", required: false, focused: true, button: "Open browser", fields: ["host", "username", "password"] });
+  check("the dialog asks for the address to start with, and takes none as well", (({ focused, ...rest }) => rest)(await asked()), { label: "Start URL", required: false, button: "Open browser", fields: ["host", "username", "password"] });
   check("and says so", await page.evaluate(() => /empty/i.test(document.querySelector("[data-home2-qc-host]").placeholder)), true);
   await page.click("[data-home2-qc-proto='rdp']");
   check("another protocol has its own words again", [(await asked()).label, (await asked()).button, (await asked()).required], ["Host", "Connect", true]);
@@ -116,24 +118,12 @@ const check = (name, got, want) => {
   await (await frameOf(page)).click("#what");
   check("and once the bar is left it shows where the tab is again", await address(page), "http://other:8080/hello");
 
-  // ---------------------------------------------------------------- out of the network
-  // A page cannot send the tab to a machine on the internet on its own: it would run under Matgate's address.
-  await (await frameOf(page)).evaluate(() => { window.location.assign("https://203.0.113.5/somewhere?x=1"); });
-  let outside = null;
-  for (let i = 0; i < 60 && !outside; i++) {
-    try {
-      outside = await (await frameOf(page)).evaluate(() => {
-        const box = document.querySelector("[data-matgate-outside]");
-        return box ? { link: box.querySelector("a").href, target: box.querySelector("a").target, shown: box.querySelector("code").textContent } : null;
-      });
-    } catch { /* loading */ }
-    if (!outside) { await sleep(250); }
-  }
-  check("a page that sends the tab out of the network is stopped, and the address is offered to the user's own browser", outside, { link: "https://203.0.113.5/somewhere?x=1", target: "_blank", shown: "https://203.0.113.5/somewhere?x=1" });
-  await sleep(300);
-  check("the address bar shows where the page wanted to go", await address(page), "https://203.0.113.5/somewhere?x=1");
-  await (await frameOf(page)).click("button");
-  check("back leads to the page before", await shows(page, "hello from other"), "hello from other");
+  // ---------------------------------------------------------------- anywhere
+  // A machine that is not inside the network is no different: the tab is taken there, with no page in between.
+  const here = (await frameOf(page)).url().match(/\/website\/([0-9a-f-]+)\//)[1];
+  const hop = await context.request.get(BASE + "/website/" + here + "/" + firstFrame + "/go?u=" + encodeURIComponent("https://203.0.113.5/somewhere?x=1"), { maxRedirects: 0 });
+  const led = hop.headers().location || "";
+  check("a public address is followed as well - no page that stops the tab", [hop.status(), /^\/website\/[0-9a-f-]+\/[0-9a-f-]+\/proxy\/somewhere\?x=1$/.test(led), led.includes("/" + firstFrame + "/"), led.includes("/" + otherFrame + "/")], [302, true, false, false]);
 
   // What Matgate itself is asked: only a browser tab is taken elsewhere, and only its owner's.
   check("the way to another website is a browser tab's alone", await page.evaluate(async () => {
@@ -146,12 +136,12 @@ const check = (name, got, want) => {
   blank.on("pageerror", e => { console.log("JS ERROR: " + e.message); failures.push("JS error"); });
   await blank.goto(BASE + "/", { waitUntil: "networkidle" });
   await sleep(800);
+  // The chip opens the browser at once: no dialog, no address asked for - the tab has the address bar.
   await blank.click(".home2-quick-row [data-home2-qc='website']");
-  await blank.waitForSelector("[data-home2-proto-dialog][open]", { timeout: 10000 });
-  await blank.click("[data-home2-qc-form] button[type='submit']");
   await blank.waitForSelector(".website-frame", { timeout: 20000 });
   await sleep(800);
-  check("without an address it is an empty browser: an address bar to type into, focused", [
+  check("the chip asked nothing", await blank.evaluate(() => !!document.querySelector("[data-home2-proto-dialog][open]")), false);
+  check("it is an empty browser: an address bar to type into, focused", [
     await address(blank),
     await blank.evaluate(() => document.activeElement === document.querySelector(".website-address")),
     await blank.evaluate(() => document.querySelector(".website-address").readOnly),
@@ -160,6 +150,17 @@ const check = (name, got, want) => {
   check("the tab is called Browser", await blank.evaluate(() => [...document.querySelectorAll(".session-tab .session-tab-title")].some(title => title.textContent.trim() === "Browser")), true);
   await type(blank, "http://site:8080/page2");
   check("the first address typed opens", [await shows(blank, "page two"), await address(blank)], ["page two", "http://site:8080/page2"]);
+
+
+  // On a phone the browser's bar is one row: back, forward, reload, the address, open.
+  await blank.setViewportSize({ width: 390, height: 844 });
+  await sleep(400);
+  check("on a phone the browser's bar is a single row, with room for the address", await blank.evaluate(() => {
+    const boxes = [...document.querySelectorAll(".website-toolbar button, .website-toolbar .website-address")].filter(item => item.offsetParent !== null).map(item => item.getBoundingClientRect());
+    const tops = boxes.map(box => Math.round(box.top + box.height / 2));
+    const bar = document.querySelector(".website-address").getBoundingClientRect();
+    return [boxes.length, Math.max(...tops) - Math.min(...tops) <= 4, boxes.every(box => box.right <= window.innerWidth + 1), bar.width >= 140];
+  }), [5, true, true, true]);
 
   check("no dialog of the browser was involved", dialogs, []);
 

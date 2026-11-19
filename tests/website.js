@@ -330,8 +330,11 @@ const SITE = /^http:\/\/[a-z2-7]{20}\.mg\.localhost:18091/;
   home.on("pageerror", e => { console.log("JS ERROR: " + e.message); failures.push("JS error"); });
   await home.goto(BASE + "/", { waitUntil: "networkidle" });
   check("the home page offers a browser: the website chip by that name", await home.evaluate(() => [...document.querySelectorAll(".home2-quick-row [data-home2-qc]")].map(chip => chip.dataset.home2Qc + ":" + chip.textContent.trim()).filter(chip => /website|browser/i.test(chip))), ["website:Browser"]);
-  await home.click(".home2-quick-row [data-home2-qc='website']");
+  // The chip itself opens the browser at once (tests/browser-under-path.js); the dialog under "More" is
+  // where it takes a start address or a sign-in.
+  await home.click(".home2-quick-row [data-home2-more]");
   await home.waitForSelector("[data-home2-proto-dialog][open]", { timeout: 10000 });
+  await home.click("[data-home2-qc-proto='website']");
   // With host names for websites a tab can go anywhere - so the browser may start without an address.
   check("it asks for a start address, and needs none", await home.evaluate(() => ({
     label: document.querySelector("[data-home2-qc-hostlabel]").textContent,

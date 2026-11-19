@@ -1,7 +1,7 @@
 # Matgate – Plan zum Weitermachen
 
-Stand: 2026-11-19, Version 0.27.0 auf `main` (`v0.27.0`), Agent 0.14.0; auf ve-docker-1
-(matgate.schmoldt.it) läuft seit dem 2026-11-19 ebenfalls 0.27.0 (Websites dort weiter über den Pfad, bis
+Stand: 2026-11-19, Version 0.27.1 auf `main` (`v0.27.1`), Agent 0.14.0; auf ve-docker-1
+(matgate.schmoldt.it) läuft seit dem 2026-11-19 ebenfalls 0.27.1 (Websites dort weiter über den Pfad, bis
 Route und Variable stehen; Einspielen trennt laufende Sitzungen, nur auf ausdrücklichen Wunsch). Der Agent
 auf dem Entwicklungsrechner ist der offizielle Build aus dem Release `agent-latest`. Geschrieben als Übergabe an eine andere Sitzung.
 
@@ -264,6 +264,18 @@ Der Nutzer: „Kannst du das Website-Feature mit dem Proxy nochmal überarbeiten
   **Chips am Telefon:** Die Reihe „Schnell verbinden“ scrollte seitwärts ohne sichtbaren Hinweis, der
   Browser stand als sechster Chip außerhalb des Bildschirms. Jetzt bricht die Reihe um, am Telefon als
   kleine Kacheln (fünf je Reihe). Test: `tests/browser-under-path.js`.
+- **Browser ohne Grenze, Chip ohne Dialog (0.27.1):** 0.27.0 ließ eine Seite den Tab nur zu Rechnern im
+  privaten Netz schicken und zeigte sonst eine Zwischenseite („Outside the network“). Auf dem Homelab traf
+  das sofort die eigenen Namen (`*.schmoldt.it`, `*.rltx.de` lösen im Container auf die öffentliche
+  Adresse auf), und der Nutzer wollte es ausdrücklich nicht („Es muss doch alles tun“, „kann dann nicht
+  frei surfen“). Die Prüfung und die Zwischenseite sind wieder weg: `WebsiteGoAsync` folgt jeder Adresse.
+  **Der Preis ist bekannt und dem Nutzer gesagt:** Unter dem Pfad läuft jede Seite unter Matgates eigener
+  Adresse und könnte, wenn sie es gezielt darauf anlegt, als der angemeldete Benutzer mit Matgate reden
+  (der Rahmen ist dieselbe Origin wie die Hülle - dagegen hilft kein Header und keine CSP, nur eine andere
+  Origin: eigene Hostnamen, oder ein noch nicht gebauter Sandkasten-Weg mit undurchsichtiger Origin und
+  Zutritt per Pfad-Token). Außerdem öffnet der **Chip „Browser“** den Browser jetzt sofort (leerer Tab,
+  Adressleiste im Fokus) statt den Dialog - der Nutzer: „muss eine URL eingeben?“; Start-URL und
+  Zugangsdaten bleiben im Dialog unter „Mehr“. Am Telefon ist die Browser-Leiste eine Zeile statt drei.
 - **Chips sortierbar (0.26.0):** Konto → Sitzung → „Schnell verbinden“ ist jetzt dieselbe Ziehliste wie die
   Aktionen (`data-order-group`): Reihenfolge und Haken. `SessionPreferences.QuickProtocolOrder` +
   `HiddenQuickProtocols`, `OrderedQuickProtocols` hängt Unbekanntes hinten an. Startseite und Dialog
