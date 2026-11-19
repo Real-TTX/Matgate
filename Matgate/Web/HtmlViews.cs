@@ -6287,7 +6287,10 @@ public sealed class HtmlViews
                             else {
                                 protoDialog.setAttribute('open', '');
                             }
-                            if (qcHostInput) {
+                            // With a mouse the cursor stands in the first field. On a touch screen it does not:
+                            // focusing brings the keyboard up before anything is read, and the phone shoves and
+                            // zooms the page to make room for it.
+                            if (qcHostInput && !(window.matchMedia && window.matchMedia('(pointer: coarse)').matches)) {
                                 qcHostInput.focus();
                             }
                         };
@@ -16469,6 +16472,17 @@ public sealed class HtmlViews
             <head>
                 <meta charset="utf-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+                <!-- An iPhone zooms the page into a field it focuses and stays zoomed. Fields of 16px (see the
+                     stylesheet) were meant to end that and did not: opening quick connect still zoomed on the
+                     owner's phone. With a largest scale of 1 it cannot; pinching still works there, iOS does
+                     not let a page forbid that. Only on iOS - on Android the same line would take pinching away. -->
+                <script>
+                    (function () {
+                        var apple = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+                        var view = document.querySelector('meta[name="viewport"]');
+                        if (apple && view) { view.setAttribute("content", view.getAttribute("content") + ", maximum-scale=1"); }
+                    })();
+                </script>
                 {{cacheControlMarkup}}
                 <!-- The colour of the system bar follows the theme rather than a fixed dark tone: in light mode
                      the bar above it would otherwise be black. -->

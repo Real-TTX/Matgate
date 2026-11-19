@@ -1,6 +1,6 @@
 # Matgate – Plan zum Weitermachen
 
-Stand: 2026-11-19, Version 0.27.1 auf `main` (`v0.27.1`), Agent 0.14.0; auf ve-docker-1
+Stand: 2026-11-19, Version 0.27.2 auf `main` (`v0.27.2`), Agent 0.14.0; auf ve-docker-1
 (matgate.schmoldt.it) läuft seit dem 2026-11-19 noch 0.27.0 (Websites dort weiter über den Pfad, bis
 Route und Variable stehen; Einspielen trennt laufende Sitzungen, nur auf ausdrücklichen Wunsch). Der Agent
 auf dem Entwicklungsrechner ist der offizielle Build aus dem Release `agent-latest`. Geschrieben als Übergabe an eine andere Sitzung.
@@ -276,6 +276,13 @@ Der Nutzer: „Kannst du das Website-Feature mit dem Proxy nochmal überarbeiten
   Zutritt per Pfad-Token). Außerdem öffnet der **Chip „Browser“** den Browser jetzt sofort (leerer Tab,
   Adressleiste im Fokus) statt den Dialog - der Nutzer: „muss eine URL eingeben?“; Start-URL und
   Zugangsdaten bleiben im Dialog unter „Mehr“. Am Telefon ist die Browser-Leiste eine Zeile statt drei.
+- **Zoom am iPhone (0.27.2):** Der Nutzer meldete nach 0.27.0 erneut, dass Quick-Connect am Handy „komisch
+  zoomt“ - die 16px-Felder aus 0.25.1 haben das auf seinem Gerät also nicht beendet. Zwei Dinge dagegen:
+  Auf iOS bekommt der Viewport per Skript im Kopf `maximum-scale=1` (dort kann die Seite beim Fokus nicht
+  mehr hineinzoomen, Kneifen geht weiter; auf Android bleibt der Viewport, weil die Zeile dort das Kneifen
+  nähme), und der Quick-Connect-Dialog setzt auf Touch-Geräten den Cursor nicht mehr ins erste Feld (keine
+  Tastatur beim Öffnen). **Nicht am echten iPhone geprüft** - `tests/phone-field-zoom.js` prüft nur, dass
+  beides gesetzt ist.
 - **Chips sortierbar (0.26.0):** Konto → Sitzung → „Schnell verbinden“ ist jetzt dieselbe Ziehliste wie die
   Aktionen (`data-order-group`): Reihenfolge und Haken. `SessionPreferences.QuickProtocolOrder` +
   `HiddenQuickProtocols`, `OrderedQuickProtocols` hängt Unbekanntes hinten an. Startseite und Dialog

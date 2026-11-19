@@ -40,6 +40,9 @@ const fields = page => page.evaluate(() => [...document.querySelectorAll("input,
   // Quick connect: the dialog that zoomed. Every protocol shows other fields.
   await page.evaluate(() => document.querySelector("[data-home2-more]").click());
   await page.waitForSelector("[data-home2-proto-dialog][open]", { timeout: 10000 });
+  check("a phone that is no iPhone keeps its viewport as it was - there the same line would take pinching away", await page.evaluate(() => /maximum-scale/.test(document.querySelector("meta[name=viewport]").content)), false);
+  // Opening it does not call the keyboard: a phone shoves and zooms the page to make room for one.
+  check("on a touch screen the dialog opens without the cursor in a field", await page.evaluate(() => /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName)), false);
   const protocols = await page.evaluate(() => [...document.querySelectorAll("[data-home2-qc-proto]")].map(chip => chip.dataset.home2QcProto));
   const tooSmall = [];
   for (const protocol of protocols) {
@@ -82,7 +85,15 @@ const fields = page => page.evaluate(() => [...document.querySelectorAll("input,
   await wide.goto(BASE + "/", { waitUntil: "networkidle" });
   await wide.evaluate(() => document.querySelector("[data-home2-more]").click());
   await wide.waitForSelector("[data-home2-proto-dialog][open]", { timeout: 10000 });
+  check("with a mouse the cursor stands in the first field, and the page may be scaled as ever", await wide.evaluate(() => [document.activeElement === document.querySelector("[data-home2-qc-host]"), /maximum-scale/.test(document.querySelector("meta[name=viewport]").content)]), [true, false]);
   check("with a mouse the form keeps its own size", await wide.evaluate(() => [matchMedia("(pointer: coarse)").matches, getComputedStyle(document.querySelector("[data-home2-qc-host]")).fontSize]), [false, "13px"]);
+
+  // An iPhone zooms into a field it focuses, whatever the field looks like. There the page has a largest scale.
+  const apple = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 3, hasTouch: true, isMobile: true, storageState: state,
+    userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.5 Mobile/15E148 Safari/604.1" });
+  const iphone = await apple.newPage();
+  await iphone.goto(BASE + "/", { waitUntil: "networkidle" });
+  check("on an iPhone the page cannot be zoomed into a field", await iphone.evaluate(() => document.querySelector("meta[name=viewport]").content), "width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1");
 
   await b.close();
   if (failures.length) { console.log("failed: " + JSON.stringify(failures)); }
