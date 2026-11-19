@@ -63,6 +63,15 @@ internal static unsafe class OpenH264
 
     private static readonly delegate* unmanaged[Cdecl]<void**, int> _createEncoder;
     private static readonly delegate* unmanaged[Cdecl]<void*, void> _destroyEncoder;
+    private static bool _extended;
+
+    // OpenH264 2.5 and later: the parameters, a source picture and each layer of the output end with fields
+    // for PSNR that 2.4 does not have (the soname went from 7 to 8 for it). Whoever uses such a library has
+    // to leave room behind these structures and to step through the layers in the larger size.
+    public static bool ExtendedLayout => _extended;
+
+    // The size of one layer of the output: with three floats more in the extended layout.
+    public static int LayerSize => _extended ? sizeof(LayerBitstream) + 16 : sizeof(LayerBitstream);
 
     static OpenH264()
     {
@@ -203,9 +212,14 @@ internal static unsafe class OpenH264
         {
             var quiet = LogQuiet;
             SetOption(encoder, EncoderOption.TraceLevel, &quiet);
-            EncoderParameters parameters;
-            new Span<byte>(&parameters, sizeof(EncoderParameters)).Fill(0xA5);
-            return GetDefaultParams(encoder, &parameters) == 0
+            // With room behind it: a newer library writes its three flags there, and must not write them
+            // into whatever follows on the stack.
+            var room = stackalloc byte[sizeof(EncoderParameters) + 64];
+            new Span<byte>(room, sizeof(EncoderParameters) + 64).Fill(0xA5);
+            ref var parameters = ref *(EncoderParameters*)room;
+            var read = GetDefaultParams(encoder, (EncoderParameters*)room) == 0;
+            _extended = room[sizeof(EncoderParameters)] != 0xA5;
+            return read
                 && parameters.UsageType == UsageType.CameraVideoRealTime
                 && parameters.MaxFrameRate == 60f
                 && parameters.SpatialLayerNum == 1

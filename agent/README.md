@@ -115,8 +115,8 @@ kept.
 
 The same agent, as the system's own service - the way it is a LocalSystem service on Windows: it starts
 with the machine, before and without anyone signing in. It offers the **shared folders**, **programs in a
-terminal** and, on Linux, the **screen** (see "The screen on Linux" below; a Mac's screen is the next step
-in `docs/PLAN.md`).
+terminal** and the **screen** (see "The screen on Linux" and "The screen on a Mac" below - the Mac's is a
+first version that no Mac has been operated with yet).
 
 ```sh
 curl -fsSL -o matgate-agent https://github.com/Real-TTX/Matgate/releases/download/agent-latest/matgate-agent-linux-x64
@@ -147,13 +147,27 @@ setup prints host, port, connection password and the certificate's fingerprint f
   key, the virtual terminal) and looks at it through a helper process that belongs to that display. When
   somebody signs in or out the X server changes, the helper ends with the old one and a new one shows the
   new one - the viewer stays. It needs X11's client libraries and the H.264 encoder OpenH264 from the
-  distribution (Debian/Ubuntu: `apt install libx11-6 libxext6 libxfixes3 libxtst6 libxdamage1 libxrandr2
-  libopenh264-7`; Fedora: `dnf install openh264`); what is missing, the agent's log says at the start, and
+  distribution (Debian/Ubuntu: `apt install libx11-6 libxext6 libxfixes3 libxtst6 libxdamage1 libxrandr2` and
+  `libopenh264-7` or, on the newer ones, `libopenh264-8`; Fedora: `dnf install openh264`); what is missing, the agent's log says at the start, and
   `sudo matgate-agent screen-probe` says which display it would show and whether a picture comes out.
   **Not yet:** a desktop on **Wayland** (the agent says so when the screen is opened - choose an Xorg
   session at the sign-in screen, or set `WaylandEnable=false` in GDM), the machine's sound, the browser's
   microphone and controllers. Copying from the machine brings text; pasting to it takes text, pictures and
   files. A machine without any X server (a server without a desktop) has no screen to show.
+- **The screen on a Mac** (a first version): the picture of the monitor (CoreGraphics), H.264 from the Mac's
+  own encoder (VideoToolbox), mouse and keys as the system's own events (Ctrl is Control, Alt is Option, the
+  Windows key is Command; pasting presses Command+V), text on the clipboard in both directions. The service
+  starts a helper in the session of whoever is signed in at the screen (`launchctl asuser`). **macOS asks a
+  person for two permissions**, and nothing works before: System Settings > Privacy & Security > **Screen
+  Recording** and > **Accessibility**, each for `/usr/local/lib/matgate-agent/matgate-agent` (the "+" there,
+  then Cmd+Shift+G to type the path). The program is signed without an identity, so macOS may ask again
+  after an update. `sudo matgate-agent screen-probe` says what the agent sees and what it is allowed.
+  **What is known:** on GitHub's macOS 26 runner the probe captured the screen, encoded it and, started
+  from a LaunchDaemon, saw the monitor of the signed-in user's session. **What is not:** a Mac operated
+  through Matgate from beginning to end, the permissions as a person grants them, a Retina display, more
+  than one monitor, an Intel Mac. **Not yet:** the sign-in window (nobody's session), the pointer's real
+  shape (an arrow is shown), the list of windows, sound, microphone, controllers, pictures and files on the
+  clipboard.
 - **Terminals** are real pseudo terminals (window size, Ctrl+C, colours); a session keeps running without
   a browser, as on Windows. The default programs are Claude Code (`claude`) and, switched off, a login
   shell (`$SHELL -l`).

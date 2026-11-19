@@ -11,7 +11,9 @@ internal sealed unsafe class OpenH264Encoder : IVideoEncoder
     private readonly Action<byte[], bool> _output;
     private readonly byte[] _u;
     private readonly byte[] _v;
-    private FrameBitstream* _bitstream;
+    // The output as the library fills it: the number of layers, then 128 layers (of 40 bytes, or of 56 in
+    // the layout of 2.5 and later), then the kind of frame. Read by its places, not as a structure.
+    private byte* _bitstream;
     private void* _encoder;
     private long _frames;
     private readonly int _framesPerSecond;
@@ -30,13 +32,16 @@ internal sealed unsafe class OpenH264Encoder : IVideoEncoder
         _u = new byte[(width / 2) * (height / 2)];
         _v = new byte[(width / 2) * (height / 2)];
         _encoder = OpenH264.CreateEncoder();
-        _bitstream = (FrameBitstream*)System.Runtime.InteropServices.NativeMemory.AllocZeroed((nuint)sizeof(FrameBitstream));
+        _bitstream = (byte*)System.Runtime.InteropServices.NativeMemory.AllocZeroed((nuint)(8 + OpenH264.MaxLayersOfFrame * (sizeof(LayerBitstream) + 16) + 64));
         try
         {
             var quiet = OpenH264.LogQuiet;
             OpenH264.SetOption(_encoder, EncoderOption.TraceLevel, &quiet);
-            EncoderParameters parameters;
-            Check(OpenH264.GetDefaultParams(_encoder, &parameters), "read the defaults");
+            // Room behind the structure for what newer versions have there.
+            var room = stackalloc byte[sizeof(EncoderParameters) + 64];
+            new Span<byte>(room, sizeof(EncoderParameters) + 64).Clear();
+            ref var parameters = ref *(EncoderParameters*)room;
+            Check(OpenH264.GetDefaultParams(_encoder, (EncoderParameters*)room), "read the defaults");
             var threads = Math.Clamp(Environment.ProcessorCount / 2, 1, 4);
             parameters.UsageType = UsageType.CameraVideoRealTime;
             parameters.PicWidth = width;
@@ -71,7 +76,7 @@ internal sealed unsafe class OpenH264Encoder : IVideoEncoder
             layer.MaxSpatialBitrate = 0;
             layer.SliceArgument.SliceMode = threads > 1 ? SliceMode.FixedCount : SliceMode.Single;
             layer.SliceArgument.SliceNum = (uint)threads;
-            Check(OpenH264.InitializeExt(_encoder, &parameters), "start the encoder");
+            Check(OpenH264.InitializeExt(_encoder, (EncoderParameters*)room), "start the encoder");
             var format = OpenH264.FormatI420;
             Check(OpenH264.SetOption(_encoder, EncoderOption.DataFormat, &format), "set the picture format");
         }
@@ -107,7 +112,9 @@ internal sealed unsafe class OpenH264Encoder : IVideoEncoder
                 Check(OpenH264.ForceIntraFrame(_encoder), "force a key frame");
             }
 
-            SourcePicture picture = default;
+            var room = stackalloc byte[sizeof(SourcePicture) + 16];
+            new Span<byte>(room, sizeof(SourcePicture) + 16).Clear();
+            ref var picture = ref *(SourcePicture*)room;
             picture.ColorFormat = OpenH264.FormatI420;
             picture.Stride[0] = Width;
             picture.Stride[1] = Width / 2;
@@ -118,21 +125,24 @@ internal sealed unsafe class OpenH264Encoder : IVideoEncoder
             picture.PicWidth = Width;
             picture.PicHeight = Height;
             picture.TimeStamp = _frames++ * 1000 / _framesPerSecond;
-            Check(OpenH264.EncodeFrame(_encoder, &picture, _bitstream), "encode the picture");
+            Check(OpenH264.EncodeFrame(_encoder, (SourcePicture*)room, (FrameBitstream*)_bitstream), "encode the picture");
         }
 
-        if (_bitstream->FrameType is FrameType.Skip or FrameType.Invalid)
+        var layerSize = OpenH264.LayerSize;
+        var layers = Math.Clamp(*(int*)_bitstream, 0, OpenH264.MaxLayersOfFrame);
+        var frameType = (FrameType)(*(int*)(_bitstream + 8 + OpenH264.MaxLayersOfFrame * layerSize));
+        if (frameType is FrameType.Skip or FrameType.Invalid)
         {
             return true;
         }
 
         var total = 0;
-        for (var i = 0; i < _bitstream->LayerNum; i++)
+        for (var i = 0; i < layers; i++)
         {
-            ref var layer = ref _bitstream->LayerInfo[i];
-            for (var nal = 0; nal < layer.NalCount; nal++)
+            var layer = (LayerBitstream*)(_bitstream + 8 + i * layerSize);
+            for (var nal = 0; nal < layer->NalCount; nal++)
             {
-                total += layer.NalLengthInByte[nal];
+                total += layer->NalLengthInByte[nal];
             }
         }
 
@@ -143,20 +153,20 @@ internal sealed unsafe class OpenH264Encoder : IVideoEncoder
 
         var bytes = new byte[total];
         var written = 0;
-        for (var i = 0; i < _bitstream->LayerNum; i++)
+        for (var i = 0; i < layers; i++)
         {
-            ref var layer = ref _bitstream->LayerInfo[i];
+            var layer = (LayerBitstream*)(_bitstream + 8 + i * layerSize);
             var size = 0;
-            for (var nal = 0; nal < layer.NalCount; nal++)
+            for (var nal = 0; nal < layer->NalCount; nal++)
             {
-                size += layer.NalLengthInByte[nal];
+                size += layer->NalLengthInByte[nal];
             }
 
-            new ReadOnlySpan<byte>(layer.BsBuf, size).CopyTo(bytes.AsSpan(written));
+            new ReadOnlySpan<byte>(layer->BsBuf, size).CopyTo(bytes.AsSpan(written));
             written += size;
         }
 
-        _output(bytes, _bitstream->FrameType == FrameType.Idr);
+        _output(bytes, frameType == FrameType.Idr);
         return true;
     }
 

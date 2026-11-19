@@ -1,6 +1,6 @@
 # Matgate – Plan zum Weitermachen
 
-Stand: 2026-11-19, Version 0.25.0 auf `main` (`v0.25.0`), Agent 0.13.0; auf ve-docker-1
+Stand: 2026-11-19, Version 0.25.0 auf `main` (`v0.25.0`), Agent 0.14.0; auf ve-docker-1
 (matgate.schmoldt.it) läuft seit dem 2026-11-18 ebenfalls 0.25.0 (Websites dort weiter über den Pfad, bis
 Route und Variable stehen; Einspielen trennt laufende Sitzungen, nur auf ausdrücklichen Wunsch). Der Agent
 auf dem Entwicklungsrechner ist der offizielle Build aus dem Release `agent-latest`. Geschrieben als Übergabe an eine andere Sitzung.
@@ -434,7 +434,11 @@ Anmeldebildschirm. Etappen:
   `text/uri-list`/`x-special/gnome-copied-files` ausgeben), `X11Monitors`/`X11DisplayControl` (XRandR;
   Auflösung nur bei einem Monitor), `X11WindowList` (EWMH), `OpenH264Encoder` (bindet
   `Matgate/Display/Video/OpenH264.cs` ein - für den Agent mit allen Sonamen und der Layoutprüfung statt
-  einer Versionsliste; geprüft mit 2.3.1 aus Debian 12).
+  einer Versionsliste; geprüft mit 2.3.1 aus Debian 12 und 2.6.0 aus Debian 13. **Falle:** ab 2.5 haben
+  Parameter, Quellbild und jede Ausgabeschicht drei Felder mehr am Ende (PSNR, darum Soname 8) - die
+  Bibliothek schrieb hinter die alte Struktur, der Prozess starb mit SIGABRT. Jetzt bekommt jede Struktur
+  Platz dahinter, `OpenH264.ExtendedLayout` merkt sich, welches Layout die Bibliothek hat, und die
+  Schichten werden in der passenden Größe durchlaufen).
 - **Ohne Benutzersitzung:** `XServers.Find` sucht als root den X-Server, den der Monitor zeigt: Prozess
   (Xorg, Xvfb, Xvnc …), Display aus der Kommandozeile oder - bei `-displayfd` (GDM) - über den Socket,
   Schlüsseldatei aus `-auth` bzw. der Umgebung des Servers, virtuelles Terminal gegen
@@ -454,11 +458,31 @@ Anmeldebildschirm. Etappen:
   das Portal je Sitzung), Ton (PulseAudio/PipeWire-Monitor der Sitzung), Mikrofon und Controller (uinput),
   Bilder/Dateien vom Rechner in die Zwischenablage des Browsers.
 
-### Etappe 4 - offen: Bildschirm auf macOS
+### Etappe 4 - erster Stand (Agent 0.14.0): Bildschirm auf macOS - auf keinem Mac bedient
 
-- ScreenCaptureKit/CGDisplayStream und CGEvent; LaunchDaemon plus LaunchAgents für `LoginWindow` und
-  `Aqua` (wie VNC-Server es tun); Freigaben „Bildschirmaufnahme“ und „Bedienungshilfen“ muss ein Mensch
-  erteilen (oder MDM). Von hier aus nicht prüfbar - nur auf einem Mac.
+- `Unix/Screen/Mac*.cs`: `MacCapture` (`CGDisplayCreateImage`, Vergleich mit dem Bild davor; Monitore in
+  Pixeln mit dem Faktor zu macOS' Punkten; der Zeiger als gezeichneter Pfeil, weil seine echte Form nur über
+  AppKit zu haben ist), `VideoToolboxEncoder` (VTCompressionSession, NV12 hinein, AVCC nach Annex B, vor
+  Schlüsselbildern SPS/PPS aus der Formatbeschreibung), `MacInput` (CGEvent: Tabelle Scancode → virtuelle
+  Taste, Ziehen statt Bewegen bei gehaltener Taste, Doppelklick über den Klickzähler, Text als
+  Unicode-Zeichen), `MacClipboard` (NSPasteboard über die Objective-C-Laufzeit, nur Text),
+  `MacScreenPlatform`.
+- **Wie der Dienst an den Bildschirm kommt:** Der LaunchDaemon (root) startet den Hilfsprozess mit
+  `launchctl asuser <Benutzer an der Konsole>`. `launchctl bsexec <loginwindow>` sieht unter macOS 26
+  keinen Monitor mehr (ausprobiert). Wechselt der Besitzer von `/dev/console`, endet der Hilfsprozess.
+- **Geprüft - nur auf GitHubs macOS-26-Runner** (der Build hält die Ausgabe von `screen-probe` als Notiz
+  des Laufs fest, Schritt „Screen probe (macOS)“): als angemeldeter Benutzer Aufnahme (1024x768, echtes
+  Bild), VideoToolbox (Schlüsselbild und Folgebilder), Eingabe ohne Fehler; aus einem echten LaunchDaemon
+  über `asuser`: der Monitor der Sitzung wird gesehen, die Aufnahme scheitert dort erwartungsgemäß an der
+  fehlenden Freigabe „Bildschirmaufnahme“ für dieses Programm.
+- **Nicht geprüft:** ein Mac, der über Matgate bedient wird (Bild im Browser, ob Maus und Tasten ankommen,
+  Zwischenablage); die Freigaben „Bildschirmaufnahme“ und „Bedienungshilfen“, wie ein Mensch sie erteilt -
+  und ob sie ein Update überleben (das Programm ist ohne Identität signiert); Retina, mehrere Monitore,
+  Intel (nur gebaut).
+- **Offen:** Anmeldefenster (bräuchte einen LaunchAgent mit `LimitLoadToSessionType=LoginWindow`),
+  Änderungen statt Vergleich (ScreenCaptureKit/CGDisplayStream brauchen Objective-C-Blöcke), echte
+  Zeigerform, Fensterliste, Ton, Mikrofon, Controller, `.app`/dmg mit Signatur (dann blieben auch die
+  Freigaben über Updates erhalten).
 
 ## Offene Prüfungen am echten Gerät
 
