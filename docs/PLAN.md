@@ -1,7 +1,7 @@
 # Matgate – Plan zum Weitermachen
 
 Stand: 2026-11-19, Version 0.28.0 auf `main` (`v0.28.0`), Agent 0.14.0; auf ve-docker-1
-(matgate.schmoldt.it) läuft seit dem 2026-11-19 ebenfalls 0.27.2 (Websites dort weiter über den Pfad, bis
+(matgate.schmoldt.it) läuft seit dem 2026-11-19 ebenfalls 0.28.0 (Websites dort weiter über den Pfad, bis
 Route und Variable stehen; Einspielen trennt laufende Sitzungen, nur auf ausdrücklichen Wunsch). Der Agent
 auf dem Entwicklungsrechner ist der offizielle Build aus dem Release `agent-latest`. Geschrieben als Übergabe an eine andere Sitzung.
 
