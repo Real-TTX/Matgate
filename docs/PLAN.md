@@ -1,7 +1,7 @@
 # Matgate – Plan zum Weitermachen
 
-Stand: 2026-11-19, Version 0.25.0 auf `main` (`v0.25.0`), Agent 0.14.0; auf ve-docker-1
-(matgate.schmoldt.it) läuft seit dem 2026-11-18 ebenfalls 0.25.0 (Websites dort weiter über den Pfad, bis
+Stand: 2026-11-19, Version 0.25.1 auf `main` (`v0.25.1`), Agent 0.14.0; auf ve-docker-1
+(matgate.schmoldt.it) läuft seit dem 2026-11-18 0.25.0 (Websites dort weiter über den Pfad, bis
 Route und Variable stehen; Einspielen trennt laufende Sitzungen, nur auf ausdrücklichen Wunsch). Der Agent
 auf dem Entwicklungsrechner ist der offizielle Build aus dem Release `agent-latest`. Geschrieben als Übergabe an eine andere Sitzung.
 
@@ -234,6 +234,17 @@ Der Nutzer: „Kannst du das Website-Feature mit dem Proxy nochmal überarbeiten
 - **Quick-Connect ohne Adresse = Browser:** mit eigenen Hostnamen ein leerer Tab mit Adressleiste; ohne
   sie ein Chromium der Browser-Farm mit Bedienleiste auf `about:blank` (dafür nimmt `farm.py` jetzt
   `about:blank` an - das Farm-Image muss mit aktualisiert werden); ohne beides bleibt die Adresse Pflicht.
+  Seit **0.25.1** gibt es dafür einen eigenen Chip **„Browser“**: vorn in der Reihe „Schnell verbinden“
+  (ein Tipp öffnet ihn, ohne Dialog; scheitert es, zeigt der Dialog den Grund) und als letzter Eintrag im
+  Quick-Connect-Dialog (dann ohne Felder). Er ist kein Protokoll: `protocol=browser` wird in
+  `/api/quick-connect` zur Website ohne Adresse, was das Formular sonst noch hält, bleibt weg. Angeboten
+  wird er nur, wo ein Browser ohne Adresse möglich ist (Hostnamen oder Farm); abwählbar wie die anderen
+  Chips (Konto → Sitzung, Schlüssel `browser`).
+- **Felder am Telefon (0.25.1):** iOS zoomt in jedes Feld, dessen Schrift kleiner als 16px ist, und bleibt
+  gezoomt - Quick-Connect tat das schon beim Öffnen, weil es den Cursor ins erste Feld setzt (13px). Am
+  Ende des Stylesheets steht jetzt für `(pointer: coarse)` eine Regel für alle Felder
+  (`max(16px, 1em) !important`); mit der Maus bleibt alles, wie es war. Test: `tests/phone-field-zoom.js`
+  (prüft die Ursache, kein Browser im Test zoomt wie ein iPhone - **am echten iPhone ungeprüft**).
 - **Anmeldung für die Seite:** Das Formular hat jetzt Benutzer/Passwort auch für Websites. Sie gehen
   bei `401 Basic` mit; bei Proxmox (`pvemanagerlib.js`/`proxmox-backup-gui.js` in der Seite) holt
   Matgate einmal das Ticket und setzt `PVEAuthCookie`/`PBSAuthCookie`.

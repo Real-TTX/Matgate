@@ -47,8 +47,8 @@ const GROUPS = [
     scripts: ["agent-update.js", "agent-screen.js", "agent-devices.js", "display.js", "text-input.js"],
   },
   {
-    name: "Group 9 - the key bar, the scale and the keyboard of a session, the connection form",
-    scripts: ["key-bar.js", "screen-scale.js", "connection-form.js"],
+    name: "Group 9 - the key bar, the scale and the keyboard of a session, the connection form, fields on a phone",
+    scripts: ["key-bar.js", "screen-scale.js", "connection-form.js", "phone-field-zoom.js"],
   },
   {
     name: "Group 10 - sessions that outlive the browser",

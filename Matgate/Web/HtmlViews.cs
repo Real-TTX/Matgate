@@ -3707,6 +3707,13 @@ public sealed class HtmlViews
         // sections below as a possible null. Two lines further down it is used without one anyway;
         // one of the two readings had to go.
         var hiddenQuick = (user.Session?.HiddenQuickProtocols ?? []).ToHashSet(StringComparer.Ordinal);
+        // The browser is offered only where one without an address can be opened at all: with host names
+        // for websites, or with the browser farm.
+        if (!WebsiteSiteService.Available && !context.RequestServices.GetRequiredService<BrowserFarmClient>().IsConfigured)
+        {
+            hiddenQuick.Add("browser");
+        }
+
         var protocolDialog = canQuick ? ProtocolDialog(de, hiddenQuick) : "";
 
         var head = $$"""
@@ -3830,6 +3837,8 @@ public sealed class HtmlViews
             ("website", "HTTP / HTTPS", de ? "Webseite" : "Website", "globe", "#3aa0ff"),
             ("ftp", "FTP", de ? "Dateiübertragung" : "File transfer", "ftp", "#e0863a"),
             ("webdav", "WebDAV", de ? "Dateien über HTTP" : "Files over HTTP", "cloud", "#2bb3c0"),
+            // Not a protocol: a browser tab with an empty address bar (a website without an address).
+            ("browser", "Browser", de ? "Frei surfen über Matgate" : "Surf through Matgate", "compass", "#19b3a6"),
         };
     }
 
@@ -3848,7 +3857,9 @@ public sealed class HtmlViews
         // eighth protocol never showed up on the home page even though it was ticked. Which ones
         // appear is decided by the setting, not by the order; the row can be dragged around when
         // it does not fit.
-        var chips = string.Join("", protocols.Select(protocol => $$"""
+        // The browser stands first: it is the one chip that opens something with a single tap, and at the
+        // end of the row a phone would keep it behind a swipe.
+        var chips = string.Join("", protocols.OrderBy(protocol => protocol.Protocol == "browser" ? 0 : 1).Select(protocol => $$"""
             <button type="button" class="home2-proto-chip" data-home2-qc="{{A(protocol.Protocol)}}" style="--proto: {{protocol.Color}}" title="{{A(protocol.Desc)}}">
                 <span class="home2-proto-chip-icon">{{Icon(protocol.IconKey)}}</span>
                 <span class="home2-proto-chip-name">{{E(protocol.Name)}}</span>
@@ -3899,7 +3910,8 @@ public sealed class HtmlViews
                 <form class="home2-qc-form" data-home2-qc-form>
                     <div class="home2-qc-protos">{{protoButtons}}</div>
                     <input type="hidden" name="protocol" value="{{A(firstProtocol)}}" data-home2-qc-proto-input>
-                    <label class="home2-qc-label">
+                    <p class="home2-qc-hint muted hidden" data-home2-qc-field="browserHint" hidden>{{(de ? "Öffnet einen Browser mit leerer Adressleiste. Was du dort aufrufst, lädt Matgate für dich – auch Adressen, die nur Matgate erreicht." : "Opens a browser with an empty address bar. Whatever you open there is loaded by Matgate - also addresses only Matgate can reach.")}}</p>
+                    <label class="home2-qc-label" data-home2-qc-field="host">
                         <span data-home2-qc-hostlabel>{{(de ? "Host" : "Host")}}</span>
                         <input name="host" required autocomplete="off" spellcheck="false" data-home2-qc-host data-web-placeholder="{{A(de ? "https://…  (leer: Browser zum freien Surfen)" : "https://…  (empty: a browser to surf with)")}}" placeholder="{{A(de ? "z. B. 192.168.1.10" : "e.g. 192.168.1.10")}}">
                     </label>
@@ -3913,7 +3925,7 @@ public sealed class HtmlViews
                             <input name="domain" autocomplete="off" spellcheck="false">
                         </label>
                     </div>
-                    <div class="home2-qc-grid2">
+                    <div class="home2-qc-grid2" data-home2-qc-field="credentials">
                         <label class="home2-qc-label">
                             <span>{{(de ? "Benutzer" : "Username")}}</span>
                             <input name="username" autocomplete="off" spellcheck="false">
@@ -3929,7 +3941,7 @@ public sealed class HtmlViews
                     </label>
                     <p class="home2-qc-error hidden" data-home2-qc-error></p>
                     <div class="home2-qc-actions">
-                        <button type="submit" class="button primary">{{Icon("play")}}<span>{{(de ? "Verbinden" : "Connect")}}</span></button>
+                        <button type="submit" class="button primary">{{Icon("play")}}<span data-home2-qc-submit data-connect="{{A(de ? "Verbinden" : "Connect")}}" data-browser="{{A(de ? "Browser öffnen" : "Open browser")}}">{{(de ? "Verbinden" : "Connect")}}</span></button>
                     </div>
                 </form>
             </dialog>
@@ -6199,9 +6211,10 @@ public sealed class HtmlViews
                         const qcHostInput = protoDialog.querySelector('[data-home2-qc-host]');
                         const qcPortInput = protoDialog.querySelector('[data-home2-qc-port]');
                         const qcError = protoDialog.querySelector('[data-home2-qc-error]');
+                        const qcSubmitLabel = protoDialog.querySelector('[data-home2-qc-submit]');
                         const originalHostPlaceholder = qcHostInput ? (qcHostInput.getAttribute('placeholder') || '') : '';
                         const originalHostLabel = qcHostLabel ? qcHostLabel.textContent : 'Host';
-                        const defaultPorts = { rdp: '3389', ssh: '22', vnc: '5900', sftp: '22', ftp: '21', smb: '445', website: '', webdav: '' };
+                        const defaultPorts = { rdp: '3389', ssh: '22', vnc: '5900', sftp: '22', ftp: '21', smb: '445', website: '', webdav: '', browser: '' };
                         // Which chip the dialog starts on. Not a fixed protocol: the user decides
                         // which ones exist here, and the first surviving one is the only safe pick.
                         const qcDefaultProto = qcProtoButtons.length
@@ -6224,7 +6237,15 @@ public sealed class HtmlViews
                             qcProtoButtons.forEach(button => button.classList.toggle('active', button.dataset.home2QcProto === value));
                             const isWeb = value === 'website';
                             const isDav = value === 'webdav';
-                            setField('port', !isWeb);
+                            // The browser is a website without an address: there is nothing to fill in.
+                            const isBrowser = value === 'browser';
+                            setField('host', !isBrowser);
+                            setField('credentials', !isBrowser);
+                            setField('browserHint', isBrowser);
+                            if (qcSubmitLabel) {
+                                qcSubmitLabel.textContent = isBrowser ? qcSubmitLabel.dataset.browser : qcSubmitLabel.dataset.connect;
+                            }
+                            setField('port', !isWeb && !isBrowser);
                             setField('domain', value === 'rdp' || value === 'smb');
                             setField('fileRoot', isDav || value === 'sftp' || value === 'ftp' || value === 'smb');
                             if (qcHostLabel) {
@@ -6232,7 +6253,7 @@ public sealed class HtmlViews
                             }
                             if (qcHostInput) {
                                 // A website without an address is a browser: a tab to type addresses into.
-                                qcHostInput.required = !isWeb;
+                                qcHostInput.required = !isWeb && !isBrowser;
                                 qcHostInput.placeholder = isWeb ? (qcHostInput.dataset.webPlaceholder || 'https://…') : (isDav ? 'nas.local  /  https://nas.local/dav' : originalHostPlaceholder);
                             }
                             if (qcPortInput) {
@@ -6256,16 +6277,74 @@ public sealed class HtmlViews
                             else {
                                 protoDialog.setAttribute('open', '');
                             }
-                            if (qcHostInput) {
+                            if (qcHostInput && !(qcProtoInput && qcProtoInput.value === 'browser')) {
                                 qcHostInput.focus();
                             }
+                        };
+
+                        const showQcError = error => {
+                            if (qcError) {
+                                qcError.textContent = (error && error.message) || ui('connectionStartFailed');
+                                qcError.hidden = false;
+                                qcError.classList.remove('hidden');
+                            }
+                        };
+
+                        // Registers what the form describes and answers with its id; throws with the
+                        // server's own words when it cannot.
+                        const startQuick = async body => {
+                            const response = await fetch('/api/quick-connect', {
+                                method: 'POST',
+                                headers: { 'X-Matgate-Csrf': csrfToken },
+                                body
+                            });
+                            if (!response.ok) {
+                                let message = ui('connectionStartFailed');
+                                try {
+                                    const payload = await response.json();
+                                    message = payload.error || message;
+                                }
+                                catch {
+                                    // Keep the generic error.
+                                }
+                                throw new Error(message);
+                            }
+                            const data = await response.json();
+                            if (!data || !data.server || !data.server.id) {
+                                throw new Error(ui('connectionStartFailed'));
+                            }
+                            availableServers.push(data.server);
+                            return data.server.id;
                         };
 
                         Array.from(root.querySelectorAll('[data-home2-more]')).forEach(button => {
                             button.addEventListener('click', () => openDialog(qcDefaultProto));
                         });
                         Array.from(root.querySelectorAll('[data-home2-qc]')).forEach(button => {
-                            button.addEventListener('click', () => openDialog(button.dataset.home2Qc));
+                            button.addEventListener('click', async () => {
+                                if (button.dataset.home2Qc !== 'browser') {
+                                    openDialog(button.dataset.home2Qc);
+                                    return;
+                                }
+                                // The browser needs nothing typed in: one tap opens it. Where it cannot be
+                                // opened, the dialog says why.
+                                if (button.disabled) {
+                                    return;
+                                }
+                                button.disabled = true;
+                                try {
+                                    const body = new FormData();
+                                    body.append('protocol', 'browser');
+                                    openServer(await startQuick(body));
+                                }
+                                catch (error) {
+                                    openDialog('browser');
+                                    showQcError(error);
+                                }
+                                finally {
+                                    button.disabled = false;
+                                }
+                            });
                         });
 
                         const protoClose = protoDialog.querySelector('[data-home2-proto-close]');
@@ -6290,36 +6369,13 @@ public sealed class HtmlViews
                                     submitButton.disabled = true;
                                 }
                                 try {
-                                    const response = await fetch('/api/quick-connect', {
-                                        method: 'POST',
-                                        headers: { 'X-Matgate-Csrf': csrfToken },
-                                        body: new FormData(qcForm)
-                                    });
-                                    if (!response.ok) {
-                                        let message = ui('connectionStartFailed');
-                                        try {
-                                            const payload = await response.json();
-                                            message = payload.error || message;
-                                        }
-                                        catch {
-                                            // Keep the generic error.
-                                        }
-                                        throw new Error(message);
-                                    }
-                                    const data = await response.json();
-                                    if (data && data.server && data.server.id) {
-                                        availableServers.push(data.server);
-                                        protoDialog.close();
-                                        qcForm.reset();
-                                        openServer(data.server.id);
-                                    }
+                                    const id = await startQuick(new FormData(qcForm));
+                                    protoDialog.close();
+                                    qcForm.reset();
+                                    openServer(id);
                                 }
                                 catch (error) {
-                                    if (qcError) {
-                                        qcError.textContent = (error && error.message) || ui('connectionStartFailed');
-                                        qcError.hidden = false;
-                                        qcError.classList.remove('hidden');
-                                    }
+                                    showQcError(error);
                                 }
                                 finally {
                                     if (submitButton) {
@@ -18771,7 +18827,9 @@ public sealed class HtmlViews
                     }
                     .home2-qc-actions { display: flex; justify-content: flex-end; margin-top: 2px; }
                     .home2-qc-actions .button { min-height: 40px; padding: 8px 18px; }
-                    .home2-qc-label[hidden], .home2-qc-error[hidden] { display: none !important; }
+                    .home2-qc-label[hidden], .home2-qc-error[hidden], .home2-qc-grid2[hidden], .home2-qc-hint[hidden] { display: none !important; }
+                    .home2-qc-hint { margin: 0; }
+                    .home2-proto-chip:disabled { cursor: progress; opacity: .6; }
                     .home2-folder-grid {
                         display: flex;
                         gap: 12px;
@@ -21794,6 +21852,14 @@ public sealed class HtmlViews
                         .file-table th:nth-child(3),
                         .file-table td:nth-child(3) { display: none; }
                     }
+                    /* A phone zooms the whole page into a field whose text is smaller than 16px (iOS, and so every
+                       installed app there) and stays zoomed when the field is left. So on a touch screen no
+                       field has smaller text - wherever it stands, whatever its form says. */
+                    @media (pointer: coarse) {
+                        input:not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]),
+                        select,
+                        textarea { font-size: max(16px, 1em) !important; }
+                    }
                     @media (pointer: coarse) {
                         a.button:active,
                         .button:active,
@@ -23994,6 +24060,7 @@ public sealed class HtmlViews
             "zoom-in" => """<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M11 8v6M8 11h6"/>""",
             "zoom-out" => """<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3M8 11h6"/>""",
             "globe" => """<circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15 15 0 0 1 0 20"/><path d="M12 2a15 15 0 0 0 0 20"/>""",
+            "compass" => """<circle cx="12" cy="12" r="10"/><path d="m16.2 7.8-2.1 6.3-6.3 2.1 2.1-6.3z"/>""",
             "search" => """<circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/>""",
             "more" => """<circle cx="5" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="19" cy="12" r="1.6"/>""",
             "clock" => """<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>""",

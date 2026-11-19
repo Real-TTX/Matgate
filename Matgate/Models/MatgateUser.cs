@@ -193,7 +193,7 @@ public sealed class SessionPreferences
     public List<string> HiddenQuickProtocols { get; set; } = [];
 
     public static readonly string[] QuickProtocolKeys =
-        ["rdp", "ssh", "vnc", "sftp", "smb", "website", "ftp", "webdav"];
+        ["rdp", "ssh", "vnc", "sftp", "smb", "website", "ftp", "webdav", "browser"];
 
     public static bool IsKnownQuickProtocol(string key) => QuickProtocolKeys.Contains(key);
 

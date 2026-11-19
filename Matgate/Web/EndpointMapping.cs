@@ -5155,9 +5155,14 @@ public static partial class EndpointMapping
         }
 
         var form = await context.Request.ReadFormAsync(context.RequestAborted);
-        var protocol = Enum.TryParse<ServerProtocol>(form["protocol"].ToString(), ignoreCase: true, out var parsed)
-            ? parsed
-            : ServerProtocol.Rdp;
+        // "browser" is no protocol of its own: it is a website without an address, whatever else the form
+        // still holds from the protocol chosen before.
+        var browserOnly = string.Equals(form["protocol"].ToString(), "browser", StringComparison.OrdinalIgnoreCase);
+        var protocol = browserOnly
+            ? ServerProtocol.Website
+            : Enum.TryParse<ServerProtocol>(form["protocol"].ToString(), ignoreCase: true, out var parsed)
+                ? parsed
+                : ServerProtocol.Rdp;
         if (protocol == ServerProtocol.LegacyBrowser)
         {
             protocol = ServerProtocol.Rdp;
@@ -5173,7 +5178,7 @@ public static partial class EndpointMapping
         }
 
         var isWebsite = ServerEndpoint.IsWebsiteProtocol(protocol);
-        var target = (form["host"].ToString() ?? "").Trim();
+        var target = browserOnly ? "" : (form["host"].ToString() ?? "").Trim();
         // A website without an address is a browser: a tab with an address bar to type into. That needs
         // either host names for websites, or the browser farm (a real browser, shown as a picture).
         var blankBrowser = isWebsite && string.IsNullOrWhiteSpace(target);
@@ -5211,8 +5216,8 @@ public static partial class EndpointMapping
             Protocol = protocol,
             Host = isWebsite ? "" : target,
             Port = port,
-            UserName = (form["username"].ToString() ?? "").Trim(),
-            Password = form["password"].ToString() ?? "",
+            UserName = browserOnly ? "" : (form["username"].ToString() ?? "").Trim(),
+            Password = browserOnly ? "" : form["password"].ToString() ?? "",
             Domain = (form["domain"].ToString() ?? "").Trim(),
             FileRootPath = (form["fileRoot"].ToString() ?? "").Trim(),
             WebsiteUrl = !isWebsite ? "" : farmBrowser ? "about:blank" : target,
