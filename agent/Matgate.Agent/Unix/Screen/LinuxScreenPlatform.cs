@@ -327,6 +327,11 @@ internal static unsafe class UnixScreenProbe
 
         try
         {
+            foreach (var line in platform.Describe())
+            {
+                Console.WriteLine(line);
+            }
+
             foreach (var monitor in platform.Monitors())
             {
                 Console.WriteLine($"monitor:  {monitor.Index} {monitor.Name} {monitor.Width}x{monitor.Height} at {monitor.Left},{monitor.Top}" + (monitor.Primary ? " (primary)" : ""));

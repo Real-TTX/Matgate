@@ -1411,16 +1411,24 @@ internal sealed unsafe class ScreenSession
         lock (_inputGate)
         {
             var control = _keysDown.Contains((ScanControl, false)) || _keysDown.Contains((ScanControl, true));
-            if (!control)
+            if (ScreenPlugin.TestMode)
             {
-                _input.Key(ScanControl, false, true);
-            }
+                // The tests read the keys: always the PC's.
+                if (!control)
+                {
+                    _input.Key(ScanControl, false, true);
+                }
 
-            _input.Key(ScanV, false, true);
-            _input.Key(ScanV, false, false);
-            if (!control)
+                _input.Key(ScanV, false, true);
+                _input.Key(ScanV, false, false);
+                if (!control)
+                {
+                    _input.Key(ScanControl, false, false);
+                }
+            }
+            else
             {
-                _input.Key(ScanControl, false, false);
+                ScreenPlatform.Current.Paste(_input, control);
             }
         }
     }

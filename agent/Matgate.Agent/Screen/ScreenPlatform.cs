@@ -84,6 +84,26 @@ internal abstract class ScreenPlatform
     public virtual IDisposable Audio(bool opus, Action<byte[]> packet) =>
         throw new NotSupportedException("This system's sound is not sent yet.");
 
+    // "Paste", as the machine's keyboard says it: Ctrl+V - with Ctrl only pressed when the viewer does not
+    // hold it already.
+    public virtual void Paste(IInputSink input, bool controlHeld)
+    {
+        if (!controlHeld)
+        {
+            input.Key(0x1D, false, true);
+        }
+
+        input.Key(0x2F, false, true);
+        input.Key(0x2F, false, false);
+        if (!controlHeld)
+        {
+            input.Key(0x1D, false, false);
+        }
+    }
+
+    // What "screen-probe" says of this system beyond the picture.
+    public virtual IEnumerable<string> Describe() => [];
+
     // Where files pasted by the viewer land.
     public virtual string ClipboardTemp() => Path.GetTempPath();
 }

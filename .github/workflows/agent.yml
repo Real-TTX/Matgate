@@ -147,6 +147,38 @@ jobs:
           ./publish/matgate-agent-${{ matrix.rid }} snapshot windows
           ls windows | wc -l
 
+      # The screen for real: an X server on the runner, and the agent's own probe finds it, captures a
+      # picture and encodes it with the distribution's OpenH264.
+      - name: Screen probe (Linux)
+        if: matrix.run && runner.os == 'Linux'
+        shell: bash
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb libopenh264-7 libx11-6 libxext6 libxfixes3 libxtst6 libxdamage1 libxrandr2
+          Xvfb :9 -screen 0 1280x800x24 -nolisten tcp &
+          sleep 2
+          DISPLAY=:9 ./publish/matgate-agent-${{ matrix.rid }} screen-probe
+
+      # A Mac's screen cannot be tried anywhere else: the probe runs as the runner's user, as root and as root
+      # inside the session of the loginwindow process (the way the system's service starts its helper), and
+      # what it says is kept as a notice of this run. It never fails the build - a runner may not allow it.
+      - name: Screen probe (macOS)
+        if: matrix.run && runner.os == 'macOS'
+        timeout-minutes: 5
+        continue-on-error: true
+        shell: bash
+        run: |
+          agent="$PWD/publish/matgate-agent-${{ matrix.rid }}"
+          note() { local text="$2"; text="${text//'%'/%25}"; text="${text//$'\r'/}"; text="${text//$'\n'/%0A}"; echo "::notice title=$1::$text"; }
+          limited() { perl -e 'alarm 60; exec @ARGV' "$@"; }
+          out="$(limited "$agent" screen-probe 2>&1; echo "exit $?")"; echo "$out"
+          note "screen-probe as $(whoami) on macOS $(sw_vers -productVersion)" "$out"
+          out="$(limited sudo "$agent" screen-probe 2>&1; echo "exit $?")"; echo "$out"
+          note "screen-probe as root" "$out"
+          pid="$(pgrep -x loginwindow | head -n 1)"
+          out="$(limited sudo /bin/launchctl bsexec "$pid" "$agent" screen-probe 2>&1; echo "exit $?")"; echo "$out"
+          note "screen-probe as root in the session of loginwindow $pid" "$out"
+
       - name: Upload the pictures of the windows
         if: matrix.run
         uses: actions/upload-artifact@v4
