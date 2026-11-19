@@ -85,6 +85,16 @@ public sealed class WebsiteProxyService
     {
         var session = GetOrCreateSession(context, server, tabId);
         session.Touch();
+        if (context.Request.Query["__matgate"] == "cookies")
+        {
+            // An empty page under the website's path: the bootstrap script reads the website's cookies
+            // through it once the page itself pretends to be somewhere else (see "the root illusion").
+            PreventCaching(context.Response);
+            context.Response.ContentType = "text/html; charset=utf-8";
+            await context.Response.WriteAsync("<!doctype html><title></title>", cancellationToken);
+            return;
+        }
+
         await session.EnsureAuthenticatedAsync(server, cancellationToken);
 
         var targetUri = session.BuildTargetUri(proxyPath, context.Request.QueryString);
@@ -535,6 +545,7 @@ public sealed class WebsiteProxyService
                 const targetOrigin = {{JsonSerializer.Serialize(targetOrigin)}};
                 const targetBase = {{JsonSerializer.Serialize(session.BaseUri.AbsoluteUri)}};
                 const hopPrefix = {{JsonSerializer.Serialize(session.HopPrefix)}};
+                const rootMode = {{JsonSerializer.Serialize(session.RootMode)}};
                 const stateSyncUrl = {{JsonSerializer.Serialize(stateSyncUrl)}};
                 const currentOrigin = window.location.origin;
                 // The shell's tab this frame belongs to. The frame's name says it where the browser kept it; it
@@ -586,6 +597,98 @@ public sealed class WebsiteProxyService
                     }
                 }
 
+                // ---- the root illusion -----------------------------------------------------------------
+                // An application that takes its route from its own address (UniFi does) finds nothing it knows
+                // under /website/<...>/proxy/login - and sends the browser to "/login", which is Matgate's.
+                // The page's address cannot be lied about, but it can be CHANGED: within one origin a page may
+                // set its own path. So the page is given the path it has on its website, and from then on
+                // location.pathname says "/login". What it loads still has to come through the proxy: the
+                // hooks below turn every address of this origin into one under the proxy path, and a jump to
+                // a root path is caught (the Navigation API here, the shell where a browser has none).
+                const matgatePath = /^\/website\/[0-9a-f-]{32,36}\//i;
+                // The address this document has under Matgate, whatever it pretends to be.
+                function realHref() {
+                    const path = window.location.pathname;
+                    const real = path.startsWith(proxyPrefix) || matgatePath.test(path) ? path : proxyPrefix + path.replace(/^\/+/, '');
+                    return currentOrigin + real + window.location.search + window.location.hash;
+                }
+                // What the page's scripts see of its cookies. They are bound to the proxy path, and a page that
+                // pretends to be elsewhere no longer gets them from the browser: at first what was there when
+                // the page loaded (plus what its scripts set), and - once it has loaded - an empty page under
+                // the proxy path, through which the browser answers as it always did.
+                let cookieMirror = '';
+                let cookieWindow = null;
+                function mirrorCookie(value) {
+                    const first = String(value).split(';')[0];
+                    const at = first.indexOf('=');
+                    const name = (at < 0 ? first : first.slice(0, at)).trim();
+                    if (!name) {
+                        return;
+                    }
+
+                    const gone = /;\s*max-age\s*=\s*(0|-\d+)/i.test(value)
+                        || (/;\s*expires\s*=\s*([^;]+)/i.test(value) && new Date(RegExp.$1).getTime() < Date.now());
+                    const kept = cookieMirror.split(/;\s*/).filter(part => part && part.split('=')[0].trim() !== name);
+                    if (!gone) {
+                        kept.push(first.trim());
+                    }
+
+                    cookieMirror = kept.join('; ');
+                }
+                function siteCookies() {
+                    try {
+                        if (cookieWindow && cookieWindow.document && cookieWindow.location.pathname.startsWith(proxyCookiePath)) {
+                            return cookieDescriptor.get.call(cookieWindow.document);
+                        }
+                    }
+                    catch {
+                        // Not there yet, or gone.
+                    }
+
+                    return cookieMirror;
+                }
+                // In a path the application pushes or replaces, the proxy path has no place.
+                function sitePath(value) {
+                    if (typeof value !== 'string' || !value) {
+                        return value;
+                    }
+
+                    try {
+                        const resolved = new URL(value, window.location.href);
+                        if (resolved.origin === currentOrigin && resolved.pathname.startsWith(proxyPrefix)) {
+                            return '/' + resolved.pathname.slice(proxyPrefix.length) + resolved.search + resolved.hash;
+                        }
+                    }
+                    catch {
+                        // As it was written.
+                    }
+
+                    return value;
+                }
+                const pretending = rootMode && window.location.pathname.startsWith(proxyPrefix);
+                if (pretending) {
+                    try {
+                        cookieMirror = cookieDescriptor && cookieDescriptor.get ? cookieDescriptor.get.call(document) : '';
+                    }
+                    catch {
+                        cookieMirror = '';
+                    }
+
+                    try {
+                        originalReplaceState(history.state, '', '/' + window.location.pathname.slice(proxyPrefix.length) + window.location.search + window.location.hash);
+                        const view = document.createElement('iframe');
+                        view.setAttribute('aria-hidden', 'true');
+                        view.tabIndex = -1;
+                        view.style.cssText = 'display:none!important';
+                        view.addEventListener('load', () => { cookieWindow = view.contentWindow; });
+                        originalSetAttribute.call(view, 'src', proxyPrefix + '?__matgate=cookies');
+                        (document.head || document.documentElement).appendChild(view);
+                    }
+                    catch {
+                        // A browser that will not have it: the page stays under its path.
+                    }
+                }
+
                 function rewriteUrl(value) {
                     if (typeof value !== 'string' || !value) {
                         return value;
@@ -629,6 +732,20 @@ public sealed class WebsiteProxyService
                     }
                     catch {
                         // Keep the original value.
+                    }
+
+                    // A page that pretends to lie at the root: "app.js" next to it would be asked for at
+                    // Matgate's root. Whatever resolves to this origin belongs under the proxy path.
+                    if (rootMode && value.charAt(0) !== '#') {
+                        try {
+                            const resolved = new URL(value, document.baseURI);
+                            if (resolved.origin === currentOrigin && !matgatePath.test(resolved.pathname)) {
+                                return proxyPrefix + resolved.pathname.replace(/^\/+/, '') + resolved.search + resolved.hash;
+                            }
+                        }
+                        catch {
+                            // Keep the original value.
+                        }
                     }
 
                     return value;
@@ -1121,9 +1238,12 @@ public sealed class WebsiteProxyService
                     Object.defineProperty(Document.prototype, 'cookie', {
                         configurable: true,
                         enumerable: cookieDescriptor.enumerable,
-                        get: cookieDescriptor.get ? function() { return cookieDescriptor.get.call(this); } : undefined,
+                        get: cookieDescriptor.get ? function() { return pretending && this === document ? siteCookies() : cookieDescriptor.get.call(this); } : undefined,
                         set(value) {
                             cookieDescriptor.set.call(this, rewriteCookie(value));
+                            if (pretending && this === document) {
+                                mirrorCookie(value);
+                            }
                         }
                     });
                 }
@@ -1246,7 +1366,7 @@ public sealed class WebsiteProxyService
                 function notifyParent() {
                     try {
                         if (tabId && window.parent && window.parent !== window && typeof window.parent.MatgateWebsiteLocationChanged === 'function') {
-                            window.parent.MatgateWebsiteLocationChanged(tabId, window.location.href, targetBase);
+                            window.parent.MatgateWebsiteLocationChanged(tabId, realHref(), targetBase);
                         }
                     }
                     catch {
@@ -1255,6 +1375,7 @@ public sealed class WebsiteProxyService
                 }
 
                 window.__matgateProxyPrefix = proxyPrefix;
+                window.__matgateRealUrl = realHref;
                 window.__matgateRewriteUrl = rewriteUrl;
                 window.__matgateRewriteWebSocketUrl = rewriteWebSocketUrl;
 
@@ -1449,13 +1570,13 @@ public sealed class WebsiteProxyService
                 };
 
                 history.pushState = function(state, title, url) {
-                    const result = originalPushState(state, title, typeof url === 'string' ? rewriteUrl(url) : url);
+                    const result = originalPushState(state, title, typeof url === 'string' ? (pretending ? sitePath(url) : rewriteUrl(url)) : url);
                     notifyParent();
                     return result;
                 };
 
                 history.replaceState = function(state, title, url) {
-                    const result = originalReplaceState(state, title, typeof url === 'string' ? rewriteUrl(url) : url);
+                    const result = originalReplaceState(state, title, typeof url === 'string' ? (pretending ? sitePath(url) : rewriteUrl(url)) : url);
                     notifyParent();
                     return result;
                 };
@@ -1482,23 +1603,57 @@ public sealed class WebsiteProxyService
                     // Ignore read-only navigation hooks.
                 }
 
-                if (hopPrefix) {
-                    // What a page's script starts (location.href = ..., location.assign): the hooks above do not
-                    // take in every browser - location is not theirs to patch -, the Navigation API does where it exists.
-                    if (window.navigation && typeof window.navigation.addEventListener === 'function') {
-                        window.navigation.addEventListener('navigate', event => {
-                            if (!event.cancelable || event.hashChange || event.downloadRequest != null || event.formData) {
+                // What a page's script starts (location.href = ..., location.assign, a reload): the hooks above
+                // do not take in every browser - location is not theirs to patch -, the Navigation API does where
+                // it exists. Two things are caught: a jump to a root path of this origin - that is the website's
+                // "/login", not Matgate's - and, in a browser tab, a jump to another website.
+                if (window.navigation && typeof window.navigation.addEventListener === 'function') {
+                    window.navigation.addEventListener('navigate', event => {
+                        if (!event.cancelable || event.hashChange || event.downloadRequest != null || event.formData
+                            || !event.destination || event.destination.sameDocument) {
+                            return;
+                        }
+
+                        let wanted = null;
+                        try {
+                            wanted = new URL(event.destination.url);
+                        }
+                        catch {
+                            return;
+                        }
+
+                        if (wanted.origin === currentOrigin) {
+                            if (matgatePath.test(wanted.pathname)) {
                                 return;
                             }
 
-                            const hop = hopUrl(event.destination && event.destination.url);
-                            if (hop) {
-                                event.preventDefault();
-                                originalLocationAssign(hop);
+                            event.preventDefault();
+                            const real = proxyPrefix + wanted.pathname.replace(/^\/+/, '') + wanted.search + wanted.hash;
+                            if (!rootMode) {
+                                // A page that leaves for a root path believes it lies at the root. From now on it does.
+                                originalFetch(stateSyncUrl + '&root=1', { method: 'POST', credentials: 'same-origin', keepalive: true })
+                                    .catch(() => { })
+                                    .then(() => originalLocationReplace(real));
                             }
-                        });
-                    }
+                            else if (event.navigationType === 'push') {
+                                originalLocationAssign(real);
+                            }
+                            else {
+                                originalLocationReplace(real);
+                            }
 
+                            return;
+                        }
+
+                        const hop = hopUrl(wanted.href);
+                        if (hop) {
+                            event.preventDefault();
+                            originalLocationAssign(hop);
+                        }
+                    });
+                }
+
+                if (hopPrefix) {
                     // A link to another website. Last in line, so that a page which handles its own clicks
                     // has had its say; a plain click stays in the tab, one meant for a new tab gets one.
                     const followLink = event => {
@@ -1572,6 +1727,14 @@ public sealed class WebsiteProxyService
         if (HttpMethods.IsGet(context.Request.Method))
         {
             return Results.Json(session.GetStorageSnapshot(), StorageStateJsonOptions);
+        }
+
+        if (HttpMethods.IsPost(context.Request.Method) && context.Request.Query["root"] == "1")
+        {
+            // The page (or the shell, for it) found that it does not work under a path: from the next load
+            // on it is shown as if it lay at the root.
+            session.RootMode = true;
+            return Results.Ok(new { status = "ok" });
         }
 
         if (HttpMethods.IsPost(context.Request.Method))
@@ -2345,6 +2508,7 @@ public sealed class WebsiteProxyService
         {
             Signature = signature;
             RootTabId = rootTabId;
+            RootMode = server.WebsiteBrowse;
             // A browser tab follows links to other websites through Matgate (see WebsiteGoAsync).
             HopPrefix = server.WebsiteBrowse && rootTabId != Guid.Empty
                 ? $"/website/{server.Id:D}/{rootTabId:D}/go?u="
@@ -2384,6 +2548,10 @@ public sealed class WebsiteProxyService
         }
 
         public string Signature { get; }
+
+        // The page is made to believe it lies at the root of its website (see the bootstrap script). A
+        // browser tab starts that way; a connection gets there when its page tries to leave for a root path.
+        public bool RootMode { get; set; }
 
         // The shell's tab: the frame's own id, or - for a frame a browser tab was sent to - the tab it belongs to.
         public Guid RootTabId { get; }

@@ -7773,6 +7773,51 @@ public sealed class HtmlViews
                     return fallbackUrl || sourceUrl;
                 }
 
+                // Where a website tab's frame is, under Matgate's address. A page may pretend to lie at the root of
+                // its website (the proxy's script gives it that path, see WebsiteProxyService): it knows better.
+                function websiteFrameUrl(tab) {
+                    const inner = tab.websiteUi.frame.contentWindow;
+                    return typeof inner.__matgateRealUrl === 'function' ? inner.__matgateRealUrl() : inner.location.href;
+                }
+
+                // A page under a path that left for a root path - "/login", meant as its own - has landed on one
+                // of Matgate's pages, inside the frame. Where the browser lets the page's script catch that jump
+                // it never gets here; where it does not (Safari before 26.2), the shell does: the website is
+                // shown as if it lay at the root from now on, and the frame goes where the page wanted to go.
+                function rescueWebsiteFrame(tab) {
+                    let inner = null;
+                    let where = null;
+                    try {
+                        inner = tab.websiteUi.frame.contentWindow;
+                        where = new URL(inner.location.href);
+                    }
+                    catch {
+                        return false;
+                    }
+
+                    if (where.origin !== window.location.origin || /^\/website\//i.test(where.pathname) || typeof inner.__matgateRealUrl === 'function') {
+                        return false;
+                    }
+
+                    const last = /^(?:https?:\/\/[^/]+)?(\/website\/[^/]+\/[^/]+)\/proxy\//i.exec(tab.currentUrl || '');
+                    const now = Date.now();
+                    tab.rootRescues = (tab.rootRescues || []).filter(at => now - at < 15000);
+                    if (!last || tab.rootRescues.length >= 3) {
+                        return false;
+                    }
+
+                    tab.rootRescues.push(now);
+                    const target = `${last[1]}/proxy/${where.pathname.replace(/^\/+/, '')}${where.search}${where.hash}`;
+                    fetch(`${last[1]}/state?root=1`, { method: 'POST', credentials: 'same-origin' })
+                        .catch(() => { })
+                        .then(() => {
+                            if (tabs.has(tab.id)) {
+                                tab.websiteUi.frame.src = target;
+                            }
+                        });
+                    return true;
+                }
+
                 function updateWebsiteLocation(tabId, url, base = '') {
                     const tab = tabs.get(tabId);
                     if (!tab || !isWebsiteProtocol(tab.protocol)) {
@@ -9801,8 +9846,12 @@ public sealed class HtmlViews
                                 // Another origin: the page says itself where it is (see the message handler).
                             }
                             else {
+                                if (rescueWebsiteFrame(tab)) {
+                                    return;
+                                }
+
                                 try {
-                                    updateWebsiteLocation(tab.id, tab.websiteUi.frame.contentWindow.location.href);
+                                    updateWebsiteLocation(tab.id, websiteFrameUrl(tab));
                                 }
                                 catch {
                                     updateWebsiteLocation(tab.id, tab.target || '');
@@ -9876,7 +9925,14 @@ public sealed class HtmlViews
                             }
 
                             try {
-                                tab.websiteUi.frame.contentWindow.location.reload();
+                                // A page that pretends to lie at the root is loaded anew from where it really is.
+                                const inner = tab.websiteUi.frame.contentWindow;
+                                if (typeof inner.__matgateRealUrl === 'function' && inner.__matgateRealUrl() !== inner.location.href) {
+                                    inner.location.replace(inner.__matgateRealUrl());
+                                }
+                                else {
+                                    inner.location.reload();
+                                }
                             }
                             catch {
                                 tab.websiteUi.frame.src = tab.websiteUi.frame.src;
@@ -9902,7 +9958,7 @@ public sealed class HtmlViews
                                 // The frame as it is: it belongs to the website it shows, a new tab id would not.
                                 let shown = '';
                                 try {
-                                    shown = tab.websiteUi.frame.contentWindow.location.href;
+                                    shown = websiteFrameUrl(tab);
                                 }
                                 catch {
                                     shown = '';

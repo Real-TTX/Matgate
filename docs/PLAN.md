@@ -1,6 +1,6 @@
 # Matgate – Plan zum Weitermachen
 
-Stand: 2026-11-19, Version 0.27.3 auf `main` (`v0.27.3`), Agent 0.14.0; auf ve-docker-1
+Stand: 2026-11-19, Version 0.28.0 auf `main` (`v0.28.0`), Agent 0.14.0; auf ve-docker-1
 (matgate.schmoldt.it) läuft seit dem 2026-11-19 ebenfalls 0.27.2 (Websites dort weiter über den Pfad, bis
 Route und Variable stehen; Einspielen trennt laufende Sitzungen, nur auf ausdrücklichen Wunsch). Der Agent
 auf dem Entwicklungsrechner ist der offizielle Build aus dem Release `agent-latest`. Geschrieben als Übergabe an eine andere Sitzung.
@@ -276,6 +276,28 @@ Der Nutzer: „Kannst du das Website-Feature mit dem Proxy nochmal überarbeiten
   Zutritt per Pfad-Token). Außerdem öffnet der **Chip „Browser“** den Browser jetzt sofort (leerer Tab,
   Adressleiste im Fokus) statt den Dialog - der Nutzer: „muss eine URL eingeben?“; Start-URL und
   Zugangsdaten bleiben im Dialog unter „Mehr“. Am Telefon ist die Browser-Leiste eine Zeile statt drei.
+- **Wurzel-Modus unter dem Pfad (0.28.0) - UniFi lädt:** Der Nutzer: „10.10.0.1 geht immer noch nicht.
+  denk dir was aus ... man kann doch auch ein script injecten“. Die Adresse einer Seite lässt sich nicht
+  fälschen, aber **ändern**: innerhalb einer Origin darf eine Seite ihren Pfad per `history.replaceState`
+  setzen. Das Bootstrap-Skript gibt der Seite also als Erstes den Pfad, den sie auf ihrer Website hat -
+  `location.pathname` sagt dann `/login` statt `/website/<...>/proxy/login`, und Anwendungen, die ihre
+  Route aus der eigenen Adresse lesen, finden sich zurecht (`RootMode` der Proxy-Sitzung, `pretending` im
+  Skript). Was dazugehört: `rewriteUrl` löst im Wurzel-Modus auch relative Adressen auf und legt alles, was
+  auf Matgates Origin zeigt, unter den Proxy-Pfad; `pushState/replaceState` behalten Website-Pfade;
+  die Seite meldet der Hülle ihre echte Adresse (`__matgateRealUrl`); ein Sprung auf einen Wurzelpfad
+  (`location.href = '/login?...'`, Neu laden) wird über die Navigation API in den Proxy umgelenkt, und wo
+  ein Browser die nicht hat (Safari vor 26.2), fängt die Hülle den Rahmen wieder ein (`rescueWebsiteFrame`);
+  `document.cookie` liest die Cookies der Website über eine leere Seite unter dem Proxy-Pfad
+  (`?__matgate=cookies`), bis die geladen ist aus einem Abbild vom Seitenstart. **Browser-Tabs starten im
+  Wurzel-Modus; gespeicherte Verbindungen wechseln von selbst hinein, sobald ihre Seite auf einen
+  Wurzelpfad springt** (`POST .../state?root=1`). Geprüft: `tests/browser-under-path.js` und
+  `tests/website.js` gegen die UniFi-artige Testanwendung `/app`; und **echt über den Dev-Stack, ohne
+  Anmeldung:** UniFi OS 10.10.0.1 (Anmeldeseite vollständig, Adresse `https://10.10.0.1/login`, keine
+  fehlgeleitete Anfrage), Synology DSM 10.10.1.1:5001 und Proxmox 10.10.2.11:8006 (Anmeldeseiten ohne
+  Fehler). **Ungeprüft:** alles hinter der Anmeldung (UniFi Network, WebSockets dort), iOS. Bekannte
+  Lücken: `<base href>` liest eine Anwendung weiter mit Proxy-Pfad; Anfragen, die an den Haken vorbeigehen
+  (dynamisches `import()`, `url()` in zur Laufzeit gesetztem CSS), landen auf Matgates Wurzel - dafür wäre
+  der Service Worker der richtige Ort (Zuordnung je Client), noch nicht gebaut.
 - **Platz für die Tastatur blieb stehen (0.27.3):** Der Nutzer: beim Wechseln am Handy sei manchmal „die
   iOS-Tastatur zu, aber der Platz für die Sondertasten und Tastatur noch reserviert“. Ursache in der Hülle:
   `updatePageKeyboardInset` sagte nur dem Tab **vorn**, was die Tastatur verdeckt - ein Tab, der mit offener

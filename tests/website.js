@@ -315,6 +315,12 @@ const SITE = /^http:\/\/[a-z2-7]{20}\.mg\.localhost:18091/;
   other = await open(byPath);
   check("a connection that asks for it is shown under Matgate's own address", [await shown(other, "Fixture Home"), /\/website\/[0-9a-f-]+\/[^/]+\/proxy\//.test(await frameUrl(other))], ["Fixture Home", true]);
   check("with an address bar that only shows", await other.evaluate(() => document.querySelector(".website-address").readOnly), true);
+  // A page under a path that leaves for "/login" at the root means its own - and from then on is shown as if
+  // it lay at the root of its website (tests/browser-under-path.js has the rest of that).
+  check("under the path a page sees the path", await (await frameOf(other)).evaluate(() => /^\/website\//.test(location.pathname)), true);
+  await (await frameOf(other)).evaluate(() => { location.href = "/login?redirect=/app/dashboard"; });
+  check("sent to /login at the root it lands on the website's own sign-in page all the same", [await shown(other, "the website's own sign-in page"), await textOf(other, "#query")], ["the website's own sign-in page", "?redirect=/app/dashboard"]);
+  check("and from then on the page believes it lies at the root", await (await frameOf(other)).evaluate(() => [location.pathname, typeof window.__matgateRealUrl === "function" && /\/website\/[0-9a-f-]+\/[^/]+\/proxy\/login/.test(window.__matgateRealUrl())]), ["/login", true]);
   await other.close();
   // Matgate reached under an address that is no site with the websites' hosts: the browser keeps no
   // cookie for them inside a frame, the shell notices and falls back by itself.

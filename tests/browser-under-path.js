@@ -74,7 +74,16 @@ const check = (name, got, want) => {
     }
     return text;
   };
-  const frameId = async shell => ((await frameOf(shell)).url().match(/\/website\/[0-9a-f-]+\/([0-9a-f-]+)\/proxy\//) || [])[1] || "";
+  // Where the frame is under Matgate's address. The page itself pretends to lie at the root of its website
+  // (so that an application which reads its own address finds what it knows), and says where it really is.
+  const realUrl = async shell => {
+    for (let i = 0; i < 40; i++) {
+      try { return await (await frameOf(shell)).evaluate(() => typeof window.__matgateRealUrl === "function" ? window.__matgateRealUrl() : location.href); }
+      catch { await sleep(150); }
+    }
+    return "";
+  };
+  const frameId = async shell => ((await realUrl(shell)).match(/\/website\/[0-9a-f-]+\/([0-9a-f-]+)\/proxy\//) || [])[1] || "";
   const address = shell => shell.inputValue(".website-address");
   const type = async (shell, to) => {
     await shell.fill(".website-address", to);
@@ -83,10 +92,11 @@ const check = (name, got, want) => {
 
   check("the address opens in Matgate's own browser: the page itself, under a path of Matgate's", [
     await shows(page, "Fixture Home"),
-    /^http:\/\/127\.0\.0\.1:18092\/website\/[0-9a-f-]+\/[^/]+\/proxy\//.test((await frameOf(page)).url()),
+    /^http:\/\/127\.0\.0\.1:18092\/website\/[0-9a-f-]+\/[^/]+\/proxy\//.test(await realUrl(page)),
     await page.evaluate(() => !!document.querySelector(".guac-display canvas")),
   ], ["Fixture Home", true, false]);
   check("written without http:// it found that the machine speaks http", await address(page), "http://site:8080/");
+  check("to itself the page lies at the root of its website", await shows(page, "/|127.0.0.1:18092", "#where"), "/|127.0.0.1:18092");
   check("the tab is named after the address", await page.evaluate(() => [...document.querySelectorAll(".session-tab .session-tab-title")].some(title => /site:8080/.test(title.textContent))), true);
   check("the address bar is one to type into", await page.evaluate(() => document.querySelector(".website-address").readOnly), false);
   const firstFrame = await frameId(page);
@@ -118,9 +128,36 @@ const check = (name, got, want) => {
   await (await frameOf(page)).click("#what");
   check("and once the bar is left it shows where the tab is again", await address(page), "http://other:8080/hello");
 
+  // ---------------------------------------------------------------- an application that reads its own address
+  // UniFi and its kind: the route comes from location.pathname, and whoever is not signed in is sent to
+  // "/login" at the root. Under a path both went wrong - no route matched, and "/login" was Matgate's.
+  await type(page, "http://site:8080/app/dashboard");
+  check("an application that takes its route from its own address finds it", [await shows(page, "the dashboard", "#route"), await address(page)], ["the dashboard", "http://site:8080/app/dashboard"]);
+  await (await frameOf(page)).click("#settings");
+  await sleep(400);
+  check("a route it pushes is its own path, and shows in the address bar", [await shows(page, "the settings", "#route"), await (await frameOf(page)).evaluate(() => location.pathname), await address(page)], ["the settings", "/app/settings", "http://site:8080/app/settings"]);
+  await (await frameOf(page)).click("#kick");
+  check("sent to /login at the root, the tab lands on the WEBSITE's sign-in page - not on Matgate's", [await shows(page, "the website's own sign-in page"), await shows(page, "?redirect=/app/settings", "#query")], ["the website's own sign-in page", "?redirect=/app/settings"]);
+  await sleep(300);
+  check("with its address in the bar", await address(page), "http://site:8080/login?redirect=/app/settings");
+  // Cookies are bound to the proxy path; the page that pretends to be elsewhere still sees its own.
+  await type(page, "http://site:8080/");
+  await shows(page, "Fixture Home");
+  await (await frameOf(page)).click("#signin");
+  let seen = "";
+  for (let i = 0; i < 60 && !/theme=dark/.test(seen); i++) {
+    try { seen = await (await frameOf(page)).evaluate(() => document.cookie); } catch { /* loading */ }
+    if (!/theme=dark/.test(seen)) { await sleep(250); }
+  }
+  check("the page's scripts see the cookies of their website - not the one meant for the server alone", [/theme=dark/.test(seen), /sid=/.test(seen)], [true, false]);
+  await (await frameOf(page)).evaluate(() => { document.cookie = "mine=1; path=/"; });
+  check("and one they set themselves", await (await frameOf(page)).evaluate(() => /mine=1/.test(document.cookie)), true);
+  await type(page, "other:8080/hello");
+  await shows(page, "hello from other");
+
   // ---------------------------------------------------------------- anywhere
   // A machine that is not inside the network is no different: the tab is taken there, with no page in between.
-  const here = (await frameOf(page)).url().match(/\/website\/([0-9a-f-]+)\//)[1];
+  const here = (await realUrl(page)).match(/\/website\/([0-9a-f-]+)\//)[1];
   const hop = await context.request.get(BASE + "/website/" + here + "/" + firstFrame + "/go?u=" + encodeURIComponent("https://203.0.113.5/somewhere?x=1"), { maxRedirects: 0 });
   const led = hop.headers().location || "";
   check("a public address is followed as well - no page that stops the tab", [hop.status(), /^\/website\/[0-9a-f-]+\/[0-9a-f-]+\/proxy\/somewhere\?x=1$/.test(led), led.includes("/" + firstFrame + "/"), led.includes("/" + otherFrame + "/")], [302, true, false, false]);
