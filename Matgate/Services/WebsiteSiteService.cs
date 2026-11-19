@@ -29,6 +29,8 @@ namespace Matgate.Services;
 public sealed class WebsiteSiteService(ILogger<WebsiteSiteService> logger)
 {
     public const string CookieName = "Matgate-Site";
+    // Says that this browser has had its automatic sign-in at the website (see TrySignInAsync).
+    public const string SignInCookieName = "Matgate-SignIn";
     public const string Reserved = "/__matgate/";
     public const string EnterPath = Reserved + "enter";
     public const string ScriptPath = Reserved + "site.js";
@@ -183,8 +185,9 @@ public sealed class WebsiteSiteService(ILogger<WebsiteSiteService> logger)
         // The website asked for a name and password (Basic) and the connection has them: they go with every request.
         internal volatile bool Basic;
 
-        // The stored name and password were tried on the sign-in this kind of website has; not again.
-        internal volatile bool SignInTried;
+        // What a browser keeps (in the cookie SignInCookieName) once the stored name and password were tried
+        // for it on the sign-in this kind of website has. Each browser gets one try, not one for all of them.
+        internal string SignInMark { get; } = Convert.ToHexString(RandomNumberGenerator.GetBytes(8));
 
         internal DateTimeOffset LastUsed { get; set; } = DateTimeOffset.UtcNow;
 
@@ -545,7 +548,7 @@ public sealed class WebsiteSiteService(ILogger<WebsiteSiteService> logger)
             {
                 var equals = part.IndexOf('=');
                 var name = equals < 0 ? part : part[..equals];
-                if (!name.Trim().Equals(CookieName, StringComparison.Ordinal))
+                if (!IsOwnCookie(name))
                 {
                     kept.Add(part);
                 }
@@ -555,12 +558,15 @@ public sealed class WebsiteSiteService(ILogger<WebsiteSiteService> logger)
         return string.Join("; ", kept);
     }
 
+    private static bool IsOwnCookie(string name) =>
+        name.Trim().Equals(CookieName, StringComparison.Ordinal) || name.Trim().Equals(SignInCookieName, StringComparison.Ordinal);
+
     private static string? RewriteSetCookie(string cookie, bool publicIsHttps)
     {
         var equals = cookie.IndexOf('=');
-        if (equals > 0 && cookie[..equals].Trim().Equals(CookieName, StringComparison.Ordinal))
+        if (equals > 0 && IsOwnCookie(cookie[..equals]))
         {
-            // The one name a website cannot set here.
+            // The names a website cannot set here.
             return null;
         }
 
@@ -678,7 +684,7 @@ public sealed class WebsiteSiteService(ILogger<WebsiteSiteService> logger)
         var html = Bytes.GetString(buffered.GetBuffer(), 0, (int)buffered.Length);
         if (LooksLikeDocument(html))
         {
-            if (hasCredentials && !site.SignInTried && await TrySignInAsync(context, site, server, html))
+            if (hasCredentials && await TrySignInAsync(context, site, server, html))
             {
                 return;
             }
@@ -720,19 +726,31 @@ public sealed class WebsiteSiteService(ILogger<WebsiteSiteService> logger)
     }
 
     // Proxmox (VE and Backup Server) signs in with a ticket that lives in a cookie. With a name and password
-    // in the connection the ticket is fetched here, once, and the page is asked for again with it - so the
-    // user lands in the application instead of at its sign-in dialog.
+    // in the connection the ticket is fetched here and the page is asked for again with it - so the user lands
+    // in the application instead of at its sign-in dialog. Once for each browser: the ticket lives in the
+    // browser, so a second one (the phone, after the desktop) needs its own - while a browser that had its
+    // try is left alone, or whoever signs out there on purpose would be signed in again at once, and a
+    // browser that does not keep the ticket would be sent round in a circle.
     private async Task<bool> TrySignInAsync(HttpContext context, Site site, ServerEndpoint server, string html)
     {
         var cookieName = html.Contains("pvemanagerlib.js", StringComparison.OrdinalIgnoreCase) ? "PVEAuthCookie"
             : html.Contains("proxmox-backup-gui.js", StringComparison.OrdinalIgnoreCase) ? "PBSAuthCookie"
             : "";
-        if (cookieName.Length == 0 || context.Request.Cookies.ContainsKey(cookieName))
+        if (cookieName.Length == 0
+            || context.Request.Cookies.ContainsKey(cookieName)
+            || string.Equals(context.Request.Cookies[SignInCookieName], site.SignInMark, StringComparison.Ordinal))
         {
             return false;
         }
 
-        site.SignInTried = true;
+        context.Response.Cookies.Append(SignInCookieName, site.SignInMark, new CookieOptions
+        {
+            HttpOnly = true,
+            Secure = context.Request.IsHttps,
+            SameSite = SameSiteMode.Lax,
+            Path = "/",
+            IsEssential = true,
+        });
         var names = server.UserName.Contains('@') ? new[] { server.UserName } : new[] { server.UserName + "@pam", server.UserName + "@pve", server.UserName + "@pbs" };
         foreach (var name in names)
         {

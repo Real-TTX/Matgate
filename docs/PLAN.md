@@ -1,6 +1,6 @@
 # Matgate – Plan zum Weitermachen
 
-Stand: 2026-11-19, Version 0.25.1 auf `main` (`v0.25.1`), Agent 0.14.0; auf ve-docker-1
+Stand: 2026-11-19, Version 0.25.2 auf `main` (`v0.25.2`), Agent 0.14.0; auf ve-docker-1
 (matgate.schmoldt.it) läuft seit dem 2026-11-18 0.25.0 (Websites dort weiter über den Pfad, bis
 Route und Variable stehen; Einspielen trennt laufende Sitzungen, nur auf ausdrücklichen Wunsch). Der Agent
 auf dem Entwicklungsrechner ist der offizielle Build aus dem Release `agent-latest`. Geschrieben als Übergabe an eine andere Sitzung.
@@ -247,7 +247,10 @@ Der Nutzer: „Kannst du das Website-Feature mit dem Proxy nochmal überarbeiten
   (prüft die Ursache, kein Browser im Test zoomt wie ein iPhone - **am echten iPhone ungeprüft**).
 - **Anmeldung für die Seite:** Das Formular hat jetzt Benutzer/Passwort auch für Websites. Sie gehen
   bei `401 Basic` mit; bei Proxmox (`pvemanagerlib.js`/`proxmox-backup-gui.js` in der Seite) holt
-  Matgate einmal das Ticket und setzt `PVEAuthCookie`/`PBSAuthCookie`.
+  Matgate das Ticket und setzt `PVEAuthCookie`/`PBSAuthCookie` - seit **0.25.2** einmal **je Browser**
+  (Merker-Cookie `Matgate-SignIn` mit dem Zeichen der Website-Instanz, erreicht die Website nie). Davor
+  galt der eine Versuch für alle Browser bis zum Neustart: wer Proxmox erst am Rechner und dann am
+  Telefon öffnete, stand dort vor dem Anmeldedialog. Wer sich in Proxmox abmeldet, bleibt abgemeldet.
 - **Adresse wie geschrieben:** Gespeichert wird ohne angehängten Schrägstrich (`CleanWebsiteUrl`);
   der Pfad-Weg normalisiert weiter selbst.
 - **Verbindung:** Haken „Unter Matgates eigener Adresse öffnen“ (`WebsitePathMode`) erzwingt den alten Weg.

@@ -259,7 +259,7 @@ http.createServer(async (req, res) => {
   }
 
   const signedIn = decodeURIComponent(cookiesOf(req).PVEAuthCookie || "") === ticket;
-  html(res, "pve - Proxmox Virtual Environment", `<h1 id="what">${signedIn ? "signed in as root@pam" : "the sign-in dialog"}</h1><script src="/pve2/js/pvemanagerlib.js"></script>`);
+  html(res, "pve - Proxmox Virtual Environment", `<h1 id="what">${signedIn ? "signed in as root@pam" : "the sign-in dialog"}</h1><p id="cookies">${Object.keys(cookiesOf(req)).sort().join(",")}</p><script src="/pve2/js/pvemanagerlib.js"></script>`);
 }).listen(8082);
 
 console.log("fixture website on 8080, 8081, 8082");

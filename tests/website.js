@@ -279,6 +279,25 @@ const SITE = /^http:\/\/[a-z2-7]{20}\.mg\.localhost:18091/;
   other = await open(pve);
   check("a Proxmox-style sign-in is done with the connection's name and password", await shown(other, "signed in as root@pam"), "signed in as root@pam");
   await other.close();
+  // The ticket lives in the browser. Another browser of the same user - the phone after the desktop - has
+  // none yet and gets its own; it used to find the sign-in dialog, because Matgate tried once for all.
+  const second = await b.newContext({
+    viewport: { width: 1300, height: 860 },
+    storageState: { cookies: (await context.cookies()).filter(cookie => !/^(PVEAuthCookie|Matgate-SignIn|Matgate-Site)$/.test(cookie.name)), origins: [] },
+  });
+  other = await open(pve, BASE, second);
+  check("another browser of the same user is signed in as well", await shown(other, "signed in as root@pam"), "signed in as root@pam");
+  check("what Matgate keeps in the browser for it never reaches the website", [
+    (await second.cookies()).some(cookie => cookie.name === "Matgate-SignIn"),
+    await textOf(other, "#cookies"),
+  ], [true, "PVEAuthCookie"]);
+  await other.close();
+  // Signed out there on purpose (the application drops its ticket): not signed in again behind one's back.
+  await second.clearCookies({ name: "PVEAuthCookie" });
+  other = await open(pve, BASE, second);
+  check("a browser that signed out is left at the sign-in dialog", await shown(other, "the sign-in dialog"), "the sign-in dialog");
+  await other.close();
+  await second.close();
 
   // ================================================================================== when it does not work
   other = await open(down);
