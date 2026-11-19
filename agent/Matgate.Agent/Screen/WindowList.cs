@@ -24,6 +24,7 @@ public interface IWindowList
     bool Activate(long id);
 }
 
+#if AGENT_WINDOWS
 public sealed class WindowsWindowList : IWindowList
 {
     private const int GwlExStyle = -20;
@@ -237,6 +238,7 @@ public sealed class WindowsWindowList : IWindowList
     [DllImport("dwmapi.dll")]
     private static extern int DwmGetWindowAttribute(nint window, int attribute, out int value, int size);
 }
+#endif
 
 // For the tests: three windows on the generated picture, one of them minimised. Bringing one to the front is
 // reported back instead of done.

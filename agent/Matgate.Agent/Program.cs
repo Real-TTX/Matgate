@@ -95,12 +95,13 @@ try
             var status = portIndex > 0 && portIndex + 1 < args.Length ? AgentStatus.Query(int.Parse(args[portIndex + 1])) : AgentStatus.QueryInstalled();
             Console.WriteLine(status is null ? "The agent is not running." : System.Text.Json.JsonSerializer.Serialize(status));
             return status is null ? 1 : 0;
+        case "session-host":
+            // A helper the agent starts where the monitor is (another Windows session, the X display, the
+            // Mac's window server) - never by hand.
+            return await SessionHost.RunAsync(args);
 #if AGENT_WINDOWS
         case "apply-update":
             return UpdatePlugin.Run(args);
-        case "session-host":
-            // A helper the agent starts in another Windows session (see SessionNative) - never by hand.
-            return await SessionHost.RunAsync(args);
         case "screen-probe":
             // Captures and encodes for a few seconds and prints what came out - for checking a machine.
             return Matgate.Agent.Screen.ScreenProbe.Run(args);
@@ -108,6 +109,9 @@ try
         case "as-user":
             // What the agent starts for a program in a terminal that runs as another user - never by hand.
             return UnixUser.Become(args);
+        case "screen-probe":
+            // Says which screen the agent would show, and captures and encodes a little of it.
+            return Matgate.Agent.Unix.Screen.UnixScreenProbe.Run(args);
 #endif
         case "--version":
             Console.WriteLine(version);
@@ -440,14 +444,19 @@ static async Task RunAgentAsync(string[] args, string version)
     UpdatePlugin.TidyUp();
     var terminals = new TerminalPlugin(config, files, new PtyLauncher());
     IAgentUpdates updates = new UpdatePlugin(config, configPath);
-    IAgentScreen screen = new Matgate.Agent.Screen.ScreenPlugin(config);
     AgentStatus.Mode = Microsoft.Extensions.Hosting.WindowsServices.WindowsServiceHelpers.IsWindowsService() ? "service" : "user";
 #else
     var terminals = new TerminalPlugin(config, files, new UnixPtyStarter(config));
     IAgentUpdates updates = new UnixUpdates(configPath);
-    IAgentScreen screen = new NoScreen();
     AgentStatus.Mode = AgentStatus.Installed ? "service" : "user";
 #endif
+    IAgentScreen screen = new Matgate.Agent.Screen.ScreenPlugin(config);
+    if (config.Screen && !screen.IsAvailable && Matgate.Agent.Screen.ScreenPlatform.Current.UnsupportedReason is { } noScreen)
+    {
+        // Wanted, but something is missing on this machine: said once, with what to install.
+        AgentLog.Write("Screen: " + noScreen);
+    }
+
     AgentStatus.OpenTerminals = () => terminals.Count;
     var tokenBytes = Encoding.UTF8.GetBytes(config.Token.Trim());
 

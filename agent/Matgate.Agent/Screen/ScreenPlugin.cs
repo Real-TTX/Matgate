@@ -27,8 +27,7 @@ public sealed class ScreenPlugin : IAgentScreen
     public ScreenPlugin(AgentConfig config, bool inThisProcess = false)
     {
         _config = config;
-        _helper = !inThisProcess && OperatingSystem.IsWindows()
-            && (SessionNative.IsSystemService || Environment.GetEnvironmentVariable("MATGATE_AGENT_SCREEN_HOST") == "1");
+        _helper = !inThisProcess && ScreenPlatform.Current.UsesHelper;
         if (_helper)
         {
             _host = new HostLink("screen", StartHelper, null, OnHelperEvent, OnHelperExit);
@@ -39,18 +38,19 @@ public sealed class ScreenPlugin : IAgentScreen
     // the tests must not move anyone's mouse or overwrite anyone's clipboard.
     public static bool TestMode => Environment.GetEnvironmentVariable("MATGATE_AGENT_SCREEN_TEST") == "1";
 
-    public bool IsAvailable => OperatingSystem.IsWindows() && _config.Screen && (TestMode || _helper || SessionNative.CurrentSession != 0);
+    public bool IsAvailable => _config.Screen
+        && (TestMode || (ScreenPlatform.Current.Supported && (_helper || ScreenPlatform.Current.CanCaptureHere)));
 
     // "ok", or why the browser's microphone cannot be one here: "nodevice" (no virtual audio cable), "off".
-    public string MicrophoneState => MicrophoneDevices.State(_config.Microphone);
+    public string MicrophoneState => ScreenPlatform.Current.MicrophoneState(_config.Microphone);
 
     // "ok", or why the browser's controllers cannot be controllers here: "nodriver" (no ViGEmBus), "off".
-    public string GamepadState => !_config.Gamepads ? "off" : TestMode || ViGEmGamepads.Installed ? "ok" : "nodriver";
+    public string GamepadState => !_config.Gamepads ? "off" : TestMode ? "ok" : ScreenPlatform.Current.GamepadState;
 
     public static JsonArray Monitors()
     {
         var list = new JsonArray();
-        foreach (var monitor in TestMode ? TestPattern.Monitors() : DesktopCapture.Monitors())
+        foreach (var monitor in TestMode ? TestPattern.Monitors() : ScreenPlatform.Current.Monitors())
         {
             list.Add(new JsonObject
             {
@@ -69,7 +69,8 @@ public sealed class ScreenPlugin : IAgentScreen
     {
         if (!IsAvailable)
         {
-            throw new InvalidOperationException("This agent does not share its screen - it has to run as the signed-in user or as a LocalSystem service.");
+            throw new InvalidOperationException(ScreenPlatform.Current.UnsupportedReason
+                ?? "This agent does not share its screen - it has to run as the signed-in user or as the system's service.");
         }
 
         var id = request.Text("session");
@@ -136,9 +137,9 @@ public sealed class ScreenPlugin : IAgentScreen
 
             switch (frame.Op)
             {
-                case "screen.sas" when !TestMode:
+                case "screen.sas" when !TestMode && ScreenPlatform.Current.AttentionFromService:
                     // Ctrl+Alt+Del: Windows takes it from the service itself.
-                    if (!SessionNative.IsLocalSystem || !SessionNative.SendSecureAttention())
+                    if (!ScreenPlatform.Current.SecureAttention(NoInput.Instance))
                     {
                         _ = viewer.Send(Status(id, "nocad"));
                     }
@@ -274,22 +275,7 @@ public sealed class ScreenPlugin : IAgentScreen
 
     // ---- through the helper ------------------------------------------------------------------------------
 
-    private static Process StartHelper(string arguments)
-    {
-        if (!SessionNative.IsSystemService)
-        {
-            // The tests: a helper of this very user.
-            return SessionNative.StartChild(arguments);
-        }
-
-        var console = SessionNative.ConsoleSession();
-        if (console < 0)
-        {
-            throw new InvalidOperationException("The machine shows no screen right now.");
-        }
-
-        return SessionNative.StartAsSystem(console, arguments);
-    }
+    private static Process StartHelper(string arguments) => ScreenPlatform.Current.StartHelper(arguments);
 
     private async Task<JsonObject> OpenInHelperAsync(Viewer viewer)
     {
@@ -393,6 +379,36 @@ public sealed class ScreenPlugin : IAgentScreen
     }
 }
 
+// For a question that needs no keyboard.
+internal sealed class NoInput : IInputSink
+{
+    public static readonly NoInput Instance = new();
+
+    public void MoveTo(int x, int y)
+    {
+    }
+
+    public void Button(int button, bool down)
+    {
+    }
+
+    public void Wheel(int vertical, int horizontal)
+    {
+    }
+
+    public void Key(int scanCode, bool extended, bool down)
+    {
+    }
+
+    public void Text(string text)
+    {
+    }
+
+    public void Shortcut(char character)
+    {
+    }
+}
+
 // Input on a thread of its own: it can follow the monitor onto the sign-in screen and back (a thread that owns
 // windows could not), and nothing overtakes anything else.
 internal sealed class InputThread : IInputSink, IDisposable
@@ -442,7 +458,7 @@ internal sealed class InputThread : IInputSink, IDisposable
         {
             if (Environment.TickCount64 - followed > 250)
             {
-                InputDesktop.Follow();
+                ScreenPlatform.Current.FollowDesktop();
                 followed = Environment.TickCount64;
             }
 
@@ -460,7 +476,11 @@ internal sealed class InputThread : IInputSink, IDisposable
     public void Dispose()
     {
         _queue.CompleteAdding();
-        _thread.Join(TimeSpan.FromSeconds(2));
+        if (_thread.Join(TimeSpan.FromSeconds(2)))
+        {
+            // A sink with a connection of its own (the X display) closes it.
+            (_sink as IDisposable)?.Dispose();
+        }
     }
 }
 
@@ -540,10 +560,10 @@ internal sealed unsafe class ScreenSession
         }
         else
         {
-            _input = new InputThread(new InputInjector());
-            _clipboard = new WindowsClipboard();
-            _display = new WindowsDisplay();
-            _windows = new WindowsWindowList();
+            _input = new InputThread(ScreenPlatform.Current.Input());
+            _clipboard = ScreenPlatform.Current.Clipboard();
+            _display = ScreenPlatform.Current.Display();
+            _windows = ScreenPlatform.Current.Windows();
         }
 
         _clipboard.Changed += OnClipboardChanged;
@@ -637,7 +657,7 @@ internal sealed unsafe class ScreenSession
                 {
                     try
                     {
-                        if (!InputDesktop.Follow() && SessionNative.IsLocalSystem && !_followWarned)
+                        if (!ScreenPlatform.Current.FollowDesktop() && ScreenPlatform.Current.IsSystem && !_followWarned)
                         {
                             // As SYSTEM this should always work; if not, the sign-in and lock screen stay dark.
                             _followWarned = true;
@@ -723,7 +743,7 @@ internal sealed unsafe class ScreenSession
                     var shown = _crop;
                     scale = shown is null && _current.Width > (_resolution == "native" ? _maxWidth : Math.Max(_maxWidth, 3840)) ? 2 : 1;
                     var (width, height) = shown is null ? Nv12.Scaled(_current.Width, _current.Height, scale) : (shown.Width, shown.Height);
-                    encoder = VideoEncoders.Create(width, height, _fps, Bitrate(width, height), (bytes, key) => SendVideo(bytes, key, width, height));
+                    encoder = ScreenPlatform.Current.Encoder(width, height, _fps, Bitrate(width, height), (bytes, key) => SendVideo(bytes, key, width, height));
                     _encoderName = encoder.Name;
                     picture = new byte[Nv12.Size(width, height)];
                     hasPicture = false;
@@ -833,9 +853,8 @@ internal sealed unsafe class ScreenSession
                         continue;
                     }
                 }
-                catch (Exception exception) when (encoder is HardwareH264Encoder && exception is not OutOfMemoryException)
+                catch (Exception exception) when (ScreenPlatform.Current.EncoderFailed(encoder, exception))
                 {
-                    VideoEncoders.HardwareFailed(exception);
                     encoder.Dispose();
                     encoder = null;
                     continue;
@@ -859,10 +878,9 @@ internal sealed unsafe class ScreenSession
         }
     }
 
-    private static bool IsCaptureFailure(Exception exception) =>
-        exception is SharpGen.Runtime.SharpGenException or InvalidOperationException or System.Runtime.InteropServices.COMException;
+    private static bool IsCaptureFailure(Exception exception) => ScreenPlatform.Current.IsCaptureFailure(exception);
 
-    private static IScreenSource CreateSource(int monitor) => ScreenPlugin.TestMode ? new TestPattern(monitor) : new DesktopCapture(monitor);
+    private static IScreenSource CreateSource(int monitor) => ScreenPlugin.TestMode ? new TestPattern(monitor) : ScreenPlatform.Current.Source(monitor);
 
     // Fast enough for a mouse that feels like one's own; fewer pictures where data is scarce.
     private static int FramesFor(string quality) => quality switch
@@ -1169,7 +1187,7 @@ internal sealed unsafe class ScreenSession
                 // On another monitor than the one shown: then that one is shown.
                 var x = bounds.Left + bounds.Width / 2;
                 var y = bounds.Top + bounds.Height / 2;
-                var monitors = ScreenPlugin.TestMode ? TestPattern.Monitors() : DesktopCapture.Monitors();
+                var monitors = ScreenPlugin.TestMode ? TestPattern.Monitors() : ScreenPlatform.Current.Monitors();
                 var home = monitors.FirstOrDefault(monitor => x >= monitor.Left && x < monitor.Left + monitor.Width && y >= monitor.Top && y < monitor.Top + monitor.Height);
                 if (home is not null && home.Index != _monitor)
                 {
@@ -1356,7 +1374,7 @@ internal sealed unsafe class ScreenSession
         {
             Debug("sas");
         }
-        else if (!SessionNative.IsLocalSystem || !SessionNative.SendSecureAttention())
+        else if (!ScreenPlatform.Current.SecureAttention(_input))
         {
             Emit("screen.status", new JsonObject { ["state"] = "nocad" });
         }
@@ -1419,7 +1437,7 @@ internal sealed unsafe class ScreenSession
         }
 
         var index = frame.Int("i");
-        if (index is < 0 or >= ViGEmGamepads.MaxPads)
+        if (index is < 0 or >= ScreenPlatform.MaxPads)
         {
             return;
         }
@@ -1431,7 +1449,7 @@ internal sealed unsafe class ScreenSession
                 try
                 {
                     void Rumble(int pad, byte large, byte small) => Emit("screen.pad.rumble", new JsonObject { ["i"] = pad, ["large"] = large, ["small"] = small });
-                    _pads = ScreenPlugin.TestMode ? new RecordingGamepads(Debug, Rumble) : new ViGEmGamepads(Rumble);
+                    _pads = ScreenPlugin.TestMode ? new RecordingGamepads(Debug, Rumble) : ScreenPlatform.Current.Gamepads(Rumble);
                 }
                 catch (Exception exception) when (exception is InvalidOperationException or System.ComponentModel.Win32Exception or DllNotFoundException)
                 {
@@ -1503,15 +1521,9 @@ internal sealed unsafe class ScreenSession
                     }
                     else
                     {
-                        if (MicrophoneDevices.IsOff(_microphoneSetting))
-                        {
-                            throw new InvalidOperationException("off");
-                        }
-
-                        var player = new MicrophonePlayer(_microphoneSetting);
-                        _microphone = player;
-                        AgentLog.Write("Microphone: playing into " + player.Name);
-                        Emit("screen.mic", new JsonObject { ["state"] = "on", ["device"] = player.Name });
+                        _microphone = ScreenPlatform.Current.Microphone(_microphoneSetting, out var device);
+                        AgentLog.Write("Microphone: playing into " + device);
+                        Emit("screen.mic", new JsonObject { ["state"] = "on", ["device"] = device });
                     }
                 }
                 catch (Exception exception) when (exception is InvalidOperationException or System.Runtime.InteropServices.COMException or NotSupportedException or ArgumentException)
@@ -1545,7 +1557,7 @@ internal sealed unsafe class ScreenSession
         try
         {
             void Packet(byte[] packet) => Emit("screen.audio", new JsonObject { ["codec"] = opus ? "opus" : "pcm" }, packet);
-            _audio = ScreenPlugin.TestMode ? new TestTone(opus, Packet) : new AudioStreamer(opus, Packet);
+            _audio = ScreenPlugin.TestMode ? new TestTone(opus, Packet) : ScreenPlatform.Current.Audio(opus, Packet);
         }
         catch (Exception exception)
         {
@@ -1706,9 +1718,7 @@ internal sealed unsafe class ScreenSession
     // into the signed-in person's temp folder - their Explorer has to read them.
     private static string ClipboardFolder()
     {
-        var temp = SessionNative.IsLocalSystem && !ScreenPlugin.TestMode
-            ? SessionNative.SignedInUserTemp() ?? throw new InvalidOperationException("Nobody is signed in to paste files for.")
-            : Path.GetTempPath();
+        var temp = ScreenPlugin.TestMode ? Path.GetTempPath() : ScreenPlatform.Current.ClipboardTemp();
         var root = Path.Combine(temp, "Matgate Agent", "Zwischenablage");
         Directory.CreateDirectory(root);
         foreach (var old in Directory.EnumerateDirectories(root).Where(folder => Directory.GetCreationTimeUtc(folder) < DateTime.UtcNow.AddDays(-1)))

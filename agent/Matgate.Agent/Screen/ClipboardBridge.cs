@@ -1,5 +1,7 @@
+#if AGENT_WINDOWS
 using System.Drawing;
 using System.Windows.Forms;
+#endif
 using System.Collections.Specialized;
 using System.Runtime.InteropServices;
 
@@ -16,6 +18,7 @@ public interface IClipboardBridge : IDisposable
     Task SetAsync(ClipContent content);
 }
 
+#if AGENT_WINDOWS
 // The Windows clipboard, watched from its own STA thread (the clipboard belongs to a window, and a window
 // to a thread with a message loop). What the agent puts there itself is not reported back as a change.
 public sealed class WindowsClipboard : IClipboardBridge
@@ -188,6 +191,7 @@ public sealed class WindowsClipboard : IClipboardBridge
     [DllImport("user32.dll")]
     private static extern bool RemoveClipboardFormatListener(nint window);
 }
+#endif
 
 // For the tests: the real clipboard stays untouched. What is set is reported, and comes back a moment
 // later as if a program on the machine had copied it - so both directions can be checked.

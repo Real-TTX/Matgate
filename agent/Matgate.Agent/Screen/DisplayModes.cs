@@ -49,6 +49,7 @@ public static class Resolution
     }
 }
 
+#if AGENT_WINDOWS
 public sealed class WindowsDisplay : IDisplayControl
 {
     private const int EnumCurrentSettings = -1;
@@ -166,6 +167,7 @@ public sealed class WindowsDisplay : IDisplayControl
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern int ChangeDisplaySettingsEx(string device, IntPtr devMode, IntPtr window, int flags, IntPtr parameter);
 }
+#endif
 
 // For the tests: monitors whose size only exists in here (TestPattern draws in it), every change reported.
 public sealed class TestDisplay(Action<string> report) : IDisplayControl

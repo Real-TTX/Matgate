@@ -1,9 +1,12 @@
 using Concentus;
 using Concentus.Enums;
+#if AGENT_WINDOWS
 using NAudio.Wave;
+#endif
 
 namespace Matgate.Agent.Screen;
 
+#if AGENT_WINDOWS
 // What the machine plays (WASAPI loopback of the default output), in 20 ms packets: Opus where the browser
 // can decode it, otherwise plain 16-bit PCM. Always 48 kHz stereo on the wire.
 public sealed class AudioStreamer : IDisposable
@@ -142,6 +145,7 @@ public sealed class AudioStreamer : IDisposable
         _capture.Dispose();
     }
 }
+#endif
 
 // For the tests: a quiet 440 Hz tone in the same packets, instead of whatever the machine plays.
 public sealed class TestTone : IDisposable
@@ -156,7 +160,7 @@ public sealed class TestTone : IDisposable
     {
         if (opus)
         {
-            _opus = OpusCodecFactory.CreateEncoder(AudioStreamer.SampleRate, 2, OpusApplication.OPUS_APPLICATION_RESTRICTED_LOWDELAY);
+            _opus = OpusCodecFactory.CreateEncoder(ScreenPlatform.AudioSampleRate, 2, OpusApplication.OPUS_APPLICATION_RESTRICTED_LOWDELAY);
         }
 
         _timer = new System.Threading.Timer(_ =>
@@ -165,7 +169,7 @@ public sealed class TestTone : IDisposable
             {
                 for (var i = 0; i < 960; i++, _sample++)
                 {
-                    _frame[i * 2] = _frame[i * 2 + 1] = 0.1f * MathF.Sin(2 * MathF.PI * 440 * _sample / AudioStreamer.SampleRate);
+                    _frame[i * 2] = _frame[i * 2 + 1] = 0.1f * MathF.Sin(2 * MathF.PI * 440 * _sample / ScreenPlatform.AudioSampleRate);
                 }
 
                 if (_opus is not null)

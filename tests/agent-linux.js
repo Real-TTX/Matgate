@@ -69,7 +69,7 @@ const shells = () => onMachine("ps -eo user:20,args | grep 'bash --noprofile' | 
   // ================================================================================== what the machine says of itself
   const status = await page.evaluate(async id => (await fetch("/api/agent/" + id + "/status", { credentials: "same-origin" })).json(), server.id);
   check("Matgate reaches the agent on Linux", [status.online, status.name, /Linux/i.test(status.os || "")], [true, "Linux-Kiste", true]);
-  check("it offers its files and its programs - and no screen yet", status.plugins.map(p => p.kind + ":" + p.id).sort(), ["files:files", "terminal:shell"]);
+  check("it offers its files, its programs and its screen", status.plugins.map(p => p.kind).sort(), ["files", "screen", "terminal"]);
   check("its logo comes along", /\/logo\?v=/.test(status.logo || ""), true);
   await page.goto(BASE + "/?open=" + server.id, { waitUntil: "networkidle" });
   await page.waitForSelector(".agent-hero h2", { timeout: 20000 });
@@ -86,7 +86,7 @@ const shells = () => onMachine("ps -eo user:20,args | grep 'bash --noprofile' | 
       [...root.querySelectorAll(".agent-home-grid .agent-tile strong")].map(t => t.textContent.trim()),
       !!root.querySelector("[data-agent-screen]"),
     ];
-  }), ["Linux-Kiste", true, true, ["Freigabe"], ["Shell"], false]);
+  }), ["Linux-Kiste", true, true, ["Freigabe"], ["Shell"], true]);
 
   // ================================================================================== files
   const listing = await page.evaluate(async id => (await fetch("/api/files/" + id + "/list?path=" + encodeURIComponent("/Freigabe"), { credentials: "same-origin" })).json(), server.id);
@@ -172,6 +172,89 @@ const shells = () => onMachine("ps -eo user:20,args | grep 'bash --noprofile' | 
     return [/systemd service \(matgate-agent\)/.test(said), /run as demo/.test(said), /nothing was changed/.test(said), /placeholder/.test(onMachine("cat /etc/systemd/system/matgate-agent.service")), onMachine("test -e /etc/matgate-agent && echo da || echo nicht")];
   })(), [true, true, true, true, "nicht"]);
   check("its status answers on the machine", /"Port":7488/.test(onMachine("/opt/matgate-agent/matgate-agent status --port 7488")), true);
+
+  // ================================================================================== the screen
+  // The machine's desktop is an X server that runs as "demo" (tests/agent-linux/desktop.sh); the agent, as
+  // root, finds it, gets in with its key file and shows it - here for real, not as a generated picture: what
+  // is checked is looked up on the machine itself (where the pointer is, what the window got typed).
+  const onDesktop = command => onMachine("su demo -c 'DISPLAY=:'$(ls /tmp/.X11-unix | tr -d X)' XAUTHORITY=$(ls /home/demo/.xauth* | tail -1) " + command + "'");
+  check("the agent's own probe finds the display, its key, a picture, the encoder and the window",
+    (said => [/display:\s+:7\s+key file: \/home\/demo\/\.xauth7/.test(said), /capture:\s+\d+ pictures of 1280x800/.test(said), /OpenH264/.test(said), /windows:\s+1/.test(said)])(onMachine("/opt/matgate-agent/matgate-agent screen-probe")),
+    [true, true, true, true]);
+  await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: BASE });
+  await context.addInitScript(id => localStorage.setItem("matgate.screen.resolution." + id, "native"), server.id);
+  const view = await context.newPage();
+  view.on("pageerror", e => { console.log("JS ERROR: " + e.message); failures.push("JS error"); });
+  await view.goto(BASE + "/agent/" + server.id + "/screen", { waitUntil: "domcontentloaded" });
+  for (let i = 0; i < 40 && (await view.evaluate(() => window.__screen.frames)) < 2; i++) { await sleep(300); }
+  check("pictures of the desktop arrive and are decoded", (await view.evaluate(() => window.__screen.frames)) >= 2, true);
+  await sleep(1300);
+  check("encoded by OpenH264", /OpenH264/.test((await view.evaluate(() => window.__screen.stats || {})).encoder || ""), true);
+  const box = await view.locator("#screen").boundingBox();
+  const at = (x, y) => [box.x + box.width * (x + 0.5) / 1280, box.y + box.height * (y + 0.5) / 800];
+  check("the picture has the desktop's shape", Math.abs(box.width / box.height - 1280 / 800) < 0.02, true);
+  // Not one colour: the window is in it. (The video's own pixels, drawn onto a canvas.)
+  check("and shows the window", await view.evaluate(() => {
+    const source = document.getElementById("screen");
+    const canvas = document.createElement("canvas");
+    canvas.width = 320; canvas.height = 200;
+    const pen = canvas.getContext("2d");
+    pen.drawImage(source, 0, 0, 320, 200);
+    const pixels = pen.getImageData(0, 0, 320, 200).data;
+    const seen = new Set();
+    for (let i = 0; i < pixels.length; i += 4) { seen.add((pixels[i] >> 4) + "," + (pixels[i + 1] >> 4) + "," + (pixels[i + 2] >> 4)); }
+    return seen.size >= 2;
+  }), true);
+  await view.screenshot({ path: path.join(os.tmpdir(), "matgate-linux-screen.png") });
+
+  // --- Mouse: where the viewer points is where the machine's pointer goes.
+  await view.mouse.move(...at(300, 200));
+  await sleep(500);
+  check("the pointer follows the viewer's", onDesktop("xdotool getmouselocation").replace(/ screen.*/, ""), "x:300 y:200");
+  // --- Keyboard: a click into the window, then keys - as scan codes, through the machine's own layout.
+  const framesBefore = await view.evaluate(() => window.__screen.frames);
+  await view.mouse.click(...at(300, 200));
+  await sleep(300);
+  // A capital letter the way a keyboard makes one: Shift and the key.
+  await view.keyboard.type("hallo ");
+  await view.keyboard.press("Shift+KeyL");
+  await view.keyboard.type("inux 42");
+  await view.keyboard.press("Enter");
+  await sleep(800);
+  check("keys typed here are typed there", onMachine("cat /tmp/typed.txt"), "hallo Linux 42");
+  check("and what they change on the screen is shown", (await view.evaluate(() => window.__screen.frames)) > framesBefore, true);
+  // --- Text as itself (a phone's keyboard, dictation): also characters this layout has no key for.
+  await view.evaluate(() => {
+    const sink = document.getElementById("sink");
+    sink.focus();
+    sink.setRangeText("Grüße für 5 €", sink.value.length, sink.value.length, "end");
+    sink.dispatchEvent(new InputEvent("input", { inputType: "insertText", data: "Grüße für 5 €", bubbles: true }));
+  });
+  await sleep(1200);
+  await view.keyboard.press("Enter");
+  await sleep(600);
+  check("text arrives as text, whatever the layout", onMachine("tail -n 1 /tmp/typed.txt"), "Grüße für 5 €");
+  // --- Clipboard, machine -> this device.
+  onDesktop("sh -c \"printf %s Kopie-vom-Linux | xclip -selection clipboard >/dev/null 2>&1\"");
+  for (let i = 0; i < 20 && (await view.evaluate(() => window.__screen.clipboard.slice(-1)[0])) !== "Kopie-vom-Linux"; i++) { await sleep(250); }
+  check("text copied on the machine lands on this device's clipboard", await view.evaluate(() => window.__screen.clipboard.slice(-1)[0]), "Kopie-vom-Linux");
+  // --- Clipboard, this device -> machine: Ctrl+V carries it over and pastes it there.
+  await view.evaluate(() => navigator.clipboard.writeText("Vom Browser ä€"));
+  await view.locator("#screen").click({ position: { x: box.width * 300 / 1280, y: box.height * 200 / 800 } });
+  await view.keyboard.press("Control+v");
+  await sleep(1500);
+  check("text pasted here is on the machine's clipboard", onDesktop("xclip -o -selection clipboard"), "Vom Browser ä€");
+
+  // --- Somebody signs out and in again: the X server ends, another one starts (another display, another
+  // key). The agent's helper ends with the first and a new one shows the second - the viewer stays.
+  const seen = await view.evaluate(() => window.__screen.frames);
+  onMachine("/desktop.sh 8");
+  for (let i = 0; i < 60 && (await view.evaluate(() => window.__screen.frames)) < seen + 2; i++) { await sleep(500); }
+  check("after the desktop was replaced by another one, the viewer sees that one", (await view.evaluate(() => window.__screen.frames)) >= seen + 2, true);
+  await view.mouse.move(...at(500, 300));
+  await sleep(600);
+  check("and points in it", onDesktop("xdotool getmouselocation").replace(/ screen.*/, ""), "x:500 y:300");
+  await view.close();
 
   // ================================================================================== a new version
   // Matgate brings it over its connection: the release for THIS system (linux-x64), checked, put in place of

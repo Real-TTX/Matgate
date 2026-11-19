@@ -1,5 +1,7 @@
 using System.Runtime.InteropServices;
+#if AGENT_WINDOWS
 using Vortice.MediaFoundation;
+#endif
 
 namespace Matgate.Agent.Screen;
 
@@ -17,6 +19,7 @@ internal interface IVideoEncoder : IDisposable
     bool Encode(byte[] nv12, bool keyFrame);
 }
 
+#if AGENT_WINDOWS
 internal static class VideoEncoders
 {
     private static volatile bool _hardwareBroken;
@@ -538,6 +541,7 @@ internal sealed class HardwareH264Encoder : MediaFoundationEncoder
         base.Dispose();
     }
 }
+#endif
 
 internal static class AnnexB
 {

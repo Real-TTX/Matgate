@@ -114,8 +114,9 @@ kept.
 ## Linux and macOS
 
 The same agent, as the system's own service - the way it is a LocalSystem service on Windows: it starts
-with the machine, before and without anyone signing in. So far it offers the **shared folders** and
-**programs in a terminal**; the screen follows (see the plan in `docs/PLAN.md`).
+with the machine, before and without anyone signing in. It offers the **shared folders**, **programs in a
+terminal** and, on Linux, the **screen** (see "The screen on Linux" below; a Mac's screen is the next step
+in `docs/PLAN.md`).
 
 ```sh
 curl -fsSL -o matgate-agent https://github.com/Real-TTX/Matgate/releases/download/agent-latest/matgate-agent-linux-x64
@@ -140,6 +141,19 @@ setup prints host, port, connection password and the certificate's fingerprint f
   `--user` (by default whoever called `sudo`; `RunAs` in the settings), with that user's rights, home
   folder and shell. The agent does the change of user itself: `su` would take the terminal away from the
   program, and Ctrl+C would end everything.
+- **The screen on Linux** is the machine's X display, with mouse, keyboard and the clipboard - the sign-in
+  screen of the display manager as well as the desktop of whoever is signed in. The service has no display
+  of its own; as root it finds the X server the monitor shows (its process, its display, the file with its
+  key, the virtual terminal) and looks at it through a helper process that belongs to that display. When
+  somebody signs in or out the X server changes, the helper ends with the old one and a new one shows the
+  new one - the viewer stays. It needs X11's client libraries and the H.264 encoder OpenH264 from the
+  distribution (Debian/Ubuntu: `apt install libx11-6 libxext6 libxfixes3 libxtst6 libxdamage1 libxrandr2
+  libopenh264-7`; Fedora: `dnf install openh264`); what is missing, the agent's log says at the start, and
+  `sudo matgate-agent screen-probe` says which display it would show and whether a picture comes out.
+  **Not yet:** a desktop on **Wayland** (the agent says so when the screen is opened - choose an Xorg
+  session at the sign-in screen, or set `WaylandEnable=false` in GDM), the machine's sound, the browser's
+  microphone and controllers. Copying from the machine brings text; pasting to it takes text, pictures and
+  files. A machine without any X server (a server without a desktop) has no screen to show.
 - **Terminals** are real pseudo terminals (window size, Ctrl+C, colours); a session keeps running without
   a browser, as on Windows. The default programs are Claude Code (`claude`) and, switched off, a login
   shell (`$SHELL -l`).

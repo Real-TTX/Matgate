@@ -62,6 +62,7 @@ public sealed class RecordingGamepads(Action<string> report, Action<int, byte, b
     }
 }
 
+#if AGENT_WINDOWS
 public sealed class ViGEmGamepads : IGamepads
 {
     public const int MaxPads = 4;
@@ -426,3 +427,4 @@ public sealed class ViGEmGamepads : IGamepads
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern unsafe bool GetOverlappedResult(SafeFileHandle file, NativeOverlapped* overlapped, out uint transferred, [MarshalAs(UnmanagedType.Bool)] bool wait);
 }
+#endif

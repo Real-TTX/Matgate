@@ -20,6 +20,7 @@ public interface IInputSink
     void Shortcut(char character);
 }
 
+#if AGENT_WINDOWS
 public sealed class InputInjector : IInputSink
 {
     private const uint InputMouse = 0;
@@ -193,6 +194,7 @@ public sealed class InputInjector : IInputSink
     [DllImport("user32.dll")]
     private static extern uint MapVirtualKeyEx(uint code, uint mapType, nint layout);
 }
+#endif
 
 // For the tests: nothing reaches the real mouse or keyboard, every input is reported back instead.
 public sealed class RecordingInput(Action<string> report) : IInputSink

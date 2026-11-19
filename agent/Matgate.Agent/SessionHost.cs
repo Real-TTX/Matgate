@@ -120,7 +120,11 @@ internal sealed class HostLink : IDisposable
 
             Stop();
             var name = $"matgate-agent-{_role}-{Guid.NewGuid():N}";
-            var server = NamedPipeServerStreamAcl.Create(name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous, 0, 0, Security());
+            // Windows: a pipe only this account and the helper's may open. Elsewhere a socket of this user's own -
+            // the helper is the same user (root, where the agent is the system's service).
+            var server = OperatingSystem.IsWindows()
+                ? NamedPipeServerStreamAcl.Create(name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous, 0, 0, Security())
+                : new NamedPipeServerStream(name, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
             Process process;
             try
             {
@@ -143,7 +147,7 @@ internal sealed class HostLink : IDisposable
             }
 
             // The other end must be the process just started, not anyone else who found the name.
-            if (!GetNamedPipeClientProcessId(server.SafePipeHandle.DangerousGetHandle(), out var client) || client != process.Id)
+            if (OperatingSystem.IsWindows() && (!GetNamedPipeClientProcessId(server.SafePipeHandle.DangerousGetHandle(), out var client) || client != process.Id))
             {
                 server.Dispose();
                 TryKill(process);
@@ -310,13 +314,17 @@ internal static class SessionHost
             return 2;
         }
 
-        using var client = new NamedPipeClientStream(".", name, PipeDirection.InOut, PipeOptions.Asynchronous);
+        using var client = new NamedPipeClientStream(".", name, PipeDirection.InOut, OperatingSystem.IsWindows() ? PipeOptions.Asynchronous : PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
         await client.ConnectAsync(10000);
         using var pipe = new FramePipe(client);
         // Nobody reads a helper's console: its log lines go into the agent's log.
         AgentLog.Sink = line => _ = pipe.SendAsync(new AgentFrame { Kind = "evt", Op = "host.log", Data = new JsonObject { ["text"] = line } });
 
+#if AGENT_WINDOWS
         return role == "screen" ? await RunScreenAsync(pipe) : await RunTerminalsAsync(pipe);
+#else
+        return role == "screen" ? await RunScreenAsync(pipe) : 2;
+#endif
     }
 
     private static async Task<int> RunScreenAsync(FramePipe pipe)
@@ -328,7 +336,7 @@ internal static class SessionHost
         // signed out, or took the console over remotely), it ends and the agent starts a new one there.
         using var watch = new System.Threading.Timer(_ =>
         {
-            if (SessionNative.IsLocalSystem && SessionNative.ConsoleSession() is var console and >= 0 && console != SessionNative.CurrentSession)
+            if (Screen.ScreenPlatform.Current.HelperMisplaced())
             {
                 Environment.Exit(0);
             }
@@ -374,6 +382,7 @@ internal static class SessionHost
         return 0;
     }
 
+#if AGENT_WINDOWS
     private static async Task<int> RunTerminalsAsync(FramePipe pipe)
     {
         var programs = new ConcurrentDictionary<string, ConPty>();
@@ -435,4 +444,5 @@ internal static class SessionHost
 
         return 0;
     }
+#endif
 }

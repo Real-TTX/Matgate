@@ -1,6 +1,6 @@
 # Matgate – Plan zum Weitermachen
 
-Stand: 2026-11-19, Version 0.25.0 auf `main` (`v0.25.0`), Agent 0.12.0; auf ve-docker-1
+Stand: 2026-11-19, Version 0.25.0 auf `main` (`v0.25.0`), Agent 0.13.0; auf ve-docker-1
 (matgate.schmoldt.it) läuft seit dem 2026-11-18 ebenfalls 0.25.0 (Websites dort weiter über den Pfad, bis
 Route und Variable stehen; Einspielen trennt laufende Sitzungen, nur auf ausdrücklichen Wunsch). Der Agent
 auf dem Entwicklungsrechner ist der offizielle Build aus dem Release `agent-latest`. Geschrieben als Übergabe an eine andere Sitzung.
@@ -420,13 +420,39 @@ Anmeldebildschirm. Etappen:
 - **Falle:** `AgentLog.AttachToParentConsole` rief unter Linux `kernel32` - nur in einem Terminal (dort
   ist die Ausgabe nicht umgeleitet), also genau beim Start eines Programms über `as-user`.
 
-### Etappe 3 - offen: Bildschirm auf Linux, auch ohne angemeldeten Benutzer
+### Etappe 3 - erledigt (Agent 0.13.0): Bildschirm auf Linux (X11), auch ohne angemeldeten Benutzer
 
-- H.264 über OpenH264 liegt portabel in `Matgate/Display/Video` (wie die eigene RDP/VNC-Engine).
-- X11: Aufnahme per XShm/XDamage, Eingaben per XTest - als root auch am Anmeldebildschirm (Xauthority des
-  Display-Managers). Im Teststapel prüfbar (Container `desktop` hat ein X auf :1).
-- Wayland/ohne X: KMS/DRM-Aufnahme und uinput als root - sitzungsunabhängig, aber deutlich aufwendiger.
-- Mikrofon/Controller dort ohne fremde Treiber: uinput-Gamepad, PipeWire/PulseAudio-Quelle.
+- **Der Bildschirm-Code ist jetzt für alle Systeme derselbe:** `Screen/ScreenPlugin.cs` (Sitzung, Takt,
+  Einstellungen, ein Fenster als Bild, Zwischenablage-Protokoll) fragt `Screen/ScreenPlatform.cs` nach
+  allem, was am System hängt (Quelle, Encoder, Eingabe, Zwischenablage, Auflösung, Fensterliste,
+  Hilfsprozess). Die Windows-Klassen stehen in ihren Dateien hinter `#if AGENT_WINDOWS`; Schnittstellen
+  und Test-Attrappen sind gemeinsam. `SessionHost.cs` (Hilfsprozess über eine Pipe) gilt für alle.
+- **Linux** (`Unix/Screen/`): `X11Capture` (XShm, XDamage - ohne XDamage Vergleich mit dem Bild davor;
+  Mauszeiger über XFixes als PNG), `X11Input` (XTest; Scancodes = Linux-Tastencodes + 8, Tabelle für die
+  erweiterten Tasten; Text als Zeichen über die Belegung oder eine freie Taste, die kurz umbelegt wird),
+  `X11Clipboard` (Besitzer der Auswahl beobachten, Text lesen; Text, PNG und Dateien als
+  `text/uri-list`/`x-special/gnome-copied-files` ausgeben), `X11Monitors`/`X11DisplayControl` (XRandR;
+  Auflösung nur bei einem Monitor), `X11WindowList` (EWMH), `OpenH264Encoder` (bindet
+  `Matgate/Display/Video/OpenH264.cs` ein - für den Agent mit allen Sonamen und der Layoutprüfung statt
+  einer Versionsliste; geprüft mit 2.3.1 aus Debian 12).
+- **Ohne Benutzersitzung:** `XServers.Find` sucht als root den X-Server, den der Monitor zeigt: Prozess
+  (Xorg, Xvfb, Xvnc …), Display aus der Kommandozeile oder - bei `-displayfd` (GDM) - über den Socket,
+  Schlüsseldatei aus `-auth` bzw. der Umgebung des Servers, virtuelles Terminal gegen
+  `/sys/class/tty/tty0/active`. Der Hilfsprozess startet mit `DISPLAY`/`XAUTHORITY` dieses Servers. Endet
+  der X-Server (Ab-/Anmelden) oder zeigt der Monitor ein anderes Terminal, endet der Hilfsprozess, und der
+  Agent öffnet für die Zuschauenden den nächsten.
+- **Falle:** Das geteilte Bild (SysV-Shared-Memory) gehört root, der X-Server läuft heute meist als der
+  angemeldete Benutzer und dürfte es nicht einbinden - der Agent übergibt das Segment per `IPC_SET` an
+  dessen Benutzer (statt es für alle lesbar zu machen).
+- **Geprüft** (`tests/agent-linux.js`, 49 Prüfungen; der Container hat jetzt einen Desktop: Xvfb als
+  Benutzer `demo` mit Schlüsseldatei, openbox, ein xterm): Bild kommt an und zeigt das Fenster, der Zeiger
+  folgt, Tasten und Text (auch Zeichen ohne Taste: „Grüße für 5 €“) landen im Fenster, Zwischenablage in
+  beide Richtungen, ein anderer X-Server unter anderem Display nach „Abmelden“ wird übernommen.
+- **Nicht geprüft:** ein echter Rechner mit GDM/LightDM/SDDM (Anmeldebildschirm, Wechsel des Terminals,
+  `-displayfd`), mehrere Monitore, Auflösungswechsel, Fensterliste in der Oberfläche, arm64.
+- **Offen:** Wayland (der Agent meldet es beim Öffnen; Weg wäre KMS/DRM-Aufnahme + uinput als root oder
+  das Portal je Sitzung), Ton (PulseAudio/PipeWire-Monitor der Sitzung), Mikrofon und Controller (uinput),
+  Bilder/Dateien vom Rechner in die Zwischenablage des Browsers.
 
 ### Etappe 4 - offen: Bildschirm auf macOS
 

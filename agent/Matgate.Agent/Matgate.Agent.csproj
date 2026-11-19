@@ -23,7 +23,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <AssemblyName>matgate-agent</AssemblyName>
     <RootNamespace>Matgate.Agent</RootNamespace>
-    <VersionPrefix>0.12.0</VersionPrefix>
+    <VersionPrefix>0.13.0</VersionPrefix>
     <AvaloniaVersion>11.3.22</AvaloniaVersion>
     <!-- The windows are built in code; bindings in MatDesktop's templates resolve as its own project compiles them. -->
     <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>
@@ -72,8 +72,10 @@
   </ItemGroup>
 
   <ItemGroup Condition="'$(AgentForWindows)' != 'true'">
-    <Compile Remove="Screen\**" />
-    <Compile Remove="ConPty.cs;PtyLauncher.cs;SessionHost.cs;SessionNative.cs;UpdatePlugin.cs" />
+    <Compile Remove="Screen\ScreenProbe.cs" />
+    <Compile Remove="ConPty.cs;PtyLauncher.cs;SessionNative.cs;UpdatePlugin.cs" />
+    <!-- OpenH264 as Matgate itself binds it: the software encoder of the screen on Linux. -->
+    <Compile Include="..\..\Matgate\Display\Video\OpenH264.cs" Link="Unix\Screen\OpenH264.cs" />
     <Compile Remove="Setup\Installer.cs;Setup\WindowsNative.cs" />
   </ItemGroup>
 

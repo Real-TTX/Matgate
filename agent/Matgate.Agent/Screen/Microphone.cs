@@ -1,6 +1,8 @@
 using Concentus;
+#if AGENT_WINDOWS
 using NAudio.CoreAudioApi;
 using NAudio.Wave;
+#endif
 
 namespace Matgate.Agent.Screen;
 
@@ -19,6 +21,7 @@ public interface IMicrophone : IDisposable
     void Packet(string codec, ReadOnlyMemory<byte> data);
 }
 
+#if AGENT_WINDOWS
 public static class MicrophoneDevices
 {
     // The playback ends of the virtual cables people have, by what Windows calls them.
@@ -87,6 +90,7 @@ public static class MicrophoneDevices
         return found;
     }
 }
+#endif
 
 // Decodes what arrives and hands on plain samples: 48 kHz, mono, 16 bit.
 public abstract class MicrophoneBase : IMicrophone
@@ -161,6 +165,7 @@ public sealed class RecordingMicrophone(Action<string> report) : MicrophoneBase
     }
 }
 
+#if AGENT_WINDOWS
 public sealed class MicrophonePlayer : MicrophoneBase
 {
     private readonly MMDevice _device;
@@ -220,3 +225,4 @@ public sealed class MicrophonePlayer : MicrophoneBase
         base.Dispose();
     }
 }
+#endif

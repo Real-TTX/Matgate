@@ -1,7 +1,9 @@
 using System.Runtime.InteropServices;
+#if AGENT_WINDOWS
 using Vortice.Direct3D;
 using Vortice.Direct3D11;
 using Vortice.DXGI;
+#endif
 
 namespace Matgate.Agent.Screen;
 
@@ -45,6 +47,7 @@ public interface IScreenSource : IDisposable
     unsafe Grab Next(int timeout, PointerState pointer, Action<nint, int> image);
 }
 
+#if AGENT_WINDOWS
 // The desktop through DXGI desktop duplication: the GPU hands over each changed picture, nothing is
 // copied while the screen stands still.
 public sealed unsafe class DesktopCapture : IScreenSource
@@ -320,6 +323,7 @@ internal static unsafe class CursorImage
         return alpha == 0 ? 0xFF000000 | colour : colour == 0 ? 0u : 0xFF000000;
     }
 }
+#endif
 
 // A generated picture instead of the desktop: the tests see moving content without anyone's real screen.
 public sealed unsafe class TestPattern : IScreenSource
@@ -367,7 +371,7 @@ public sealed unsafe class TestPattern : IScreenSource
 
             fixed (byte* shape = arrow)
             {
-                pointer.Shape = CursorImage.ToPng(shape, 2, 16, 16, 64);
+                pointer.Shape = PngWriter.FromBgra(new ReadOnlySpan<byte>(shape, arrow.Length), 16, 16);
             }
 
             pointer.Visible = true;

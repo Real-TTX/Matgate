@@ -187,8 +187,10 @@ let agent;
 
   // ---- the microphone
   await view.evaluate(() => window.MatgateScreen.toggleMic());
-  let lines = await until(/^mic packets=\d+/);
-  const report = (lines.find(l => /^mic packets=/.test(l)) || "").match(/packets=(\d+) samples=(\d+) level=(\d+)/) || [];
+  // Chromium's fake microphone beeps now and then and is silent in between: the first half second may be
+  // all silence. The level is over everything heard so far, so a later report has the beep in it.
+  let lines = await until(/^mic packets=\d+ samples=\d+ level=(?:[3-9]\d|\d{3,})/);
+  const report = (lines.filter(l => /^mic packets=/.test(l)).pop() || "").match(/packets=(\d+) samples=(\d+) level=(\d+)/) || [];
   check("the voice arrives on the machine: packets of 20 ms, and not silence", [Number(report[1]) >= 25, Number(report[2]) === Number(report[1]) * 960, Number(report[3]) > 20], [true, true, true]);
   now = await state();
   check("the page shows the microphone as on", [now.mic, await view.evaluate(() => document.getElementById("mic").classList.contains("on")), /Mikrofon an|Microphone on/.test(now.status)], [true, true, true]);

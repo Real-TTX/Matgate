@@ -15,7 +15,13 @@ internal static unsafe class OpenH264
 {
     // The soname of the distribution's package. The unversioned name only exists where the headers are
     // installed too; the version check below decides either way.
+#if AGENT_UNIX
+    // The agent (agent/Matgate.Agent compiles this file too) runs on whatever Linux the machine has: every
+    // soname the distributions ship, and the layout check below instead of a list of versions.
+    private static readonly string[] LibraryNames = ["libopenh264.so.7", "libopenh264.so.8", "libopenh264.so.6", "libopenh264.so"];
+#else
     private static readonly string[] LibraryNames = ["libopenh264.so.7", "libopenh264.so"];
+#endif
 
     // The versions tests/unit/Video.Tests/abi/ holds a verified layout for.
     private static readonly (uint Major, uint Minor, uint Revision)[] VerifiedVersions = [(2, 4, 1)];
@@ -165,7 +171,11 @@ internal static unsafe class OpenH264
         CodecVersion found = default;
         ((delegate* unmanaged[Cdecl]<CodecVersion*, void>)getVersion)(&found);
         version = $"{found.Major}.{found.Minor}.{found.Revision}";
+#if AGENT_UNIX
+        if (found.Major != 2)
+#else
         if (!VerifiedVersions.Contains((found.Major, found.Minor, found.Revision)))
+#endif
         {
             var verified = string.Join(", ", VerifiedVersions.Select(each => $"{each.Major}.{each.Minor}.{each.Revision}"));
             return $"OpenH264 {version} is installed, but Matgate has only verified the binary layout of {verified}.";

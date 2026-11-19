@@ -19,6 +19,7 @@ on:
     paths:
       - "agent/**"
       - "Matgate/Agent/AgentWire.cs"
+      - "Matgate/Display/Video/OpenH264.cs"
       - ".github/workflows/agent.yml"
     tags:
       - "v*"
