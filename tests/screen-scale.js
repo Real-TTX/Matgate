@@ -267,6 +267,33 @@ const near = (a, b, tolerance) => Math.abs(a - b) <= tolerance;
     return [window.MatgateScreen.state().keyboardInset, document.body.style.paddingBottom, Math.round(canvas.height) <= Math.round(stage.height) + 1, getComputedStyle(document.getElementById("keys")).display];
   }), [0, "", true, "none"]);
 
+  // --- The keyboard goes and the phone does not say so. An iPhone - as an installed app most of all - does
+  // not always report it when tabs or apps are switched: the viewport stayed "shrunk", and the key bar hung
+  // above an empty space where the keyboard had been.
+  const room = () => frame.evaluate(() => [window.MatgateScreen.state().keyboardInset > 0, document.body.style.paddingBottom !== ""]);
+  await frame.evaluate(() => document.getElementById("sink").focus());
+  await shell.evaluate(height => window.__visual(height, 0), PHONE.height - 336);
+  await sleep(500);
+  check("the keyboard is up again: room for it", await room(), [true, true]);
+  // The field lets go, the viewport still claims a keyboard.
+  await frame.evaluate(() => document.getElementById("sink").blur());
+  await sleep(1200);
+  check("the field lets go without a word from the phone: the room goes all the same", await room(), [false, false]);
+  // And a tab that is left with the keyboard up does not keep its room for it.
+  await frame.evaluate(() => document.getElementById("sink").focus());
+  await sleep(900);
+  check("the keyboard is up once more", await room(), [true, true]);
+  await shell.evaluate(() => document.getElementById("new-connection-tab").click());
+  await sleep(1200);
+  check("another tab comes to the front: the session's field let go, and its room for the keyboard is gone", [await frame.evaluate(() => document.activeElement === document.getElementById("sink")), await room()], [false, [false, false]]);
+  await shell.click(".session-tab--page");
+  await sleep(1200);
+  check("back in the session there is no gap under the key bar", [await shell.evaluate(() => document.querySelector(".session-tab--page").classList.contains("active")), await room()], [true, [false, false]]);
+  await shell.evaluate(() => window.__visual(null, 0));
+  // What follows has the cursor in the session again, as someone typing there has.
+  await frame.evaluate(() => document.getElementById("sink").focus());
+  await sleep(400);
+
   // --- The option: the machine's resolution follows the keyboard.
   await openDialog();
   await sleep(400);
@@ -274,6 +301,8 @@ const near = (a, b, tolerance) => Math.abs(a - b) <= tolerance;
   await sleep(300);
   check("the option can be switched on in the dialog", [(await state(frame)).keyboardResize, await shell.evaluate(() => document.querySelector("[data-keyboard-resize]").dataset.keyboardResize)], [true, "1"]);
   await shell.evaluate(() => document.getElementById("resolution-dialog").classList.add("hidden"));
+  // A keyboard is up because a field holds it: the cursor is in the session.
+  await frame.evaluate(() => document.getElementById("sink").focus());
   await shell.evaluate(height => window.__visual(height, 0), PHONE.height - 336);
   await sleep(600);
   const small = await frame.evaluate(() => { const box = document.getElementById("stage").getBoundingClientRect(); return [Math.round(box.width), Math.round(box.height)]; });

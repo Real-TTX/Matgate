@@ -5580,6 +5580,57 @@ public sealed class HtmlViews
                 // the spot the user last tapped (where the text cursor lands) stays visible just above
                 // the keyboard. Pure visual translate - it never resizes the remote (no RDP/VNC
                 // resolution change), matching the "keyboard overlays, not resizes" behaviour.
+                // What could hold the device's keyboard: a field with the cursor in it - in the shell, or inside
+                // the frame of a page tab. A frame of another origin cannot be looked into, so it may.
+                function keyboardHolder() {
+                    let element = document.activeElement;
+                    for (let depth = 0; element && depth < 6; depth++) {
+                        if (element.tagName === 'IFRAME') {
+                            let inner = null;
+                            try {
+                                inner = element.contentDocument;
+                            }
+                            catch {
+                                inner = null;
+                            }
+
+                            if (!inner) {
+                                return element;
+                            }
+
+                            element = inner.activeElement;
+                        }
+                        else if (element.shadowRoot && element.shadowRoot.activeElement) {
+                            element = element.shadowRoot.activeElement;
+                        }
+                        else {
+                            break;
+                        }
+                    }
+
+                    return element && (element.isContentEditable || /^(INPUT|TEXTAREA|SELECT|IFRAME)$/.test(element.tagName)) ? element : null;
+                }
+
+                // Takes the cursor out of whatever field holds the keyboard, unless that field is inside `keep`.
+                function dropKeyboardHolder(keep) {
+                    const holder = keyboardHolder();
+                    if (!holder || holder.tagName === 'IFRAME' || !(window.matchMedia && window.matchMedia('(pointer: coarse)').matches)) {
+                        return;
+                    }
+
+                    const outer = document.activeElement;
+                    if (keep && outer && keep.contains(outer)) {
+                        return;
+                    }
+
+                    try {
+                        holder.blur();
+                    }
+                    catch {
+                        // Nothing to let go of.
+                    }
+                }
+
                 function keyboardCoverTopY(tab) {
                     // In-app on-screen keyboard (a DOM panel pinned to the bottom of the session).
                     if (tab && tab.osk && tab.osk.classList.contains('open')) {
@@ -5592,8 +5643,11 @@ public sealed class HtmlViews
                         return vk.boundingRect.top;
                     }
                     // iOS / others: the visual viewport shrinks from the bottom by the keyboard height.
+                    // Only while a field holds the keyboard. An iPhone does not always say when the keyboard
+                    // went (switching tabs or apps, most of all as an installed app): the viewport stayed
+                    // "shrunk", and the key bar hung above an empty space where the keyboard had been.
                     const vv = window.visualViewport;
-                    if (vv) {
+                    if (vv && keyboardHolder()) {
                         const visibleBottom = vv.offsetTop + vv.height;
                         if (window.innerHeight - visibleBottom > 120) {
                             return visibleBottom;
@@ -5685,31 +5739,68 @@ public sealed class HtmlViews
                 // A page tab (a session of Matgate's own engine, a terminal) is a document of its own: it cannot
                 // see the device's keyboard, which lay over its bottom - the key bar and the lower part of the
                 // picture with it. The page is told how much the keyboard covers, and ends above it.
+                // Every page tab is told - the one in front what the keyboard covers, the others that it covers
+                // nothing. Only the one in front used to hear: a tab left with the keyboard up kept its room
+                // for it, and came back with the key bar above a gap.
+                let keyboardWatch = 0;
                 function updatePageKeyboardInset() {
-                    let entry = null;
+                    let active = null;
+                    let pages = [];
                     try {
-                        entry = activeTabId ? null : shellTabs.get(activeShellTabId);
+                        active = activeTabId ? null : shellTabs.get(activeShellTabId);
+                        pages = Array.from(shellTabs.values());
                     }
                     catch {
                         // The tabs are not set up yet.
                         return;
                     }
-                    const frame = entry && entry.panel ? entry.panel.querySelector('iframe') : null;
-                    if (!frame) {
-                        return;
-                    }
                     const top = keyboardCoverTopY(null);
-                    const inset = top === null ? 0 : Math.max(0, Math.round(frame.getBoundingClientRect().bottom - top));
-                    try {
-                        const inner = frame.contentWindow;
-                        if (inner && typeof inner.MatgateKeyboardInset === 'function') {
-                            inner.MatgateKeyboardInset(inset);
+                    let covered = false;
+                    pages.forEach(entry => {
+                        const frame = entry.panel ? entry.panel.querySelector('iframe') : null;
+                        if (!frame) {
+                            return;
                         }
+                        const inset = entry === active && top !== null ? Math.max(0, Math.round(frame.getBoundingClientRect().bottom - top)) : 0;
+                        covered = covered || inset > 0;
+                        try {
+                            const inner = frame.contentWindow;
+                            if (inner && typeof inner.MatgateKeyboardInset === 'function') {
+                                inner.MatgateKeyboardInset(inset);
+                            }
+                        }
+                        catch {
+                            // A page that is not Matgate's own.
+                        }
+                    });
+                    // While room is kept for the keyboard it is looked at again and again: the moment the field
+                    // lets go, the room goes - whether or not the phone reported anything.
+                    if (covered && !keyboardWatch) {
+                        keyboardWatch = setInterval(updateViewportHeight, 500);
                     }
-                    catch {
-                        // A page that is not Matgate's own.
+                    else if (!covered && keyboardWatch) {
+                        clearInterval(keyboardWatch);
+                        keyboardWatch = 0;
                     }
                 }
+                // Looked at again now and a few moments later: after a switch of tabs or apps the phone's numbers
+                // settle late, and sometimes without an event.
+                let keyboardRechecks = [];
+                function recheckKeyboardSoon() {
+                    keyboardRechecks.forEach(clearTimeout);
+                    keyboardRechecks = [0, 250, 700, 1500].map(delay => setTimeout(updateViewportHeight, delay));
+                }
+                document.addEventListener('visibilitychange', () => {
+                    if (document.visibilityState !== 'visible') {
+                        // Leaving the app takes the keyboard away without telling the field. Let go of it, so
+                        // that coming back finds both agreeing: no keyboard, no cursor.
+                        dropKeyboardHolder(null);
+                    }
+                    recheckKeyboardSoon();
+                });
+                window.addEventListener('pageshow', recheckKeyboardSoon);
+                window.addEventListener('focus', recheckKeyboardSoon);
+                window.MatgateRecheckKeyboard = recheckKeyboardSoon;
                 updateViewportHeight();
                 window.addEventListener('resize', updateViewportHeight, { passive: true });
                 window.addEventListener('orientationchange', updateViewportHeight);
@@ -6657,7 +6748,8 @@ public sealed class HtmlViews
                     });
 
                     shellTabs.get(tabId)?.button.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-                    updatePageKeyboardInset();
+                    dropKeyboardHolder(shellTabs.get(tabId)?.panel || null);
+                    recheckKeyboardSoon();
 
                     updateTabActions();
                     saveTabOrder();
@@ -8809,6 +8901,8 @@ public sealed class HtmlViews
                 }
 
                 window.MatgateScreenChanged = () => {
+                    // The page's field took or let go of the cursor (among other things): the keyboard may have moved.
+                    recheckKeyboardSoon();
                     if (activeAgentScreen()) {
                         updateTabActions();
                     }
@@ -9928,7 +10022,8 @@ public sealed class HtmlViews
                     activeTab.panel.focus();
                     activeTab.tabButton.scrollIntoView({ block: 'nearest', inline: 'nearest' });
                     updateTabActions();
-                    updateSessionKeyboardShift();
+                    dropKeyboardHolder(activeTab.panel);
+                    recheckKeyboardSoon();
                     saveTabOrder();
                     saveWorkspaceTabs();
                     // The overview of an agent is fresh every time one comes back to it: a program started or
