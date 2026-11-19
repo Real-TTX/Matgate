@@ -151,20 +151,29 @@ jobs:
       # picture and encodes it with the distribution's OpenH264.
       - name: Screen probe (Linux)
         if: matrix.run && runner.os == 'Linux'
+        timeout-minutes: 5
+        continue-on-error: true
         shell: bash
         run: |
+          note() { local text="$2"; text="${text//'%'/%25}"; text="${text//$'\r'/}"; text="${text//$'\n'/%0A}"; echo "::notice title=$1::$text"; }
           sudo apt-get update -qq
-          sudo apt-get install -y -qq xvfb libopenh264-7 libx11-6 libxext6 libxfixes3 libxtst6 libxdamage1 libxrandr2
+          # OpenH264 is libopenh264-7 or -8, depending on the runner's Ubuntu.
+          for package in xvfb libx11-6 libxext6 libxfixes3 libxtst6 libxdamage1 libxrandr2 libopenh264-8 libopenh264-7; do
+            sudo apt-get install -y -qq "$package" >/dev/null 2>&1 || echo "not installed: $package"
+          done
           Xvfb :9 -screen 0 1280x800x24 -nolisten tcp &
           sleep 2
-          DISPLAY=:9 ./publish/matgate-agent-${{ matrix.rid }} screen-probe
+          out="$(DISPLAY=:9 ./publish/matgate-agent-${{ matrix.rid }} screen-probe 2>&1; echo "exit $?")"; echo "$out"
+          note "screen-probe on $(lsb_release -ds)" "$out"
+          echo "$out" | grep -q "^exit 0$"
 
-      # A Mac's screen cannot be tried anywhere else: the probe runs as the runner's user, as root and as root
-      # inside the session of the loginwindow process (the way the system's service starts its helper), and
-      # what it says is kept as a notice of this run. It never fails the build - a runner may not allow it.
+      # A Mac's screen cannot be tried anywhere else: the probe runs as the runner's user and - the way the
+      # system's service starts its helper - from a LaunchDaemon into the session of whoever is signed in.
+      # What it says is kept as a notice of this run. It never fails the build: a runner may not allow it
+      # (macOS gives the permission to record the screen to a program a person named, not to this one).
       - name: Screen probe (macOS)
         if: matrix.run && runner.os == 'macOS'
-        timeout-minutes: 5
+        timeout-minutes: 6
         continue-on-error: true
         shell: bash
         run: |
@@ -173,11 +182,20 @@ jobs:
           limited() { perl -e 'alarm 60; exec @ARGV' "$@"; }
           out="$(limited "$agent" screen-probe 2>&1; echo "exit $?")"; echo "$out"
           note "screen-probe as $(whoami) on macOS $(sw_vers -productVersion)" "$out"
-          out="$(limited sudo "$agent" screen-probe 2>&1; echo "exit $?")"; echo "$out"
-          note "screen-probe as root" "$out"
-          pid="$(pgrep -x loginwindow | head -n 1)"
-          out="$(limited sudo /bin/launchctl bsexec "$pid" "$agent" screen-probe 2>&1; echo "exit $?")"; echo "$out"
-          note "screen-probe as root in the session of loginwindow $pid" "$out"
+          user="$(id -u)"
+          printf '%s\n' '#!/bin/sh' \
+            "/bin/launchctl asuser $user '$agent' screen-probe > /tmp/probe-root.txt 2>&1; echo \"exit \$?\" >> /tmp/probe-root.txt" \
+            "/bin/launchctl asuser $user /usr/bin/sudo -u '#$user' '$agent' screen-probe > /tmp/probe-user.txt 2>&1; echo \"exit \$?\" >> /tmp/probe-user.txt" \
+            "touch /tmp/probe-done" > /tmp/probe.sh
+          chmod +x /tmp/probe.sh
+          printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' '<plist version="1.0"><dict>' \
+            '<key>Label</key><string>com.matgate.probe</string>' \
+            '<key>ProgramArguments</key><array><string>/bin/sh</string><string>/tmp/probe.sh</string></array>' \
+            '<key>RunAtLoad</key><true/>' '</dict></plist>' | sudo tee /Library/LaunchDaemons/com.matgate.probe.plist >/dev/null
+          sudo launchctl bootstrap system /Library/LaunchDaemons/com.matgate.probe.plist
+          for i in $(seq 1 90); do [ -f /tmp/probe-done ] && break; sleep 2; done
+          note "from a LaunchDaemon: launchctl asuser, as root" "$(cat /tmp/probe-root.txt 2>&1)"
+          note "from a LaunchDaemon: launchctl asuser, as the user" "$(cat /tmp/probe-user.txt 2>&1)"
 
       - name: Upload the pictures of the windows
         if: matrix.run

@@ -227,10 +227,11 @@ internal sealed unsafe class VideoToolboxEncoder : IVideoEncoder
     }
 }
 
-// macOS: the screen of the window server, captured by a helper process inside the session the monitor shows
-// - the sign-in window's or that of whoever is signed in. The system's service (a LaunchDaemon, root) has no
-// window server of its own; it starts the helper in the "bootstrap" of that session's loginwindow process.
-// When somebody signs in or out the console changes hands, the helper ends and a new one is started.
+// macOS: the screen of the window server, captured by a helper process inside the session of whoever is
+// signed in at the screen. The system's service (a LaunchDaemon, root) has no window server of its own; it
+// starts the helper in that user's session ("launchctl asuser" - "bsexec" into the loginwindow process no
+// longer reaches a screen: tried on macOS 26). When somebody signs in or out the console changes hands, the
+// helper ends and a new one is started. The sign-in window itself belongs to nobody's session and is not shown.
 internal sealed class MacScreenPlatform : ScreenPlatform
 {
     private readonly int _consoleAtStart = Mac.ConsoleUser();
@@ -244,10 +245,15 @@ internal sealed class MacScreenPlatform : ScreenPlatform
         var start = new ProcessStartInfo { UseShellExecute = false };
         if (UnixInstaller.IsRoot)
         {
-            var session = LoginWindow() ?? throw new InvalidOperationException("The Mac shows no screen right now (no loginwindow process).");
+            var console = Mac.ConsoleUser();
+            if (console <= 0)
+            {
+                throw new InvalidOperationException("Nobody is signed in at this Mac - its sign-in window cannot be shown yet.");
+            }
+
             start.FileName = "/bin/launchctl";
-            start.ArgumentList.Add("bsexec");
-            start.ArgumentList.Add(session.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            start.ArgumentList.Add("asuser");
+            start.ArgumentList.Add(console.ToString(System.Globalization.CultureInfo.InvariantCulture));
             start.ArgumentList.Add(Environment.ProcessPath!);
         }
         else
@@ -262,30 +268,6 @@ internal sealed class MacScreenPlatform : ScreenPlatform
         }
 
         return Process.Start(start) ?? throw new InvalidOperationException("The screen helper did not start.");
-    }
-
-    // The loginwindow process of the session at the console: the one of the console's owner.
-    public static int? LoginWindow()
-    {
-        var console = Mac.ConsoleUser();
-        using var list = Process.Start(new ProcessStartInfo("/bin/ps", "-axo pid=,uid=,comm=") { RedirectStandardOutput = true, UseShellExecute = false });
-        if (list is null)
-        {
-            return null;
-        }
-
-        var found = new List<(int Pid, int User)>();
-        foreach (var line in list.StandardOutput.ReadToEnd().Split('\n'))
-        {
-            var parts = line.Split(' ', 3, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-            if (parts.Length == 3 && parts[2].EndsWith("/loginwindow", StringComparison.Ordinal) && int.TryParse(parts[0], out var pid) && int.TryParse(parts[1], out var user))
-            {
-                found.Add((pid, user));
-            }
-        }
-
-        list.WaitForExit();
-        return found.Count == 0 ? null : found.FirstOrDefault(each => each.User == console, found[0]).Pid;
     }
 
     public override bool HelperMisplaced() => Mac.ConsoleUser() != _consoleAtStart;
@@ -335,7 +317,7 @@ internal sealed class MacScreenPlatform : ScreenPlatform
 
     public override IEnumerable<string> Describe()
     {
-        yield return "console:  user " + Mac.ConsoleUser() + ", loginwindow " + (LoginWindow()?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "none") + ", agent runs as " + Environment.UserName;
+        yield return "console:  user " + Mac.ConsoleUser() + ", agent runs as " + Environment.UserName;
         yield return "allowed:  screen recording " + (Mac.CGPreflightScreenCaptureAccess() != 0 ? "yes" : "no") + ", accessibility " + (MacInput.Allowed ? "yes" : "no");
     }
 
