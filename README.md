@@ -66,6 +66,9 @@ usable from a laptop or a phone – installable as a PWA.
 **Files**
 - File gateway for **SFTP, FTP and SMB** – no extra privileges in the container
 - Upload, download, **zip / unzip**, copy, move, delete, archive extraction
+- **Between file tabs as in Explorer**: Ctrl+C / Ctrl+X in one, Ctrl+V in another - also between two
+  different connections, folders included - or drag rows onto a folder or onto another file tab (Shift moves);
+  the bytes stay on the gateway
 - **Preview** for images, video, audio, PDF and text
 
 **Websites**

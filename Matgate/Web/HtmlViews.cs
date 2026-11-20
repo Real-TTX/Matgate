@@ -5312,6 +5312,9 @@ public sealed partial class HtmlViews
             clipboardReceived = Language(context) == "de" ? "Zwischenablage empfangen" : "Clipboard received",
             remoteClipboardReady = Language(context) == "de" ? "Remote-Zwischenablage bereit" : "Remote clipboard ready",
             connectionContinues = Language(context) == "de" ? "Verbindung wird fortgesetzt" : "Connection continues",
+            fileClipCopied = Language(context) == "de" ? "kopiert - mit Strg+V in einem Datei-Tab einfügen" : "copied - paste with Ctrl+V in a file tab",
+            fileClipCut = Language(context) == "de" ? "ausgeschnitten - mit Strg+V in einem Datei-Tab einfügen" : "cut - paste with Ctrl+V in a file tab",
+            filesPasted = Language(context) == "de" ? "eingefügt" : "pasted",
             credentialsSubmitted = Language(context) == "de" ? "Die Zugangsdaten wurden übergeben." : "Credentials were submitted."
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
         var connectionChoices = ConnectionChoiceSections(context, user, servers, workspaces, true);
@@ -14511,6 +14514,10 @@ public sealed partial class HtmlViews
 
                     const parentRow = document.createElement('tr');
                     parentRow.className = 'is-directory parent-directory';
+                    if ((tab.filePath || '/') !== '/') {
+                        parentRow.dataset.entryPath = tab.fileParentPath || '/';
+                        parentRow.dataset.directory = '1';
+                    }
                     const hasParent = (tab.filePath || '/') !== '/';
                     // The button in the bar says the same thing as the row, so it greys out with it.
                     const upButton = tab.fileUi && tab.fileUi.root
@@ -14565,6 +14572,10 @@ public sealed partial class HtmlViews
                         const modifiedAt = entry.modifiedAt || entry.ModifiedAt || '';
                         const row = document.createElement('tr');
                         row.className = isDirectory ? 'is-directory' : 'is-file';
+                        // What dragging and dropping between file tabs needs to know about the row.
+                        row.dataset.entryPath = entryPath;
+                        row.dataset.directory = isDirectory ? '1' : '';
+                        row.draggable = !isSmbShareRootEntry(tab, isDirectory);
 
                         const selectCell = document.createElement('td');
                         selectCell.className = 'file-select-cell';
@@ -14953,6 +14964,236 @@ public sealed partial class HtmlViews
                         copyToError.classList.remove('hidden');
                     }
                 }
+
+                // ---- Between file tabs, as in Explorer ---------------------------------------------------
+                // Ctrl+C / Ctrl+X take the selected entries, Ctrl+V puts them into the folder the file tab in
+                // front shows - in the same connection or another one. Rows can be dragged as well: onto a
+                // folder, onto the parent row, or onto a file tab at the top (held there, the tab comes to the
+                // front; let go on it, they go into the folder it shows). Dragging copies; with Shift it moves.
+                // The bytes stay on the gateway: the browser only says what goes where.
+                let fileClipboard = null;
+                let fileDrag = null;
+                let fileDragHover = { tabId: '', timer: 0 };
+
+                function fileTabOf(element) {
+                    for (const candidate of tabs.values()) {
+                        if (candidate.fileUi && candidate.panel && candidate.panel.contains(element)) {
+                            return candidate;
+                        }
+                    }
+
+                    return null;
+                }
+
+                function activeFileTab() {
+                    const candidate = tabs.get(activeTabId);
+                    return candidate && candidate.fileUi ? candidate : null;
+                }
+
+                async function transferFileEntries(sourceServerId, paths, targetTab, targetPath, move) {
+                    if (!paths.length || !targetTab) {
+                        return false;
+                    }
+
+                    const sourceTab = Array.from(tabs.values()).find(candidate => candidate.fileUi && candidate.serverId === sourceServerId) || null;
+                    const same = sourceServerId === targetTab.serverId;
+                    let note = '';
+                    const done = await runFileMutation(targetTab, async () => {
+                        const response = same
+                            ? await fetch(`/api/files/${sourceServerId}/${move ? 'move' : 'copy'}`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json', 'X-Matgate-Csrf': csrfToken },
+                                body: JSON.stringify({ paths, destinationPath: targetPath })
+                            })
+                            : await fetch(`/api/files/${sourceServerId}/copy-to`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json', 'X-Matgate-Csrf': csrfToken },
+                                body: JSON.stringify({ paths, targetServerId: targetTab.serverId, targetPath })
+                            });
+                        await ensureFileResponse(response, move ? ui('moveFailed') : ui('copyFailed'));
+                        const payload = same ? null : await response.json().catch(() => null);
+                        const failed = (payload && payload.failed) || [];
+                        if (failed.length) {
+                            throw new Error(failed.join(' / '));
+                        }
+
+                        // Moved to another connection: copied, then taken away where it came from.
+                        if (move && !same) {
+                            const removed = await fetch(`/api/files/${sourceServerId}/delete`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json', 'X-Matgate-Csrf': csrfToken },
+                                body: JSON.stringify({ paths })
+                            });
+                            await ensureFileResponse(removed, ui('deleteFailed'));
+                        }
+
+                        note = `${paths.length} ${uiText.filesPasted || 'pasted'}`;
+                    });
+                    if (done && note) {
+                        setFileMessage(targetTab, note);
+                    }
+
+                    if (move && sourceTab && sourceTab !== targetTab) {
+                        loadFilePath(sourceTab, sourceTab.filePath || '/');
+                    }
+
+                    return done;
+                }
+
+                document.addEventListener('keydown', event => {
+                    if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) {
+                        return;
+                    }
+
+                    const key = (event.key || '').toLowerCase();
+                    if (key !== 'c' && key !== 'x' && key !== 'v') {
+                        return;
+                    }
+
+                    const target = event.target instanceof Element ? event.target : null;
+                    if (target && target.closest('input:not([type="checkbox"]), textarea, select, [contenteditable], dialog[open], .credential-dialog:not(.hidden)')) {
+                        return;
+                    }
+
+                    const fileTab = activeFileTab();
+                    if (!fileTab) {
+                        return;
+                    }
+
+                    // Text selected on the page is copied as text, as everywhere.
+                    if (key !== 'v' && String(window.getSelection ? window.getSelection() : '').trim()) {
+                        return;
+                    }
+
+                    if (key === 'v') {
+                        if (!fileClipboard) {
+                            return;
+                        }
+
+                        event.preventDefault();
+                        const clip = fileClipboard;
+                        if (clip.cut) {
+                            fileClipboard = null;
+                        }
+
+                        transferFileEntries(clip.serverId, clip.paths, fileTab, fileTab.filePath || '/', clip.cut);
+                        return;
+                    }
+
+                    const paths = selectedFilePaths(fileTab);
+                    if (!paths.length) {
+                        return;
+                    }
+
+                    event.preventDefault();
+                    fileClipboard = { serverId: fileTab.serverId, paths, cut: key === 'x' };
+                    setFileMessage(fileTab, `${paths.length} ${key === 'x' ? (uiText.fileClipCut || 'cut') : (uiText.fileClipCopied || 'copied')}`);
+                });
+
+                const clearFileDropMarks = () => document.querySelectorAll('.file-drop-into, .file-drop-tab').forEach(node => node.classList.remove('file-drop-into', 'file-drop-tab'));
+                const forgetTabHover = () => {
+                    window.clearTimeout(fileDragHover.timer);
+                    fileDragHover = { tabId: '', timer: 0 };
+                };
+
+                document.addEventListener('dragstart', event => {
+                    const row = event.target instanceof Element ? event.target.closest('tr[data-entry-path][draggable="true"]') : null;
+                    const fileTab = row ? fileTabOf(row) : null;
+                    if (!row || !fileTab || !event.dataTransfer) {
+                        return;
+                    }
+
+                    const path = row.dataset.entryPath;
+                    const selected = selectedFilePaths(fileTab);
+                    const paths = selected.includes(path) ? selected : [path];
+                    fileDrag = { serverId: fileTab.serverId, paths, from: fileTab };
+                    event.dataTransfer.effectAllowed = 'copyMove';
+                    event.dataTransfer.setData('application/x-matgate-files', JSON.stringify(paths));
+                    event.dataTransfer.setData('text/plain', paths.map(item => item.split('/').pop()).join('\n'));
+                });
+                document.addEventListener('dragend', () => {
+                    fileDrag = null;
+                    clearFileDropMarks();
+                    forgetTabHover();
+                });
+
+                // Where a drag would land: a folder row (or the parent row) of a file tab, the free room of a file
+                // tab (its folder), or a file tab's button at the top.
+                function fileDropTarget(event) {
+                    const element = event.target instanceof Element ? event.target : null;
+                    if (!element) {
+                        return null;
+                    }
+
+                    const button = element.closest('#session-tabs .session-tab[data-tab-id]');
+                    if (button) {
+                        const fileTab = tabs.get(button.getAttribute('data-tab-id'));
+                        return fileTab && fileTab.fileUi ? { tab: fileTab, path: fileTab.filePath || '/', mark: button, kind: 'tab' } : null;
+                    }
+
+                    const fileTab = fileTabOf(element);
+                    if (!fileTab) {
+                        return null;
+                    }
+
+                    const row = element.closest('tr[data-entry-path][data-directory="1"]');
+                    if (row && !fileDrag.paths.includes(row.dataset.entryPath)) {
+                        return { tab: fileTab, path: row.dataset.entryPath, mark: row, kind: 'folder' };
+                    }
+
+                    // Into the folder shown - not when that is where it comes from.
+                    if (fileTab.serverId === fileDrag.serverId && fileTab === fileDrag.from) {
+                        return null;
+                    }
+
+                    return { tab: fileTab, path: fileTab.filePath || '/', mark: fileTab.fileUi.tbody, kind: 'here' };
+                }
+
+                document.addEventListener('dragover', event => {
+                    if (!fileDrag) {
+                        return;
+                    }
+
+                    const drop = fileDropTarget(event);
+                    clearFileDropMarks();
+                    if (!drop) {
+                        forgetTabHover();
+                        return;
+                    }
+
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = event.shiftKey ? 'move' : 'copy';
+                    drop.mark.classList.add(drop.kind === 'tab' ? 'file-drop-tab' : 'file-drop-into');
+                    if (drop.kind === 'tab') {
+                        if (fileDragHover.tabId !== drop.tab.id) {
+                            forgetTabHover();
+                            fileDragHover.tabId = drop.tab.id;
+                            fileDragHover.timer = window.setTimeout(() => activateTab(drop.tab.id), 600);
+                        }
+                    }
+                    else {
+                        forgetTabHover();
+                    }
+                }, true);
+
+                document.addEventListener('drop', event => {
+                    if (!fileDrag) {
+                        return;
+                    }
+
+                    const drop = fileDropTarget(event);
+                    const drag = fileDrag;
+                    fileDrag = null;
+                    clearFileDropMarks();
+                    forgetTabHover();
+                    if (!drop) {
+                        return;
+                    }
+
+                    event.preventDefault();
+                    event.stopPropagation();
+                    transferFileEntries(drag.serverId, drag.paths, drop.tab, drop.path, event.shiftKey);
+                }, true);
 
                 async function deleteSelectedEntries(tab) {
                     const paths = selectedFilePaths(tab);
@@ -18202,6 +18443,10 @@ public sealed partial class HtmlViews
                     .server-manager-dot:not(:empty) { height: 17px; min-width: 17px; padding: 0 4px; }
                     .server-manager-empty { font-size: 13px; margin: 10px 8px; }
                     .server-manager-head-actions { align-items: center; display: inline-flex; flex: 0 0 auto; gap: 4px; }
+                    /* Dragging files between file tabs: where they would land. */
+                    tr.file-drop-into td { background: color-mix(in srgb, var(--accent) 16%, var(--surface)); }
+                    tbody.file-drop-into { outline: 2px dashed var(--accent); outline-offset: -2px; }
+                    .session-tab.file-drop-tab { box-shadow: inset 0 0 0 2px var(--accent); }
                     /* Sessions out in windows of their own, beside the tabs of the main window. */
                     .popped-windows { align-items: center; display: flex; flex: 0 1 auto; gap: 6px; min-width: 0; overflow: hidden; padding: 0 6px; }
                     .popped-windows[hidden] { display: none; }

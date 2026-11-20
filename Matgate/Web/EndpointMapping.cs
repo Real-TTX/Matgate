@@ -3369,24 +3369,100 @@ public static partial class EndpointMapping
         var copied = 0;
         var failed = new List<string>();
 
+        // Folders go along with everything in them; a name the destination has already gets " (2)", as
+        // Explorer does. What is in the source folder is learnt from listing it - the browser only says the
+        // paths. The same place into itself would never end, so that is refused.
+        var targetFolder = string.IsNullOrWhiteSpace(request.TargetPath) ? "/" : request.TargetPath!;
+        var sameServer = source.Server!.Id == target.Server!.Id;
+        var sourceListings = new Dictionary<string, IReadOnlyList<FileGatewayEntry>>(StringComparer.Ordinal);
+        var budget = 20000;
+        async Task<IReadOnlyList<FileGatewayEntry>> ListedAsync(ServerEndpoint server, string folder)
+        {
+            var key = server.Id + ":" + folder;
+            if (!sourceListings.TryGetValue(key, out var entries))
+            {
+                entries = (await files.ListAsync(server, folder, context.RequestAborted)).Entries;
+                sourceListings[key] = entries;
+            }
+
+            return entries;
+        }
+
+        string Parent(string path)
+        {
+            var clean = path.TrimEnd('/');
+            var cut = clean.LastIndexOf('/');
+            return cut <= 0 ? "/" : clean[..cut];
+        }
+
+        string Join(string folder, string name) => folder.TrimEnd('/') + "/" + name;
+
+        async Task<string> FreeNameAsync(string folder, string name)
+        {
+            var taken = (await files.ListAsync(target.Server!, folder, context.RequestAborted)).Entries
+                .Select(entry => entry.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (!taken.Contains(name))
+            {
+                return name;
+            }
+
+            var stem = Path.GetFileNameWithoutExtension(name);
+            var extension = Path.GetExtension(name);
+            for (var n = 2; ; n++)
+            {
+                var candidate = $"{stem} ({n}){extension}";
+                if (!taken.Contains(candidate))
+                {
+                    return candidate;
+                }
+            }
+        }
+
+        async Task CopyAsync(FileGatewayEntry entry, string intoFolder, int depth)
+        {
+            if (--budget < 0 || depth > 32)
+            {
+                throw new InvalidOperationException(HtmlViews.Language(context) == "de" ? "Zu viele Dateien auf einmal." : "Too many files at once.");
+            }
+
+            var name = await FreeNameAsync(intoFolder, entry.Name);
+            if (entry.IsDirectory)
+            {
+                await files.CreateDirectoryAsync(target.Server!, intoFolder, name, context.RequestAborted);
+                var inside = (await files.ListAsync(source.Server!, entry.Path, context.RequestAborted)).Entries;
+                foreach (var child in inside)
+                {
+                    await CopyAsync(child, Join(intoFolder, name), depth + 1);
+                }
+
+                return;
+            }
+
+            var download = await files.DownloadAsync(source.Server!, entry.Path, context.RequestAborted);
+            await using (download.Content)
+            {
+                await files.UploadAsync(target.Server!, intoFolder, download.Content, name, context.RequestAborted);
+            }
+
+            copied++;
+        }
+
         foreach (var selectedPath in paths)
         {
             try
             {
-                var download = await files.DownloadAsync(source.Server!, selectedPath, context.RequestAborted);
-                await using (download.Content)
+                var entry = (await ListedAsync(source.Server!, Parent(selectedPath))).FirstOrDefault(candidate =>
+                    string.Equals(candidate.Path.TrimEnd('/'), selectedPath.TrimEnd('/'), StringComparison.Ordinal));
+                entry ??= new FileGatewayEntry(FileNameFromVirtualPath(selectedPath), selectedPath, false, null, null);
+                if (entry.IsDirectory && sameServer
+                    && (targetFolder.TrimEnd('/') + "/").StartsWith(selectedPath.TrimEnd('/') + "/", StringComparison.Ordinal))
                 {
-                    await files.UploadAsync(
-                        target.Server!,
-                        request.TargetPath,
-                        download.Content,
-                        download.FileName,
-                        context.RequestAborted);
+                    throw new InvalidOperationException(HtmlViews.Language(context) == "de" ? "Ein Ordner kann nicht in sich selbst kopiert werden." : "A folder cannot be copied into itself.");
                 }
 
-                copied++;
+                await CopyAsync(entry, targetFolder, 0);
             }
-            catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException)
+            catch (Exception ex) when (ex is InvalidOperationException or IOException or UnauthorizedAccessException or NotSupportedException)
             {
                 // One file that fails must not hold up the others - but it is reported.
                 failed.Add($"{FileNameFromVirtualPath(selectedPath)}: {ex.Message}");

@@ -716,7 +716,11 @@ Reihenfolge noch nicht abgesprochen - vor dem Anfangen fragen, welcher zuerst.
    Wunsch: „wie das File-Thema wieder einheitlicher Code“ - also eine gemeinsame Schnittstelle
    (`IDatabaseGateway` analog `FileGatewayService`) mit je einem Treiber (Microsoft.Data.SqlClient, MySqlConnector,
    Npgsql) und einer Oberfläche für alle drei. Offen: nur lesen oder auch ändern; Grenzen für Ergebnismengen.
-2. **Kopieren zwischen Datei-Tabs.** Strg+C / Strg+V zwischen zwei Dateimanager-Tabs (verschiedene
+2. **Erledigt in 0.32.0:** Strg+C/X/V zwischen Datei-Tabs (Matgate-eigene Zwischenablage), Zeilen auf Ordner
+   oder auf einen Datei-Tab ziehen (600 ms Halten holt den Tab nach vorn, Umschalt = verschieben);
+   gleiche Verbindung über `/copy`/`/move`, andere über `/copy-to` (kopiert jetzt Ordner rekursiv, freie Namen
+   „(2)“, höchstens 20000 Einträge). `tests/file-tabs-copy.js`. Offen: Ziehen am Telefon (kein HTML5-Drag).
+   Ursprünglicher Wunsch: **Kopieren zwischen Datei-Tabs.** Strg+C / Strg+V zwischen zwei Dateimanager-Tabs (verschiedene
    Verbindungen) und Ziehen von Dateien auf einen anderen Tab (Tab wird beim Darüberhalten aktiv, Ablegen
    kopiert dorthin) - „wie im Windows Explorer“. Der Strom bleibt auf dem Gateway (`/api/files/{id}/copy-to`
    gibt es schon zwischen Ablagen).
