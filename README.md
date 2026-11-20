@@ -78,6 +78,11 @@ usable from a laptop or a phone – installable as a PWA.
   default, auto-sized to your window, with smart-reconnect on resize
 
 **Organizing & sharing**
+- A **side panel** with everything there is to open: favorites, recently used, the connections by folder,
+  places and shares - searchable, each group collapsible. One click connects or jumps to the open session,
+  Ctrl / middle click opens another one, right click brings the connection's menu. On a desktop it is open
+  from the start and the start page beside it is just quick connect; it is shown and hidden from the tab
+  row or the menu (in the compact view the menu is the way), and on a phone it is a sheet from the menu
 - **Quick connect** for ad-hoc sessions without saving anything
 - **Folders** with a page of their own (name, icon, which connections lie in them), per-user **favorites**,
   search across names, folders and hosts
@@ -99,14 +104,23 @@ usable from a laptop or a phone – installable as a PWA.
 | ![First-run setup wizard that creates the admin account](docs/images/setup.png) | ![The sign-in card](docs/images/login.png) |
 
 On the very first start a **setup wizard** creates your administrator account; after that it is a
-single sign-in. From there every machine is a tile, grouped into folders with favorites on top and
-a search across names and hosts.
+single sign-in.
+
+### Everything to open, on the left
+
+![The side panel with recently used connections, folders and places beside quick connect](docs/images/side-panel.png)
+
+The **side panel** lists favorites, what was used last, the connections by folder, the places of the file
+manager and the shares, with a search across all of them. A dot marks a connection with an open session;
+clicking it goes there instead of opening a second one. Put the panel away and the start page is the full
+list of connection cards again - as it is on a phone, where the panel is a sheet brought by the menu.
 
 ### Ad-hoc without saving anything
 
 ![Quick-connect dialog for one-off sessions](docs/images/quick-connect.png)
 
-**Quick connect** starts a one-off RDP/VNC/SSH/website session without creating a saved server.
+**Quick connect** starts a one-off RDP/VNC/SSH/website session without creating a saved server. On a phone
+the protocols are small tiles and the whole form fits on one screen.
 
 ### A live session
 
