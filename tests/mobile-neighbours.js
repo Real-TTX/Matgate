@@ -52,6 +52,8 @@ const connecting = async (page) => {
 
   // ---------- normal view on a phone: the button stays gone, the tabs are there
   const ctx2 = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
+  // A phone starts compact; the normal view is a choice.
+  await ctx2.addInitScript(() => { try { localStorage.setItem("matgate.view.mode.v1", "normal"); } catch (e) {} });
   const p2 = await ctx2.newPage();
   p2.on("pageerror", e => { console.log("JS ERROR normal: " + e.message); failures.push("JS error normal"); });
   await signIn(p2); await connecting(p2);

@@ -99,6 +99,9 @@ public sealed class ServerEndpoint
 
     public string FolderName { get; set; } = "";
 
+    // A database connection: the database it opens in (empty: the server's list of databases).
+    public string DatabaseName { get; set; } = "";
+
     public string FolderIconKey { get; set; } = "";
 
     public Guid? OwnerUserId { get; set; }
@@ -156,6 +159,11 @@ public sealed class ServerEndpoint
         return protocol is ServerProtocol.Sftp or ServerProtocol.Ftp or ServerProtocol.Smb or ServerProtocol.Local or ServerProtocol.WebDav or ServerProtocol.Agent;
     }
 
+    public static bool IsDatabaseProtocol(ServerProtocol protocol)
+    {
+        return protocol is ServerProtocol.MsSql or ServerProtocol.MySql or ServerProtocol.Postgres;
+    }
+
     public static bool IsWebsiteProtocol(ServerProtocol protocol)
     {
         return protocol == ServerProtocol.Website;
@@ -174,6 +182,7 @@ public sealed class ServerEndpoint
             ServerProtocol.WebDav => "cloud",
             ServerProtocol.Website => "globe",
             ServerProtocol.Agent => "desktop",
+            ServerProtocol.MsSql or ServerProtocol.MySql or ServerProtocol.Postgres => "database",
             _ => "server"
         };
     }

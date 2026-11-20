@@ -187,25 +187,36 @@ const check = (name, got, want) => {
   const plain = (await tree()).filter(entry => entry.startsWith("["));
   check("where nobody made a folder the connections stand under what they are", [plain.length, /^\[(Connections|Verbindungen) /.test(plain[0] || "")], [1, true]);
 
-  // ---- the menu: in the compact view the button of the tab row is not there
-  await page.click("#view-mode-toggle");
-  await sleep(500);
-  const entry = page.locator("[data-server-manager-menu]:visible");
+  // ---- the view: a choice of three behind the view button - normal, normal with the side panel, compact
+  const choices = async () => {
+    await page.click("#view-mode-toggle");
+    await sleep(400);
+    return page.evaluate(() => [...document.querySelectorAll(".view-choice-panel:not([hidden]) .toolbar-menu-item")].map(item => (item.classList.contains("active") ? "*" : "") + item.textContent.trim()));
+  };
+  const choose = async label => {
+    await page.locator(".view-choice-panel:not([hidden]) .toolbar-menu-item").filter({ hasText: new RegExp("^\\s*" + label + "\\s*$") }).click();
+    await sleep(600);
+  };
+  const viewMode = () => page.evaluate(() => document.documentElement.dataset.viewMode);
+  check("the view button offers three views, the one shown marked", await choices(), ["Normal", "*Normal with side panel", "Compact"]);
+  await choose("Compact");
+  check("compact: one bar, no side panel, and the tab row's button is gone with it", [await viewMode(), await shown(), await page.evaluate(() => document.getElementById("server-manager-toggle").offsetWidth)], ["minimal", false, 0]);
   await page.click(".shell-burger-trigger");
   await sleep(300);
-  check("in the compact view the button is gone and the menu has the entry", [await page.evaluate(() => document.getElementById("server-manager-toggle").offsetWidth), await entry.count(), await shown()], [0, 1, true]);
-  await entry.click();
-  await sleep(400);
-  check("the entry puts the panel away, and the menu closes", [await shown(), await page.evaluate(() => !!document.querySelector(".shell-burger[open]"))], [false, false]);
+  check("the menu has no side panel entry on a wide screen - the view is where it is chosen", await page.locator("[data-server-manager-menu]:visible").count(), 0);
   await page.click(".shell-burger-trigger");
-  await entry.click();
-  await sleep(400);
-  check("and brings it back", await shown(), true);
-  await page.click("#view-mode-toggle");
-  await sleep(400);
+  await page.reload({ waitUntil: "networkidle" });
+  await sleep(1200);
+  check("compact is remembered - still without the panel", [await viewMode(), await shown()], ["minimal", false]);
+  check("and marked as the view shown", await choices(), ["Normal", "Normal with side panel", "*Compact"]);
+  await choose("Normal");
+  check("normal: the bars as before, no side panel", [await viewMode(), await shown()], ["normal", false]);
+  await choices();
+  await choose("Normal with side panel");
+  check("normal with side panel: the panel is back", [await viewMode(), await shown()], ["normal", true]);
   await page.locator(".account-menu > summary").click();
   await sleep(300);
-  check("in the normal view the entry is in the account's menu", await entry.count(), 1);
+  check("the account's menu has no entry for it either", await page.locator("[data-server-manager-menu]:visible").count(), 0);
   await page.keyboard.press("Escape");
   await page.locator(".account-menu > summary").click().catch(() => {});
 
@@ -236,6 +247,21 @@ const check = (name, got, want) => {
   await small.reload({ waitUntil: "networkidle" });
   await sleep(800);
   check("nothing of that is remembered: the wide screen still has its panel", await small.evaluate(() => window.localStorage.getItem("matgate.serverManager.open")), "true");
+
+  // ---- the view on a phone: compact unless chosen otherwise, and only two to choose from
+  await small.evaluate(() => window.localStorage.removeItem("matgate.view.mode.v1"));
+  await small.reload({ waitUntil: "networkidle" });
+  await sleep(1000);
+  check("a phone starts in the compact view", await small.evaluate(() => document.documentElement.dataset.viewMode), "minimal");
+  await small.click(".shell-burger-trigger");
+  await sleep(300);
+  await small.locator("[data-view-mode-toggle]:visible").click();
+  await sleep(500);
+  const phoneChoices = await small.evaluate(() => [...document.querySelectorAll(".view-choice-panel:not([hidden]) .toolbar-menu-item")].filter(item => item.offsetParent).map(item => (item.classList.contains("active") ? "*" : "") + item.textContent.trim()));
+  check("the menu's entry offers two views - the side panel does not fit beside the page", phoneChoices, ["Normal", "*Compact"]);
+  await small.locator(".view-choice-panel:not([hidden]) .toolbar-menu-item").filter({ hasText: /^\s*Normal\s*$/ }).click();
+  await sleep(600);
+  check("choosing normal gives the normal bars", [await small.evaluate(() => document.documentElement.dataset.viewMode), await small.evaluate(() => window.localStorage.getItem("matgate.view.mode.v1"))], ["normal", "normal"]);
 
   await b.close();
   console.log(failures.length ? "\n" + failures.length + " FAILED: " + failures.join(", ") : "\nall passed");

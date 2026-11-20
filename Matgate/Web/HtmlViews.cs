@@ -8,7 +8,7 @@ using Matgate.Services;
 
 namespace Matgate.Web;
 
-public sealed class HtmlViews
+public sealed partial class HtmlViews
 {
     private const string LanguageCookieName = "Matgate.Language";
     private const string ThemeCookieName = "Matgate.Theme";
@@ -3964,6 +3964,23 @@ public sealed class HtmlViews
         // The dialog starts on the first chip, so the hidden field has to name that one. A fixed
         // "rdp" here would be the wrong protocol the moment RDP is the one the user hid.
         var firstProtocol = protocols.Length > 0 ? protocols[0].Protocol : "rdp";
+
+        // What opens it: RDP, VNC and SSH with Matgate's own engine or with Guacamole, a website in Matgate's own
+        // browser or on the browser farm. Only the choices this installation has are offered (the farm's is
+        // shown by the script once the farm answers); with one choice left there is nothing to choose.
+        var guacamole = Matgate.Services.GuacamoleLauncher.Available;
+        var engineChoice = $$"""
+            <div class="home2-qc-engine hidden" data-home2-qc-field="engine" hidden>
+                <span class="home2-qc-engine-label">{{(de ? "Öffnen mit" : "Open with")}}</span>
+                <div class="home2-qc-engine-options" role="radiogroup" aria-label="{{A(de ? "Öffnen mit" : "Open with")}}">
+                    <button type="button" class="home2-qc-engine-option" role="radio" data-home2-qc-engine="" data-for="remote">{{Icon("monitor")}}<span>Matgate</span></button>
+                    {{(guacamole ? $"""<button type="button" class="home2-qc-engine-option" role="radio" data-home2-qc-engine="guacamole" data-for="remote">{Icon("server")}<span>Guacamole</span></button>""" : "")}}
+                    <button type="button" class="home2-qc-engine-option" role="radio" data-home2-qc-engine="" data-for="web">{{Icon("globe")}}<span>{{(de ? "Integriert" : "Built-in")}}</span></button>
+                    <button type="button" class="home2-qc-engine-option" role="radio" data-home2-qc-engine="farm" data-for="web" data-needs-farm hidden>{{Icon("monitor")}}<span>{{(de ? "Browser-Farm" : "Browser farm")}}</span></button>
+                </div>
+                <input type="hidden" name="engine" value="" data-home2-qc-engine-input>
+            </div>
+            """;
         var protoButtons = string.Join("", protocols.Select((protocol, index) => $$"""
             <button type="button" class="home2-qc-proto{{(index == 0 ? " active" : "")}}" data-home2-qc-proto="{{A(protocol.Protocol)}}" style="--proto: {{protocol.Color}}" title="{{A(protocol.Desc)}}">
                 <span class="home2-qc-proto-icon">{{Icon(protocol.IconKey)}}</span>
@@ -3983,6 +4000,7 @@ public sealed class HtmlViews
                 <form class="home2-qc-form" data-home2-qc-form>
                     <div class="home2-qc-protos">{{protoButtons}}</div>
                     <input type="hidden" name="protocol" value="{{A(firstProtocol)}}" data-home2-qc-proto-input>
+                    {{engineChoice}}
                     <label class="home2-qc-label">
                         <span data-home2-qc-hostlabel>{{(de ? "Host" : "Host")}}</span>
                         <input name="host" required autocomplete="off" spellcheck="false" data-home2-qc-host data-web-label="{{A(de ? "Start-URL" : "Start URL")}}" data-web-blank="{{(blankBrowser ? "1" : "0")}}" data-web-placeholder="{{A(browserPlaceholder)}}" placeholder="{{A(de ? "z. B. 192.168.1.10" : "e.g. 192.168.1.10")}}">
@@ -4294,6 +4312,7 @@ public sealed class HtmlViews
             ServerProtocol.Smb => "smb",
             ServerProtocol.Website => "website",
             ServerProtocol.WebDav => "webdav",
+            ServerProtocol.MsSql or ServerProtocol.MySql or ServerProtocol.Postgres => "sftp",
             _ => "local"
         };
 
@@ -4725,6 +4744,7 @@ public sealed class HtmlViews
 
         return $$"""
             <article class="connection-choice" data-home2-card="1" data-fav="{{(IsFavoriteServer(user, server.Id) ? "1" : "0")}}" data-folder="{{A(FolderFilterKey(server.FolderName))}}" data-search="{{A(searchIndex)}}" style="--proto: {{ProtocolAccent(server.Protocol)}}">
+                <span class="connection-choice-mark" aria-hidden="true">{{ConnectionMark(server)}}</span>
                 <div class="connection-choice-body">
                     <div class="server-title connection-choice-title">
                         {{ServerIcon(server)}}
@@ -4748,6 +4768,16 @@ public sealed class HtmlViews
             </article>
             """;
     }
+
+    // The big sign in the background of a connection's card, cut off at its corner: what the connection is,
+    // at a glance - a window of four panes for a Windows desktop, a prompt for a terminal, the connection's
+    // own icon for everything else.
+    private static string ConnectionMark(ServerEndpoint server) => server.Protocol switch
+    {
+        ServerProtocol.Rdp => """<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M3 5.6 10.4 4.6v6.8H3z"/><path d="M11.6 4.4 21 3v8.4h-9.4z"/><path d="M3 12.6h7.4v6.8L3 18.4z"/><path d="M11.6 12.6H21V21l-9.4-1.4z"/></svg>""",
+        ServerProtocol.Ssh => """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m4 7 5 5-5 5"/><path d="M12 18h8"/></svg>""",
+        _ => Icon(ServerEndpoint.EffectiveIconKey(server.Protocol, server.IconKey)),
+    };
 
     private static string FavoriteToggleForm(
         HttpContext context,
@@ -4967,6 +4997,7 @@ public sealed class HtmlViews
             plus = Icon("plus"),
             star = Icon("star"),
             clock = Icon("clock"),
+            play = Icon("play"),
             mkdir = Icon("folder-plus"),
             refresh = Icon("refresh"),
             menu = Icon("more"),
@@ -5037,6 +5068,7 @@ public sealed class HtmlViews
             fullscreen = T(context, "Fullscreen"),
             openInNewWindow = Language(context) == "de" ? "In neuem Fenster öffnen" : "Open in a new window",
             reattachToMain = Language(context) == "de" ? "Zurück ins Hauptfenster" : "Re-attach to main window",
+            poppedFocus = Language(context) == "de" ? "Fenster nach vorn holen" : "Bring the window to the front",
             popupBlocked = Language(context) == "de" ? "Pop-ups erlauben, um dies in einem neuen Fenster zu öffnen." : "Allow pop-ups to open this in a new window.",
             clipboard = T(context, "Clipboard"),
             copyToClipboard = T(context, "Copy to clipboard"),
@@ -5083,6 +5115,22 @@ public sealed class HtmlViews
             managerPlaces = Language(context) == "de" ? "Ablagen" : "Places",
             managerShares = Language(context) == "de" ? "Freigaben" : "Shares",
             managerShare = Language(context) == "de" ? "Freigabe" : "Share",
+            managerNewHere = Language(context) == "de" ? "Neue Verbindung hier" : "New connection here",
+            managerNew = Language(context) == "de" ? "Neue Verbindung" : "New connection",
+            managerNewSubfolder = Language(context) == "de" ? "Unterordner anlegen ..." : "New subfolder ...",
+            managerNewFolder = Language(context) == "de" ? "Neuer Ordner ..." : "New folder ...",
+            managerFolderHint = Language(context) == "de" ? "Ein Ordner gibt es, solange eine Verbindung in ihm liegt: das Formular für die erste öffnet sich." : "A folder exists while a connection lies in it: the form for the first one opens.",
+            managerEditFolder = Language(context) == "de" ? "Ordner bearbeiten" : "Edit folder",
+            managerMoveTo = Language(context) == "de" ? "In Ordner verschieben ..." : "Move to folder ...",
+            managerMoveHint = Language(context) == "de" ? "Ein Unterordner mit /, z. B. Labor/Linux." : "A subfolder with /, e.g. Lab/Linux.",
+            managerMoveOut = Language(context) == "de" ? "Aus dem Ordner nehmen" : "Take out of the folder",
+            managerFolder = Language(context) == "de" ? "Ordner" : "Folder",
+            managerMove = Language(context) == "de" ? "Verschieben" : "Move",
+            managerCreate = Language(context) == "de" ? "Weiter" : "Continue",
+            managerMoveFailed = Language(context) == "de" ? "Diese Verbindung darfst du nicht verschieben." : "You may not move this connection.",
+            managerCollapseAll = Language(context) == "de" ? "Alle Ordner zuklappen" : "Collapse all folders",
+            managerExpandAll = Language(context) == "de" ? "Alle Ordner aufklappen" : "Expand all folders",
+            managerQuick = Language(context) == "de" ? "Quick-Connect" : "Quick connect",
             managerSearch = Language(context) == "de" ? "Suchen ..." : "Search ...",
             managerNoFolder = Language(context) == "de" ? "Ohne Ordner" : "No folder",
             managerEmpty = Language(context) == "de" ? "Keine Treffer." : "No matches.",
@@ -5280,6 +5328,8 @@ public sealed class HtmlViews
                         </button>
                     </div>
                 </div>
+            <!-- The sessions that are out in windows of their own: a click brings one to the front, its arrow fetches it back. -->
+            <div id="popped-windows" class="popped-windows" hidden aria-label="{{A(Language(context) == "de" ? "Sitzungen in eigenen Fenstern" : "Sessions in windows of their own")}}"></div>
             <div id="connection-tab-actions" class="tab-actions" aria-label="{{A(T(context, "Actions for the active tab"))}}"></div>
             </div>
             <button id="immersive-handle" type="button" class="immersive-handle" data-hint="{{A(Language(context) == "de" ? "Leiste zurückholen: oben antippen - oder mit drei Fingern ins Bild tippen" : "Bring the bar back: tap the top edge - or tap the picture with three fingers")}}" aria-label="{{A(Language(context) == "de" ? "Steuerung ein-/ausblenden" : "Show/hide controls")}}" title="{{A(Language(context) == "de" ? "Steuerung ein-/ausblenden" : "Show/hide controls")}}">{{Icon("chevron-down")}}</button>
@@ -5288,7 +5338,7 @@ public sealed class HtmlViews
                  folder, the places and the shares. On a wide screen it stands beside the sessions and takes
                  the start page's place as the list of connections; on a narrow one it is a sheet over the
                  page, brought by the menu. -->
-            <aside id="server-manager" class="server-manager" hidden aria-label="{{A(Language(context) == "de" ? "Seitenleiste" : "Side panel")}}">
+            <aside id="server-manager" class="server-manager" hidden data-can-edit="{{(user.IsAdmin || user.CanManageServers || user.CanCreateServers ? "1" : "0")}}" aria-label="{{A(Language(context) == "de" ? "Seitenleiste" : "Side panel")}}">
                 <div class="server-manager-head">
                     <strong>{{(Language(context) == "de" ? "Verbindungen" : "Connections")}}</strong>
                     <span class="server-manager-head-actions">
@@ -5468,6 +5518,9 @@ public sealed class HtmlViews
                 // This window was popped out of another (a tab opened in its own window). It shows a
                 // "re-attach" control instead of "pop out", and re-attach hands the session back.
                 const isPoppedWindow = (() => { try { return new URL(location.href).searchParams.get('popped') === '1'; } catch (e) { return false; } })();
+                const poppedKey = (() => { try { return new URL(location.href).searchParams.get('key') || ''; } catch (e) { return ''; } })();
+                // The window of one session: the layout hides everything around that session.
+                document.documentElement.toggleAttribute('data-popped', isPoppedWindow);
                 const csrfToken = {{csrfToken}};
                 const uiText = {{uiText}};
                 const fileIcons = {{fileIcons}};
@@ -6480,6 +6533,9 @@ public sealed class HtmlViews
                             setField('port', !isWeb);
                             setField('domain', value === 'rdp' || value === 'smb');
                             setField('fileRoot', isDav || value === 'sftp' || value === 'ftp' || value === 'smb');
+                            if (typeof showEngines === 'function') {
+                                showEngines(value);
+                            }
                             if (qcHostLabel) {
                                 qcHostLabel.textContent = isWeb ? ((qcHostInput && qcHostInput.dataset.webLabel) || 'URL') : originalHostLabel;
                             }
@@ -6497,6 +6553,44 @@ public sealed class HtmlViews
                         qcProtoButtons.forEach(button => {
                             button.addEventListener('click', () => setQcProtocol(button.dataset.home2QcProto));
                         });
+
+                        // What opens it. Asked for anew with every protocol: Matgate's own engine or Guacamole
+                        // for RDP, VNC and SSH, the built-in browser or the browser farm for a website. The
+                        // farm's choice is only there once the farm says it is set up.
+                        const qcEngineInput = protoDialog.querySelector('[data-home2-qc-engine-input]');
+                        const qcEngineOptions = Array.from(protoDialog.querySelectorAll('[data-home2-qc-engine]'));
+                        const pickEngine = option => {
+                            qcEngineOptions.forEach(other => {
+                                const on = other === option;
+                                other.classList.toggle('active', on);
+                                other.setAttribute('aria-checked', on ? 'true' : 'false');
+                            });
+                            if (qcEngineInput) {
+                                qcEngineInput.value = option ? option.dataset.home2QcEngine : '';
+                            }
+                        };
+                        function showEngines(proto) {
+                            const kind = proto === 'website' ? 'web' : (proto === 'rdp' || proto === 'vnc' || proto === 'ssh') ? 'remote' : '';
+                            const offered = qcEngineOptions.filter(option => {
+                                const on = option.dataset.for === kind && !(option.hasAttribute('data-needs-farm') && protoDialog.dataset.farm !== '1');
+                                option.hidden = !on;
+                                return on;
+                            });
+                            setField('engine', offered.length > 1);
+                            pickEngine(offered[0] || null);
+                        };
+                        qcEngineOptions.forEach(option => option.addEventListener('click', () => pickEngine(option)));
+                        if (qcEngineOptions.some(option => option.hasAttribute('data-needs-farm'))) {
+                            fetch('/api/browser-farm/status')
+                                .then(response => (response.ok ? response.json() : null))
+                                .then(data => {
+                                    if (data && data.configured) {
+                                        protoDialog.dataset.farm = '1';
+                                        showEngines(qcProtoInput ? qcProtoInput.value : '');
+                                    }
+                                })
+                                .catch(() => { /* no farm: no choice */ });
+                        }
 
                         const openDialog = proto => {
                             setQcProtocol(proto || qcDefaultProto);
@@ -7337,7 +7431,93 @@ public sealed class HtmlViews
                             items.splice(1, 0, { label: uiText.managerNewSession || 'Open another session', iconHtml: fileIcon('plus'), onSelect: () => openServer(serverId) });
                         }
 
+                        // Filing: into a folder by name (a subfolder with "/"), or out of the one it is in.
+                        const side = window.MatgateSidePanel;
+                        const server = availableServers.find(candidate => candidate.id === serverId);
+                        if (side && side.canEdit() && server && row.draggable) {
+                            items.push({ separator: true });
+                            items.push({
+                                label: uiText.managerMoveTo || 'Move to folder ...',
+                                iconHtml: fileIcon('move'),
+                                onSelect: async () => {
+                                    const folder = await side.askFolderName(uiText.managerMoveTo || 'Move to folder', server.folder || '', uiText.managerMove || 'Move', uiText.managerMoveHint || '');
+                                    if (folder !== null && folder !== (server.folder || '')) {
+                                        side.move(serverId, folder);
+                                    }
+                                }
+                            });
+                            if (server.folder) {
+                                items.push({ label: uiText.managerMoveOut || 'Take out of the folder', iconHtml: fileIcon('folder'), onSelect: () => side.move(serverId, '') });
+                            }
+                        }
+
                         return { trigger: row, title: ((row.querySelector('strong') || {}).textContent || '').trim(), items };
+                    };
+                    // A folder of the side panel: a new connection in it, a subfolder, its page; and for every
+                    // group, all of them shut or open.
+                    const contextMenuOfFolder = head => {
+                        const side = window.MatgateSidePanel;
+                        const path = head.dataset.folder || '';
+                        const items = [];
+                        if (head.dataset.kind === 'folder' && side && side.canEdit()) {
+                            items.push({ label: uiText.managerNewHere || 'New connection here', iconHtml: fileIcon('plus'), onSelect: () => side.newIn(path) });
+                            items.push({
+                                label: path ? (uiText.managerNewSubfolder || 'New subfolder ...') : (uiText.managerNewFolder || 'New folder ...'),
+                                iconHtml: fileIcon('mkdir'),
+                                onSelect: async () => {
+                                    const name = await side.askFolderName(path ? uiText.managerNewSubfolder : uiText.managerNewFolder, '', uiText.managerCreate || 'Continue', uiText.managerFolderHint || '');
+                                    if (name) {
+                                        side.newIn(path ? path + '/' + name : name);
+                                    }
+                                }
+                            });
+                            if (path) {
+                                items.push({
+                                    label: uiText.managerEditFolder || 'Edit folder',
+                                    iconHtml: fileIcon('edit'),
+                                    onSelect: () => openShellTab('/admin/folders/edit?name=' + encodeURIComponent(path), path, fileIcon('folder'), uiText.managerFolder || '')
+                                });
+                            }
+                        }
+
+                        if (side) {
+                            if (items.length) {
+                                items.push({ separator: true });
+                            }
+                            items.push({ label: uiText.managerCollapseAll || 'Collapse all folders', iconHtml: fileIcon('chevronDown'), onSelect: () => side.setAllClosed(true) });
+                            items.push({ label: uiText.managerExpandAll || 'Expand all folders', iconHtml: fileIcon('folder'), onSelect: () => side.setAllClosed(false) });
+                        }
+
+                        return { trigger: head, title: ((head.querySelector('.server-manager-folder-name') || {}).textContent || '').trim(), items };
+                    };
+                    // The free room of the side panel: what can be made from there.
+                    const contextMenuOfSidePanel = panel => {
+                        const side = window.MatgateSidePanel;
+                        const items = [];
+                        const quick = document.querySelector('[data-home2-more]');
+                        if (quick) {
+                            items.push({ label: uiText.managerQuick || 'Quick connect', iconHtml: fileIcon('play') || contextIcon(quick), onSelect: () => quick.click() });
+                        }
+                        if (side && side.canEdit()) {
+                            items.push({ label: uiText.managerNew || 'New connection', iconHtml: fileIcon('plus'), onSelect: () => side.newIn('') });
+                            items.push({
+                                label: uiText.managerNewFolder || 'New folder ...',
+                                iconHtml: fileIcon('mkdir'),
+                                onSelect: async () => {
+                                    const name = await side.askFolderName(uiText.managerNewFolder, '', uiText.managerCreate || 'Continue', uiText.managerFolderHint || '');
+                                    if (name) {
+                                        side.newIn(name);
+                                    }
+                                }
+                            });
+                        }
+                        if (side) {
+                            items.push({ separator: true });
+                            items.push({ label: uiText.managerCollapseAll || 'Collapse all folders', iconHtml: fileIcon('chevronDown'), onSelect: () => side.setAllClosed(true) });
+                            items.push({ label: uiText.managerExpandAll || 'Expand all folders', iconHtml: fileIcon('folder'), onSelect: () => side.setAllClosed(false) });
+                        }
+
+                        return { trigger: panel, title: uiText.managerTitle || '', items };
                     };
                     const contextMenuOfTab = element => {
                         const kind = element.getAttribute('data-tab-kind');
@@ -7359,6 +7539,9 @@ public sealed class HtmlViews
                                 iconHtml: fileIcon('refresh'),
                                 onSelect: () => { try { page.iframe.contentWindow.location.reload(); } catch { page.iframe.src = page.iframe.src; } }
                             });
+                            if (page && !isPoppedWindow && serverIdOfShellTab(page)) {
+                                items.push({ label: ui('ctxOwnWindow'), iconHtml: actionIcons.popOut || '', onSelect: () => popOutShellTab(page) });
+                            }
                         }
                         else if (tabs.get(id) && tabs.get(id).serverId) {
                             items.push({ label: ui('ctxOwnWindow'), iconHtml: actionIcons.popOut || '', onSelect: () => popOutTab(tabs.get(id)) });
@@ -7419,8 +7602,12 @@ public sealed class HtmlViews
                         const chip = target.closest('.home2-proto-chip[data-home2-qc]');
                         const row = target.closest('.file-table tbody tr');
                         // A finger held on a tab is the start of dragging it, not a wish for a menu.
+                        const folderHead = target.closest('#server-manager-tree .server-manager-folder');
+                        const sidePanel = target.closest('#server-manager-tree, #server-manager .server-manager-head');
                         const menu = tab ? (event.pointerType === 'touch' ? null : contextMenuOfTab(tab))
                             : managed ? contextMenuOfManaged(managed, card)
+                            : folderHead ? contextMenuOfFolder(folderHead)
+                            : sidePanel ? contextMenuOfSidePanel(sidePanel)
                             : card ? contextMenuOfCard(card)
                             : chip ? contextMenuOfChip(chip)
                             : row ? contextMenuOfFileRow(row)
@@ -8792,9 +8979,9 @@ public sealed class HtmlViews
                     // The groups, from top to bottom. A group's key is what its closed state is remembered by:
                     // a folder's is its name, the others carry their kind in front.
                     const groups = [];
-                    const add = (key, kind, name, iconHtml, entries) => {
-                        if (entries.length) {
-                            groups.push({ key, kind, name, iconHtml, closed: !wanted && closed.indexOf(key) >= 0, entries });
+                    const add = (key, kind, name, iconHtml, entries, more = {}) => {
+                        if (entries.length || more.keep) {
+                            groups.push({ key, kind, name, iconHtml, closed: !wanted && closed.indexOf(key) >= 0, entries, depth: more.depth || 0, count: more.count ?? entries.length, hidden: !!more.hidden });
                         }
                     };
                     // A search goes through every connection once: the favourites and what was used last are
@@ -8806,24 +8993,47 @@ public sealed class HtmlViews
                             (sidebarData.recent || []).map(id => byId.get(id)).filter(Boolean).map(entryOf));
                     }
 
-                    const folders = new Map();
+                    // The folders as a tree: a "/" in a folder's name makes a subfolder ("Lab/Linux" lies in
+                    // "Lab"). A folder shows its subfolders first, then its connections; its number counts
+                    // everything under it. A shut folder hides all of that.
+                    const folderNode = path => ({ path, children: new Map(), servers: [] });
+                    const root = folderNode('');
+                    const unfiledServers = [];
                     connections
                         .filter(server => matches([server.name, server.target, server.folder, server.protocol].join(' ')))
                         .forEach(server => {
-                            const folder = server.folder || '';
-                            if (!folders.has(folder)) {
-                                folders.set(folder, []);
+                            const parts = String(server.folder || '').split('/').map(part => part.trim()).filter(Boolean);
+                            if (!parts.length) {
+                                unfiledServers.push(server);
+                                return;
                             }
 
-                            folders.get(folder).push(server);
+                            let node = root;
+                            parts.forEach((part, index) => {
+                                const key = part.toLowerCase();
+                                if (!node.children.has(key)) {
+                                    node.children.set(key, Object.assign(folderNode(parts.slice(0, index + 1).join('/')), { name: part }));
+                                }
+
+                                node = node.children.get(key);
+                            });
+                            node.servers.push(server);
                         });
+                    const countOf = node => node.servers.length + Array.from(node.children.values()).reduce((sum, child) => sum + countOf(child), 0);
+                    const walk = (node, depth, hidden) => {
+                        Array.from(node.children.values())
+                            .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+                            .forEach(child => {
+                                const shut = !wanted && closed.indexOf(child.path) >= 0;
+                                add(child.path, 'folder', child.name, fileIcon('folder'), child.servers.slice().sort(byName).map(entryOf), { keep: true, depth, count: countOf(child), hidden });
+                                walk(child, depth + 1, hidden || shut);
+                            });
+                    };
+                    walk(root, 0, false);
                     // Those without a folder come last, under "No folder" - or, where nobody made a folder,
                     // under what they are.
-                    const unfiled = folders.size === 1 && folders.has('') ? uiText.managerTitle : uiText.managerNoFolder;
-                    Array.from(folders.keys())
-                        .sort((a, b) => (a === '') - (b === '') || a.localeCompare(b, undefined, { sensitivity: 'base' }))
-                        .forEach(name => add(name, 'folder', name || unfiled || 'No folder', fileIcon('folder'),
-                            folders.get(name).slice().sort(byName).map(entryOf)));
+                    add('', 'folder', (root.children.size ? uiText.managerNoFolder : uiText.managerTitle) || 'No folder', fileIcon('folder'),
+                        unfiledServers.slice().sort(byName).map(entryOf));
                     // The places of the file manager - without a session's folder, which is reached through
                     // its session, and without a share's, which stands under the shares.
                     add('places:', 'places', uiText.managerPlaces || 'Places', fileIcon('folder'),
@@ -8852,7 +9062,7 @@ public sealed class HtmlViews
                             }));
                     // Built anew only when something it shows has changed: it is asked to on every change of a
                     // tab, and a row that is replaced under the pointer loses its click.
-                    const signature = JSON.stringify(groups.map(group => [group.key, group.closed, group.entries.map(entry => [entry.id, entry.share, entry.name, entry.note, entry.open, entry.active])]));
+                    const signature = JSON.stringify(groups.map(group => [group.key, group.closed, group.hidden, group.count, group.entries.map(entry => [entry.id, entry.share, entry.name, entry.note, entry.open, entry.active])]));
                     if (!force && signature === serverManagerShown) {
                         return;
                     }
@@ -8861,14 +9071,21 @@ public sealed class HtmlViews
                     const nodes = [];
                     // Connections without a folder and nothing else: then the heading says nothing.
                     const lone = groups.length === 1 && groups[0].kind === 'folder' && groups[0].key === '';
+                    const canEdit = serverManager.dataset.canEdit === '1';
                     groups.forEach(group => {
+                        if (group.hidden) {
+                            return;
+                        }
+
                         if (!lone) {
                             const head = document.createElement('button');
                             head.type = 'button';
                             head.className = 'server-manager-folder server-manager-folder--' + group.kind + (group.closed ? ' closed' : '');
                             head.setAttribute('aria-expanded', group.closed ? 'false' : 'true');
                             head.dataset.folder = group.key;
-                            head.innerHTML = `<span class="server-manager-caret" aria-hidden="true">${fileIcon('chevronDown')}</span><span class="server-manager-folder-icon" aria-hidden="true">${group.iconHtml}</span><span class="server-manager-folder-name">${escapeHtml(group.name)}</span><span class="server-manager-count">${group.entries.length}</span>`;
+                            head.dataset.kind = group.kind;
+                            head.style.setProperty('--depth', group.depth);
+                            head.innerHTML = `<span class="server-manager-caret" aria-hidden="true">${fileIcon('chevronDown')}</span><span class="server-manager-folder-icon" aria-hidden="true">${group.iconHtml}</span><span class="server-manager-folder-name">${escapeHtml(group.name)}</span><span class="server-manager-count">${group.count}</span>`;
                             nodes.push(head);
                         }
 
@@ -8882,6 +9099,16 @@ public sealed class HtmlViews
                             row.className = 'server-manager-item' + (entry.active ? ' active' : '') + (entry.open ? ' open' : '') + (lone ? ' server-manager-item--flat' : '');
                             row.setAttribute('role', 'treeitem');
                             row.dataset.managerIn = group.kind;
+                            row.style.setProperty('--depth', group.depth);
+                            if (group.kind === 'folder') {
+                                row.dataset.folderPath = group.key;
+                            }
+
+                            // A connection can be dragged onto a folder, by someone who may change connections.
+                            if (entry.id && canEdit && group.kind !== 'places' && group.kind !== 'shares') {
+                                row.draggable = true;
+                            }
+
                             if (entry.id) {
                                 row.dataset.managerServer = entry.id;
                             }
@@ -8973,8 +9200,140 @@ public sealed class HtmlViews
                             closeSheet();
                         }
                     });
+                    // The compact view has no side panel beside the page: it is one of the three views
+                    // (normal, normal with the panel, compact) the view button chooses between.
+                    const compactView = () => {
+                        if (document.documentElement.dataset.viewMode) {
+                            return document.documentElement.dataset.viewMode === 'minimal';
+                        }
+
+                        try {
+                            return window.localStorage.getItem('matgate.view.mode.v1') === 'minimal';
+                        }
+                        catch {
+                            return false;
+                        }
+                    };
+                    const wantedOpen = () => !isPoppedWindow && !serverManagerNarrow.matches && !compactView() && serverManagerStore.read('open', true) === true;
+                    // Into a folder ("" = none; "Lab/Linux" = a subfolder). The list is read anew either way: a
+                    // refusal leaves the connection where it was.
+                    const moveToFolder = async (serverId, folder) => {
+                        const body = new FormData();
+                        body.append('folder', folder || '');
+                        try {
+                            await fetch('/api/servers/' + encodeURIComponent(serverId) + '/folder', {
+                                method: 'POST',
+                                body,
+                                credentials: 'same-origin',
+                                headers: { 'X-Matgate-Csrf': csrfToken }
+                            });
+                        }
+                        catch {
+                            // No connection to the gateway: the list stays as it was.
+                        }
+
+                        // The folder it went into is opened, so the connection is seen where it landed.
+                        const parts = String(folder || '').split('/');
+                        const opened = parts.map((part, index) => parts.slice(0, index + 1).join('/'));
+                        serverManagerStore.write('closed', serverManagerStore.read('closed', []).filter(name => opened.indexOf(name) < 0));
+                        await refreshConnectionsPanel();
+                    };
+                    // A new connection, with its folder already chosen: a folder exists while a connection lies in it.
+                    const newConnectionIn = folder => openShellTab(
+                        '/admin/servers/new?return=home' + (folder ? '&folder=' + encodeURIComponent(folder) : ''),
+                        uiText.managerNew || 'New connection', fileIcon('plus'), folder || '');
+                    const askFolderName = async (title, value, confirm, hint) => {
+                        const name = await askForName({ title, label: uiText.managerFolder || 'Folder', value: value || '', confirm, hint, selectAll: true, work: entered => entered });
+                        return name === null || name === undefined ? null : String(name).split('/').map(part => part.trim()).filter(Boolean).join('/');
+                    };
+                    window.MatgateSidePanel = {
+                        set: open => setServerManagerOpen(open),
+                        isOpen: () => !serverManager.hidden,
+                        move: moveToFolder,
+                        newIn: newConnectionIn,
+                        askFolderName,
+                        canEdit: () => serverManager.dataset.canEdit === '1',
+                        setAllClosed: shut => {
+                            const all = Array.from(serverManagerTree.querySelectorAll('.server-manager-folder')).map(head => head.dataset.folder);
+                            serverManagerStore.write('closed', shut ? all : []);
+                            renderServerManager(true);
+                            if (shut) {
+                                // Folders under shut ones were not drawn: shut them as well.
+                                const more = Array.from(new Set(availableServers.map(server => server.folder || '').filter(Boolean)
+                                    .flatMap(path => path.split('/').map((part, index, parts) => parts.slice(0, index + 1).join('/')))));
+                                serverManagerStore.write('closed', Array.from(new Set(all.concat(more))));
+                                renderServerManager(true);
+                            }
+                        }
+                    };
+
+                    // Dragging a connection onto a folder - its heading or a connection in it - moves it there;
+                    // onto "No folder", out of every folder.
+                    let draggedServer = '';
+                    const dropFolderOf = target => {
+                        const element = target instanceof Element ? target : null;
+                        const head = element ? element.closest('.server-manager-folder[data-kind="folder"]') : null;
+                        if (head) {
+                            return head.dataset.folder;
+                        }
+
+                        const row = element ? element.closest('.server-manager-item[data-folder-path]') : null;
+                        return row ? row.dataset.folderPath : null;
+                    };
+                    const clearDrop = () => serverManagerTree.querySelectorAll('.drop-target').forEach(node => node.classList.remove('drop-target'));
+                    serverManagerTree.addEventListener('dragstart', event => {
+                        const row = event.target instanceof Element ? event.target.closest('.server-manager-item[draggable="true"]') : null;
+                        if (!row || !event.dataTransfer) {
+                            return;
+                        }
+
+                        draggedServer = row.dataset.managerServer;
+                        event.dataTransfer.effectAllowed = 'move';
+                        event.dataTransfer.setData('text/plain', ((row.querySelector('strong') || {}).textContent || '').trim());
+                        row.classList.add('dragging');
+                    });
+                    serverManagerTree.addEventListener('dragend', () => {
+                        draggedServer = '';
+                        clearDrop();
+                        serverManagerTree.querySelectorAll('.dragging').forEach(node => node.classList.remove('dragging'));
+                    });
+                    serverManagerTree.addEventListener('dragover', event => {
+                        const folder = draggedServer ? dropFolderOf(event.target) : null;
+                        if (folder === null) {
+                            clearDrop();
+                            return;
+                        }
+
+                        event.preventDefault();
+                        event.dataTransfer.dropEffect = 'move';
+                        clearDrop();
+                        const head = Array.from(serverManagerTree.querySelectorAll('.server-manager-folder[data-kind="folder"]')).find(node => node.dataset.folder === folder);
+                        if (head) {
+                            head.classList.add('drop-target');
+                        }
+                    });
+                    serverManagerTree.addEventListener('dragleave', event => {
+                        if (!(event.relatedTarget instanceof Node) || !serverManagerTree.contains(event.relatedTarget)) {
+                            clearDrop();
+                        }
+                    });
+                    serverManagerTree.addEventListener('drop', event => {
+                        const folder = draggedServer ? dropFolderOf(event.target) : null;
+                        clearDrop();
+                        if (folder === null) {
+                            return;
+                        }
+
+                        event.preventDefault();
+                        const server = availableServers.find(candidate => candidate.id === draggedServer);
+                        const serverId = draggedServer;
+                        draggedServer = '';
+                        if (server && (server.folder || '') !== folder) {
+                            moveToFolder(serverId, folder);
+                        }
+                    });
                     serverManagerNarrow.addEventListener('change', () => {
-                        setServerManagerOpen(!serverManagerNarrow.matches && serverManagerStore.read('open', true) === true, false);
+                        setServerManagerOpen(wantedOpen(), false);
                     });
                     serverManagerFilter.addEventListener('input', () => renderServerManager());
                     serverManagerFilter.addEventListener('keydown', event => {
@@ -9042,11 +9401,12 @@ public sealed class HtmlViews
                             openFromManager(row.dataset.managerServer, true);
                         }
                     });
-                    setServerManagerOpen(!serverManagerNarrow.matches && serverManagerStore.read('open', true) === true, false);
+                    setServerManagerOpen(wantedOpen(), false);
                 }
 
                 function updateTabActions() {
                     renderServerManager();
+                    checkPoppedWindow();
                     if (!connectionTabActions) {
                         updateStatusBar();
                         return;
@@ -9115,8 +9475,8 @@ public sealed class HtmlViews
                                 actionIcons.reattach,
                                 uiText.reattachToMain || 'Re-attach to main window',
                                 () => reattachTab(tab),
-                                'tab-action-keep',
-                                true);
+                                'tab-action-keep tab-action-reattach',
+                                false);
                             addTabAction('reattach', reattachButton);
                         }
                         else {
@@ -9429,6 +9789,26 @@ public sealed class HtmlViews
                     }
                 }
 
+                // Into a window of its own - or, in that window, back into the main one.
+                function addWindowAction(shellTab) {
+                    if (isPoppedWindow) {
+                        addTabAction('reattach', createTabActionButton(
+                            actionIcons.reattach,
+                            uiText.reattachToMain || 'Re-attach to main window',
+                            () => reattachShellTab(shellTab),
+                            'tab-action-keep tab-action-reattach',
+                            false));
+                    }
+                    else if (serverIdOfShellTab(shellTab)) {
+                        addTabAction('popOut', createTabActionButton(
+                            actionIcons.popOut,
+                            uiText.openInNewWindow || 'Open in a new window',
+                            () => popOutShellTab(shellTab),
+                            'tab-action-keep',
+                            true));
+                    }
+                }
+
                 function addSshTerminalActions(shellTab) {
                     const api = () => sshTerminalOf(shellTab)?.api || null;
                     addTabAction('fullscreen', createTabActionButton(
@@ -9445,6 +9825,7 @@ public sealed class HtmlViews
                         },
                         'tab-action-keep',
                         true));
+                    addWindowAction(shellTab);
                     addTabAction('clipboard', createTabActionButton(
                         actionIcons.clipboard,
                         uiText.pasteToActiveTab || uiText.clipboard || 'Paste to active tab',
@@ -9525,6 +9906,7 @@ public sealed class HtmlViews
                         },
                         'tab-action-keep',
                         true));
+                    addWindowAction(shellTab);
 
                     if (isTouchDevice) {
                         addTabAction('pointer', createTabActionButton(
@@ -10798,39 +11180,127 @@ public sealed class HtmlViews
                 }
 
                 // --- Pop a session out into its own window, and hand it back ----------------------
-                // A live session (WebSocket + canvas) is bound to its window and can't be teleported,
-                // so popping out / re-attaching re-opens the server in the target window (a brief
-                // reconnect). Pop-out closes the tab here; re-attach asks the opener to re-open it.
+                // A live session (WebSocket + picture) is bound to its window and cannot be carried over, so
+                // moving it between windows opens the connection anew in the other one (a brief reconnect).
+                //
+                // A window of its own shows that one session and nothing else - no tab strip, no side panel,
+                // no menu - with a button that hands it back. The main window lists the windows that are out
+                // beside its tabs: a click brings one to the front, its arrow fetches the session back.
+                // The windows find each other over a BroadcastChannel, so the way back works also when the
+                // main window was loaded anew (and the popped one lost its opener); with no main window left
+                // the popped one becomes the main window itself.
+                const windowChannel = (() => { try { return new BroadcastChannel('matgate-windows'); } catch { return null; } })();
+                const thisWindowKey = 'w' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+                const poppedHandles = new Map();
+                const poppedWindows = new Map();
+                const poppedList = document.getElementById('popped-windows');
+
+                function serverIdOfShellTab(shellTab) {
+                    const screen = agentScreenOf(shellTab);
+                    if (screen && screen.serverId) {
+                        return screen.serverId;
+                    }
+
+                    const match = /\/([0-9a-fA-F-]{36})(\/|$)/.exec(String((shellTab && shellTab.url) || ''));
+                    return match && findServer(match[1]) ? match[1] : '';
+                }
+
+                function popOutServer(serverId, closeHere) {
+                    if (!serverId) {
+                        return false;
+                    }
+
+                    const key = 'matgate-pop-' + serverId + '-' + Date.now();
+                    const win = window.open('/?open=' + encodeURIComponent(serverId) + '&popped=1&key=' + encodeURIComponent(key), key, 'popup,width=1280,height=860');
+                    if (!win) {
+                        if (statusMessage) {
+                            statusMessage.textContent = uiText.popupBlocked || 'Allow pop-ups to open this in a new window.';
+                        }
+
+                        return false;
+                    }
+
+                    poppedHandles.set(key, win);
+                    const server = findServer(serverId);
+                    poppedWindows.set(key, { key, serverId, name: (server && server.name) || '', seen: Date.now() });
+                    renderPoppedWindows();
+                    closeHere();
+                    return true;
+                }
+
                 function popOutTab(tab) {
-                    if (!tab || !tab.serverId) {
+                    if (tab && tab.serverId) {
+                        popOutServer(tab.serverId, () => closeTab(tab.id));
+                    }
+                }
+
+                function popOutShellTab(shellTab) {
+                    popOutServer(serverIdOfShellTab(shellTab), () => closeShellTab(shellTab.id));
+                }
+
+                // The popped window hands its session back: to the window that opened it if that one is still
+                // there, otherwise to whichever main window answers first; none answering, it becomes one.
+                function reattachServer(serverId) {
+                    if (!serverId) {
+                        window.close();
                         return;
                     }
 
-                    const url = '/?open=' + encodeURIComponent(tab.serverId) + '&popped=1';
-                    const win = window.open(url, 'matgate-pop-' + tab.serverId + '-' + Date.now(), 'popup,width=1280,height=860');
-                    if (win) {
-                        closeTab(tab.id);
+                    try {
+                        if (window.opener && !window.opener.closed && window.opener.location.origin === location.origin
+                            && typeof window.opener.MatgateTakeBack === 'function') {
+                            window.opener.MatgateTakeBack(serverId);
+                            try { window.opener.focus(); } catch { /* the browser decides */ }
+                            window.close();
+                            return;
+                        }
                     }
-                    else {
-                        flashStatus(tab, uiText.popupBlocked || 'Allow pop-ups to open this in a new window.');
+                    catch {
+                        // The opener is gone or another page now: ask around instead.
                     }
+
+                    const ask = thisWindowKey + '-' + Date.now();
+                    let answered = false;
+                    const onOffer = event => {
+                        const data = event.data || {};
+                        if (data.type === 'reattach-offer' && data.ask === ask && !answered) {
+                            answered = true;
+                            windowChannel.postMessage({ type: 'reattach-to', target: data.window, serverId });
+                            window.setTimeout(() => window.close(), 150);
+                        }
+                    };
+                    if (windowChannel) {
+                        windowChannel.addEventListener('message', onOffer);
+                        windowChannel.postMessage({ type: 'reattach-ask', ask });
+                    }
+
+                    window.setTimeout(() => {
+                        if (!answered) {
+                            // No main window anywhere: this one becomes it, with the session in it.
+                            location.href = '/?open=' + encodeURIComponent(serverId);
+                        }
+                    }, windowChannel ? 700 : 0);
                 }
 
                 function reattachTab(tab) {
-                    const serverId = tab && tab.serverId;
-                    try {
-                        if (serverId && window.opener && !window.opener.closed) {
-                            window.opener.postMessage({ type: 'matgate-reattach', kind: 'session', serverId: serverId }, location.origin);
-                            if (typeof window.opener.focus === 'function') {
-                                window.opener.focus();
-                            }
-                        }
-                    }
-                    catch (e) { /* ignore cross-window errors */ }
-                    window.close();
+                    reattachServer(tab && tab.serverId);
                 }
 
-                // Main window: a popped-out window asks to hand its session back.
+                function reattachShellTab(shellTab) {
+                    reattachServer(serverIdOfShellTab(shellTab));
+                }
+
+                // The main window takes a session back. Also callable straight from the popped window.
+                window.MatgateTakeBack = serverId => {
+                    if (isPoppedWindow) {
+                        return;
+                    }
+
+                    openServer(serverId);
+                    try { window.focus(); } catch { /* ignore */ }
+                };
+
+                // Old windows still post this message.
                 window.addEventListener('message', event => {
                     if (event.origin !== location.origin) {
                         return;
@@ -10838,10 +11308,148 @@ public sealed class HtmlViews
 
                     const data = event.data;
                     if (data && data.type === 'matgate-reattach' && data.kind === 'session' && data.serverId) {
-                        openServer(data.serverId);
-                        try { window.focus(); } catch (e) { /* ignore */ }
+                        window.MatgateTakeBack(data.serverId);
                     }
                 });
+
+                // The list of popped windows in the main window, beside the tabs.
+                function renderPoppedWindows() {
+                    if (!poppedList || isPoppedWindow) {
+                        return;
+                    }
+
+                    const now = Date.now();
+                    for (const [key, entry] of poppedWindows) {
+                        const handle = poppedHandles.get(key);
+                        if ((handle && handle.closed) || (!handle && now - entry.seen > 8000)) {
+                            poppedWindows.delete(key);
+                            poppedHandles.delete(key);
+                        }
+                    }
+
+                    const entries = Array.from(poppedWindows.values());
+                    poppedList.hidden = entries.length === 0;
+                    poppedList.replaceChildren(...entries.map(entry => {
+                        const server = findServer(entry.serverId);
+                        const item = document.createElement('div');
+                        item.className = 'popped-window';
+                        item.dataset.poppedKey = entry.key;
+                        item.style.setProperty('--proto', (server && server.protoColor) || 'var(--accent)');
+                        const focus = document.createElement('button');
+                        focus.type = 'button';
+                        focus.className = 'popped-window-focus';
+                        focus.title = uiText.poppedFocus || 'Bring the window to the front';
+                        focus.innerHTML = `<span class="popped-window-icon" aria-hidden="true">${(server && server.iconHtml) || actionIcons.popOut || ''}</span><span class="popped-window-name"></span>`;
+                        focus.querySelector('.popped-window-name').textContent = entry.name || (server && server.name) || '';
+                        focus.addEventListener('click', () => {
+                            const handle = poppedHandles.get(entry.key);
+                            if (handle && !handle.closed) {
+                                handle.focus();
+                            }
+                            else if (windowChannel) {
+                                windowChannel.postMessage({ type: 'focus', key: entry.key });
+                            }
+                        });
+                        const back = document.createElement('button');
+                        back.type = 'button';
+                        back.className = 'popped-window-back';
+                        back.title = uiText.reattachToMain || 'Re-attach to main window';
+                        back.setAttribute('aria-label', back.title);
+                        back.innerHTML = actionIcons.reattach || '';
+                        back.addEventListener('click', () => {
+                            poppedWindows.delete(entry.key);
+                            const handle = poppedHandles.get(entry.key);
+                            poppedHandles.delete(entry.key);
+                            if (windowChannel) {
+                                windowChannel.postMessage({ type: 'close', key: entry.key });
+                            }
+                            try { if (handle && !handle.closed) { handle.close(); } } catch { /* ignore */ }
+                            renderPoppedWindows();
+                            openServer(entry.serverId);
+                        });
+                        item.append(focus, back);
+                        return item;
+                    }));
+                }
+
+                if (windowChannel) {
+                    windowChannel.addEventListener('message', event => {
+                        const data = event.data || {};
+                        if (!isPoppedWindow) {
+                            if (data.type === 'reattach-ask') {
+                                windowChannel.postMessage({ type: 'reattach-offer', ask: data.ask, window: thisWindowKey });
+                            }
+                            else if (data.type === 'reattach-to' && data.target === thisWindowKey) {
+                                window.MatgateTakeBack(data.serverId);
+                            }
+                            else if (data.type === 'popped-alive') {
+                                poppedWindows.set(data.key, { key: data.key, serverId: data.serverId, name: data.name || '', seen: Date.now() });
+                                renderPoppedWindows();
+                            }
+                            else if (data.type === 'popped-gone') {
+                                poppedWindows.delete(data.key);
+                                poppedHandles.delete(data.key);
+                                renderPoppedWindows();
+                            }
+                        }
+                        else if (data.key && data.key === poppedKey) {
+                            if (data.type === 'close') {
+                                window.close();
+                            }
+                            else if (data.type === 'focus') {
+                                try { window.focus(); } catch { /* the browser decides */ }
+                            }
+                        }
+                    });
+                }
+
+                if (!isPoppedWindow) {
+                    window.setInterval(renderPoppedWindows, 3000);
+                }
+
+                // A popped window says that it is there - so a main window loaded anew lists it again - and
+                // goes when its session went.
+                let poppedHadSession = false;
+                function poppedSessionServer() {
+                    const tab = tabs.values().next().value;
+                    if (tab) {
+                        return tab.serverId;
+                    }
+
+                    const shellTab = shellTabs.values().next().value;
+                    return shellTab ? serverIdOfShellTab(shellTab) : '';
+                }
+                function checkPoppedWindow() {
+                    if (!isPoppedWindow) {
+                        return;
+                    }
+
+                    const serverId = poppedSessionServer();
+                    if (serverId) {
+                        poppedHadSession = true;
+                        const server = findServer(serverId);
+                        if (server && server.name && document.title !== server.name) {
+                            document.title = server.name;
+                        }
+                    }
+                    else if (poppedHadSession) {
+                        window.close();
+                    }
+                }
+                if (isPoppedWindow) {
+                    window.setInterval(() => {
+                        const serverId = poppedSessionServer();
+                        if (windowChannel && serverId) {
+                            const server = findServer(serverId);
+                            windowChannel.postMessage({ type: 'popped-alive', key: poppedKey, serverId, name: (server && server.name) || '' });
+                        }
+                    }, 2500);
+                    window.addEventListener('pagehide', () => {
+                        if (windowChannel) {
+                            windowChannel.postMessage({ type: 'popped-gone', key: poppedKey });
+                        }
+                    });
+                }
 
                 // The file areas over the running session instead of next to it: the session keeps its
                 // tab either way, but this way it stays on screen behind the dialog - which is what you
@@ -11226,6 +11834,12 @@ public sealed class HtmlViews
                 // a page tab, steered by the session toolbar. Guacamole shows a connection only when it says so
                 // (or when its own engine is not available here).
                 function ownEnginePath(server) {
+                    // A database opens in the database browser.
+                    const kind = ((server && server.protocol) || '').toUpperCase();
+                    if (kind === 'MSSQL' || kind === 'MYSQL' || kind === 'POSTGRES') {
+                        return '/db/' + encodeURIComponent(server.id) + '/browser';
+                    }
+
                     if (!server || server.engine !== 'matgate') {
                         return '';
                     }
@@ -17246,7 +17860,6 @@ public sealed class HtmlViews
                             <span class="account-menu-id"><strong>{{E(displayName)}}</strong><small>{{E(user!.UserName)}}</small></span>
                         </div>
                         <a class="shell-menu-item{{accountClass}}" href="/account" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Account"))}}">{{Icon("settings")}}<span>{{T(context, "Account")}}</span></a>
-                        {{sidePanelEntry}}
                         <form method="post" action="/logout" class="account-menu-logout">
                             {{Csrf(context)}}
                             <button type="submit" class="shell-menu-item shell-menu-logout">{{Icon("logout")}}<span>{{T(context, "Logout")}}</span></button>
@@ -17273,7 +17886,7 @@ public sealed class HtmlViews
                     {{(canManageAdminArea ? $"""<a class="shell-menu-item{(adminActive ? " active" : "")}" href="/admin" data-shell-open-tab="1" data-shell-title="{A(T(context, "Administration"))}">{Icon("shield")}<span>{T(context, "Administration")}</span></a>""" : "")}}
                     <a class="shell-menu-item account-trigger{{accountClass}}" href="/account" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Account"))}}">{{Icon("settings")}}<span class="account-name">{{E(displayName)}}</span><span class="shell-burger-settings-word">{{(Language(context) == "de" ? "Einstellungen" : "Settings")}}</span></a>
                     {{sidePanelEntry}}
-                    <button type="button" class="shell-menu-item" data-view-mode-toggle>{{Icon("chevrons-down-up")}}<span>{{(Language(context) == "de" ? "Kompakte Ansicht ein/aus" : "Toggle compact view")}}</span></button>
+                    <button type="button" class="shell-menu-item" data-view-mode-toggle>{{Icon("chevrons-down-up")}}<span>{{(Language(context) == "de" ? "Ansicht ..." : "View ...")}}</span></button>
                     <form method="post" action="/logout" class="account-menu-logout">
                         {{Csrf(context)}}
                         <button type="submit" class="shell-menu-item shell-menu-logout">{{Icon("logout")}}<span>{{T(context, "Logout")}}</span></button>
@@ -17282,8 +17895,18 @@ public sealed class HtmlViews
                 </div>
             </details>
             """;
-        var viewModeToggle = $$"""
-            <button id="view-mode-toggle" type="button" class="view-mode-toggle" aria-pressed="false" data-label-compact="{{A(T(context, "Compact view"))}}" data-label-normal="{{A(T(context, "Normal view"))}}" title="{{A(T(context, "Compact view"))}}" aria-label="{{A(T(context, "Compact view"))}}"><span class="view-mode-icon view-mode-icon--compact">{{Icon("chevrons-down-up")}}</span><span class="view-mode-icon view-mode-icon--normal">{{Icon("chevrons-up-down")}}</span></button>
+        // The view: a choice, not a switch. "Normal", "Normal with side panel" (only where the panel fits beside
+        // the page) and "Compact". The button opens the choice; the template carries the entries, so the
+        // script does not need its own icons and words.
+        var viewLabel = Language(context) == "de" ? "Ansicht" : "View";
+        var viewModeToggle = user is null ? "" : $$"""
+            <button id="view-mode-toggle" type="button" class="view-mode-toggle" aria-haspopup="menu" data-label-compact="{{A(T(context, "Compact view"))}}" data-label-normal="{{A(T(context, "Normal view"))}}" title="{{A(viewLabel)}}" aria-label="{{A(viewLabel)}}"><span class="view-mode-icon view-mode-icon--compact">{{Icon("chevrons-down-up")}}</span><span class="view-mode-icon view-mode-icon--normal">{{Icon("chevrons-up-down")}}</span></button>
+            <template id="view-mode-choices" data-title="{{A(viewLabel)}}" data-close="{{A(T(context, "Close"))}}">
+                <span data-view-choice="normal" data-label="{{A(Language(context) == "de" ? "Normal" : "Normal")}}">{{Icon("chevrons-up-down")}}</span>
+                <span data-view-choice="sidebar" data-wide-only="1" data-label="{{A(Language(context) == "de" ? "Normal mit Seitenleiste" : "Normal with side panel")}}">{{Icon("panel-left")}}</span>
+                <span data-view-choice="minimal" data-label="{{A(Language(context) == "de" ? "Kompakt" : "Compact")}}">{{Icon("chevrons-down-up")}}</span>
+                <span data-view-check>{{Icon("check")}}</span>
+            </template>
             """;
         // Phones, compact view: the tab strip is hidden and this header button lists the open tabs
         // instead (tap = switch, x = close, + = new tab). Hidden everywhere else via CSS.
@@ -17543,7 +18166,7 @@ public sealed class HtmlViews
                     .server-manager-folder-icon { color: var(--accent); display: inline-flex; flex: 0 0 auto; }
                     .server-manager-folder-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
                     .server-manager-count { color: var(--muted); flex: 0 0 auto; font-size: 11.5px; font-weight: 600; }
-                    .server-manager-item { min-height: 40px; padding-left: 30px; }
+                    .server-manager-item { min-height: 40px; }
                     .server-manager-item--flat { padding-left: 8px; }
                     .server-manager-item-icon {
                         align-items: center;
@@ -17579,6 +18202,38 @@ public sealed class HtmlViews
                     .server-manager-dot:not(:empty) { height: 17px; min-width: 17px; padding: 0 4px; }
                     .server-manager-empty { font-size: 13px; margin: 10px 8px; }
                     .server-manager-head-actions { align-items: center; display: inline-flex; flex: 0 0 auto; gap: 4px; }
+                    /* Sessions out in windows of their own, beside the tabs of the main window. */
+                    .popped-windows { align-items: center; display: flex; flex: 0 1 auto; gap: 6px; min-width: 0; overflow: hidden; padding: 0 6px; }
+                    .popped-windows[hidden] { display: none; }
+                    .popped-window { align-items: center; border: 1px dashed color-mix(in srgb, var(--proto, var(--accent)) 60%, var(--line)); border-radius: 10px; display: inline-flex; flex: 0 1 auto; min-width: 0; }
+                    .popped-window button { background: transparent; border: 0; box-shadow: none; min-height: 32px; }
+                    .popped-window-focus { align-items: center; color: var(--text); display: inline-flex; font-size: 13px; font-weight: 600; gap: 6px; max-width: 180px; min-width: 0; padding: 2px 4px 2px 8px; }
+                    .popped-window-icon { color: var(--proto, var(--accent)); display: inline-flex; flex: 0 0 auto; }
+                    .popped-window-icon .icon, .popped-window-back .icon { height: 15px; width: 15px; }
+                    .popped-window-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                    .popped-window-back { align-items: center; color: var(--muted); display: inline-flex; padding: 2px 8px 2px 4px; width: auto; }
+                    .popped-window-back:hover { color: var(--accent); }
+                    /* The window of one session: nothing around it but its own bar. */
+                    html[data-popped] header, html[data-popped] #session-tabs, html[data-popped] #server-manager,
+                    html[data-popped] #server-manager-toggle, html[data-popped] .popped-windows, html[data-popped] .mobile-tab-menu { display: none !important; }
+                    html[data-popped] .shell-page-row { justify-content: flex-end; }
+                    html[data-popped] #connection-tab-actions { flex: 1 1 auto; justify-content: flex-start; }
+                    html[data-popped] .tab-action-reattach { order: -1; }
+                    /* The scroll bar is there only while the mouse is over the list - as in the tab row. Its
+                       room is kept all the time (scrollbar-gutter), so nothing moves when it comes. */
+                    .server-manager-tree { scrollbar-color: transparent transparent; scrollbar-gutter: stable; scrollbar-width: thin; }
+                    .server-manager-tree:hover { scrollbar-color: var(--line) transparent; }
+                    .server-manager-tree::-webkit-scrollbar { width: 8px; }
+                    .server-manager-tree::-webkit-scrollbar-track { background: transparent; }
+                    .server-manager-tree::-webkit-scrollbar-thumb { background: transparent; border-radius: 999px; }
+                    .server-manager-tree:hover::-webkit-scrollbar-thumb { background: var(--line); }
+                    /* Subfolders stand indented under their folder. */
+                    .server-manager-folder { padding-left: calc(8px + var(--depth, 0) * 14px); }
+                    .server-manager-item { padding-left: calc(30px + var(--depth, 0) * 14px); }
+                    .server-manager-item--flat { padding-left: 8px; }
+                    .server-manager-item[draggable="true"] { cursor: grab; }
+                    .server-manager-item.dragging { opacity: .45; }
+                    .server-manager-folder.drop-target { background: color-mix(in srgb, var(--accent) 18%, var(--surface)); box-shadow: inset 0 0 0 2px var(--accent); }
                     .server-manager-head .tab-action-button { align-items: center; display: inline-flex; justify-content: center; }
                     .server-manager-item-text small:empty { display: none; }
                     .server-manager-close { display: none; }
@@ -17591,6 +18246,12 @@ public sealed class HtmlViews
                     /* The entry in the menu: "side panel on/off" where the panel stands beside the page, the
                        name of what is in it where it is a sheet. */
                     .side-panel-entry-narrow { display: none; }
+                    /* Where the panel stands beside the page, the view button chooses it ("Normal with side
+                       panel"); the menu only brings the sheet on a narrow screen. */
+                    @media (min-width: 901px) {
+                        .side-panel-entry { display: none !important; }
+                    }
+                    .view-choice-panel .toolbar-menu-item.active { color: var(--accent); font-weight: 700; }
                     /* Beside the panel the start page is no list any more: the panel is. What stays is a new
                        connection - the head, quick connect, the farm's line. With the panel put away the
                        page is the list again, as it is on a narrow screen. */
@@ -20228,6 +20889,14 @@ public sealed class HtmlViews
                         -webkit-overflow-scrolling: touch;
                     }
                     .home2-qc-protos { display: flex; flex-wrap: wrap; gap: 8px; }
+                    /* What opens it: a segmented choice under the protocols. */
+                    .home2-qc-engine { align-items: center; display: flex; flex-wrap: wrap; gap: 8px 12px; }
+                    .home2-qc-engine[hidden], .home2-qc-engine-option[hidden] { display: none !important; }
+                    .home2-qc-engine-label { color: var(--muted); font-size: 13px; font-weight: 600; }
+                    .home2-qc-engine-options { background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; display: inline-flex; gap: 2px; padding: 3px; }
+                    .home2-qc-engine-option { align-items: center; background: transparent; border: 0; border-radius: 9px; box-shadow: none; color: var(--muted); display: inline-flex; font: inherit; font-size: 13.5px; font-weight: 600; gap: 6px; min-height: 34px; padding: 4px 12px; }
+                    .home2-qc-engine-option .icon { height: 15px; width: 15px; }
+                    .home2-qc-engine-option.active { background: var(--surface); box-shadow: 0 1px 3px rgb(0 0 0 / 12%); color: var(--accent); }
                     .home2-qc-proto {
                         align-items: center;
                         background: var(--surface);
@@ -21116,6 +21785,21 @@ public sealed class HtmlViews
                         width: 40px;
                     }
                     .connection-choice-settings .icon { height: 16px; width: 16px; }
+                    /* The cards with a watermark: the connection's sign large in its corner, in its colour,
+                       faint; the protocol as a pill of that colour; "Connect" a compact button. */
+                    .connection-choice { border-radius: 16px; isolation: isolate; min-height: 150px; overflow: hidden; transition: border-color .16s ease, transform .16s ease; }
+                    .connection-choice:hover { border-color: color-mix(in srgb, var(--proto, var(--accent)) 55%, var(--line)); }
+                    .connection-choice-mark { bottom: -34px; color: var(--proto, var(--accent)); height: 150px; opacity: .11; pointer-events: none; position: absolute; right: -26px; transition: opacity .2s ease, transform .2s ease; width: 150px; z-index: -1; }
+                    .connection-choice-mark svg, .connection-choice-mark .icon { display: block; height: 100%; width: 100%; }
+                    .connection-choice-mark .icon { stroke-width: 1.5; }
+                    .connection-choice:hover .connection-choice-mark { opacity: .18; transform: rotate(-6deg) scale(1.05); }
+                    .connection-choice .server-icon { background: color-mix(in srgb, var(--proto, var(--accent)) 14%, var(--surface)); border-color: transparent; color: var(--proto, var(--accent)); }
+                    .connection-choice-badges .badge:first-child:not(.server-folder-badge) { background: color-mix(in srgb, var(--proto, var(--accent)) 14%, var(--surface)); border-color: transparent; color: color-mix(in srgb, var(--proto, var(--accent)) 75%, var(--text)); font-weight: 700; }
+                    .connection-choice-copy h3 { font-size: 17px; }
+                    .connection-choice-copy .target { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
+                    .connection-choice-actions { justify-content: flex-start; }
+                    .connection-choice-actions .connection-choice-open { border-radius: 999px; flex: 0 0 auto; min-height: 36px; padding: 6px 18px; }
+                    .connection-choice-corner .favorite-toggle { background: color-mix(in srgb, var(--surface) 80%, transparent); border-radius: 10px; }
                     .table-actions {
                         text-align: right;
                     }
@@ -24271,11 +24955,21 @@ public sealed class HtmlViews
                         const viewTabActions = document.getElementById('connection-tab-actions');
                         const readStoredViewMode = () => {
                             try {
-                                return localStorage.getItem(viewModeStorageKey) === 'minimal' ? 'minimal' : 'normal';
+                                if (new URL(location.href).searchParams.get('popped') === '1') {
+                                    return 'normal';
+                                }
+
+                                const stored = localStorage.getItem(viewModeStorageKey);
+                                if (stored === 'minimal' || stored === 'normal') {
+                                    return stored;
+                                }
                             }
                             catch {
-                                return 'normal';
+                                // No storage: then the default.
                             }
+
+                            // Nothing chosen yet: a phone starts compact, everything else normal.
+                            return window.matchMedia('(max-width: 720px)').matches ? 'minimal' : 'normal';
                         };
                         const relocateForViewMode = (minimal) => {
                             const target = minimal ? viewMergeSlot : viewShellPageRow;
@@ -24306,16 +25000,6 @@ public sealed class HtmlViews
                             const minimal = mode === 'minimal';
                             document.documentElement.dataset.viewMode = minimal ? 'minimal' : 'normal';
                             relocateForViewMode(minimal);
-                            if (viewModeToggle) {
-                                viewModeToggle.setAttribute('aria-pressed', minimal ? 'true' : 'false');
-                                const label = minimal
-                                    ? (viewModeToggle.dataset.labelNormal || '')
-                                    : (viewModeToggle.dataset.labelCompact || '');
-                                if (label) {
-                                    viewModeToggle.title = label;
-                                    viewModeToggle.setAttribute('aria-label', label);
-                                }
-                            }
                             if (persist) {
                                 try {
                                     localStorage.setItem(viewModeStorageKey, minimal ? 'minimal' : 'normal');
@@ -24332,22 +25016,64 @@ public sealed class HtmlViews
                         window.addEventListener('resize', () => {
                             relocateForViewMode(document.documentElement.dataset.viewMode === 'minimal');
                         }, { passive: true });
-                        const toggleViewMode = () => {
-                            const next = document.documentElement.dataset.viewMode === 'minimal' ? 'normal' : 'minimal';
-                            applyViewMode(next, true);
+                        // The view is a choice of three: normal, normal with the side panel beside the page, and
+                        // compact. The side panel is the shell's (window.MatgateSidePanel); where it does not fit
+                        // beside the page - a phone - there are two.
+                        const viewChoices = document.getElementById('view-mode-choices');
+                        const sidePanelFits = () => !window.matchMedia('(max-width: 900px)').matches && !!window.MatgateSidePanel;
+                        const currentView = () => document.documentElement.dataset.viewMode === 'minimal'
+                            ? 'minimal'
+                            : (sidePanelFits() && window.MatgateSidePanel.isOpen() ? 'sidebar' : 'normal');
+                        const chooseView = choice => {
+                            applyViewMode(choice === 'minimal' ? 'minimal' : 'normal', true);
+                            if (window.MatgateSidePanel && sidePanelFits()) {
+                                window.MatgateSidePanel.set(choice === 'sidebar');
+                            }
                         };
+                        const openViewChoice = (trigger, at) => {
+                            if (!viewChoices || typeof window.MatgateOpenMenu !== 'function') {
+                                chooseView(currentView() === 'minimal' ? 'normal' : 'minimal');
+                                return;
+                            }
+
+                            const check = (viewChoices.content.querySelector('[data-view-check]') || {}).innerHTML || '';
+                            const now = currentView();
+                            const items = Array.from(viewChoices.content.querySelectorAll('[data-view-choice]'))
+                                .filter(entry => !entry.dataset.wideOnly || sidePanelFits())
+                                .map(entry => ({
+                                    label: entry.dataset.label || '',
+                                    iconHtml: entry.dataset.viewChoice === now ? check : entry.innerHTML,
+                                    onSelect: () => chooseView(entry.dataset.viewChoice)
+                                }));
+                            window.MatgateOpenMenu({ trigger, at, title: viewChoices.dataset.title || '', closeLabel: viewChoices.dataset.close || 'Close', items });
+                            const panel = document.querySelector('.toolbar-menu-panel[data-menu-dynamic]:not([hidden])');
+                            if (panel) {
+                                panel.classList.add('view-choice-panel');
+                                const chosen = items.findIndex(item => item.iconHtml === check);
+                                const buttons = panel.querySelectorAll('.toolbar-menu-item');
+                                if (buttons[chosen]) {
+                                    buttons[chosen].classList.add('active');
+                                    buttons[chosen].setAttribute('aria-checked', 'true');
+                                }
+                            }
+                        };
+                        window.MatgateChooseView = chooseView;
                         if (viewModeToggle) {
-                            viewModeToggle.addEventListener('click', toggleViewMode);
+                            viewModeToggle.addEventListener('click', () => openViewChoice(viewModeToggle));
                         }
                         // Also reachable as a labelled entry in the burger menu (the icon-only toggle
-                        // is easy to miss on phones).
+                        // is easy to miss on phones): the menu closes, the choice opens at its button.
                         document.querySelectorAll('[data-view-mode-toggle]').forEach(item => {
-                            item.addEventListener('click', () => {
-                                toggleViewMode();
+                            item.addEventListener('click', event => {
+                                event.stopPropagation();
                                 const openMenu = item.closest('details[open]');
                                 if (openMenu) {
                                     openMenu.removeAttribute('open');
                                 }
+
+                                const anchor = openMenu ? openMenu.querySelector('summary') : item;
+                                const box = (anchor || item).getBoundingClientRect();
+                                window.setTimeout(() => openViewChoice(anchor || item, { x: Math.max(8, box.right - 240), y: box.bottom }), 0);
                             });
                         });
 
@@ -24793,7 +25519,10 @@ public sealed class HtmlViews
         // if neither is set, RDP stays the default.
         var effectiveProtocol = server?.Protocol ?? preferredProtocol;
         var iconKey = ServerEndpoint.NormalizeIconKey(server?.IconKey);
-        var folderName = Clean(server?.FolderName, "");
+        // A new connection may come with its folder: "New connection here" on a folder of the side panel.
+        var folderName = server is null
+            ? ServerFolders.CleanPath(context.Request.Query["folder"].ToString())
+            : Clean(server.FolderName, "");
         var port = server?.Port.ToString() ?? "";
         var websiteUrl = string.IsNullOrWhiteSpace(server?.WebsiteUrl)
             ? (string.IsNullOrWhiteSpace(server?.Host) ? "" : server.Host)
@@ -24809,7 +25538,7 @@ public sealed class HtmlViews
             : string.IsNullOrEmpty(server.Password)
                 ? (Language(context) == "de" ? "keins gespeichert" : "none stored")
                 : (Language(context) == "de" ? "gespeichert - leer lassen behält es" : "stored - leave empty to keep it");
-        var clearPassword = server is null ? "" : $"""<label class="check" data-protocols="rdp,vnc,ssh,sftp,ftp,smb,webdav,agent"><input type="checkbox" name="clearPassword"> {T(context, "Clear saved target password")}</label>""";
+        var clearPassword = server is null ? "" : $"""<label class="check" data-protocols="rdp,vnc,ssh,sftp,ftp,smb,webdav,agent,mssql,mysql,postgres"><input type="checkbox" name="clearPassword"> {T(context, "Clear saved target password")}</label>""";
         var canManageGlobal = currentUser.IsAdmin || currentUser.CanManageServers;
         var canCreatePrivate = currentUser.IsAdmin || currentUser.CanCreateServers;
         var scopeValue = server?.OwnerUserId is not null ? "private" : "global";
@@ -24870,10 +25599,10 @@ public sealed class HtmlViews
                     <label class="conn-wide"><span>{{T(context, "Name")}}<span class="req" aria-hidden="true">*</span></span>
                         <input name="name" value="{{A(server?.Name)}}" required aria-required="true" placeholder="{{A(de ? "z. B. Büro-PC" : "e.g. Office PC")}}">
                     </label>
-                    <label class="conn-host" data-protocols="rdp,vnc,ssh,sftp,ftp,smb,webdav,agent"><span>{{T(context, "Host or IP")}}<span class="req" aria-hidden="true">*</span></span>
+                    <label class="conn-host" data-protocols="rdp,vnc,ssh,sftp,ftp,smb,webdav,agent,mssql,mysql,postgres"><span>{{T(context, "Host or IP")}}<span class="req" aria-hidden="true">*</span></span>
                         <input name="host" value="{{A(server?.Host)}}" placeholder="{{A(de ? "Name oder Adresse des Rechners" : "the machine's name or address")}}" required aria-required="true" autocapitalize="off" spellcheck="false">
                     </label>
-                    <label class="conn-port" data-protocols="rdp,vnc,ssh,sftp,ftp,smb,webdav,agent">Port
+                    <label class="conn-port" data-protocols="rdp,vnc,ssh,sftp,ftp,smb,webdav,agent,mssql,mysql,postgres">Port
                         <input name="port" type="number" min="1" max="65535" value="{{A(port)}}" placeholder="3389" data-port-input>
                     </label>
                     <label class="conn-wide" data-protocols="website"><span>{{T(context, "Website URL")}}<span class="req" aria-hidden="true">*</span></span>
@@ -24900,7 +25629,7 @@ public sealed class HtmlViews
                     <pre class="conn-code"><code>curl -fsSL -o matgate-agent https://github.com/Real-TTX/Matgate/releases/download/agent-latest/matgate-agent-linux-x64&#10;chmod +x matgate-agent &amp;&amp; sudo ./matgate-agent setup</code></pre>
                 </div>
             </section>
-            <section class="panel server-form-section" data-protocols="rdp,vnc,ssh,sftp,ftp,smb,webdav,agent,website">
+            <section class="panel server-form-section" data-protocols="rdp,vnc,ssh,sftp,ftp,smb,webdav,agent,website,mssql,mysql,postgres">
                 <h2>{{(de ? "Anmeldung" : "Sign-in")}}</h2>
                 <p class="muted conn-lead" data-protocols="website">{{(de
                     ? "Nur nötig, wenn die Seite Name und Passwort im Dialog des Browsers verlangt, oder für Proxmox (dort meldet Matgate damit an). Die meisten Oberflächen haben ihre eigene Anmeldeseite - dann bleibt das leer."
@@ -24909,10 +25638,10 @@ public sealed class HtmlViews
                     ? "Was hier leer bleibt, fragt Matgate beim Verbinden ab."
                     : "Whatever stays empty here, Matgate asks for when connecting.")}}</p>
                 <div class="conn-grid">
-                    <label data-protocols="rdp,ssh,sftp,ftp,smb,webdav,website">{{(de ? "Benutzer" : "User")}}
+                    <label data-protocols="rdp,ssh,sftp,ftp,smb,webdav,website,mssql,mysql,postgres">{{(de ? "Benutzer" : "User")}}
                         <input name="targetUserName" value="{{A(server?.UserName)}}" autocomplete="off" autocapitalize="off" spellcheck="false">
                     </label>
-                    <label data-protocols="rdp,vnc,ssh,sftp,ftp,smb,webdav,website">{{(de ? "Passwort" : "Password")}}
+                    <label data-protocols="rdp,vnc,ssh,sftp,ftp,smb,webdav,website,mssql,mysql,postgres">{{(de ? "Passwort" : "Password")}}
                         <input name="targetPassword" type="password" autocomplete="new-password" placeholder="{{A(passwordPlaceholder)}}">
                     </label>
                     <!-- An agent has no user, only the token its setup shows. -->
@@ -25005,6 +25734,12 @@ public sealed class HtmlViews
                     </div>
                     <div class="conn-grid" data-protocols="agent">
                         <label class="check conn-wide"><input type="checkbox" name="ignoreCertificate"{{Checked(server?.IgnoreCertificate ?? true)}}> {{(de ? "Zertifikat ignorieren (selbst signiertes Zertifikat des Agents)" : "Ignore certificate (the agent's self-signed certificate)")}}</label>
+                    </div>
+                    <div class="conn-grid" data-protocols="mssql,mysql,postgres">
+                        <label>{{(de ? "Datenbank" : "Database")}} <small class="muted">(optional)</small>
+                            <input name="databaseName" value="{{A(server?.DatabaseName)}}" autocapitalize="off" spellcheck="false" placeholder="{{A(de ? "leer: alle, die der Benutzer sehen darf" : "empty: every one the user may see")}}">
+                        </label>
+                        <label class="check"><input type="checkbox" name="dbTrustCertificate" value="true"{{(server?.IgnoreCertificate == true && ServerEndpoint.IsDatabaseProtocol(server.Protocol) ? " checked" : "")}}> {{(de ? "Zertifikat nicht prüfen (eigenes Zertifikat des Servers)" : "Do not check the certificate (the server's own)")}}</label>
                     </div>
                     <div class="conn-grid" data-protocols="sftp,ftp,smb">
                         <label class="conn-wide">{{T(context, "File start path / SMB share")}}
@@ -25111,7 +25846,7 @@ public sealed class HtmlViews
                     };
 
                     // The port field says which port is taken when it stays empty.
-                    const defaultPorts = { rdp: '3389', vnc: '5900', ssh: '22', sftp: '22', ftp: '21', smb: '445', webdav: '443', agent: '7488' };
+                    const defaultPorts = { rdp: '3389', vnc: '5900', ssh: '22', sftp: '22', ftp: '21', smb: '445', webdav: '443', agent: '7488', mssql: '1433', mysql: '3306', postgres: '5432' };
                     const portInput = form.querySelector('[data-port-input]');
                     const showDefaultPort = () => {
                         if (portInput) {
@@ -25226,6 +25961,9 @@ public sealed class HtmlViews
             (ServerProtocol.Smb, "Smb", "SMB", "smb", "#35c07f"),
             (ServerProtocol.WebDav, "WebDav", "WebDAV", "cloud", "#2bb3c0"),
             (ServerProtocol.Agent, "Agent", "Agent", "desktop", "#7fd6a8"),
+            (ServerProtocol.MsSql, "MsSql", "SQL Server", "database", "#d9534f"),
+            (ServerProtocol.MySql, "MySql", "MySQL", "database", "#00758f"),
+            (ServerProtocol.Postgres, "Postgres", "PostgreSQL", "database", "#336791"),
             (ServerProtocol.Website, "Website", T(context, "Website (Beta)"), "globe", "#3aa0ff"),
         };
 
@@ -25314,9 +26052,14 @@ public sealed class HtmlViews
 
     private static string ServerProtocolLabel(ServerProtocol protocol)
     {
-        return protocol == ServerProtocol.Website
-            ? "Website (Beta)"
-            : protocol.ToString().ToUpperInvariant();
+        return protocol switch
+        {
+            ServerProtocol.Website => "Website (Beta)",
+            ServerProtocol.MsSql => "SQL Server",
+            ServerProtocol.MySql => "MySQL",
+            ServerProtocol.Postgres => "PostgreSQL",
+            _ => protocol.ToString().ToUpperInvariant(),
+        };
     }
 
     private static string IconKeyLabel(string iconKey)

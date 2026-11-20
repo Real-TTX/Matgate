@@ -18,6 +18,43 @@ public static partial class EndpointMapping
         app.MapGet("/admin/folders/edit", FolderEditAsync).RequireAuthorization();
         app.MapPost("/admin/folders/save", FolderSaveAsync).RequireAuthorization();
         app.MapPost("/admin/folders/delete", FolderDeleteAsync).RequireAuthorization();
+        app.MapPost("/api/servers/{id:guid}/folder", MoveToFolderAsync).RequireAuthorization();
+    }
+
+    // Moves one connection into a folder - or out of every folder with an empty name. What the side panel does
+    // when a connection is dropped on a folder. A subfolder is a name with a "/" in it ("Lab/Linux"). It takes
+    // the icon the folder has, as the folder page does.
+    private static async Task<IResult> MoveToFolderAsync(Guid id, HttpContext context, JsonDataStore store)
+    {
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        if (!ValidateCsrfHeader(context))
+        {
+            return Results.StatusCode(StatusCodes.Status403Forbidden);
+        }
+
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        var name = ServerFolders.CleanPath(form["folder"]);
+        var moved = false;
+        await store.UpdateServersAsync(servers =>
+        {
+            var server = servers.FirstOrDefault(candidate => candidate.Id == id);
+            if (server is null || !CanEditServer(user, server))
+            {
+                return;
+            }
+
+            server.FolderIconKey = ServerFolders.IconFor(servers, server.Id, name, ServerFolders.Same(server.FolderName, name) ? server.FolderIconKey : "");
+            server.FolderName = name;
+            server.UpdatedAt = DateTimeOffset.UtcNow;
+            moved = true;
+        }, context.RequestAborted);
+
+        return moved ? Results.NoContent() : Results.StatusCode(StatusCodes.Status403Forbidden);
     }
 
     private static async Task<List<ServerEndpoint>> EditableServersAsync(MatgateUser user, JsonDataStore store, CancellationToken cancellationToken) =>

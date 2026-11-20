@@ -25,6 +25,8 @@ const near = (got, want, tolerance) => !!got && Math.abs(got.x - want.x) <= tole
     viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true,
     userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1",
   });
+  // The normal view, which this script was written for: a phone starts compact otherwise.
+  await ctx.addInitScript(() => { try { localStorage.setItem("matgate.view.mode.v1", "normal"); } catch (e) {} });
   const page = await ctx.newPage();
   page.on("pageerror", e => { console.log("JS ERROR: " + e.message); failures.push("JS error"); });
   await page.goto(BASE + "/login", { waitUntil: "networkidle" });
@@ -53,6 +55,13 @@ const near = (got, want, tolerance) => !!got && Math.abs(got.x - want.x) <= tole
     await sleep(7000);
   };
   const toggleMode = async () => {
+    // In the bar where there is room for it, behind "..." otherwise.
+    const inBar = page.locator("#connection-tab-actions > [data-action='pointer']");
+    if (await inBar.isVisible()) {
+      await inBar.tap();
+      await sleep(500);
+      return;
+    }
     await page.locator("#connection-tab-actions .tab-action-more-trigger").tap();
     await sleep(500);
     await page.locator(".tab-action-overflow-panel button").filter({ hasText: /Pointer/ }).first().tap();

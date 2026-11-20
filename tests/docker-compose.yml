@@ -115,6 +115,19 @@ services:
       context: ..
       dockerfile: tests/agent-linux/Dockerfile
     init: true
+  # Databases for the database browser (tests/database.js): one of each kind, with a small table to read.
+  # SQL Server has no folder for scripts at its first start - the test makes its table itself.
+  postgres:
+    image: postgres:17-alpine
+    environment: { POSTGRES_USER: demo, POSTGRES_PASSWORD: demo-only-pw, POSTGRES_DB: shop }
+    volumes: ["./db/shop.sql:/docker-entrypoint-initdb.d/shop.sql:ro"]
+  mariadb:
+    image: mariadb:11
+    environment: { MARIADB_USER: demo, MARIADB_PASSWORD: demo-only-pw, MARIADB_ROOT_PASSWORD: root-only-pw, MARIADB_DATABASE: shop }
+    volumes: ["./db/shop.sql:/docker-entrypoint-initdb.d/shop.sql:ro"]
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment: { ACCEPT_EULA: "Y", MSSQL_SA_PASSWORD: "Demo-only-pw1", MSSQL_PID: Developer }
 volumes: { mgdata: , secrets: , files: , mgdata-plain: , secrets-plain: }
 # A fixed subnet, because Docker's default pools run out on a machine with many stacks
 # ("all predefined address pools have been fully subnetted"). Change it if 10.253.81.0/24 is

@@ -17,6 +17,14 @@ public static class ServerFolders
         return name.Length > MaxNameLength ? name[..MaxNameLength].Trim() : name;
     }
 
+    // A folder's name that may name a subfolder: the parts between "/" cleaned, the empty ones dropped -
+    // " Lab / / Linux " is "Lab/Linux".
+    public static string CleanPath(string? value)
+    {
+        var parts = CleanName(value).Split('/', StringSplitOptions.TrimEntries | StringSplitOptions.RemoveEmptyEntries);
+        return CleanName(string.Join("/", parts));
+    }
+
     public static bool Same(string? left, string? right) =>
         string.Equals((left ?? "").Trim(), (right ?? "").Trim(), StringComparison.OrdinalIgnoreCase);
 

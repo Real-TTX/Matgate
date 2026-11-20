@@ -230,7 +230,7 @@ const shots = [];
         await page.mouse.click(10, 400);
         // The list of open connections only exists in the compact view: switch into it, take the
         // picture, switch back.
-        const compact = () => page.evaluate(() => { const toggle = document.getElementById("view-mode-toggle") || document.querySelector("[data-view-mode-toggle]"); if (toggle) { toggle.click(); } });
+        const compact = () => page.evaluate(() => { window.MatgateChooseView(document.documentElement.dataset.viewMode === 'minimal' ? 'normal' : 'minimal'); });
         await compact();
         await sleep(500);
         if (await page.locator(".mobile-tab-menu-trigger").isVisible()) {

@@ -66,6 +66,10 @@ const GROUPS = [
     name: "Group 13 - one press on a toolbar button, the frame of the dialogs, the server manager",
     scripts: ["action-press.js", "server-manager.js"],
   },
+  {
+    name: "Group 14 - folders in the side panel, sessions in windows of their own, the database browser",
+    scripts: ["side-panel-folders.js", "session-windows.js", "database.js"],
+  },
 ];
 
 const PAUSE = 310000;

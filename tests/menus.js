@@ -62,14 +62,14 @@ const signIn = async (page) => {
   await page.screenshot({ path: "menu-1-desktop.png", clip: { x: 0, y: 0, width: 1400, height: 130 } });
 
   // ================= Desktop, compact view: icon AND entry would be the same thing twice
-  await page.evaluate(() => { document.getElementById("view-mode-toggle").click(); });
+  await page.evaluate(() => { window.MatgateChooseView(document.documentElement.dataset.viewMode === 'minimal' ? 'normal' : 'minimal'); });
   await sleep(1200);
   const mode = await page.evaluate(() => document.documentElement.dataset.viewMode);
   check("kompakte Ansicht an", mode, "minimal");
   check("desktop compact: icon still there", await visible(page, "#view-mode-toggle"), true);
   check("desktop compact: menu entry NOT duplicated", await visible(page, "[data-view-mode-toggle]"), false);
   await page.screenshot({ path: "menu-2-desktop-compact.png", clip: { x: 0, y: 0, width: 1400, height: 130 } });
-  await page.evaluate(() => { document.getElementById("view-mode-toggle").click(); });
+  await page.evaluate(() => { window.MatgateChooseView(document.documentElement.dataset.viewMode === 'minimal' ? 'normal' : 'minimal'); });
   await sleep(800);
   await ctx.close();
 

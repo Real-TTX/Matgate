@@ -442,6 +442,7 @@ public static partial class EndpointMapping
         MapAgentEndpoints(app);
         MapDisplayEndpoints(app);
         MapSshEndpoints(app);
+        MapDatabaseEndpoints(app);
         MapKeyBarEndpoints(app);
         MapFolderEndpoints(app);
         MapKeptSessionEndpoints(app);
@@ -5048,6 +5049,7 @@ public static partial class EndpointMapping
             storedServer.UserName = updated.UserName;
             storedServer.Domain = updated.Domain;
             storedServer.FileRootPath = updated.FileRootPath;
+            storedServer.DatabaseName = updated.DatabaseName;
             storedServer.KeyboardLayout = updated.KeyboardLayout;
             storedServer.TerminalFontSize = updated.TerminalFontSize;
             storedServer.Engine = updated.Engine;
@@ -5226,6 +5228,15 @@ public static partial class EndpointMapping
         // browser farm's picture of one. Without an address it is a tab with an address bar to type into,
         // with host names for websites and without them.
         var blankBrowser = isWebsite && string.IsNullOrWhiteSpace(target);
+        // What opens it, as chosen in the dialog: Guacamole instead of Matgate's own engine, or the browser
+        // farm's picture of a website instead of Matgate's own browser. The farm needs an address to open.
+        var engineChoice = (form["engine"].ToString() ?? "").Trim().ToLowerInvariant();
+        var onFarm = isWebsite && engineChoice == "farm";
+        if (onFarm && blankBrowser)
+        {
+            return Results.BadRequest(new { error = HtmlViews.Translate(context, "Please enter a target.") });
+        }
+
         if (isWebsite && !blankBrowser)
         {
             // "10.0.0.5" or "nas": https where something answers there, http otherwise.
@@ -5254,8 +5265,9 @@ public static partial class EndpointMapping
             Name = blankBrowser ? "Browser" : target,
             // Whoever may quick-connect may open any address - so a website opened this way is a browser:
             // its address bar takes any address, and its links are followed through Matgate.
-            WebsiteBrowse = isWebsite,
-            WebsiteRenderMode = WebsiteRenderMode.Native,
+            WebsiteBrowse = isWebsite && !onFarm,
+            WebsiteRenderMode = onFarm ? WebsiteRenderMode.ChromiumVnc : WebsiteRenderMode.Native,
+            Engine = ServerEndpoint.IsGuacamoleProtocol(protocol) ? ServerEndpoint.NormalizeEngine(engineChoice) : "",
             Protocol = protocol,
             Host = isWebsite ? "" : target,
             Port = port,
@@ -5640,6 +5652,9 @@ public static partial class EndpointMapping
             ServerProtocol.Smb => 445,
             ServerProtocol.WebDav => 443,
             ServerProtocol.Agent => 7488,
+            ServerProtocol.MsSql => 1433,
+            ServerProtocol.MySql => 3306,
+            ServerProtocol.Postgres => 5432,
             _ => 3389
         };
         var port = protocol == ServerProtocol.Website
@@ -5683,12 +5698,14 @@ public static partial class EndpointMapping
             Password = form["targetPassword"].ToString(),
             Domain = Clean(form["domain"].ToString(), ""),
             FileRootPath = Clean(form["fileRootPath"].ToString(), ""),
+            DatabaseName = ServerEndpoint.IsDatabaseProtocol(protocol) ? Clean(form["databaseName"].ToString(), "") : "",
             KeyboardLayout = CleanKeyboardLayout(
                 form["keyboardLayout"].ToString(),
                 existing?.KeyboardLayout ?? ServerEndpoint.DefaultKeyboardLayout),
             TerminalFontSize = ServerEndpoint.NormalizeTerminalFontSize(terminalFontSize),
             Engine = form.ContainsKey("engine") ? ServerEndpoint.NormalizeEngine(form["engine"].ToString()) : existing?.Engine ?? "",
-            IgnoreCertificate = IsChecked(form, "ignoreCertificate"),
+            // A database has its own box for it: the website's stays where it is in the form.
+            IgnoreCertificate = ServerEndpoint.IsDatabaseProtocol(protocol) ? IsChecked(form, "dbTrustCertificate") : IsChecked(form, "ignoreCertificate"),
             IsEnabled = IsChecked(form, "isEnabled"),
             Notes = Clean(form["notes"].ToString(), ""),
             OwnerUserId = isPrivate ? (existing?.OwnerUserId ?? currentUser.Id) : null,

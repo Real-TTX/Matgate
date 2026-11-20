@@ -647,6 +647,18 @@ Server-Manager links „wie RoyalTS“. MatUi (`../MatDesign/src/MatUi`) als Vor
   („Verbindungen“), schließt bei Auswahl, Escape oder Tipp daneben, und merkt sich nichts. Quick-Connect am
   Handy: Protokolle als Kacheln vier in einer Reihe, passt bis 320×568 ohne Rollen. Tests, die die Liste der
   Startseite brauchen, klappen die Leiste mit `tests/list-on-start-page.js` vorher weg.
+- **0.31.0:** Der Ansichts-Knopf (`#view-mode-toggle`) ist eine Auswahl (eigenes Menü, `#view-mode-choices`):
+  Normal / Normal mit Seitenleiste / Kompakt; unter 900 px nur Normal / Kompakt. Kompakt hat nie eine
+  Seitenleiste daneben. Handy startet ohne gespeicherte Wahl kompakt. Tests schalten mit
+  `window.MatgateChooseView('normal'|'sidebar'|'minimal')`. Der Seitenleisten-Eintrag im Menü gibt es nur
+  noch unter 900 px (Blatt). Ordner in der Seitenleiste: Unterordner sind Namen mit „/“ („Labor/Linux“),
+  als Baum gezeichnet; Verbindungen per Ziehen auf einen Ordner (oder „Ohne Ordner“) verschieben
+  (`POST /api/servers/{id}/folder`, Feld `folder`, `ServerFolders.CleanPath`); Rechtsklick auf Ordner: Neue
+  Verbindung hier (`/admin/servers/new?folder=`), Unterordner anlegen, Ordner bearbeiten, alle zu/auf; auf
+  freier Fläche: Quick-Connect, Neue Verbindung, Neuer Ordner; auf Verbindungen zusätzlich „In Ordner
+  verschieben“. `tests/side-panel-folders.js`. Quick-Connect: „Öffnen mit“ Matgate/Guacamole (RDP, VNC, SSH)
+  bzw. Integriert/Browser-Farm (Browser, nur wenn die Farm eingerichtet ist), Feld `engine`. Kacheln der
+  Startseite: Variante A „Wasserzeichen“ (`ConnectionMark`: Fenster für RDP, Prompt für SSH, sonst das Symbol).
 - **Bilder:** `tests/gallery.js` ist eine Tour, kein Vergleich: Anmeldung, Start, Menü, Dialoge, echte
   RDP-/VNC-/SSH-Sitzungen, Browser, Server-Manager, Einstellungen - je am Desktop und am Handy, als PNG nach
   `tests/gallery/` mit `index.html`. So ist der Umbau beurteilt worden.
@@ -687,6 +699,45 @@ auf einem echten iPhone; der Server-Manager mit vielen Ordnern und Verbindungen 
 fünf Verbindungen und im Test einen Ordner). Das Schloss ist echt über den Dev-Stack geprüft
 (`https://10.10.0.1/login`: Schloss; leer und `http`: Globus) - **es sagt nur „verschlüsselt“, nicht
 „Zertifikat geprüft“**: Browser-Tabs ignorieren Zertifikatsfehler in der Voreinstellung (`IgnoreCertificate`).
+
+## Backlog (Wünsche vom 2026-11-21, noch nicht begonnen)
+
+Reihenfolge noch nicht abgesprochen - vor dem Anfangen fragen, welcher zuerst.
+
+1. **Datenbanken - erster Stand in 0.31.0:** Protokolle `MsSql`, `MySql`, `Postgres` (Felder `DatabaseName`,
+   „Zertifikat nicht prüfen“ = `IgnoreCertificate`), `Services/Database/DatabaseGateway.cs` (je Server ein
+   `IDatabaseDialect`, Ausführen/Lesen gemeinsam), Seite `/db/<id>/browser` (`HtmlViews.Database.cs`), API
+   `/api/db/<id>/databases|objects|rows|query`; Zugangsdaten ohne gespeichertes Passwort fragt die Seite und
+   schickt sie als Header mit. Test `tests/database.js` gegen postgres/mariadb/mssql im Teststapel. Offen:
+   Quick-Connect für Datenbanken, Bearbeiten von Zeilen, Export (CSV), Spalten-/Index-Ansicht.
+   Ursprünglicher Wunsch: **Datenbanken als Verbindung + Datenbank-Browser.** Neue Protokolle MSSQL, MySQL/MariaDB, PostgreSQL
+   (Host, Port, Benutzer, Passwort, Datenbank optional). Ein Browser wie der Dateimanager: links Datenbanken
+   → Schemas → Tabellen/Sichten, rechts Tabellendaten (Seiten, Filter, Sortierung) und ein Abfragefenster.
+   Wunsch: „wie das File-Thema wieder einheitlicher Code“ - also eine gemeinsame Schnittstelle
+   (`IDatabaseGateway` analog `FileGatewayService`) mit je einem Treiber (Microsoft.Data.SqlClient, MySqlConnector,
+   Npgsql) und einer Oberfläche für alle drei. Offen: nur lesen oder auch ändern; Grenzen für Ergebnismengen.
+2. **Kopieren zwischen Datei-Tabs.** Strg+C / Strg+V zwischen zwei Dateimanager-Tabs (verschiedene
+   Verbindungen) und Ziehen von Dateien auf einen anderen Tab (Tab wird beim Darüberhalten aktiv, Ablegen
+   kopiert dorthin) - „wie im Windows Explorer“. Der Strom bleibt auf dem Gateway (`/api/files/{id}/copy-to`
+   gibt es schon zwischen Ablagen).
+3. **Matgate-Tunnel.** Alternative zum Agent: ein kleines Programm in einem fremden Netz, über das Matgate
+   Verbindungen dorthin aufbaut. Je Verbindung wählbar: „Direkt“ oder „Über Tunnel X“. Arten: Reverse-Tunnel
+   (das Programm verbindet sich zu Matgate, wie der Agent), offener Port, oder WireGuard / OpenVPN - dann baut
+   der Container für diese Verbindung selbst ein VPN auf und verbindet sich darüber (RDP, SSH, Dateien ...).
+   Offen: VPN im Container braucht NET_ADMIN / ein TUN-Gerät oder einen Userspace-Stack (z. B.
+   wireguard-go mit netstack) - Sicherheit und Rechte vorher klären.
+4. **Zugangsdaten-Verwaltung.** Gespeicherte Zugangsdaten als eigene Objekte (Name, Benutzer, Passwort/Schlüssel,
+   Domäne), die mehrere Verbindungen benutzen; ändern an einer Stelle. Persönliche und geteilte; verschlüsselt
+   wie heute die Passwörter der Verbindungen.
+5. **Besser mehrbenutzerfähig (Firmen).** Admin verwaltet Server zentral; Admin legt Ordner an, die für alle
+   (oder Gruppen) sichtbar sind; vermutlich Gruppen/Rollen statt Rechte je Benutzer. Heute ist ein Ordner nur
+   der Name an den Verbindungen (`ServerFolders`) - für eigene Ordner (auch leere, mit Rechten) braucht es
+   Ordner als eigene Objekte. Das hängt mit Punkt 4 und mit den Unterordnern der Seitenleiste zusammen.
+
+Frage aus der Sitzung, beantwortet: **AnyDesk / TeamViewer** sind geschlossene Protokolle ohne offene
+Beschreibung - nachbauen geht nicht. Möglich wäre (a) eine Verbindungsart, die nur die installierte App auf
+dem Gerät öffnet (`anydesk:<ID>`, `teamviewer10://control?device=<ID>`), oder (b) der Linux-Client in einem
+Browser-Farm-artigen Container, als VNC-Bild gestreamt (Lizenzbedingungen prüfen). Nicht beauftragt.
 
 ## Offene Prüfungen am echten Gerät
 

@@ -110,7 +110,7 @@ const check = (name, got, want) => {
   await page.setViewportSize({ width: 600, height: 800 });
   await sleep(1000);
   // The list is what the compact view has instead of the strip (the phone's default, a button elsewhere).
-  await page.evaluate(() => document.getElementById("view-mode-toggle").click());
+  await page.evaluate(() => window.MatgateChooseView(document.documentElement.dataset.viewMode === 'minimal' ? 'normal' : 'minimal'));
   await sleep(800);
   check("the compact view is on", await page.evaluate(() => document.documentElement.dataset.viewMode), "minimal");
   await page.locator("#mobile-tab-menu .mobile-tab-menu-trigger").click();

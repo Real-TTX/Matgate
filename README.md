@@ -47,7 +47,8 @@ usable from a laptop or a phone – installable as a PWA.
   an RDP, VNC or SSH session of Matgate's own engine keeps running when its browser is reloaded, loses its
   network or is closed, and the page that comes back - on another device too - gets that very session and
   the same tabs; closing a tab ends its session at once
-- **Pop a session out into its own window** and re-attach it later (great for multi-monitor)
+- **Pop a session out into a window of its own** - just that session, no tabs around it - and hand it back
+  with one button; the main window lists the windows that are out beside its tabs (great for multi-monitor)
 - **Real fullscreen / immersive mode** (safe-area aware on iPhone), clipboard sync, a live status bar
 - **A scale instead of a resolution**: "fit to window" at 50 %, 100 %, 150 % ... - a larger desktop shown
   smaller, or a smaller one shown larger; on a phone the **device keyboard** leaves the picture reachable (it
@@ -56,6 +57,11 @@ usable from a laptop or a phone – installable as a PWA.
   have (Esc, Tab, Ctrl, Alt, the arrows) and your own shortcuts (Ctrl+C, Ctrl+V, ...), set up under
   Account -> Key bar - which buttons, in which order, for desktops, terminals or both
 - Per-session **scale** for VNC through Guacamole (Auto / 75% / 50%) so more fits on screen
+
+**Databases**
+- **SQL Server, MySQL / MariaDB and PostgreSQL** as connections, opened in one **database browser**: the
+  databases with their tables and views, a table's rows a page at a time (a click on a column orders by it),
+  and a field for statements of your own. A login that is not stored is asked for
 
 **Files**
 - File gateway for **SFTP, FTP and SMB** – no extra privileges in the container
@@ -82,7 +88,9 @@ usable from a laptop or a phone – installable as a PWA.
   places and shares - searchable, each group collapsible. One click connects or jumps to the open session,
   Ctrl / middle click opens another one, right click brings the connection's menu. On a desktop it is open
   from the start and the start page beside it is just quick connect; it is shown and hidden from the tab
-  row or the menu (in the compact view the menu is the way), and on a phone it is a sheet from the menu
+  row or the view button (normal, normal with side panel, compact), and on a phone it is a sheet from the menu.
+  Subfolders are names with a "/"; connections are moved by dragging them onto a folder, and a right click on
+  a folder makes a new connection in it
 - **Quick connect** for ad-hoc sessions without saving anything
 - **Folders** with a page of their own (name, icon, which connections lie in them), per-user **favorites**,
   search across names, folders and hosts
