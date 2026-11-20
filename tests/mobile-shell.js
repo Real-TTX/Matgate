@@ -72,6 +72,24 @@ const button = page => page.evaluate(() => {
   await open();
   check("sheet open after tapping", await sheet(page), "open");
   check("aria-expanded open", (await button(page)).expanded, "true");
+  // The sheet is built like the main menu's: a head with the count, a row per connection with its
+  // icon in a tile and what it is below the name, the new connection apart at the end.
+  const look = await page.evaluate(() => {
+    const panel = document.querySelector(".mobile-tab-menu-panel");
+    const rows = Array.from(panel.querySelectorAll(".mobile-tab-item"));
+    const sessions = rows.filter(row => !row.classList.contains("mobile-tab-item--add"));
+    const add = rows[rows.length - 1];
+    return {
+      count: (panel.querySelector(".mobile-tab-sheet-count") || {}).textContent,
+      icons: sessions.every(row => !!row.querySelector(".mobile-tab-item-icon svg")),
+      names: sessions.every(row => !!(row.querySelector(".mobile-tab-item-name") || {}).textContent),
+      states: sessions.every(row => !!(row.querySelector(".mobile-tab-item-state") || {}).textContent),
+      addLast: add.classList.contains("mobile-tab-item--add") && !add.querySelector(".mobile-tab-item-close"),
+      addHasNoPlusInText: !/^\+/.test(add.textContent.trim()),
+      closeInsideRow: sessions.every(row => { const r = row.getBoundingClientRect(); const c = row.querySelector(".mobile-tab-item-close").getBoundingClientRect(); return c.right <= r.right && c.width >= 40 && c.height >= 40; }),
+    };
+  });
+  check("the sheet looks like the main menu's", look, { count: "2", icons: true, names: true, states: true, addLast: true, addHasNoPlusInText: true, closeInsideRow: true });
   await page.screenshot({ path: "mobile-1-sheet.png" });
   await page.locator(".mobile-tab-item-main").first().tap();
   await sleep(1000);

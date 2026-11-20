@@ -214,6 +214,19 @@ const shots = [];
         await sleep(400);
         await shot(page, p("rdp-more"), "An RDP session, the rest of its actions");
         await page.mouse.click(10, 400);
+        // The list of open connections only exists in the compact view: switch into it, take the
+        // picture, switch back.
+        const compact = () => page.evaluate(() => { const toggle = document.getElementById("view-mode-toggle") || document.querySelector("[data-view-mode-toggle]"); if (toggle) { toggle.click(); } });
+        await compact();
+        await sleep(500);
+        if (await page.locator(".mobile-tab-menu-trigger").isVisible()) {
+          await page.click(".mobile-tab-menu-trigger");
+          await sleep(400);
+          await shot(page, p("rdp-connections"), "The open connections, in the compact view");
+          await page.evaluate(() => { const close = document.querySelector(".mobile-tab-sheet-close"); if (close) { close.click(); } });
+        }
+        await compact();
+        await sleep(500);
       }
       await action(page, "resolution");
       await sleep(500);

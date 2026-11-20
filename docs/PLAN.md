@@ -1,6 +1,6 @@
 # Matgate – Plan zum Weitermachen
 
-Stand: 2026-11-19, Version 0.29.1 auf `main` (`v0.29.1`), Agent 0.14.0; auf ve-docker-1
+Stand: 2026-11-20, Version 0.29.2 auf `main` (`v0.29.2`), Agent 0.14.0; auf ve-docker-1
 (matgate.schmoldt.it) läuft seit dem 2026-11-19 noch 0.29.0 (Websites dort weiter über den Pfad, bis
 Route und Variable stehen; Einspielen trennt laufende Sitzungen, nur auf ausdrücklichen Wunsch). Der Agent
 auf dem Entwicklungsrechner ist der offizielle Build aus dem Release `agent-latest`. Geschrieben als Übergabe an eine andere Sitzung.
@@ -650,6 +650,19 @@ Server-Manager links „wie RoyalTS“. MatUi (`../MatDesign/src/MatUi`) als Vor
 - **Browser-Leiste:** die Adresse als ein rundes Feld mit Zeichen davor - Globus, bei `https:` ein Schloss
   (`markWebsiteAddress`, Klasse `is-secure`) -, Zurück/Vor/Neu laden und „In neuem Tab öffnen“ als Zeichen
   ohne Rahmen; die Schrift der Adresse ist die der Oberfläche, nicht mehr Consolas.
+
+**0.29.2 - die Verbindungsliste am Handy** (der Nutzer am 2026-11-20: „Mobile die Tabmenü soll auch so
+aussehen wie das neue Hauptmenü vom Style her“). Verstanden als die Liste der offenen Verbindungen in der
+kompakten Ansicht (`#mobile-tab-menu`, Blatt `.mobile-tab-sheet`):
+
+- Derselbe Aufbau wie das Hauptmenü: Hintergrund der Seite, Kopf mit Titel, Zahl der Verbindungen und
+  Schließen-Kachel; je Verbindung eine Karte mit Symbol in einer Kachel, Name und darunter, was sie ist
+  (der Text aus `.session-tab-description`, beim Öffnen gelesen - er läuft nicht mit, solange das Blatt
+  offen ist); Schließen als eigene Kachel rechts in der Karte; die aktive Karte hat den Akzentrand. „Neue
+  Verbindung“ steht mit Abstand und gestricheltem Rand darunter (`.mobile-tab-item--add`).
+- Das „…“-Menü der Sitzungsaktionen bleibt ein Menü am Knopf (es soll die Sitzung nicht verdecken), seine
+  Zeilen haben aber dieselben Symbolkacheln, Schriftgröße und -stärke.
+- Bildertour: neues Bild `phone-rdp-connections`; `tests/mobile-shell.js` prüft den Aufbau.
 
 **Dabei gesehen, nicht geändert:** Eine **eigene dunkle Hintergrundfarbe im hellen Modus** lässt die
 Eingabefelder weiß - `color-scheme` folgt dem Modus (hell/dunkel), nicht der gewählten Farbe, und die Felder

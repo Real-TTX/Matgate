@@ -23152,45 +23152,157 @@ public sealed class HtmlViews
                            320px dropdown in the corner: names stay readable, rows are finger sized,
                            and closing a session is no longer a neighbour of switching to it. */
                         .mobile-tab-menu-panel.mobile-tab-sheet {
+                            background: var(--bg);
                             border: 0;
                             border-radius: 0;
                             bottom: 0;
-                            gap: 0;
+                            box-shadow: none;
+                            gap: 6px;
                             left: 0;
                             max-height: none;
                             max-width: none;
-                            padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+                            padding: env(safe-area-inset-top) calc(12px + env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom)) calc(12px + env(safe-area-inset-left));
                             right: 0;
                             top: 0;
                             width: auto;
                         }
+                        /* The same head as the main menu's sheet: what this is on the left, the way back on the right. */
                         .mobile-tab-sheet-head {
                             align-items: center;
-                            border-bottom: 1px solid var(--line);
                             display: flex;
-                            font-size: 16px;
+                            flex: 0 0 auto;
                             justify-content: space-between;
-                            min-height: 52px;
-                            padding: 0 6px 0 14px;
+                            min-height: 60px;
+                            padding: 0 0 0 4px;
                         }
-                        .mobile-tab-sheet-close { font-size: 22px; min-height: 44px; min-width: 44px; }
-                        .mobile-tab-sheet .mobile-tab-item { border-bottom: 1px solid var(--line); gap: 8px; padding: 0 6px; }
-                        .mobile-tab-sheet .mobile-tab-item-main {
+                        .mobile-tab-sheet-title { align-items: center; display: inline-flex; font-size: 20px; font-weight: 800; gap: 10px; }
+                        .mobile-tab-sheet-count {
+                            background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+                            border-radius: 999px;
+                            color: var(--accent);
+                            font-size: 13px;
+                            font-variant-numeric: tabular-nums;
+                            font-weight: 700;
+                            min-width: 26px;
+                            padding: 3px 8px;
+                            text-align: center;
+                        }
+                        .mobile-tab-sheet .mobile-tab-sheet-head .mobile-tab-sheet-close,
+                        .mobile-tab-sheet .mobile-tab-sheet-head .mobile-tab-sheet-close:hover {
+                            background: var(--surface);
+                            border: 1px solid var(--line);
+                            border-radius: 12px;
+                            flex: 0 0 auto;
+                            font-size: 24px;
+                            height: 44px;
+                            line-height: 1;
+                            min-height: 44px;
+                            min-width: 44px;
+                            padding: 0 0 2px;
+                            width: 44px;
+                        }
+                        /* A row each, like the entries of the main menu: the icon in a tile, the name, what the session
+                           is doing below it. The row is the surface; the buttons in it bring none of their own. */
+                        .mobile-tab-sheet .mobile-tab-item,
+                        .mobile-tab-sheet .mobile-tab-item.active {
+                            background: var(--surface);
+                            border: 1px solid var(--line);
+                            border-radius: var(--radius);
+                            flex: 0 0 auto;
+                            gap: 4px;
+                            min-height: 56px;
+                            padding: 0 8px 0 0;
+                        }
+                        .mobile-tab-sheet .mobile-tab-item.active { border-color: var(--accent); }
+                        .mobile-tab-sheet .mobile-tab-item .mobile-tab-item-main,
+                        .mobile-tab-sheet .mobile-tab-item .mobile-tab-item-main:hover,
+                        .mobile-tab-sheet .mobile-tab-item .mobile-tab-item-main:active {
+                            background: none;
+                            border-radius: var(--radius);
+                            font-size: 16px;
+                            font-weight: 600;
+                            gap: 14px;
                             justify-content: flex-start;
                             min-height: 56px;
                             /* Without this a long connection name refuses to shrink and shoves the
                                close button off the right edge, out of reach. */
                             min-width: 0;
+                            padding: 8px 6px 8px 14px;
                             text-align: left;
                         }
-                        .mobile-tab-sheet .mobile-tab-item-main > span {
+                        .mobile-tab-sheet .mobile-tab-item-main .mobile-tab-item-icon {
+                            align-items: center;
+                            background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+                            border-radius: 10px;
+                            color: var(--accent);
+                            display: inline-flex;
+                            flex: 0 0 auto;
+                            height: 36px;
+                            justify-content: center;
+                            overflow: visible;
+                            width: 36px;
+                        }
+                        .mobile-tab-item-icon .icon, .mobile-tab-item-icon svg, .mobile-tab-item-icon img { height: 20px; width: 20px; }
+                        .mobile-tab-sheet .mobile-tab-item-main .mobile-tab-item-label { display: grid; flex: 1 1 auto; gap: 1px; min-width: 0; }
+                        .mobile-tab-sheet .mobile-tab-item-main .mobile-tab-item-name {
+                            display: block;
+                            overflow: hidden;
+                            text-overflow: ellipsis;
+                            white-space: nowrap;
+                        }
+                        .mobile-tab-sheet .mobile-tab-item-state {
+                            color: var(--muted);
+                            font-size: 13px;
+                            font-weight: 400;
                             overflow: hidden;
                             text-overflow: ellipsis;
                             white-space: nowrap;
                         }
                         /* Ending a session sits clearly apart from switching to it, so a thumb aiming
                            for one cannot land on the other. */
-                        .mobile-tab-sheet .mobile-tab-item-close { flex: 0 0 auto; margin-left: 12px; min-height: 44px; min-width: 44px; }
+                        .mobile-tab-sheet .mobile-tab-item .mobile-tab-item-close,
+                        .mobile-tab-sheet .mobile-tab-item .mobile-tab-item-close:hover {
+                            background: var(--surface-2);
+                            border-radius: 10px;
+                            color: var(--muted);
+                            flex: 0 0 auto;
+                            font-size: 20px;
+                            height: 40px;
+                            margin-left: 8px;
+                            min-height: 40px;
+                            min-width: 40px;
+                            padding: 0 0 2px;
+                            width: 40px;
+                        }
+                        /* A new connection is not one of the open ones: it stands apart below them. */
+                        .mobile-tab-sheet .mobile-tab-item--add { border-style: dashed; margin-top: 10px; padding-right: 0; }
+                        .mobile-tab-sheet .mobile-tab-item--add .mobile-tab-item-main { color: var(--accent); }
+                        /* The rest of a session's actions stays a menu at its button - it must not
+                           cover the session it acts on - but its rows are the main menu's rows: the
+                           icon in a tile, the label in the same size and weight. */
+                        .tab-action-overflow-panel:not(.mobile-tab-menu-panel) {
+                            border-radius: var(--radius);
+                            max-width: calc(100vw - 16px);
+                            padding: 8px;
+                        }
+                        .tab-action-overflow-panel:not(.mobile-tab-menu-panel) .tab-action-menu-item {
+                            border-radius: 10px;
+                            font-size: 16px;
+                            font-weight: 600;
+                            gap: 14px;
+                            min-height: 52px;
+                            padding: 6px 12px 6px 8px;
+                        }
+                        .tab-action-overflow-panel:not(.mobile-tab-menu-panel) .tab-action-menu-item > .icon {
+                            background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+                            border-radius: 10px;
+                            box-sizing: content-box;
+                            color: var(--accent);
+                            flex: 0 0 auto;
+                            height: 20px;
+                            padding: 8px;
+                            width: 20px;
+                        }
                         /* The burger hangs off the LEFT edge of the compact bar, so its dropdown sat
                            as a narrow box in that corner - half a screen wide, the rest unused. On a
                            phone it takes the whole surface like the connection list, and brings its
@@ -24172,7 +24284,15 @@ public sealed class HtmlViews
                                     const head = document.createElement('div');
                                     head.className = 'mobile-tab-sheet-head';
                                     const title = document.createElement('strong');
+                                    title.className = 'mobile-tab-sheet-title';
                                     title.textContent = mobileTabMenu.getAttribute('data-label-tabs') || 'Connections';
+                                    const openCount = listSessionTabs().filter(el => el.getAttribute('data-tab-kind') !== 'add').length;
+                                    if (openCount) {
+                                        const count = document.createElement('span');
+                                        count.className = 'mobile-tab-sheet-count';
+                                        count.textContent = String(openCount);
+                                        title.appendChild(count);
+                                    }
                                     const close = document.createElement('button');
                                     close.type = 'button';
                                     close.className = 'tab-action-button icon-only mobile-tab-sheet-close';
@@ -24184,16 +24304,42 @@ public sealed class HtmlViews
                                 }
                                 listSessionTabs().forEach(tabEl => {
                                     const isAdd = tabEl.getAttribute('data-tab-kind') === 'add';
+                                    const sheet = sheetMode();
+                                    const newLabel = mobileTabMenu.getAttribute('data-label-new') || 'New tab';
+                                    // The sheet shows the plus as the row's icon; the dropdown has no icons.
                                     const titleText = isAdd
-                                        ? '+ ' + (mobileTabMenu.getAttribute('data-label-new') || 'New tab')
+                                        ? (sheet ? newLabel : '+ ' + newLabel)
                                         : ((tabEl.querySelector('.session-tab-title')?.textContent) || '').trim();
                                     const item = document.createElement('div');
-                                    item.className = 'mobile-tab-item' + (tabEl.classList.contains('active') ? ' active' : '');
+                                    item.className = 'mobile-tab-item' + (tabEl.classList.contains('active') ? ' active' : '') + (isAdd ? ' mobile-tab-item--add' : '');
                                     const main = document.createElement('button');
                                     main.type = 'button';
                                     main.className = 'tab-action-button tab-action-menu-item mobile-tab-item-main';
+                                    if (sheet) {
+                                        // The same row as in the main menu: the icon in a tile of its own.
+                                        const sourceIcon = tabEl.querySelector('.session-tab-title > .icon, .session-tab-title > svg, .session-tab-title > img');
+                                        const tile = document.createElement('span');
+                                        tile.className = 'mobile-tab-item-icon';
+                                        tile.setAttribute('aria-hidden', 'true');
+                                        if (sourceIcon) {
+                                            tile.appendChild(sourceIcon.cloneNode(true));
+                                        }
+                                        main.appendChild(tile);
+                                    }
                                     const label = document.createElement('span');
-                                    label.textContent = titleText;
+                                    label.className = 'mobile-tab-item-label';
+                                    const name = document.createElement('span');
+                                    name.className = 'mobile-tab-item-name';
+                                    name.textContent = titleText;
+                                    label.appendChild(name);
+                                    const sourceState = isAdd ? null : tabEl.querySelector('.session-tab-description');
+                                    const stateText = sourceState && !sourceState.hidden ? (sourceState.textContent || '').trim() : '';
+                                    if (sheet && stateText) {
+                                        const state = document.createElement('small');
+                                        state.className = 'mobile-tab-item-state';
+                                        state.textContent = stateText;
+                                        label.appendChild(state);
+                                    }
                                     main.appendChild(label);
                                     main.addEventListener('click', () => {
                                         // Close first, then switch. The other way round, everything the switch
