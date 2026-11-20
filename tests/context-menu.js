@@ -17,6 +17,7 @@ const FOLDER = "Rechtsklick";
   let b; try { b = await chromium.launch({ channel: "msedge", headless: true }); }
   catch { b = await chromium.launch({ channel: "chrome", headless: true }); }
   const context = await b.newContext({ viewport: { width: 1300, height: 900 } });
+  await require("./list-on-start-page")(context);
   await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: BASE });
   const page = await context.newPage();
   const dialogs = [];

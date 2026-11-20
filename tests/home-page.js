@@ -44,6 +44,7 @@ const toHomePage = async (page) => {
   let b; try { b = await chromium.launch({ channel: "msedge", headless: true }); }
   catch { b = await chromium.launch({ channel: "chrome", headless: true }); }
   const ctx = await b.newContext({ viewport: { width: 1280, height: 950 } });
+  await require("./list-on-start-page")(ctx);
   const page = await ctx.newPage();
   page.on("pageerror", e => { console.log("JS ERROR: " + e.message); failures.push("JS error"); });
   await signIn(page, "admin", "test-only-pw");
@@ -128,6 +129,7 @@ const toHomePage = async (page) => {
   await sleep(1800);
 
   const ctx2 = await b.newContext({ viewport: { width: 1280, height: 950 } });
+  await require("./list-on-start-page")(ctx2);
   const p2 = await ctx2.newPage();
   await signIn(p2, NEU, PW);
   await p2.goto(BASE + "/account?tab=home", { waitUntil: "networkidle" });

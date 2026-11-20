@@ -3702,8 +3702,45 @@ public sealed class HtmlViews
         return JsonSerializer.Serialize(new
         {
             html = ConnectionChoiceSections(context, user, servers, workspaces, true),
-            servers = servers.Select(ServerChoicePayload)
+            servers = servers.Select(ServerChoicePayload),
+            side = SidebarPayload(user, servers, workspaces)
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+    }
+
+    // What the side panel groups the connections by, beyond their folders: the user's favourites, what they
+    // used last (the newest first), and the shares - each with the place its "Open" leads to, as on the
+    // start page.
+    private static object SidebarPayload(
+        MatgateUser user,
+        IReadOnlyList<ServerEndpoint> servers,
+        IReadOnlyList<WorkspaceDefinition> workspaces)
+    {
+        var known = servers.Select(server => server.Id).ToHashSet();
+        var workspaceAreas = servers
+            .Where(server => server.Protocol == ServerProtocol.Local && server.AreaKind == "workspace")
+            .ToList();
+        return new
+        {
+            favorites = (user.FavoriteServerIds ?? [])
+                .Where(known.Contains)
+                .Select(id => id.ToString()),
+            recent = (user.RecentConnections ?? [])
+                .Select(entry => entry.ServerId)
+                .Where(known.Contains)
+                .Distinct()
+                .Take(5)
+                .Select(id => id.ToString()),
+            shares = workspaces
+                .Where(workspace => workspace.IsEnabled)
+                .OrderBy(workspace => workspace.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(workspace => new
+                {
+                    id = workspace.Id.ToString(),
+                    name = workspace.Name,
+                    note = workspace.Description ?? "",
+                    targetId = (workspaceAreas.FirstOrDefault(area => area.AreaSourceId == workspace.Id)?.Id ?? workspace.AreaId)?.ToString() ?? ""
+                })
+        };
     }
 
     // The logged-in home / "New Tab" page: a single, scrollable column of sections
@@ -3741,10 +3778,13 @@ public sealed class HtmlViews
         var quickOrder = user.Session?.QuickProtocolOrder ?? [];
         var protocolDialog = canQuick ? ProtocolDialog(de, hiddenQuick, quickOrder) : "";
 
+        // Beside the side panel the page is not the list of connections any more - the panel is. Then it
+        // says so, and what is left on it is a new connection: quick connect.
         var head = $$"""
             <section class="home2-head">
                 <div class="home2-head-copy">
-                    <h1>{{(de ? "Verbindungen" : "Connections")}}</h1>
+                    <h1><span class="home2-title-list">{{(de ? "Verbindungen" : "Connections")}}</span><span class="home2-title-side">{{(de ? "Neue Verbindung" : "New connection")}}</span></h1>
+                    <p class="muted home2-side-hint">{{(de ? "Gespeicherte Verbindungen, Favoriten, Ablagen und Freigaben stehen links in der Seitenleiste." : "Saved connections, favourites, places and shares are in the side panel on the left.")}}</p>
                 </div>
                 {{headerActions}}
             </section>
@@ -4910,6 +4950,9 @@ public sealed class HtmlViews
         var actionBarServers = JsonSerializer.Serialize(
             (user.ActionBarServerIds ?? []).Select(id => id.ToString()),
             new JsonSerializerOptions(JsonSerializerDefaults.Web));
+        var sidebarData = JsonSerializer.Serialize(
+            SidebarPayload(user, servers, workspaces),
+            new JsonSerializerOptions(JsonSerializerDefaults.Web));
         var initialOpenServerId = JsonSerializer.Serialize(openServerId?.ToString() ?? "");
         var csrfToken = JsonSerializer.Serialize(context.User.FindFirstValue("csrf") ?? "");
         var sessionPrefs = JsonSerializer.Serialize(user.Session, new JsonSerializerOptions(JsonSerializerDefaults.Web));
@@ -4922,6 +4965,8 @@ public sealed class HtmlViews
             file = Icon("file"),
             parent = Icon("folder-up"),
             plus = Icon("plus"),
+            star = Icon("star"),
+            clock = Icon("clock"),
             mkdir = Icon("folder-plus"),
             refresh = Icon("refresh"),
             menu = Icon("more"),
@@ -5032,7 +5077,12 @@ public sealed class HtmlViews
             fitNow = Language(context) == "de" ? "Jetzt anpassen" : "Fit now",
             onLabel = Language(context) == "de" ? "An" : "On",
             managerTitle = Language(context) == "de" ? "Verbindungen" : "Connections",
-            managerToggle = Language(context) == "de" ? "Server-Manager ein-/ausblenden" : "Show/hide the server manager",
+            managerToggle = Language(context) == "de" ? "Seitenleiste ein-/ausblenden" : "Show/hide the side panel",
+            managerFavorites = Language(context) == "de" ? "Favoriten" : "Favorites",
+            managerRecent = Language(context) == "de" ? "Zuletzt verwendet" : "Recently used",
+            managerPlaces = Language(context) == "de" ? "Ablagen" : "Places",
+            managerShares = Language(context) == "de" ? "Freigaben" : "Shares",
+            managerShare = Language(context) == "de" ? "Freigabe" : "Share",
             managerSearch = Language(context) == "de" ? "Suchen ..." : "Search ...",
             managerNoFolder = Language(context) == "de" ? "Ohne Ordner" : "No folder",
             managerEmpty = Language(context) == "de" ? "Keine Treffer." : "No matches.",
@@ -5220,7 +5270,7 @@ public sealed class HtmlViews
         var body = $$"""
             <div id="matgate-shell" class="matgate-shell">
             <div class="shell-page-row">
-                <button id="server-manager-toggle" type="button" class="tab-action-button icon-only server-manager-toggle" aria-pressed="false" aria-controls="server-manager" title="{{A(Language(context) == "de" ? "Server-Manager ein-/ausblenden" : "Show/hide the server manager")}}" aria-label="{{A(Language(context) == "de" ? "Server-Manager ein-/ausblenden" : "Show/hide the server manager")}}">{{Icon("panel-left")}}</button>
+                <button id="server-manager-toggle" type="button" class="tab-action-button icon-only server-manager-toggle" aria-pressed="false" aria-controls="server-manager" title="{{A(Language(context) == "de" ? "Seitenleiste ein-/ausblenden" : "Show/hide the side panel")}}" aria-label="{{A(Language(context) == "de" ? "Seitenleiste ein-/ausblenden" : "Show/hide the side panel")}}">{{Icon("panel-left")}}</button>
                 <div id="session-tabs" class="session-tabs shell-page-tabs" role="tablist">
                     <div id="new-connection-tab" class="session-tab session-tab--add" role="tab" data-tab-kind="add" aria-label="{{A(T(context, "New connection"))}}">
                         <button type="button" class="session-tab-main">
@@ -5234,12 +5284,17 @@ public sealed class HtmlViews
             </div>
             <button id="immersive-handle" type="button" class="immersive-handle" data-hint="{{A(Language(context) == "de" ? "Leiste zurückholen: oben antippen - oder mit drei Fingern ins Bild tippen" : "Bring the bar back: tap the top edge - or tap the picture with three fingers")}}" aria-label="{{A(Language(context) == "de" ? "Steuerung ein-/ausblenden" : "Show/hide controls")}}" title="{{A(Language(context) == "de" ? "Steuerung ein-/ausblenden" : "Show/hide controls")}}">{{Icon("chevron-down")}}</button>
             <div class="shell-body">
-            <!-- The server manager: the connections by folder, beside the sessions - for a wide screen, where
-                 one switches between many machines and does not want to go back to the start page for each. -->
-            <aside id="server-manager" class="server-manager" hidden aria-label="{{A(Language(context) == "de" ? "Server-Manager" : "Server manager")}}">
+            <!-- The side panel: what there is to open - the favourites, what was used last, the connections by
+                 folder, the places and the shares. On a wide screen it stands beside the sessions and takes
+                 the start page's place as the list of connections; on a narrow one it is a sheet over the
+                 page, brought by the menu. -->
+            <aside id="server-manager" class="server-manager" hidden aria-label="{{A(Language(context) == "de" ? "Seitenleiste" : "Side panel")}}">
                 <div class="server-manager-head">
                     <strong>{{(Language(context) == "de" ? "Verbindungen" : "Connections")}}</strong>
-                    <a class="tab-action-button icon-only" href="/admin/servers/new" data-shell-open-tab="1" data-shell-title="{{A(T(context, "New connection"))}}" title="{{A(T(context, "New connection"))}}" aria-label="{{A(T(context, "New connection"))}}">{{Icon("plus")}}</a>
+                    <span class="server-manager-head-actions">
+                        {{(user.IsAdmin || user.CanManageServers || user.CanCreateServers ? $"""<a class="tab-action-button icon-only" href="/admin/servers/new" data-shell-open-tab="1" data-shell-title="{A(T(context, "New connection"))}" title="{A(T(context, "New connection"))}" aria-label="{A(T(context, "New connection"))}">{Icon("plus")}</a>""" : "")}}
+                        <button type="button" class="tab-action-button icon-only server-manager-close" data-server-manager-close title="{{A(T(context, "Close"))}}" aria-label="{{A(T(context, "Close"))}}">{{Icon("x")}}</button>
+                    </span>
                 </div>
                 <label class="server-manager-search">{{Icon("search")}}<input id="server-manager-filter" type="search" autocomplete="off" spellcheck="false" placeholder="{{A(Language(context) == "de" ? "Suchen ..." : "Search ...")}}" aria-label="{{A(Language(context) == "de" ? "Verbindungen durchsuchen" : "Search the connections")}}"></label>
                 <div id="server-manager-tree" class="server-manager-tree" role="tree"></div>
@@ -5401,6 +5456,9 @@ public sealed class HtmlViews
             <script>
             (() => {
                 const availableServers = {{availableServers}};
+                // What the side panel shows beyond the connections themselves: which of them are favourites,
+                // which were used last, and the shares.
+                let sidebarData = {{sidebarData}};
                 // Connections that should sit on the home page as a button in the bar.
                 const actionBarServers = {{actionBarServers}};
                 const sessionPrefs = Object.assign({ edgePanning: true, dragPanning: true, stretchToWindow: false, systemCombos: true, functionKeys: false, ctrlAltDelHotkey: true, pasteAsKeystrokes: false, actionOrder: [], hiddenActions: [] }, {{sessionPrefs}});
@@ -6257,11 +6315,14 @@ public sealed class HtmlViews
                         if (inner && typeof data.html === 'string') {
                             inner.innerHTML = data.html;
                         }
+                        if (data.side) {
+                            sidebarData = data.side;
+                        }
                         if (Array.isArray(data.servers)) {
                             availableServers.length = 0;
                             availableServers.push(...data.servers);
-                            renderServerManager();
                         }
+                        renderServerManager();
                         wireHome2();
                         wireOpenControls(inner || document);
                     }
@@ -8708,49 +8769,106 @@ public sealed class HtmlViews
 
                     const wanted = (serverManagerFilter.value || '').trim().toLowerCase();
                     const closed = serverManagerStore.read('closed', []);
-                    const groups = new Map();
-                    availableServers
-                        .filter(server => !server.areaKind && String(server.protocol || '').toUpperCase() !== 'LOCAL' && !server.ephemeral)
-                        .filter(server => !wanted || [server.name, server.target, server.folder, server.protocol].join(' ').toLowerCase().indexOf(wanted) >= 0)
+                    const byName = (a, b) => String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' });
+                    const matches = text => !wanted || String(text).toLowerCase().indexOf(wanted) >= 0;
+                    const entryOf = server => {
+                        const sessions = sessionsOfServer(server.id);
+                        return {
+                            id: server.id,
+                            share: '',
+                            page: '',
+                            name: server.name || '',
+                            note: server.target && server.target !== '-' ? server.target : '',
+                            iconHtml: server.iconHtml || '',
+                            color: server.protoColor || 'var(--accent)',
+                            tip: [server.name, server.protocol, server.target].filter(Boolean).join(' · '),
+                            open: sessions.length,
+                            active: sessions.some(session => session.active)
+                        };
+                    };
+                    const isPlace = server => String(server.protocol || '').toUpperCase() === 'LOCAL';
+                    const connections = availableServers.filter(server => !server.areaKind && !isPlace(server) && !server.ephemeral);
+                    const byId = new Map(connections.map(server => [server.id, server]));
+                    // The groups, from top to bottom. A group's key is what its closed state is remembered by:
+                    // a folder's is its name, the others carry their kind in front.
+                    const groups = [];
+                    const add = (key, kind, name, iconHtml, entries) => {
+                        if (entries.length) {
+                            groups.push({ key, kind, name, iconHtml, closed: !wanted && closed.indexOf(key) >= 0, entries });
+                        }
+                    };
+                    // A search goes through every connection once: the favourites and what was used last are
+                    // the same connections a second time.
+                    if (!wanted) {
+                        add('favorites:', 'favorites', uiText.managerFavorites || 'Favorites', fileIcon('star'),
+                            (sidebarData.favorites || []).map(id => byId.get(id)).filter(Boolean).sort(byName).map(entryOf));
+                        add('recent:', 'recent', uiText.managerRecent || 'Recently used', fileIcon('clock'),
+                            (sidebarData.recent || []).map(id => byId.get(id)).filter(Boolean).map(entryOf));
+                    }
+
+                    const folders = new Map();
+                    connections
+                        .filter(server => matches([server.name, server.target, server.folder, server.protocol].join(' ')))
                         .forEach(server => {
                             const folder = server.folder || '';
-                            if (!groups.has(folder)) {
-                                groups.set(folder, []);
+                            if (!folders.has(folder)) {
+                                folders.set(folder, []);
                             }
 
-                            groups.get(folder).push(server);
+                            folders.get(folder).push(server);
                         });
-                    const names = Array.from(groups.keys()).sort((a, b) => (a === '') - (b === '') || a.localeCompare(b, undefined, { sensitivity: 'base' }));
-                    const model = names.map(name => ({
-                        name,
-                        closed: !wanted && closed.indexOf(name) >= 0,
-                        servers: groups.get(name)
-                            .slice()
-                            .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' }))
-                            .map(server => {
-                                const sessions = sessionsOfServer(server.id);
-                                return { server, open: sessions.length, active: sessions.some(session => session.active) };
-                            })
-                    }));
+                    // Those without a folder come last, under "No folder" - or, where nobody made a folder,
+                    // under what they are.
+                    const unfiled = folders.size === 1 && folders.has('') ? uiText.managerTitle : uiText.managerNoFolder;
+                    Array.from(folders.keys())
+                        .sort((a, b) => (a === '') - (b === '') || a.localeCompare(b, undefined, { sensitivity: 'base' }))
+                        .forEach(name => add(name, 'folder', name || unfiled || 'No folder', fileIcon('folder'),
+                            folders.get(name).slice().sort(byName).map(entryOf)));
+                    // The places of the file manager - without a session's folder, which is reached through
+                    // its session, and without a share's, which stands under the shares.
+                    add('places:', 'places', uiText.managerPlaces || 'Places', fileIcon('folder'),
+                        availableServers
+                            .filter(server => isPlace(server) && server.areaKind !== 'session' && server.areaKind !== 'workspace' && !server.ephemeral)
+                            .filter(server => matches(server.name))
+                            .map(entryOf));
+                    // A share opens its place in the file manager; one without a place opens its page.
+                    add('shares:', 'shares', uiText.managerShares || 'Shares', fileIcon('globe'),
+                        (sidebarData.shares || [])
+                            .filter(share => matches([share.name, share.note].join(' ')))
+                            .map(share => {
+                                const sessions = share.targetId ? sessionsOfServer(share.targetId) : [];
+                                return {
+                                    id: share.targetId || '',
+                                    share: share.id,
+                                    page: share.targetId ? '' : '/workspaces/' + share.id,
+                                    name: share.name || '',
+                                    note: share.note || uiText.managerShare || 'Share',
+                                    iconHtml: fileIcon('globe'),
+                                    color: 'var(--accent-2)',
+                                    tip: share.name || '',
+                                    open: sessions.length,
+                                    active: sessions.some(session => session.active)
+                                };
+                            }));
                     // Built anew only when something it shows has changed: it is asked to on every change of a
                     // tab, and a row that is replaced under the pointer loses its click.
-                    const signature = JSON.stringify(model.map(group => [group.name, group.closed, group.servers.map(entry => [entry.server.id, entry.server.name, entry.server.target, entry.open, entry.active])]));
+                    const signature = JSON.stringify(groups.map(group => [group.key, group.closed, group.entries.map(entry => [entry.id, entry.share, entry.name, entry.note, entry.open, entry.active])]));
                     if (!force && signature === serverManagerShown) {
                         return;
                     }
 
                     serverManagerShown = signature;
                     const nodes = [];
-                    model.forEach(group => {
-                        // One group and no folders at all: then the heading says nothing.
-                        const lone = model.length === 1 && group.name === '';
+                    // Connections without a folder and nothing else: then the heading says nothing.
+                    const lone = groups.length === 1 && groups[0].kind === 'folder' && groups[0].key === '';
+                    groups.forEach(group => {
                         if (!lone) {
                             const head = document.createElement('button');
                             head.type = 'button';
-                            head.className = 'server-manager-folder' + (group.closed ? ' closed' : '');
+                            head.className = 'server-manager-folder server-manager-folder--' + group.kind + (group.closed ? ' closed' : '');
                             head.setAttribute('aria-expanded', group.closed ? 'false' : 'true');
-                            head.dataset.folder = group.name;
-                            head.innerHTML = `<span class="server-manager-caret" aria-hidden="true">${fileIcon('chevronDown')}</span><span class="server-manager-folder-icon" aria-hidden="true">${fileIcon('folder')}</span><span class="server-manager-folder-name">${escapeHtml(group.name || uiText.managerNoFolder || 'No folder')}</span><span class="server-manager-count">${group.servers.length}</span>`;
+                            head.dataset.folder = group.key;
+                            head.innerHTML = `<span class="server-manager-caret" aria-hidden="true">${fileIcon('chevronDown')}</span><span class="server-manager-folder-icon" aria-hidden="true">${group.iconHtml}</span><span class="server-manager-folder-name">${escapeHtml(group.name)}</span><span class="server-manager-count">${group.entries.length}</span>`;
                             nodes.push(head);
                         }
 
@@ -8758,15 +8876,22 @@ public sealed class HtmlViews
                             return;
                         }
 
-                        group.servers.forEach(entry => {
+                        group.entries.forEach(entry => {
                             const row = document.createElement('button');
                             row.type = 'button';
                             row.className = 'server-manager-item' + (entry.active ? ' active' : '') + (entry.open ? ' open' : '') + (lone ? ' server-manager-item--flat' : '');
                             row.setAttribute('role', 'treeitem');
-                            row.dataset.managerServer = entry.server.id;
-                            row.style.setProperty('--proto', entry.server.protoColor || 'var(--accent)');
-                            row.title = [entry.server.name, entry.server.protocol, entry.server.target].filter(Boolean).join(' · ');
-                            row.innerHTML = `<span class="server-manager-item-icon" aria-hidden="true">${entry.server.iconHtml || ''}</span><span class="server-manager-item-text"><strong>${escapeHtml(entry.server.name || '')}</strong><small>${escapeHtml(entry.server.target || '')}</small></span>${entry.open ? `<span class="server-manager-dot" title="${escapeHtml(uiText.managerOpen || 'Session open')}">${entry.open > 1 ? entry.open : ''}</span>` : ''}`;
+                            row.dataset.managerIn = group.kind;
+                            if (entry.id) {
+                                row.dataset.managerServer = entry.id;
+                            }
+                            else {
+                                row.dataset.managerPage = entry.page;
+                            }
+
+                            row.style.setProperty('--proto', entry.color);
+                            row.title = entry.tip;
+                            row.innerHTML = `<span class="server-manager-item-icon" aria-hidden="true">${entry.iconHtml}</span><span class="server-manager-item-text"><strong>${escapeHtml(entry.name)}</strong><small>${escapeHtml(entry.note)}</small></span>${entry.open ? `<span class="server-manager-dot" title="${escapeHtml(uiText.managerOpen || 'Session open')}">${entry.open > 1 ? entry.open : ''}</span>` : ''}`;
                             nodes.push(row);
                         });
                     });
@@ -8779,6 +8904,10 @@ public sealed class HtmlViews
 
                     serverManagerTree.replaceChildren(...nodes);
                 }
+                // On a wide screen the panel stands beside the page, and whether it does is remembered - it is
+                // there unless it was put away. On a narrow one it is a sheet over the page: it comes when
+                // asked for and goes with the choice made in it, and nothing of that is remembered.
+                const serverManagerNarrow = window.matchMedia('(max-width: 900px)');
                 function setServerManagerOpen(open, remember = true) {
                     if (!serverManager) {
                         return;
@@ -8786,23 +8915,73 @@ public sealed class HtmlViews
 
                     serverManager.hidden = !open;
                     document.documentElement.toggleAttribute('data-server-manager', open);
-                    serverManagerToggle.classList.toggle('active', open);
-                    serverManagerToggle.setAttribute('aria-pressed', open ? 'true' : 'false');
-                    if (remember) {
+                    if (serverManagerToggle) {
+                        serverManagerToggle.classList.toggle('active', open);
+                        serverManagerToggle.setAttribute('aria-pressed', open ? 'true' : 'false');
+                    }
+
+                    if (remember && !serverManagerNarrow.matches) {
                         serverManagerStore.write('open', open);
                     }
 
                     renderServerManager(true);
-                    // The sessions beside it have a different width now.
-                    window.dispatchEvent(new Event('resize'));
+                    if (!serverManagerNarrow.matches) {
+                        // The sessions beside it have a different width now.
+                        window.dispatchEvent(new Event('resize'));
+                    }
                 }
-                if (serverManager && serverManagerToggle) {
-                    serverManagerToggle.addEventListener('click', () => setServerManagerOpen(serverManager.hidden));
+                if (serverManager) {
+                    const toggleServerManager = () => setServerManagerOpen(serverManager.hidden);
+                    if (serverManagerToggle) {
+                        serverManagerToggle.addEventListener('click', toggleServerManager);
+                    }
+
+                    // The same from the menu: in the compact view and on a phone the button is not there.
+                    document.querySelectorAll('[data-server-manager-menu]').forEach(item => {
+                        item.addEventListener('click', () => {
+                            const openMenu = item.closest('details[open]');
+                            if (openMenu) {
+                                openMenu.removeAttribute('open');
+                            }
+
+                            toggleServerManager();
+                        });
+                    });
+                    serverManager.querySelectorAll('[data-server-manager-close]').forEach(button => {
+                        button.addEventListener('click', () => setServerManagerOpen(false));
+                    });
+                    // The sheet goes when something beside it is pressed, with Escape, and when a link in it
+                    // was followed.
+                    const closeSheet = () => {
+                        if (serverManagerNarrow.matches && !serverManager.hidden) {
+                            setServerManagerOpen(false);
+                        }
+                    };
+                    document.addEventListener('pointerdown', event => {
+                        const target = event.target instanceof Element ? event.target : null;
+                        if (target && !target.closest('#server-manager, [data-server-manager-menu], #server-manager-toggle')) {
+                            closeSheet();
+                        }
+                    }, true);
+                    document.addEventListener('keydown', event => {
+                        if (event.key === 'Escape') {
+                            closeSheet();
+                        }
+                    });
+                    serverManager.addEventListener('click', event => {
+                        if (event.target instanceof Element && event.target.closest('a[href]')) {
+                            closeSheet();
+                        }
+                    });
+                    serverManagerNarrow.addEventListener('change', () => {
+                        setServerManagerOpen(!serverManagerNarrow.matches && serverManagerStore.read('open', true) === true, false);
+                    });
                     serverManagerFilter.addEventListener('input', () => renderServerManager());
                     serverManagerFilter.addEventListener('keydown', event => {
                         if (event.key === 'Escape' && serverManagerFilter.value) {
                             serverManagerFilter.value = '';
                             renderServerManager();
+                            event.stopPropagation();
                         }
                         else if (event.key === 'Enter') {
                             // Enter opens what the search leaves at the top.
@@ -8842,10 +9021,19 @@ public sealed class HtmlViews
                             return;
                         }
 
-                        const row = target ? target.closest('[data-manager-server]') : null;
-                        if (row) {
+                        const row = target ? target.closest('.server-manager-item') : null;
+                        if (!row) {
+                            return;
+                        }
+
+                        if (row.dataset.managerServer) {
                             openFromManager(row.dataset.managerServer, event.ctrlKey || event.metaKey);
                         }
+                        else if (row.dataset.managerPage) {
+                            openShellTab(row.dataset.managerPage, ((row.querySelector('strong') || {}).textContent || '').trim(), fileIcon('globe'), '');
+                        }
+
+                        closeSheet();
                     });
                     serverManagerTree.addEventListener('auxclick', event => {
                         const row = event.button === 1 && event.target instanceof Element ? event.target.closest('[data-manager-server]') : null;
@@ -8854,7 +9042,7 @@ public sealed class HtmlViews
                             openFromManager(row.dataset.managerServer, true);
                         }
                     });
-                    setServerManagerOpen(serverManagerStore.read('open', false) === true, false);
+                    setServerManagerOpen(!serverManagerNarrow.matches && serverManagerStore.read('open', true) === true, false);
                 }
 
                 function updateTabActions() {
@@ -17027,6 +17215,12 @@ public sealed class HtmlViews
             : $$"""
                 <a class="{{A(cssClass)}}" href="/connect/{{filesAreaId}}" data-server-id="{{filesAreaId}}" data-shell-open-server="{{filesAreaId}}" data-shell-title="{{A(filesLabel)}}">{{Icon("folder")}}<span>{{E(filesLabel)}}</span></a>
                 """;
+        // The side panel is shown and hidden from the menu as well: in the compact view its button in the tab
+        // row is not there, and on a phone the menu is the only way to it. Only the page that has the panel
+        // has the entry.
+        var sidePanelEntry = user is not null && string.Equals(mainClass, "session-main", StringComparison.OrdinalIgnoreCase)
+            ? $$"""<button type="button" class="shell-menu-item side-panel-entry" data-server-manager-menu>{{Icon("panel-left")}}<span class="side-panel-entry-wide">{{(Language(context) == "de" ? "Seitenleiste ein/aus" : "Toggle side panel")}}</span><span class="side-panel-entry-narrow">{{(Language(context) == "de" ? "Verbindungen" : "Connections")}}</span></button>"""
+            : "";
         var adminClass = adminActive ? " active" : "";
         var toolsClass = toolsActive ? " active" : "";
         var accountClass = accountActive ? " active" : "";
@@ -17052,6 +17246,7 @@ public sealed class HtmlViews
                             <span class="account-menu-id"><strong>{{E(displayName)}}</strong><small>{{E(user!.UserName)}}</small></span>
                         </div>
                         <a class="shell-menu-item{{accountClass}}" href="/account" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Account"))}}">{{Icon("settings")}}<span>{{T(context, "Account")}}</span></a>
+                        {{sidePanelEntry}}
                         <form method="post" action="/logout" class="account-menu-logout">
                             {{Csrf(context)}}
                             <button type="submit" class="shell-menu-item shell-menu-logout">{{Icon("logout")}}<span>{{T(context, "Logout")}}</span></button>
@@ -17077,6 +17272,7 @@ public sealed class HtmlViews
                     <a class="shell-menu-item{{toolsClass}}" href="/tools" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Tools"))}}">{{Icon("wrench")}}<span>{{T(context, "Tools")}}</span></a>
                     {{(canManageAdminArea ? $"""<a class="shell-menu-item{(adminActive ? " active" : "")}" href="/admin" data-shell-open-tab="1" data-shell-title="{A(T(context, "Administration"))}">{Icon("shield")}<span>{T(context, "Administration")}</span></a>""" : "")}}
                     <a class="shell-menu-item account-trigger{{accountClass}}" href="/account" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Account"))}}">{{Icon("settings")}}<span class="account-name">{{E(displayName)}}</span><span class="shell-burger-settings-word">{{(Language(context) == "de" ? "Einstellungen" : "Settings")}}</span></a>
+                    {{sidePanelEntry}}
                     <button type="button" class="shell-menu-item" data-view-mode-toggle>{{Icon("chevrons-down-up")}}<span>{{(Language(context) == "de" ? "Kompakte Ansicht ein/aus" : "Toggle compact view")}}</span></button>
                     <form method="post" action="/logout" class="account-menu-logout">
                         {{Csrf(context)}}
@@ -17382,9 +17578,63 @@ public sealed class HtmlViews
                     }
                     .server-manager-dot:not(:empty) { height: 17px; min-width: 17px; padding: 0 4px; }
                     .server-manager-empty { font-size: 13px; margin: 10px 8px; }
+                    .server-manager-head-actions { align-items: center; display: inline-flex; flex: 0 0 auto; gap: 4px; }
+                    .server-manager-head .tab-action-button { align-items: center; display: inline-flex; justify-content: center; }
+                    .server-manager-item-text small:empty { display: none; }
+                    .server-manager-close { display: none; }
+                    /* The groups that are not folders say so by their sign. */
+                    .server-manager-folder--favorites .server-manager-folder-icon { color: #f5b301; }
+                    .server-manager-folder--recent .server-manager-folder-icon,
+                    .server-manager-folder--places .server-manager-folder-icon { color: var(--muted); }
+                    .server-manager-folder--shares .server-manager-folder-icon { color: var(--accent-2); }
                     html.session-immersive .server-manager, html.session-immersive .server-manager-toggle { display: none; }
+                    /* The entry in the menu: "side panel on/off" where the panel stands beside the page, the
+                       name of what is in it where it is a sheet. */
+                    .side-panel-entry-narrow { display: none; }
+                    /* Beside the panel the start page is no list any more: the panel is. What stays is a new
+                       connection - the head, quick connect, the farm's line. With the panel put away the
+                       page is the list again, as it is on a narrow screen. */
+                    .home2-title-side, .home2-side-hint { display: none; }
+                    @media (min-width: 901px) {
+                        html[data-server-manager] .home2 > :not(.home2-head):not(.home2-quick-section):not(.home2-farm-section):not(.home2-empty):not(dialog) { display: none !important; }
+                        html[data-server-manager] .home2-title-list { display: none; }
+                        html[data-server-manager] .home2-title-side { display: inline; }
+                        html[data-server-manager] .home2-side-hint { display: block; margin: 6px 0 0; }
+                        html[data-server-manager] .home2 { margin-inline: auto; max-width: 860px; }
+                    }
+                    /* A narrow screen has no room beside the page: there the panel is a sheet over it, with
+                       rows a thumb can hit and a way back of its own. */
                     @media (max-width: 900px) {
-                        .server-manager, .server-manager-toggle { display: none !important; }
+                        .server-manager-toggle { display: none !important; }
+                        .server-manager {
+                            border-right: 1px solid var(--line);
+                            bottom: 0;
+                            box-shadow: var(--shadow-strong);
+                            flex: none;
+                            left: 0;
+                            padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom) env(safe-area-inset-left);
+                            position: fixed;
+                            top: 0;
+                            width: min(380px, 100vw);
+                            z-index: 60;
+                        }
+                        .server-manager-head { min-height: 60px; padding: 8px 12px 6px 18px; }
+                        .server-manager-head strong { color: var(--text); font-size: 20px; letter-spacing: 0; text-transform: none; }
+                        .server-manager-close { display: inline-flex; }
+                        .server-manager-head .tab-action-button { border: 1px solid var(--line); border-radius: 12px; height: 44px; width: 44px; }
+                        .server-manager-search { margin: 0 12px 10px; }
+                        .server-manager-search input:not([type="checkbox"]):not([type="radio"]) { font-size: 16px; min-height: 44px; }
+                        .server-manager-tree { padding: 0 8px 16px; }
+                        .server-manager-folder { font-size: 15px; min-height: 44px; }
+                        .server-manager-item { min-height: 52px; }
+                        .server-manager-item-icon { height: 34px; width: 34px; }
+                        .server-manager-item-text strong { font-size: 15px; }
+                        .server-manager-item-text small { font-size: 12.5px; }
+                        .side-panel-entry-wide { display: none; }
+                        .side-panel-entry-narrow { display: inline; }
+                    }
+                    @media (max-width: 720px) {
+                        .server-manager { border-right: 0; width: 100vw; }
                     }
                     .shell-page-panel {
                         inset: 0;
@@ -20269,6 +20519,17 @@ public sealed class HtmlViews
                         .home2-proto-dialog-grid {
                             padding-bottom: calc(18px + env(safe-area-inset-bottom));
                         }
+                        /* Everything in one screen, no scroll bar: the protocols are small tiles four
+                           in a row (icon above name, as on the start page), the fields sit closer. Only
+                           when the keyboard takes half the screen does the form still scroll - and then
+                           without a bar standing beside it. */
+                        .home2-proto-dialog-head { padding-bottom: 8px; }
+                        .home2-qc-form { gap: 10px; padding-bottom: calc(16px + env(safe-area-inset-bottom)); scrollbar-width: none; }
+                        .home2-qc-form::-webkit-scrollbar { display: none; }
+                        .home2-qc-protos { display: grid; gap: 6px; grid-template-columns: repeat(4, minmax(0, 1fr)); }
+                        .home2-qc-proto { flex-direction: column; gap: 4px; justify-content: center; min-width: 0; padding: 8px 2px 6px; border-radius: 12px; }
+                        .home2-qc-proto > span:last-child { font-size: 12.5px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                        .home2-qc-actions .button { width: 100%; justify-content: center; }
                     }
                     .connection-browser-empty {
                         align-items: flex-start;

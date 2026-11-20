@@ -18,6 +18,7 @@ const activeTitle = page => page.evaluate(() => {
   let b; try { b = await chromium.launch({ channel: "msedge", headless: true }); }
   catch { b = await chromium.launch({ channel: "chrome", headless: true }); }
   const page = await (await b.newContext({ viewport: { width: 1400, height: 950 } })).newPage();
+  await require("./list-on-start-page")(page);
   page.on("pageerror", e => { console.log("JS ERROR: " + e.message); failures.push("JS error"); });
   await page.goto(BASE + "/login", { waitUntil: "networkidle" });
   await page.fill("input[name=\"username\"]", "admin");

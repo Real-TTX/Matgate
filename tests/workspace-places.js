@@ -15,6 +15,7 @@ const NAME = "Pruefablage";
   let b; try { b = await chromium.launch({ channel: "msedge", headless: true }); }
   catch { b = await chromium.launch({ channel: "chrome", headless: true }); }
   const ctx = await b.newContext({ viewport: { width: 1400, height: 950 } });
+  await require("./list-on-start-page")(ctx);
   const page = await ctx.newPage();
   page.on("pageerror", e => { console.log("JS ERROR: " + e.message); failures.push("JS error"); });
   await page.goto(BASE + "/login", { waitUntil: "networkidle" });

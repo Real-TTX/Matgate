@@ -14,6 +14,7 @@ const check = (name, got, want) => {
   let b; try { b = await chromium.launch({ channel: "msedge", headless: true }); }
   catch { b = await chromium.launch({ channel: "chrome", headless: true }); }
   const ctx = await b.newContext({ viewport: { width: 1400, height: 950 }, acceptDownloads: true });
+  await require("./list-on-start-page")(ctx);
   const page = await ctx.newPage();
   page.on("pageerror", e => console.log("JS ERROR: " + e.message));
   page.on("console", m => { if (/BEFOREUNLOAD|PAGEHIDE/.test(m.text())) console.log("     >> " + m.text()); });

@@ -30,6 +30,7 @@ const barHeight = page => page.evaluate(() => {
 
   // ---------- Desktop: strip height and burger
   const ctx = await b.newContext({ viewport: { width: 1280, height: 860 } });
+  await require("./list-on-start-page")(ctx);
   const page = await ctx.newPage();
   page.on("pageerror", e => { console.log("JS ERROR: " + e.message); failures.push("JS error"); });
   await signIn(page);

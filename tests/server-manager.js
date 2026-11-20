@@ -1,6 +1,9 @@
-// The server manager: on a wide screen, a panel on the left with the connections by folder - one click
+// The side panel: what there is to open - the favourites, what was used last, the connections by folder, the
+// places, the shares. On a wide screen it stands on the left from the start, and the start page beside it is
+// quick connect instead of the same list a second time; put away, the page is the list again. One click
 // connects, or goes to the session that is already open; the middle button and Ctrl open another one; the
-// right button brings the connection's menu. Whether it is shown is remembered. A phone has no room for it.
+// right button brings the connection's menu. Whether it is shown is remembered, and it is shown and hidden
+// from the menu as well - in the compact view that is the only way. On a phone it is a sheet over the page.
 const { chromium } = require("playwright-core");
 const BASE = "http://127.0.0.1:18091";
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -24,30 +27,46 @@ const check = (name, got, want) => {
   await sleep(1000);
 
   const shown = () => page.evaluate(() => { const panel = document.getElementById("server-manager"); return !panel.hidden && panel.offsetWidth > 200; });
-  const rows = () => page.evaluate(() => [...document.querySelectorAll("#server-manager-tree [data-manager-server]")].map(row => row.querySelector("strong").textContent));
+  // The rows of a group: "folder" are the connections under their folders, the others are named after what they are.
+  const rows = (group = "folder") => page.evaluate(g => [...document.querySelectorAll("#server-manager-tree [data-manager-in='" + g + "']")].map(row => row.querySelector("strong").textContent), group);
   const sessions = () => page.evaluate(() => document.querySelectorAll(".session-tab[data-tab-kind='connection'], .session-tab[data-tab-kind='page']").length);
-  const row = name => page.locator("#server-manager-tree [data-manager-server]").filter({ has: page.locator("strong", { hasText: new RegExp("^" + name + "$") }) });
+  const row = name => page.locator("#server-manager-tree [data-manager-in='folder']").filter({ has: page.locator("strong", { hasText: new RegExp("^" + name + "$") }) });
   const mark = name => page.evaluate(n => {
-    const found = [...document.querySelectorAll("#server-manager-tree [data-manager-server]")].find(r => r.querySelector("strong").textContent === n);
+    const found = [...document.querySelectorAll("#server-manager-tree [data-manager-in='folder']")].find(r => r.querySelector("strong").textContent === n);
     return { open: found.classList.contains("open"), active: found.classList.contains("active"), dot: !!found.querySelector(".server-manager-dot"), count: (found.querySelector(".server-manager-dot") || {}).textContent || "" };
   }, name);
+  const startPage = () => page.evaluate(() => ({
+    quick: !!(document.querySelector(".home2-quick-section") || {}).offsetParent,
+    list: [...document.querySelectorAll("[data-home2-card]")].some(card => card.offsetParent),
+    title: [...document.querySelectorAll(".home2-head h1 span")].filter(span => span.offsetParent).map(span => span.textContent)[0],
+  }));
+  const headings = () => page.evaluate(() => [...document.querySelectorAll("#server-manager-tree .server-manager-folder")].map(head => head.dataset.folder));
 
-  check("it is not in the way until asked for", await shown(), false);
-  const widthBefore = await page.evaluate(() => document.getElementById("shell-page-panels").offsetWidth);
+  // ---- there from the start, in place of the list on the start page
+  check("on a wide screen it is there from the start", [await shown(), await page.evaluate(() => document.getElementById("server-manager-toggle").getAttribute("aria-pressed"))], [true, "true"]);
+  const beside = await startPage();
+  check("the start page beside it is quick connect, not the same list a second time", [beside.quick, beside.list, /New connection|Neue Verbindung/.test(beside.title)], [true, false, true]);
+  const widthBeside = await page.evaluate(() => document.getElementById("shell-page-panels").offsetWidth);
   await page.click("#server-manager-toggle");
   await sleep(300);
-  check("the button in the tab row shows it", [await shown(), await page.evaluate(() => document.getElementById("server-manager-toggle").getAttribute("aria-pressed"))], [true, "true"]);
-  check("beside the sessions, not over them", await page.evaluate(() => document.getElementById("shell-page-panels").offsetWidth) < widthBefore - 200, true);
+  check("the button in the tab row puts it away", [await shown(), await page.evaluate(() => document.getElementById("server-manager-toggle").getAttribute("aria-pressed"))], [false, "false"]);
+  const alone = await startPage();
+  check("then the page has the room and is the list again", [await page.evaluate(() => document.getElementById("shell-page-panels").offsetWidth) > widthBeside + 200, alone.list, /Connections|Verbindungen/.test(alone.title)], [true, true, true]);
+  await page.click("#server-manager-toggle");
+  await sleep(300);
+  check("and the same button brings it back", await shown(), true);
+
   const all = await rows();
   check("it lists the saved connections, by name", [all.includes("Linux-Testhost"), all.includes("Linux-Testhost 2"), JSON.stringify(all) === JSON.stringify([...all].sort((a, c) => a.localeCompare(c, undefined, { sensitivity: "base" })))], [true, true, true]);
-  check("and no places of the file manager", all.some(name => /^(Files|Dateien|My place|Shared)/i.test(name)), false);
+  const places = await rows("places");
+  check("the places of the file manager have a group of their own, after the connections", [places.length > 0, all.some(name => places.includes(name)), (await headings()).indexOf("places:") > (await headings()).indexOf("")], [true, false, true]);
 
   // ---- one click connects
   await row("Linux-Testhost").click();
   await sleep(3500);
   check("one click opens the connection", await sessions(), 1);
   check("its row says that a session is open, and that it is the one in front", await mark("Linux-Testhost"), { open: true, active: true, dot: true, count: "" });
-  check("the manager stays where it is beside the session", await shown(), true);
+  check("the panel stays where it is beside the session", await shown(), true);
   // back to the start page, and to the session by its row
   await page.click("#new-connection-tab .session-tab-main");
   await sleep(400);
@@ -62,7 +81,7 @@ const check = (name, got, want) => {
   // ---- searching
   await page.fill("#server-manager-filter", "testhost 2");
   await sleep(300);
-  check("the field narrows the list", await rows(), ["Linux-Testhost 2"]);
+  check("the field narrows the list - every connection once, no favourites or last used beside it", [await rows(), await rows("favorites"), await rows("recent")], [["Linux-Testhost 2"], [], []]);
   await page.fill("#server-manager-filter", "nothing-like-this");
   await sleep(300);
   check("and says when nothing is left", [await rows(), await page.evaluate(() => !!document.querySelector("#server-manager-tree .server-manager-empty"))], [[], true]);
@@ -77,10 +96,11 @@ const check = (name, got, want) => {
   await page.keyboard.press("Escape");
   await sleep(300);
 
-  // ---- remembered
+  // ---- remembered; and what was used last
   await page.reload({ waitUntil: "networkidle" });
   await sleep(1500);
   check("it is still shown after loading the page anew", await shown(), true);
+  check("what was used last stands at the top, the newest first", [(await rows("recent"))[0], (await headings()).indexOf("recent:") < (await headings()).indexOf("")], ["Linux-Testhost", true]);
   await page.click("#server-manager-toggle");
   await sleep(300);
   await page.reload({ waitUntil: "networkidle" });
@@ -92,6 +112,24 @@ const check = (name, got, want) => {
     if (!more) { break; }
     await sleep(900);
   }
+
+  // ---- favourites: the star on a connection's card puts it into the group at the top
+  const star = () => page.evaluate(() => {
+    const card = [...document.querySelectorAll("[data-home2-all] [data-home2-card]")].find(c => c.querySelector("h3").textContent.trim() === "Linux-Testhost 2");
+    card.querySelector(".favorite-toggle-form button").click();
+  });
+  const wasFavourite = await page.evaluate(() => [...document.querySelectorAll("[data-home2-all] [data-home2-card]")].find(c => c.querySelector("h3").textContent.trim() === "Linux-Testhost 2").dataset.fav === "1");
+  if (!wasFavourite) { await star(); await sleep(900); }
+  await page.click("#server-manager-toggle");
+  await sleep(400);
+  check("a favourite stands in the group of the favourites, which comes first", [(await rows("favorites")).includes("Linux-Testhost 2"), (await headings())[0]], [true, "favorites:"]);
+  check("and under its folder as before", (await rows()).includes("Linux-Testhost 2"), true);
+  await star();
+  await sleep(900);
+  check("without the star it is gone from there, without loading the page anew", (await rows("favorites")).includes("Linux-Testhost 2"), false);
+  if (wasFavourite) { await star(); await sleep(900); }
+  await page.click("#server-manager-toggle");
+  await sleep(300);
 
   // ---- folders: a connection filed in one stands under it, and a folder can be shut
   const second = (await page.evaluate(async () => {
@@ -113,16 +151,18 @@ const check = (name, got, want) => {
     await page.goto(BASE + "/", { waitUntil: "networkidle" });
     await sleep(1000);
   };
-  const tree = () => page.evaluate(() => [...document.querySelectorAll("#server-manager-tree > *")].map(node =>
+  // The folders and what stands under them - not the other groups.
+  const tree = () => page.evaluate(() => [...document.querySelectorAll("#server-manager-tree > .server-manager-folder--folder, #server-manager-tree > [data-manager-in='folder']")].map(node =>
     node.matches(".server-manager-folder") ? "[" + node.querySelector(".server-manager-folder-name").textContent + " " + node.querySelector(".server-manager-count").textContent + "]"
-      : (node.querySelector("strong") || node).textContent));
+      : node.querySelector("strong").textContent));
+  const unfiled = all.length - 1;
   try {
     await file("Managerordner");
     await page.click("#server-manager-toggle");
     await sleep(400);
     const filed = await tree();
     check("a folder is a heading with its connections under it, and those without a folder come last",
-      [filed[0], filed[1], filed.indexOf("[No folder 4]") === 2 || filed.indexOf("[Ohne Ordner 4]") === 2, filed.length], ["[Managerordner 1]", "Linux-Testhost 2", true, 7]);
+      [filed[0], filed[1], filed.indexOf("[No folder " + unfiled + "]") === 2 || filed.indexOf("[Ohne Ordner " + unfiled + "]") === 2, filed.length], ["[Managerordner 1]", "Linux-Testhost 2", true, all.length + 2]);
     await page.click("#server-manager-tree .server-manager-folder[data-folder='Managerordner']");
     await sleep(300);
     check("a click on the folder shuts it", [(await tree()).includes("Linux-Testhost 2"), await page.evaluate(() => document.querySelector(".server-manager-folder[data-folder='Managerordner']").getAttribute("aria-expanded"))], [false, "false"]);
@@ -133,6 +173,10 @@ const check = (name, got, want) => {
     await page.click("#server-manager-tree .server-manager-folder[data-folder='Managerordner']");
     await sleep(300);
     check("and one more click opens it again", (await tree()).includes("Linux-Testhost 2"), true);
+    await page.click("#server-manager-tree .server-manager-folder[data-folder='places:']");
+    await sleep(300);
+    check("the other groups can be shut the same way", [(await rows("places")).length, (await headings()).includes("places:")], [0, true]);
+    await page.click("#server-manager-tree .server-manager-folder[data-folder='places:']");
     await page.click("#server-manager-toggle");
   }
   finally {
@@ -140,19 +184,58 @@ const check = (name, got, want) => {
   }
   await page.click("#server-manager-toggle");
   await sleep(300);
-  check("without folders there are no headings", (await tree()).some(entry => entry.startsWith("[")), false);
-  await page.click("#server-manager-toggle");
+  const plain = (await tree()).filter(entry => entry.startsWith("["));
+  check("where nobody made a folder the connections stand under what they are", [plain.length, /^\[(Connections|Verbindungen) /.test(plain[0] || "")], [1, true]);
 
-  // ---- a phone has no room for it
-  const phone = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
-  await phone.addCookies(await context.cookies());
+  // ---- the menu: in the compact view the button of the tab row is not there
+  await page.click("#view-mode-toggle");
+  await sleep(500);
+  const entry = page.locator("[data-server-manager-menu]:visible");
+  await page.click(".shell-burger-trigger");
+  await sleep(300);
+  check("in the compact view the button is gone and the menu has the entry", [await page.evaluate(() => document.getElementById("server-manager-toggle").offsetWidth), await entry.count(), await shown()], [0, 1, true]);
+  await entry.click();
+  await sleep(400);
+  check("the entry puts the panel away, and the menu closes", [await shown(), await page.evaluate(() => !!document.querySelector(".shell-burger[open]"))], [false, false]);
+  await page.click(".shell-burger-trigger");
+  await entry.click();
+  await sleep(400);
+  check("and brings it back", await shown(), true);
+  await page.click("#view-mode-toggle");
+  await sleep(400);
+  await page.locator(".account-menu > summary").click();
+  await sleep(300);
+  check("in the normal view the entry is in the account's menu", await entry.count(), 1);
+  await page.keyboard.press("Escape");
+  await page.locator(".account-menu > summary").click().catch(() => {});
+
+  // ---- a phone: a sheet over the page, brought by the menu
+  const phone = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, storageState: await context.storageState() });
   const small = await phone.newPage();
   small.on("pageerror", e => { console.log("JS ERROR: " + e.message); failures.push("JS error"); });
   await small.goto(BASE + "/", { waitUntil: "networkidle" });
-  await small.evaluate(() => window.localStorage.setItem("matgate.serverManager.open", "true"));
-  await small.reload({ waitUntil: "networkidle" });
   await sleep(1000);
-  check("on a phone neither the panel nor its button is there", await small.evaluate(() => [document.getElementById("server-manager").offsetWidth, document.getElementById("server-manager-toggle").offsetWidth]), [0, 0]);
+  const sheet = () => small.evaluate(() => { const panel = document.getElementById("server-manager"); return [panel.offsetWidth, document.getElementById("server-manager-toggle").offsetWidth]; });
+  check("on a phone it is not there until asked for, though the wide screen has it shown - and its button never is", await sheet(), [0, 0]);
+  check("the start page there is the list, as ever", await small.evaluate(() => [...document.querySelectorAll("[data-home2-card]")].some(card => card.offsetParent)), true);
+  await small.click(".shell-burger-trigger");
+  await sleep(300);
+  await small.locator("[data-server-manager-menu]:visible").click();
+  await sleep(400);
+  check("the menu's entry brings it as a sheet over the whole page", [(await sheet())[0], await small.evaluate(() => !!document.querySelector(".shell-burger[open]"))], [390, false]);
+  check("with rows a thumb can hit", await small.evaluate(() => [...document.querySelectorAll("#server-manager-tree .server-manager-item")].every(item => item.offsetHeight >= 44)), true);
+  await small.locator("#server-manager [data-server-manager-close]").click();
+  await sleep(300);
+  check("its own button closes it", (await sheet())[0], 0);
+  await small.click(".shell-burger-trigger");
+  await small.locator("[data-server-manager-menu]:visible").click();
+  await sleep(400);
+  await small.locator("#server-manager-tree [data-manager-in='folder']").filter({ has: small.locator("strong", { hasText: /^Linux-Testhost$/ }) }).click();
+  await sleep(3500);
+  check("a tap on a connection opens it, and the sheet goes", [await small.evaluate(() => document.querySelectorAll(".session-tab[data-tab-kind='connection'], .session-tab[data-tab-kind='page']").length), (await sheet())[0]], [1, 0]);
+  await small.reload({ waitUntil: "networkidle" });
+  await sleep(800);
+  check("nothing of that is remembered: the wide screen still has its panel", await small.evaluate(() => window.localStorage.getItem("matgate.serverManager.open")), "true");
 
   await b.close();
   console.log(failures.length ? "\n" + failures.length + " FAILED: " + failures.join(", ") : "\nall passed");

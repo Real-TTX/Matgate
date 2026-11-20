@@ -140,6 +140,17 @@ const shots = [];
       await page.evaluate(() => document.querySelector("[data-home2-more]").click());
       await sleep(500);
       await shot(page, p("home-quick-connect"), "Quick connect");
+      await page.keyboard.press("Escape");
+      if (phone) {
+        // On a phone the side panel is a sheet, brought by the menu.
+        await page.goto(BASE + "/", { waitUntil: "networkidle" });
+        await sleep(500);
+        await page.click(".shell-burger-trigger");
+        await sleep(300);
+        await page.locator("[data-server-manager-menu]:visible").click();
+        await sleep(500);
+        await shot(page, p("side-panel"), "The side panel as a sheet");
+      }
     });
 
     // The server manager is for a wide screen: the connections beside the sessions.
@@ -147,9 +158,13 @@ const shots = [];
       await stop(p("manager"), async () => {
         await page.goto(BASE + "/", { waitUntil: "networkidle" });
         await sleep(500);
+        // There from the start; put away, the start page is the list again.
+        await shot(page, p("manager"), "The side panel, beside the start page");
         await page.click("#server-manager-toggle");
         await sleep(400);
-        await shot(page, p("manager"), "The server manager, beside the start page");
+        await shot(page, p("manager-hidden"), "The side panel put away: the start page is the list");
+        await page.click("#server-manager-toggle");
+        await sleep(400);
         await page.click("#server-manager-tree [data-manager-server='" + rdp.id + "']");
         await waitPicture(page);
         await sleep(1500);
@@ -158,7 +173,6 @@ const shots = [];
         await sleep(300);
         await shot(page, p("manager-search"), "Searching in the server manager");
         await page.fill("#server-manager-filter", "");
-        await page.click("#server-manager-toggle");
         await closeTabs(page);
       });
     }

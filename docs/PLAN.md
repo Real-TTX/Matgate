@@ -636,6 +636,17 @@ Server-Manager links „wie RoyalTS“. MatUi (`../MatDesign/src/MatUi`) als Vor
   Startseite. Zustand und zugeklappte Ordner stehen im Browser (`matgate.serverManager.*`). Unter 900 px
   und im Vollbild gibt es sie nicht. Die Liste kommt aus `availableServers` (neu: `folder`), ohne Ablagen
   und ohne Einmal-Verbindungen aus Quick-Connect (`ephemeral`). `tests/server-manager.js`.
+- **Seitenleiste statt Startseite (0.30.0):** Die Leiste heißt jetzt Seitenleiste und ist am Desktop von
+  Anfang an offen (`matgate.serverManager.open` fehlt = offen). Gruppen von oben: Favoriten, Zuletzt
+  verwendet (5), die Ordner (ohne Ordner zuletzt; gibt es keine Ordner, heißt die Gruppe „Verbindungen“),
+  Ablagen, Freigaben - alle zuklappbar; bei einer Suche nur die Ordner, Ablagen und Freigaben. Die Daten
+  dafür kommen als `sidebarData` (Seite) bzw. `side` (`/api/connections/panel`). Neben der Leiste zeigt die
+  Startseite nur Kopf („Neue Verbindung“), Quick-Connect und die Farm-Zeile; weggeklappt ist sie wieder die
+  volle Liste. Ein- und Ausblenden auch im Menü (Kontomenü, Burger-Menü im Kompaktmodus,
+  `[data-server-manager-menu]`). Unter 900 px ist sie ein Blatt über der Seite, nur über das Menü
+  („Verbindungen“), schließt bei Auswahl, Escape oder Tipp daneben, und merkt sich nichts. Quick-Connect am
+  Handy: Protokolle als Kacheln vier in einer Reihe, passt bis 320×568 ohne Rollen. Tests, die die Liste der
+  Startseite brauchen, klappen die Leiste mit `tests/list-on-start-page.js` vorher weg.
 - **Bilder:** `tests/gallery.js` ist eine Tour, kein Vergleich: Anmeldung, Start, Menü, Dialoge, echte
   RDP-/VNC-/SSH-Sitzungen, Browser, Server-Manager, Einstellungen - je am Desktop und am Handy, als PNG nach
   `tests/gallery/` mit `index.html`. So ist der Umbau beurteilt worden.
