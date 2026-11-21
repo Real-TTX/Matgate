@@ -1613,6 +1613,33 @@ public static class AgentScreenPage
                 }
             }
 
+            // A tap on a button of the bar must not take the keyboard away. Preventing pointerdown is not enough on
+            // phones: the tap's touchend still moves the focus off the hidden field, and the device keyboard closes.
+            // So a short tap is taken on touchend (which then neither moves the focus nor clicks a second time), and
+            // the field keeps the focus; a swipe along the bar stays a swipe.
+            const tapKeepsKeyboard = (item, action) => {
+                let start = null;
+                item.addEventListener('touchstart', event => {
+                    const touch = event.changedTouches[0];
+                    start = touch ? { x: touch.clientX, y: touch.clientY, field: /^(TEXTAREA|INPUT)$/.test((document.activeElement || {}).tagName || '') ? document.activeElement : null } : null;
+                }, { passive: true });
+                item.addEventListener('touchend', event => {
+                    const touch = event.changedTouches[0];
+                    const was = start;
+                    start = null;
+                    if (!was || !touch || Math.abs(touch.clientX - was.x) > 10 || Math.abs(touch.clientY - was.y) > 10) {
+                        return;
+                    }
+
+                    event.preventDefault();
+                    action();
+                    if (was.field && document.activeElement !== was.field) {
+                        was.field.focus({ preventScroll: true });
+                    }
+                }, { passive: false });
+                item.addEventListener('touchcancel', () => { start = null; });
+                item.addEventListener('click', action);
+            };
             barButtons.forEach(button => {
                 const item = document.createElement('button');
                 item.type = 'button';
@@ -1621,7 +1648,7 @@ public static class AgentScreenPage
                 item.dataset.id = button.id;
                 // The bar's buttons must not take the keyboard away from the picture.
                 item.addEventListener('pointerdown', event => event.preventDefault());
-                item.addEventListener('click', () => pressBarButton(button, item));
+                tapKeepsKeyboard(item, () => pressBarButton(button, item));
                 keyBar.appendChild(item);
             });
             // The bar is the user's own (Account -> Key bar): its last button leads there. Only inside the

@@ -105,6 +105,8 @@ usable from a laptop or a phone – installable as a PWA.
 **Users & operation**
 - Local users with **username + email + password**, a **first-run setup wizard**
 - Admin roles and **per-server access control**; global servers and user-owned servers
+- **Groups** for a company: members get whole folders (with subfolders and whatever is filed there later) or
+  single connections; an administrator makes **folders for everyone**, which are there while still empty
 - Credentials **encrypted at rest**; `/guacamole` sits behind the Matgate login
 - **English and German**, light / dark (follows the system), installable **PWA**
 

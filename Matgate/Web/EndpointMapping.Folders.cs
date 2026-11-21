@@ -19,6 +19,55 @@ public static partial class EndpointMapping
         app.MapPost("/admin/folders/save", FolderSaveAsync).RequireAuthorization();
         app.MapPost("/admin/folders/delete", FolderDeleteAsync).RequireAuthorization();
         app.MapPost("/api/servers/{id:guid}/folder", MoveToFolderAsync).RequireAuthorization();
+        app.MapPost("/api/folders", CreateFolderAsync).RequireAuthorization();
+    }
+
+    // A folder made on its own, before anything is filed in it (the side panel's "New folder"). Whoever manages
+    // connections makes it for everyone; anyone else for themselves.
+    private static async Task<IResult> CreateFolderAsync(HttpContext context, JsonDataStore store)
+    {
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        if (!ValidateCsrfHeader(context))
+        {
+            return Results.StatusCode(StatusCodes.Status403Forbidden);
+        }
+
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        var name = ServerFolders.CleanPath(form["name"]);
+        if (name.Length == 0)
+        {
+            return Results.BadRequest();
+        }
+
+        var shared = user.IsAdmin || user.CanManageServers;
+        await store.UpdateFoldersAsync(folders =>
+        {
+            if (!folders.Any(folder => ServerFolders.Same(folder.Name, name) && (folder.OwnerUserId is null || folder.OwnerUserId == user.Id)))
+            {
+                folders.Add(new FolderDefinition { Name = name, OwnerUserId = shared ? null : user.Id });
+            }
+        }, context.RequestAborted);
+        return Results.NoContent();
+    }
+
+    // The folders a user sees: those of the connections they may use, and those that exist on their own.
+    private static async Task<List<string>> VisibleFolderNamesAsync(MatgateUser user, IEnumerable<ServerEndpoint> servers, JsonDataStore store, CancellationToken cancellationToken)
+    {
+        var names = ServerFolders.Names(servers);
+        foreach (var folder in (await store.GetFoldersAsync(cancellationToken)).Where(folder => folder.VisibleTo(user)))
+        {
+            if (!names.Any(name => ServerFolders.Same(name, folder.Name)))
+            {
+                names.Add(folder.Name);
+            }
+        }
+
+        return [.. names.OrderBy(name => name, StringComparer.OrdinalIgnoreCase)];
     }
 
     // Moves one connection into a folder - or out of every folder with an empty name. What the side panel does
@@ -86,6 +135,13 @@ public static partial class EndpointMapping
 
         var servers = await EditableServersAsync(user, store, context.RequestAborted);
         var folder = ServerFolders.List(servers).FirstOrDefault(candidate => ServerFolders.Same(candidate.Name, context.Request.Query["name"]));
+        // A folder that exists on its own may be empty: then it is only its name and icon.
+        if (folder is null
+            && (await store.GetFoldersAsync(context.RequestAborted)).FirstOrDefault(candidate => candidate.VisibleTo(user) && ServerFolders.Same(candidate.Name, context.Request.Query["name"])) is { } own)
+        {
+            folder = new ServerFolder(own.Name, own.IconKey, []);
+        }
+
         if (folder is null)
         {
             return Results.Redirect(EmbedAwareRedirect(context, FolderList));
@@ -124,12 +180,6 @@ public static partial class EndpointMapping
         {
             error = de ? "Ein Ordner braucht einen Namen." : "A folder needs a name.";
         }
-        else if (chosen.Count == 0)
-        {
-            error = de
-                ? "Ein Ordner besteht aus den Verbindungen, die in ihm liegen - ohne eine gibt es ihn nicht. Zum Entfernen gibt es \"Ordner auflösen\"."
-                : "A folder is the connections that lie in it - without one there is none. To remove it there is \"Dissolve folder\".";
-        }
 
         if (error is not null)
         {
@@ -167,6 +217,22 @@ public static partial class EndpointMapping
             }
         }, context.RequestAborted);
 
+        // The folder itself, so that it stays there also while nothing lies in it - for everyone when an
+        // administrator or server manager made it.
+        await store.UpdateFoldersAsync(folders =>
+        {
+            var own = folders.FirstOrDefault(folder => original.Length > 0 && ServerFolders.Same(folder.Name, original))
+                ?? folders.FirstOrDefault(folder => ServerFolders.Same(folder.Name, name));
+            if (own is null)
+            {
+                own = new FolderDefinition { OwnerUserId = user.IsAdmin || user.CanManageServers ? null : user.Id };
+                folders.Add(own);
+            }
+
+            own.Name = name;
+            own.IconKey = iconKey;
+        }, context.RequestAborted);
+
         return Results.Redirect(EmbedAwareRedirect(context, FolderList));
     }
 
@@ -197,6 +263,9 @@ public static partial class EndpointMapping
                     server.UpdatedAt = DateTimeOffset.UtcNow;
                 }
             }, context.RequestAborted);
+            await store.UpdateFoldersAsync(
+                folders => folders.RemoveAll(folder => ServerFolders.Same(folder.Name, name) && (folder.OwnerUserId == user.Id || (folder.OwnerUserId is null && (user.IsAdmin || user.CanManageServers)))),
+                context.RequestAborted);
         }
 
         return Results.Redirect(EmbedAwareRedirect(context, FolderList));

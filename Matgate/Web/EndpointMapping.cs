@@ -444,6 +444,7 @@ public static partial class EndpointMapping
         MapSshEndpoints(app);
         MapDatabaseEndpoints(app);
         MapCredentialEndpoints(app);
+        MapGroupEndpoints(app);
         MapKeyBarEndpoints(app);
         MapFolderEndpoints(app);
         MapKeptSessionEndpoints(app);
@@ -1012,6 +1013,8 @@ public static partial class EndpointMapping
         }
 
         var allServers = await store.GetServersAsync(context.RequestAborted);
+        // Folders that exist on their own show in the side panel also while empty.
+        context.Items[HtmlViews.FolderObjectsKey] = (await store.GetFoldersAsync(context.RequestAborted)).Where(folder => folder.VisibleTo(user)).Select(folder => folder.Name).ToList();
         var servers = allServers
             .Where(server => server.IsEnabled && CanAccessServer(user, server))
             .OrderBy(server => server.OwnerUserId is null ? 0 : 1)
@@ -1119,6 +1122,8 @@ public static partial class EndpointMapping
         }
 
         var allServers = await store.GetServersAsync(context.RequestAborted);
+        // Folders that exist on their own show in the side panel also while empty.
+        context.Items[HtmlViews.FolderObjectsKey] = (await store.GetFoldersAsync(context.RequestAborted)).Where(folder => folder.VisibleTo(user)).Select(folder => folder.Name).ToList();
         var servers = allServers
             .Where(server => server.IsEnabled && CanAccessServer(user, server))
             .OrderBy(server => server.OwnerUserId is null ? 0 : 1)
@@ -4924,7 +4929,9 @@ public static partial class EndpointMapping
                 farmSessions.Settings);
         }
 
-        return Results.Content(views.AdminHome(context, user, servers, users, workspaces, browser), "text/html");
+        var groups = user.IsAdmin ? await store.GetGroupsAsync(context.RequestAborted) : [];
+        var folderObjects = (await store.GetFoldersAsync(context.RequestAborted)).Where(folder => folder.VisibleTo(user)).ToList();
+        return Results.Content(views.AdminHome(context, user, servers, users, workspaces, browser, groups, folderObjects), "text/html");
     }
 
     private static async Task<IResult> ServersAsync(HttpContext context, JsonDataStore store, HtmlViews views)
@@ -4961,7 +4968,7 @@ public static partial class EndpointMapping
             ? parsedProtocol
             : (ServerProtocol?)null;
 
-        var folders = ServerFolders.Names((await store.GetServersAsync(context.RequestAborted)).Where(server => CanEditServer(user, server)));
+        var folders = await VisibleFolderNamesAsync(user, (await store.GetServersAsync(context.RequestAborted)).Where(server => CanEditServer(user, server)), store, context.RequestAborted);
         context.Items[HtmlViews.CredentialChoicesKey] = (await store.GetCredentialsAsync(context.RequestAborted)).Where(credential => credential.UsableBy(user)).ToList();
         return Results.Content(views.ServerCreate(context, user, preferredProtocol, folders, ServerFormReturn(context.Request.Query["return"])), "text/html");
     }
@@ -5052,7 +5059,7 @@ public static partial class EndpointMapping
             return Results.Redirect("/forbidden");
         }
 
-        var folders = ServerFolders.Names((await store.GetServersAsync(context.RequestAborted)).Where(candidate => CanEditServer(user, candidate)));
+        var folders = await VisibleFolderNamesAsync(user, (await store.GetServersAsync(context.RequestAborted)).Where(candidate => CanEditServer(user, candidate)), store, context.RequestAborted);
         context.Items[HtmlViews.CredentialChoicesKey] = (await store.GetCredentialsAsync(context.RequestAborted)).Where(credential => credential.UsableBy(user)).ToList();
         return Results.Content(
             views.ServerDetail(context, user, server, await store.GetUsersAsync(context.RequestAborted), folders, ServerFormReturn(context.Request.Query["return"])),
@@ -5600,7 +5607,22 @@ public static partial class EndpointMapping
             return false;
         }
 
-        return user.CanManageServers || user.ServerAccessAll || user.ServerAccess.Contains(server.Id);
+        return user.CanManageServers || user.ServerAccessAll || user.ServerAccess.Contains(server.Id)
+            || user.GroupServers.Contains(server.Id)
+            || InGrantedFolder(user.GroupFolders, server.FolderName);
+    }
+
+    // A connection filed in a granted folder or below it ("Lab" grants "Lab" and "Lab/Linux").
+    private static bool InGrantedFolder(IReadOnlyList<string> granted, string? folder)
+    {
+        var path = (folder ?? "").Trim();
+        if (path.Length == 0 || granted.Count == 0)
+        {
+            return false;
+        }
+
+        return granted.Any(name => ServerFolders.Same(name, path)
+            || path.StartsWith(name.Trim().TrimEnd('/') + "/", StringComparison.OrdinalIgnoreCase));
     }
 
     private static bool CanEditServer(MatgateUser user, ServerEndpoint server)

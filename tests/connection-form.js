@@ -169,12 +169,15 @@ const RENAMED = "Test-Ordner neu";
   folder = all.find(f => f.name === RENAMED);
   check("unticked, a connection leaves the folder", folder && [folder.count, folder.inside, folder.icon === cloudIcon], [2, NAMES[1] + ", " + NAMES[2], true]);
 
-  // --- A folder without a connection is none: the page says so instead of saving nothing.
+  // --- A folder may be made empty (0.34.0): it exists on its own, for connections to be filed in later.
   await page.goto(BASE + "/admin/folders/new", { waitUntil: "networkidle" });
   await page.fill("[name='name']", "Leer");
-  await Promise.all([page.waitForLoadState("networkidle"), page.click("button[form='folder-form']")]);
-  check("a new folder without a connection is refused, with the reason", await page.evaluate(() => [!!document.querySelector("[data-folder-error]"), document.querySelector("[name='name']").value]), [true, "Leer"]);
+  await Promise.all([page.waitForURL(u => /tab=folders/.test(u.toString())), page.click("button[form='folder-form']")]);
+  all = await folders();
+  check("a new folder without a connection is made, and listed empty", (all.find(f => f.name === "Leer") || {}).count, 0);
   // With a connection that lies elsewhere: it moves.
+  await page.click("[data-folder-row='Leer'] a");
+  await page.waitForSelector("#folder-form");
   await page.evaluate(n => { [...document.querySelectorAll(".conn-check-list .check")].find(c => c.textContent.includes(n)).querySelector("input").checked = true; }, NAMES[2]);
   await Promise.all([page.waitForURL(u => /tab=folders/.test(u.toString())), page.click("button[form='folder-form']")]);
   all = await folders();
@@ -267,7 +270,13 @@ const RENAMED = "Test-Ordner neu";
   check("the folder page fits a phone as well", await small.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
 
   await cleanUp();
-  check("with its connections gone, the folder is gone", (await folders()).some(f => f.name === RENAMED), false);
+  // Made on the folder page, the folder exists on its own (0.34.0): its connections gone, it stays - empty -
+  // until it is dissolved.
+  const left = (await folders()).find(f => f.name === RENAMED);
+  check("with its connections gone, the folder stays, empty", left && left.count, 0);
+  await page.evaluate(name => { const row = document.querySelector("[data-folder-row='" + name + "']"); const form = row && row.querySelector("form[action$='/delete']"); if (form) { form.removeAttribute("data-confirm"); form.submit(); } }, RENAMED);
+  await sleep(1000);
+  check("and goes when it is dissolved", (await folders()).some(f => f.name === RENAMED), false);
   await b.close();
   if (failures.length) { console.log("failed: " + JSON.stringify(failures)); }
   process.exit(failures.length ? 1 : 0);

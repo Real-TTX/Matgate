@@ -756,7 +756,9 @@ public sealed partial class HtmlViews
         IReadOnlyList<ServerEndpoint> servers,
         IReadOnlyList<MatgateUser> users,
         IReadOnlyList<WorkspaceDefinition> workspaces,
-        BrowserAdminData? browser = null)
+        BrowserAdminData? browser = null,
+        IReadOnlyList<UserGroup>? groups = null,
+        IReadOnlyList<FolderDefinition>? folderObjects = null)
     {
         var de = Language(context) == "de";
         var openLabel = T(context, "Open");
@@ -918,11 +920,12 @@ public sealed partial class HtmlViews
         var tabs = new List<TabItem>
         {
             new("servers", T(context, "Servers"), Icon("server"), serversPanel),
-            new("folders", de ? "Ordner" : "Folders", Icon("folder"), FoldersPanel(context, servers)),
+            new("folders", de ? "Ordner" : "Folders", Icon("folder"), FoldersPanel(context, servers, folderObjects)),
         };
         if (currentUser.IsAdmin)
         {
             tabs.Add(new("users", T(context, "Users"), Icon("users"), $"""<section class="panel">{userTable}</section>"""));
+            tabs.Add(new("groups", de ? "Gruppen" : "Groups", Icon("users"), GroupsPanel(context, groups ?? [], users)));
         }
         tabs.Add(new("workspaces", T(context, "Workspaces"), Icon("briefcase"), $"""<section class="panel">{workspaceTable}</section>"""));
 
@@ -2017,10 +2020,20 @@ public sealed partial class HtmlViews
     private static string FolderEditUrl(string name) => "/admin/folders/edit?name=" + Uri.EscapeDataString(name);
 
     // The folders in the administration: the list. A folder is created and edited on a page of its own.
-    private static string FoldersPanel(HttpContext context, IReadOnlyList<ServerEndpoint> servers)
+    private static string FoldersPanel(HttpContext context, IReadOnlyList<ServerEndpoint> servers, IReadOnlyList<FolderDefinition>? folderObjects = null)
     {
         var de = Language(context) == "de";
+        // The folders of the connections, and those that exist on their own - also while empty.
         var folders = ServerFolders.List(servers);
+        foreach (var own in folderObjects ?? [])
+        {
+            if (!folders.Any(folder => ServerFolders.Same(folder.Name, own.Name)))
+            {
+                folders.Add(new ServerFolder(own.Name, own.IconKey, []));
+            }
+        }
+
+        folders = [.. folders.OrderBy(folder => folder.Name, StringComparer.OrdinalIgnoreCase)];
         var editLabel = de ? "Bearbeiten" : "Edit";
         var dissolveLabel = de ? "Ordner auflösen" : "Dissolve folder";
         var rows = string.Join("", folders.Select(folder => $$"""
@@ -2032,9 +2045,7 @@ public sealed partial class HtmlViews
             </tr>
             """));
         var headers = $$"""<th data-sortable>{{(de ? "Ordner" : "Folder")}}</th><th data-sortable>{{(de ? "Verbindungen" : "Connections")}}</th><th>{{(de ? "Darin" : "In it")}}</th><th class="table-actions">{{T(context, "Actions")}}</th>""";
-        var create = servers.Count == 0
-            ? ""
-            : $$"""<a class="button primary" href="/admin/folders/new" data-folder-new-link>{{Icon("plus")}}{{(de ? "Neuer Ordner" : "New folder")}}</a>""";
+        var create = $$"""<a class="button primary" href="/admin/folders/new" data-folder-new-link>{{Icon("plus")}}{{(de ? "Neuer Ordner" : "New folder")}}</a>""";
         var table = DataTable(
             de ? "Ordner suchen..." : "Search folders...",
             headers,
@@ -2047,8 +2058,8 @@ public sealed partial class HtmlViews
         return $$"""
             <section class="panel" data-folders>
                 <p class="muted settings-lead">{{(de
-                    ? "Ordner fassen Verbindungen auf der Startseite zusammen. Ein Ordner besteht, solange eine Verbindung darin liegt - Name und Symbol gelten für alle darin."
-                    : "Folders group connections on the start page. A folder exists as long as a connection lies in it - its name and icon apply to all of them.")}}</p>
+                    ? "Ordner fassen Verbindungen zusammen; ein Unterordner ist ein Name mit „/“ (Labor/Linux). Ein Ordner, den ein Admin oder Server-Verwalter anlegt, sehen alle - auch solange er leer ist. Über Gruppen gibt man ganze Ordner frei."
+                    : "Folders group connections; a subfolder is a name with \"/\" (Lab/Linux). A folder an administrator or server manager makes is seen by everyone - also while it is empty. Groups give whole folders to people.")}}</p>
                 {{table}}
             </section>
             """;
@@ -3723,17 +3734,20 @@ public sealed partial class HtmlViews
         {
             html = ConnectionChoiceSections(context, user, servers, workspaces, true),
             servers = servers.Select(ServerChoicePayload),
-            side = SidebarPayload(user, servers, workspaces)
+            side = SidebarPayload(user, servers, workspaces, context)
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
     }
 
     // What the side panel groups the connections by, beyond their folders: the user's favourites, what they
     // used last (the newest first), and the shares - each with the place its "Open" leads to, as on the
     // start page.
+    public const string FolderObjectsKey = "matgate.folders";
+
     private static object SidebarPayload(
         MatgateUser user,
         IReadOnlyList<ServerEndpoint> servers,
-        IReadOnlyList<WorkspaceDefinition> workspaces)
+        IReadOnlyList<WorkspaceDefinition> workspaces,
+        HttpContext context)
     {
         var known = servers.Select(server => server.Id).ToHashSet();
         var workspaceAreas = servers
@@ -3741,6 +3755,8 @@ public sealed partial class HtmlViews
             .ToList();
         return new
         {
+            // Folders that exist on their own, shown also while nothing lies in them.
+            folders = context.Items[FolderObjectsKey] as List<string> ?? [],
             favorites = (user.FavoriteServerIds ?? [])
                 .Where(known.Contains)
                 .Select(id => id.ToString()),
@@ -5001,7 +5017,7 @@ public sealed partial class HtmlViews
             (user.ActionBarServerIds ?? []).Select(id => id.ToString()),
             new JsonSerializerOptions(JsonSerializerDefaults.Web));
         var sidebarData = JsonSerializer.Serialize(
-            SidebarPayload(user, servers, workspaces),
+            SidebarPayload(user, servers, workspaces, context),
             new JsonSerializerOptions(JsonSerializerDefaults.Web));
         var initialOpenServerId = JsonSerializer.Serialize(openServerId?.ToString() ?? "");
         var csrfToken = JsonSerializer.Serialize(context.User.FindFirstValue("csrf") ?? "");
@@ -5139,14 +5155,14 @@ public sealed partial class HtmlViews
             managerNew = Language(context) == "de" ? "Neue Verbindung" : "New connection",
             managerNewSubfolder = Language(context) == "de" ? "Unterordner anlegen ..." : "New subfolder ...",
             managerNewFolder = Language(context) == "de" ? "Neuer Ordner ..." : "New folder ...",
-            managerFolderHint = Language(context) == "de" ? "Ein Ordner gibt es, solange eine Verbindung in ihm liegt: das Formular für die erste öffnet sich." : "A folder exists while a connection lies in it: the form for the first one opens.",
+            managerFolderHint = Language(context) == "de" ? "Ein Unterordner mit /, z. B. Labor/Linux." : "A subfolder with /, e.g. Lab/Linux.",
             managerEditFolder = Language(context) == "de" ? "Ordner bearbeiten" : "Edit folder",
             managerMoveTo = Language(context) == "de" ? "In Ordner verschieben ..." : "Move to folder ...",
             managerMoveHint = Language(context) == "de" ? "Ein Unterordner mit /, z. B. Labor/Linux." : "A subfolder with /, e.g. Lab/Linux.",
             managerMoveOut = Language(context) == "de" ? "Aus dem Ordner nehmen" : "Take out of the folder",
             managerFolder = Language(context) == "de" ? "Ordner" : "Folder",
             managerMove = Language(context) == "de" ? "Verschieben" : "Move",
-            managerCreate = Language(context) == "de" ? "Weiter" : "Continue",
+            managerCreate = Language(context) == "de" ? "Anlegen" : "Create",
             managerMoveFailed = Language(context) == "de" ? "Diese Verbindung darfst du nicht verschieben." : "You may not move this connection.",
             managerCollapseAll = Language(context) == "de" ? "Alle Ordner zuklappen" : "Collapse all folders",
             managerExpandAll = Language(context) == "de" ? "Alle Ordner aufklappen" : "Expand all folders",
@@ -7492,7 +7508,7 @@ public sealed partial class HtmlViews
                                 onSelect: async () => {
                                     const name = await side.askFolderName(path ? uiText.managerNewSubfolder : uiText.managerNewFolder, '', uiText.managerCreate || 'Continue', uiText.managerFolderHint || '');
                                     if (name) {
-                                        side.newIn(path ? path + '/' + name : name);
+                                        side.createFolder(path ? path + '/' + name : name);
                                     }
                                 }
                             });
@@ -7531,7 +7547,7 @@ public sealed partial class HtmlViews
                                 onSelect: async () => {
                                     const name = await side.askFolderName(uiText.managerNewFolder, '', uiText.managerCreate || 'Continue', uiText.managerFolderHint || '');
                                     if (name) {
-                                        side.newIn(name);
+                                        side.createFolder(name);
                                     }
                                 }
                             });
@@ -8786,6 +8802,9 @@ public sealed partial class HtmlViews
                                         ownSticky.push({ btn, mods: key.own.mods });
                                     }
                                 }
+                                // The tap's end must not move the focus either: on a phone that closes the device
+                                // keyboard. The key itself is pressed on pointerdown, below.
+                                btn.addEventListener('touchend', event => event.preventDefault(), { passive: false });
                                 btn.addEventListener('pointerdown', event => {
                                     event.preventDefault();
                                     if (key.toggleLayout) {
@@ -9024,6 +9043,20 @@ public sealed partial class HtmlViews
                     const folderNode = path => ({ path, children: new Map(), servers: [] });
                     const root = folderNode('');
                     const unfiledServers = [];
+                    // The folders that exist on their own: there also while empty (not in a search).
+                    const ensureFolder = path => {
+                        let node = root;
+                        String(path || '').split('/').map(part => part.trim()).filter(Boolean).forEach((part, index, parts) => {
+                            const key = part.toLowerCase();
+                            if (!node.children.has(key)) {
+                                node.children.set(key, Object.assign(folderNode(parts.slice(0, index + 1).join('/')), { name: part }));
+                            }
+                            node = node.children.get(key);
+                        });
+                    };
+                    if (!wanted) {
+                        (sidebarData.folders || []).forEach(ensureFolder);
+                    }
                     connections
                         .filter(server => matches([server.name, server.target, server.folder, server.protocol].join(' ')))
                         .forEach(server => {
@@ -9276,6 +9309,18 @@ public sealed partial class HtmlViews
                         isOpen: () => !serverManager.hidden,
                         move: moveToFolder,
                         newIn: newConnectionIn,
+                        // A folder made on its own, there also while empty.
+                        createFolder: async name => {
+                            const body = new FormData();
+                            body.append('name', name);
+                            try {
+                                await fetch('/api/folders', { method: 'POST', body, credentials: 'same-origin', headers: { 'X-Matgate-Csrf': csrfToken } });
+                            }
+                            catch {
+                                // No connection to the gateway: nothing made.
+                            }
+                            await refreshConnectionsPanel();
+                        },
                         askFolderName,
                         canEdit: () => serverManager.dataset.canEdit === '1',
                         setAllClosed: shut => {

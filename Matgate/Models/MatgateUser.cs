@@ -102,6 +102,16 @@ public sealed class MatgateUser
 
     public List<Guid> ServerAccess { get; set; } = [];
 
+    // What the user's groups give them, filled in when the user is read (see JsonDataStore) - never stored.
+    [System.Text.Json.Serialization.JsonIgnore]
+    public HashSet<Guid> GroupServers { get; set; } = [];
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public List<string> GroupFolders { get; set; } = [];
+
+    [System.Text.Json.Serialization.JsonIgnore]
+    public List<string> GroupNames { get; set; } = [];
+
     // Optional per-(user, file-server) restrictions. Absence of a rule = full access.
     public List<FileAccessRule> FileAccessRules { get; set; } = [];
 

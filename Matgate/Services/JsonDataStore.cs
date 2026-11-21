@@ -47,6 +47,66 @@ public sealed class JsonDataStore
 
     private string CredentialsPath => Path.Combine(DataDirectory, "credentials.json");
 
+    private string GroupsPath => Path.Combine(DataDirectory, "groups.json");
+
+    private string FoldersPath => Path.Combine(DataDirectory, "folders.json");
+
+    public async Task<IReadOnlyList<UserGroup>> GetGroupsAsync(CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            return await ReadListAsync<UserGroup>(GroupsPath, cancellationToken);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task UpdateGroupsAsync(Action<List<UserGroup>> update, CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var groups = await ReadListAsync<UserGroup>(GroupsPath, cancellationToken);
+            update(groups);
+            await WriteListAsync(GroupsPath, groups, cancellationToken);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task<IReadOnlyList<FolderDefinition>> GetFoldersAsync(CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            return await ReadListAsync<FolderDefinition>(FoldersPath, cancellationToken);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task UpdateFoldersAsync(Action<List<FolderDefinition>> update, CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var folders = await ReadListAsync<FolderDefinition>(FoldersPath, cancellationToken);
+            update(folders);
+            await WriteListAsync(FoldersPath, folders, cancellationToken);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     // The stored logins (see Credential), passwords decrypted.
     public async Task<IReadOnlyList<Credential>> GetCredentialsAsync(CancellationToken cancellationToken = default)
     {
@@ -159,6 +219,19 @@ public sealed class JsonDataStore
                 // The second factor's secret is as good as a password: whoever holds it can compute every code.
                 // It is therefore stored encrypted in the file, like the connections' passwords.
                 user.TotpSecret = _protector.Unprotect(user.TotpSecret);
+            }
+
+            // What their groups give them, for every check of who may use what. Writing users (UpdateUsersAsync)
+            // reads them on its own and never carries this.
+            var groups = await ReadListAsync<UserGroup>(GroupsPath, cancellationToken);
+            foreach (var group in groups)
+            {
+                foreach (var user in users.Where(user => group.MemberIds.Contains(user.Id)))
+                {
+                    user.GroupServers.UnionWith(group.ServerIds);
+                    user.GroupFolders.AddRange(group.Folders);
+                    user.GroupNames.Add(group.Name);
+                }
             }
 
             return users;

@@ -745,7 +745,14 @@ Reihenfolge noch nicht abgesprochen - vor dem Anfangen fragen, welcher zuerst.
    Ursprünglicher Wunsch: **Zugangsdaten-Verwaltung.** Gespeicherte Zugangsdaten als eigene Objekte (Name, Benutzer, Passwort/Schlüssel,
    Domäne), die mehrere Verbindungen benutzen; ändern an einer Stelle. Persönliche und geteilte; verschlüsselt
    wie heute die Passwörter der Verbindungen.
-5. **Besser mehrbenutzerfähig (Firmen).** Admin verwaltet Server zentral; Admin legt Ordner an, die für alle
+5. **Erster Stand in 0.34.0:** Ordner als eigene Einträge (`folders.json`, `FolderDefinition`; von Admins und
+   Server-Verwaltern für alle, sonst persönlich; leer erlaubt; `POST /api/folders`, Seitenleiste „Neuer Ordner“
+   legt direkt an). Gruppen (`groups.json`, `UserGroup`: Mitglieder, Ordner, einzelne Verbindungen) nur für Admins,
+   Tab „Gruppen“ in der Verwaltung, Seiten `/admin/groups/new|<id>`. `JsonDataStore.GetUsersAsync` setzt die
+   Gruppenrechte als nicht gespeicherte Felder ein (`GroupServers`, `GroupFolders`); `CanAccessServer` prüft sie,
+   ein Ordner gilt mit Unterordnern. `tests/groups.js`. Offen: Rollen je Gruppe (z. B. „darf Verbindungen im
+   Ordner bearbeiten“), Gruppen auf der Benutzerseite anzeigen, Zugangsdaten für eine Gruppe teilen.
+   Ursprünglicher Wunsch: **Besser mehrbenutzerfähig (Firmen).** Admin verwaltet Server zentral; Admin legt Ordner an, die für alle
    (oder Gruppen) sichtbar sind; vermutlich Gruppen/Rollen statt Rechte je Benutzer. Heute ist ein Ordner nur
    der Name an den Verbindungen (`ServerFolders`) - für eigene Ordner (auch leere, mit Rechten) braucht es
    Ordner als eigene Objekte. Das hängt mit Punkt 4 und mit den Unterordnern der Seitenleiste zusammen.
