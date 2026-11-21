@@ -94,6 +94,8 @@ usable from a laptop or a phone – installable as a PWA.
   row or the view button (normal, normal with side panel, compact), and on a phone it is a sheet from the menu.
   Subfolders are names with a "/"; connections are moved by dragging them onto a folder, and a right click on
   a folder makes a new connection in it
+- **Credentials** stored once and chosen in as many connections as you like - a new password in one place
+  is the new one for all of them; personal, or shared by an administrator
 - **Quick connect** for ad-hoc sessions without saving anything
 - **Folders** with a page of their own (name, icon, which connections lie in them), per-user **favorites**,
   search across names, folders and hosts

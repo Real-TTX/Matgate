@@ -1812,7 +1812,8 @@ public sealed partial class HtmlViews
                                         ? "Was auf der Startseite und im Quick-Connect-Dialog angeboten wird, und in welcher Reihenfolge: zum Sortieren ziehen, mit dem Haken ein- oder ausblenden."
                                         : "What the start page and the quick-connect dialog offer, and in which order: drag to sort, use the tick to show or hide.")}}</p>
                                 <div data-order-group>
-                                    <ol id="quick-order-list" class="action-order-list" data-order-list>{{quickProtocolItems}}</ol>
+                                    <ol id="quick-order-list" class="action-order-list" data-order-list data-default-order="{{A(string.Join(",", SessionPreferences.QuickProtocolKeys))}}">{{quickProtocolItems}}</ol>
+                                    <button type="button" class="button order-reset" data-order-reset>{{Icon("refresh")}}<span>{{(de ? "Standard wiederherstellen" : "Restore default")}}</span></button>
                                     <input type="hidden" name="quickProtocols" data-order-value value="">
                                     <input type="hidden" name="hiddenQuickProtocols" data-order-hidden value="">
                                 </div>
@@ -1823,7 +1824,8 @@ public sealed partial class HtmlViews
                                         ? "Zum Sortieren ziehen, mit dem Haken ein- oder ausblenden. Auf schmalen Schirmen passen nur die vordersten in die Leiste – der Rest landet im Drei-Punkte-Menü. Trennen bleibt immer ganz rechts."
                                         : "Drag to sort, use the tick to show or hide. On narrow screens only the first ones fit in the bar – the rest go into the three-dots menu. Disconnect always stays on the right.")}}</p>
                                 <div data-order-group>
-                                    <ol id="action-order-list" class="action-order-list" data-order-list>{{actionOrderItems}}</ol>
+                                    <ol id="action-order-list" class="action-order-list" data-order-list data-default-order="{{A(string.Join(",", SessionPreferences.SortableActions))}}">{{actionOrderItems}}</ol>
+                                    <button type="button" class="button order-reset" data-order-reset>{{Icon("refresh")}}<span>{{(de ? "Standard wiederherstellen" : "Restore default")}}</span></button>
                                     <input type="hidden" name="actionOrder" data-order-value value="">
                                     <input type="hidden" name="hiddenActions" data-order-hidden value="">
                                 </div>
@@ -1910,6 +1912,23 @@ public sealed partial class HtmlViews
                                         };
                                         list.addEventListener('pointerup', endDrag);
                                         list.addEventListener('pointercancel', endDrag);
+
+                                        // Back to the built-in order, everything shown - and saved at once, so it
+                                        // is not lost by leaving the page.
+                                        const reset = group.querySelector('[data-order-reset]');
+                                        if (reset && list.dataset.defaultOrder) {
+                                            reset.addEventListener('click', () => {
+                                                const wanted = list.dataset.defaultOrder.split(',');
+                                                const rank = item => { const at = wanted.indexOf(key(item)); return at < 0 ? wanted.length : at; };
+                                                Array.from(list.children).sort((a, b) => rank(a) - rank(b)).forEach(item => list.appendChild(item));
+                                                list.querySelectorAll('[data-order-visible], [data-action-visible]').forEach(box => { box.checked = true; });
+                                                sync();
+                                                const form = group.closest('form');
+                                                if (form) {
+                                                    form.requestSubmit();
+                                                }
+                                            });
+                                        }
                                     });
                                 };
                                 if (document.readyState === 'loading') {
@@ -1936,7 +1955,8 @@ public sealed partial class HtmlViews
                                         ? "Zum Sortieren ziehen, mit dem Haken ein- oder ausblenden. Ein Abschnitt ohne Inhalt bleibt ohnehin weg - ein leerer Ordner-Streifen erscheint also nicht, nur weil er angekreuzt ist."
                                         : "Drag to sort, use the tick to show or hide. A section with nothing in it stays away regardless - an empty folder strip will not appear just because it is ticked.")}}</p>
                                     <div data-order-group>
-                                        <ol id="home-order-list" class="action-order-list" data-order-list>{{HomeSectionItems(context, user)}}</ol>
+                                        <ol id="home-order-list" class="action-order-list" data-order-list data-default-order="{{A(string.Join(",", HomeLayout.Keys))}}">{{HomeSectionItems(context, user)}}</ol>
+                                        <button type="button" class="button order-reset" data-order-reset>{{Icon("refresh")}}<span>{{(de ? "Standard wiederherstellen" : "Restore default")}}</span></button>
                                         <input type="hidden" name="homeSections" data-order-value value="">
                                         <input type="hidden" name="hiddenHomeSections" data-order-hidden value="">
                                     </div>
@@ -5514,6 +5534,8 @@ public sealed partial class HtmlViews
                 let sidebarData = {{sidebarData}};
                 // Connections that should sit on the home page as a button in the bar.
                 const actionBarServers = {{actionBarServers}};
+                // The built-in order of the session bar's actions, for whoever has not sorted them.
+                const defaultActionOrder = {{JsonSerializer.Serialize(SessionPreferences.SortableActions)}};
                 const sessionPrefs = Object.assign({ edgePanning: true, dragPanning: true, stretchToWindow: false, systemCombos: true, functionKeys: false, ctrlAltDelHotkey: true, pasteAsKeystrokes: false, actionOrder: [], hiddenActions: [] }, {{sessionPrefs}});
                 // The user's key bar (Account -> Key bar), as Guacamole sessions take it: keysyms.
                 const keyBarButtons = {{keyBar}};
@@ -10253,8 +10275,10 @@ public sealed partial class HtmlViews
                     }
 
                     // Hidden by the user - and gone, not just moved into the overflow menu. Disconnect
-                    // is never hidden: ending a session has to stay reachable.
+                    // is never hidden: ending a session has to stay reachable. Nor is the device keyboard on a
+                    // touch screen: without it nothing can be typed there.
                     if (key !== 'disconnect'
+                        && !(key === 'keyboard' && isTouchDevice)
                         && Array.isArray(sessionPrefs.hiddenActions)
                         && sessionPrefs.hiddenActions.indexOf(key) >= 0) {
                         return;
@@ -10269,12 +10293,16 @@ public sealed partial class HtmlViews
                 // rather than disappearing. Disconnect stays last whatever the order says: it is the
                 // one action that must not end up buried in the overflow menu.
                 function applyActionOrder() {
-                    const order = Array.isArray(sessionPrefs.actionOrder) ? sessionPrefs.actionOrder : [];
-                    if (!order.length) {
-                        return;
-                    }
-
+                    const own = Array.isArray(sessionPrefs.actionOrder) ? sessionPrefs.actionOrder : [];
+                    const order = own.length ? own : defaultActionOrder;
+                    // On a touch screen the device keyboard comes first, whatever the order says: without it
+                    // nothing can be typed there.
+                    const keyboardFirst = isTouchDevice;
                     const rank = key => {
+                        if (keyboardFirst && key === 'keyboard') {
+                            return -1;
+                        }
+
                         const at = order.indexOf(key);
                         return at < 0 ? order.length : at;
                     };
@@ -18101,6 +18129,7 @@ public sealed partial class HtmlViews
                             <span class="account-menu-id"><strong>{{E(displayName)}}</strong><small>{{E(user!.UserName)}}</small></span>
                         </div>
                         <a class="shell-menu-item{{accountClass}}" href="/account" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Account"))}}">{{Icon("settings")}}<span>{{T(context, "Account")}}</span></a>
+                        <a class="shell-menu-item" href="/credentials" data-shell-open-tab="1" data-shell-title="{{A(Language(context) == "de" ? "Zugangsdaten" : "Credentials")}}">{{Icon("key")}}<span>{{(Language(context) == "de" ? "Zugangsdaten" : "Credentials")}}</span></a>
                         <form method="post" action="/logout" class="account-menu-logout">
                             {{Csrf(context)}}
                             <button type="submit" class="shell-menu-item shell-menu-logout">{{Icon("logout")}}<span>{{T(context, "Logout")}}</span></button>
@@ -18126,6 +18155,7 @@ public sealed partial class HtmlViews
                     <a class="shell-menu-item{{toolsClass}}" href="/tools" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Tools"))}}">{{Icon("wrench")}}<span>{{T(context, "Tools")}}</span></a>
                     {{(canManageAdminArea ? $"""<a class="shell-menu-item{(adminActive ? " active" : "")}" href="/admin" data-shell-open-tab="1" data-shell-title="{A(T(context, "Administration"))}">{Icon("shield")}<span>{T(context, "Administration")}</span></a>""" : "")}}
                     <a class="shell-menu-item account-trigger{{accountClass}}" href="/account" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Account"))}}">{{Icon("settings")}}<span class="account-name">{{E(displayName)}}</span><span class="shell-burger-settings-word">{{(Language(context) == "de" ? "Einstellungen" : "Settings")}}</span></a>
+                    <a class="shell-menu-item" href="/credentials" data-shell-open-tab="1" data-shell-title="{{A(Language(context) == "de" ? "Zugangsdaten" : "Credentials")}}">{{Icon("key")}}<span>{{(Language(context) == "de" ? "Zugangsdaten" : "Credentials")}}</span></a>
                     {{sidePanelEntry}}
                     <button type="button" class="shell-menu-item" data-view-mode-toggle>{{Icon("chevrons-down-up")}}<span>{{(Language(context) == "de" ? "Ansicht ..." : "View ...")}}</span></button>
                     <form method="post" action="/logout" class="account-menu-logout">
@@ -18443,6 +18473,8 @@ public sealed partial class HtmlViews
                     .server-manager-dot:not(:empty) { height: 17px; min-width: 17px; padding: 0 4px; }
                     .server-manager-empty { font-size: 13px; margin: 10px 8px; }
                     .server-manager-head-actions { align-items: center; display: inline-flex; flex: 0 0 auto; gap: 4px; }
+                    .order-reset { align-items: center; display: inline-flex; gap: 6px; margin-top: 10px; }
+                    .order-reset .icon { height: 15px; width: 15px; }
                     /* Dragging files between file tabs: where they would land. */
                     tr.file-drop-into td { background: color-mix(in srgb, var(--accent) 16%, var(--surface)); }
                     tbody.file-drop-into { outline: 2px dashed var(--accent); outline-offset: -2px; }
@@ -25883,17 +25915,18 @@ public sealed partial class HtmlViews
                     ? "Was hier leer bleibt, fragt Matgate beim Verbinden ab."
                     : "Whatever stays empty here, Matgate asks for when connecting.")}}</p>
                 <div class="conn-grid">
-                    <label data-protocols="rdp,ssh,sftp,ftp,smb,webdav,website,mssql,mysql,postgres">{{(de ? "Benutzer" : "User")}}
-                        <input name="targetUserName" value="{{A(server?.UserName)}}" autocomplete="off" autocapitalize="off" spellcheck="false">
+                    {{CredentialChoice(context, server)}}
+                    <label data-protocols="rdp,ssh,sftp,ftp,smb,webdav,website,mssql,mysql,postgres" data-credential-own>{{(de ? "Benutzer" : "User")}}
+                        <input name="targetUserName" value="{{A(server?.CredentialId is null ? server?.UserName : "")}}" autocomplete="off" autocapitalize="off" spellcheck="false">
                     </label>
-                    <label data-protocols="rdp,vnc,ssh,sftp,ftp,smb,webdav,website,mssql,mysql,postgres">{{(de ? "Passwort" : "Password")}}
+                    <label data-protocols="rdp,vnc,ssh,sftp,ftp,smb,webdav,website,mssql,mysql,postgres" data-credential-own>{{(de ? "Passwort" : "Password")}}
                         <input name="targetPassword" type="password" autocomplete="new-password" placeholder="{{A(passwordPlaceholder)}}">
                     </label>
                     <!-- An agent has no user, only the token its setup shows. -->
                     <label class="conn-wide" data-protocols="agent">{{(de ? "Token des Agents" : "Agent token")}}
                         <input name="targetPassword" type="password" autocomplete="new-password" placeholder="{{A(server is null ? (de ? "wird im Setup des Agents angezeigt" : "shown by the agent's setup") : passwordPlaceholder)}}">
                     </label>
-                    <label data-protocols="rdp,smb"><span>{{(de ? "Domäne" : "Domain")}} <small class="muted">(optional)</small></span>
+                    <label data-protocols="rdp,smb" data-credential-own><span>{{(de ? "Domäne" : "Domain")}} <small class="muted">(optional)</small></span>
                         <input name="domain" value="{{A(server?.Domain)}}" autocapitalize="off" spellcheck="false">
                     </label>
                 </div>

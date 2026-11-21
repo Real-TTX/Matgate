@@ -700,7 +700,12 @@ fünf Verbindungen und im Test einen Ordner). Das Schloss ist echt über den Dev
 (`https://10.10.0.1/login`: Schloss; leer und `http`: Globus) - **es sagt nur „verschlüsselt“, nicht
 „Zertifikat geprüft“**: Browser-Tabs ignorieren Zertifikatsfehler in der Voreinstellung (`IgnoreCertificate`).
 
-## Backlog (Wünsche vom 2026-11-21, noch nicht begonnen)
+## Backlog (Wünsche vom 2026-11-21)
+
+Auch 0.33.0: Sitzungsleiste - eingebaute Reihenfolge mit den Tastaturen vorn; auf Touch-Geräten steht die
+Gerätetastatur immer zuerst und lässt sich nicht ausblenden. Jede sortierbare Liste in Konto → Sitzung bzw.
+Startseite hat „Standard wiederherstellen“ (setzt die eingebaute Reihenfolge, blendet alles ein, speichert).
+`tests/order-defaults.js`.
 
 Reihenfolge noch nicht abgesprochen - vor dem Anfangen fragen, welcher zuerst.
 
@@ -730,7 +735,14 @@ Reihenfolge noch nicht abgesprochen - vor dem Anfangen fragen, welcher zuerst.
    der Container für diese Verbindung selbst ein VPN auf und verbindet sich darüber (RDP, SSH, Dateien ...).
    Offen: VPN im Container braucht NET_ADMIN / ein TUN-Gerät oder einen Userspace-Stack (z. B.
    wireguard-go mit netstack) - Sicherheit und Rechte vorher klären.
-4. **Zugangsdaten-Verwaltung.** Gespeicherte Zugangsdaten als eigene Objekte (Name, Benutzer, Passwort/Schlüssel,
+4. **Erledigt in 0.33.0:** `Models/Credential.cs`, `credentials.json` (Passwort verschlüsselt), Seiten
+   `/credentials` (Liste), `/credentials/new`, `/credentials/<id>` (Kontomenü und Burger-Menü „Zugangsdaten“).
+   Verbindung: `CredentialId`; `JsonDataStore.GetServersAsync` setzt beim Lesen Benutzer/Passwort/Domäne der
+   Zugangsdaten ein (Schreiben liest roh und speichert nie die eingesetzten Werte). Persönliche nur für den
+   Besitzer, geteilte (`OwnerUserId` null) legen Admins/Server-Verwalter an; fremde IDs aus dem Formular werden
+   verworfen. Löschen nimmt sie aus allen Verbindungen. `tests/credentials.js`. Offen: SSH-Schlüssel als
+   Zugangsdaten, Zugangsdaten im Quick-Connect.
+   Ursprünglicher Wunsch: **Zugangsdaten-Verwaltung.** Gespeicherte Zugangsdaten als eigene Objekte (Name, Benutzer, Passwort/Schlüssel,
    Domäne), die mehrere Verbindungen benutzen; ändern an einer Stelle. Persönliche und geteilte; verschlüsselt
    wie heute die Passwörter der Verbindungen.
 5. **Besser mehrbenutzerfähig (Firmen).** Admin verwaltet Server zentral; Admin legt Ordner an, die für alle

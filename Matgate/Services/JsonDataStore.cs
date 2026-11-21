@@ -45,6 +45,53 @@ public sealed class JsonDataStore
 
     private string WorkspacesPath => Path.Combine(DataDirectory, "workspaces.json");
 
+    private string CredentialsPath => Path.Combine(DataDirectory, "credentials.json");
+
+    // The stored logins (see Credential), passwords decrypted.
+    public async Task<IReadOnlyList<Credential>> GetCredentialsAsync(CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            return await ReadCredentialsAsync(cancellationToken);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task UpdateCredentialsAsync(Action<List<Credential>> update, CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var credentials = await ReadCredentialsAsync(cancellationToken);
+            update(credentials);
+            foreach (var credential in credentials)
+            {
+                credential.Password = _protector.Protect(credential.Password);
+            }
+
+            await WriteListAsync(CredentialsPath, credentials, cancellationToken);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    private async Task<List<Credential>> ReadCredentialsAsync(CancellationToken cancellationToken)
+    {
+        var credentials = await ReadListAsync<Credential>(CredentialsPath, cancellationToken);
+        foreach (var credential in credentials)
+        {
+            credential.Password = _protector.Unprotect(credential.Password);
+        }
+
+        return credentials;
+    }
+
     private string DefaultsPath => Path.Combine(DataDirectory, "defaults.json");
 
     // Not a list but a single set of defaults - hence its own read and write paths: a file holding a
@@ -132,6 +179,25 @@ public sealed class JsonDataStore
             {
                 server.Password = _protector.Unprotect(server.Password);
             }
+
+            // A connection that uses stored credentials gets their login here, where every use of a
+            // connection reads it - RDP, VNC, SSH, files, databases. What is written back (UpdateServersAsync)
+            // is read on its own and never carries this.
+            if (servers.Any(server => server.CredentialId is not null))
+            {
+                var credentials = (await ReadCredentialsAsync(cancellationToken)).ToDictionary(credential => credential.Id);
+                foreach (var server in servers.Where(server => server.CredentialId is not null))
+                {
+                    if (credentials.TryGetValue(server.CredentialId!.Value, out var credential))
+                    {
+                        server.UserName = credential.UserName;
+                        server.Password = credential.Password;
+                        server.Domain = credential.Domain;
+                        server.CredentialName = credential.Name;
+                    }
+                }
+            }
+
             return servers;
         }
         finally

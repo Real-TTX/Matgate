@@ -443,6 +443,7 @@ public static partial class EndpointMapping
         MapDisplayEndpoints(app);
         MapSshEndpoints(app);
         MapDatabaseEndpoints(app);
+        MapCredentialEndpoints(app);
         MapKeyBarEndpoints(app);
         MapFolderEndpoints(app);
         MapKeptSessionEndpoints(app);
@@ -4961,6 +4962,7 @@ public static partial class EndpointMapping
             : (ServerProtocol?)null;
 
         var folders = ServerFolders.Names((await store.GetServersAsync(context.RequestAborted)).Where(server => CanEditServer(user, server)));
+        context.Items[HtmlViews.CredentialChoicesKey] = (await store.GetCredentialsAsync(context.RequestAborted)).Where(credential => credential.UsableBy(user)).ToList();
         return Results.Content(views.ServerCreate(context, user, preferredProtocol, folders, ServerFormReturn(context.Request.Query["return"])), "text/html");
     }
 
@@ -5002,6 +5004,7 @@ public static partial class EndpointMapping
         }
 
         var server = ReadServerForm(form, user, null);
+        await KeepOwnCredentialsAsync(server, user, store, context.RequestAborted);
         var requiresWebsiteUrl = server.Protocol == ServerProtocol.Website;
         var hasRequiredTarget = requiresWebsiteUrl
             ? !string.IsNullOrWhiteSpace(server.WebsiteUrl)
@@ -5050,6 +5053,7 @@ public static partial class EndpointMapping
         }
 
         var folders = ServerFolders.Names((await store.GetServersAsync(context.RequestAborted)).Where(candidate => CanEditServer(user, candidate)));
+        context.Items[HtmlViews.CredentialChoicesKey] = (await store.GetCredentialsAsync(context.RequestAborted)).Where(credential => credential.UsableBy(user)).ToList();
         return Results.Content(
             views.ServerDetail(context, user, server, await store.GetUsersAsync(context.RequestAborted), folders, ServerFormReturn(context.Request.Query["return"])),
             "text/html");
@@ -5086,6 +5090,7 @@ public static partial class EndpointMapping
         }
 
         var updated = ReadServerForm(form, user, currentServer);
+        await KeepOwnCredentialsAsync(updated, user, store, context.RequestAborted);
         var hasRequiredTarget = updated.Protocol == ServerProtocol.Website
             ? !string.IsNullOrWhiteSpace(updated.WebsiteUrl)
             : !string.IsNullOrWhiteSpace(updated.Host);
@@ -5126,13 +5131,15 @@ public static partial class EndpointMapping
             storedServer.Domain = updated.Domain;
             storedServer.FileRootPath = updated.FileRootPath;
             storedServer.DatabaseName = updated.DatabaseName;
+            storedServer.CredentialId = updated.CredentialId;
             storedServer.KeyboardLayout = updated.KeyboardLayout;
             storedServer.TerminalFontSize = updated.TerminalFontSize;
             storedServer.Engine = updated.Engine;
             storedServer.IgnoreCertificate = updated.IgnoreCertificate;
             storedServer.IsEnabled = updated.IsEnabled;
             storedServer.Notes = updated.Notes;
-            storedServer.Password = IsChecked(form, "clearPassword")
+            // With stored credentials the connection keeps no login of its own: nothing old stays behind.
+            storedServer.Password = updated.CredentialId is not null || IsChecked(form, "clearPassword")
                 ? ""
                 : string.IsNullOrWhiteSpace(updated.Password) ? storedServer.Password : updated.Password;
             storedServer.OwnerUserId = updated.OwnerUserId;
@@ -5679,6 +5686,27 @@ public static partial class EndpointMapping
             HtmlViews.Translate(context, "The form has expired.")), "text/html");
     }
 
+    // Stored credentials only the user may use: their own or shared ones - an id from the form is not taken on
+    // trust. With them chosen, the connection keeps no login of its own.
+    private static async Task KeepOwnCredentialsAsync(ServerEndpoint server, MatgateUser user, JsonDataStore store, CancellationToken cancellationToken)
+    {
+        if (server.CredentialId is null)
+        {
+            return;
+        }
+
+        var credential = (await store.GetCredentialsAsync(cancellationToken)).FirstOrDefault(candidate => candidate.Id == server.CredentialId);
+        if (credential is null || !credential.UsableBy(user))
+        {
+            server.CredentialId = null;
+            return;
+        }
+
+        server.UserName = "";
+        server.Password = "";
+        server.Domain = "";
+    }
+
     private static ServerEndpoint ReadServerForm(IFormCollection form, MatgateUser currentUser, ServerEndpoint? existing)
     {
         var protocol = Enum.TryParse<ServerProtocol>(form["protocol"].ToString(), ignoreCase: true, out var parsed)
@@ -5775,6 +5803,7 @@ public static partial class EndpointMapping
             Domain = Clean(form["domain"].ToString(), ""),
             FileRootPath = Clean(form["fileRootPath"].ToString(), ""),
             DatabaseName = ServerEndpoint.IsDatabaseProtocol(protocol) ? Clean(form["databaseName"].ToString(), "") : "",
+            CredentialId = Guid.TryParse(form["credentialId"].ToString(), out var credentialId) ? credentialId : null,
             KeyboardLayout = CleanKeyboardLayout(
                 form["keyboardLayout"].ToString(),
                 existing?.KeyboardLayout ?? ServerEndpoint.DefaultKeyboardLayout),

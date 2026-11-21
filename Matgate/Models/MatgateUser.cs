@@ -210,7 +210,8 @@ public sealed class SessionPreferences
     // cannot drift apart; "disconnect" is deliberately absent because it is pinned last.
     public static readonly string[] SortableActions =
     [
-        "fullscreen", "popOut", "reattach", "pointer", "rightClick", "keyboard", "osk",
+        // The keyboards first: on a phone they are what a session is used with.
+        "keyboard", "osk", "pointer", "rightClick", "fullscreen", "popOut", "reattach",
         "resolution", "autoResize", "zoomOut", "zoomIn", "copyUrl", "clipboard", "cad", "upload", "fileArea",
     ];
 

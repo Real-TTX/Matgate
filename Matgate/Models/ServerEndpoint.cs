@@ -102,6 +102,13 @@ public sealed class ServerEndpoint
     // A database connection: the database it opens in (empty: the server's list of databases).
     public string DatabaseName { get; set; } = "";
 
+    // Stored credentials this connection signs in with (see Credential); null: its own login below.
+    public Guid? CredentialId { get; set; }
+
+    // The name of those credentials, filled in when the connection is read - never stored.
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string CredentialName { get; set; } = "";
+
     public string FolderIconKey { get; set; } = "";
 
     public Guid? OwnerUserId { get; set; }
