@@ -42,19 +42,26 @@ const check = (name, got, want) => {
   }));
   const headings = () => page.evaluate(() => [...document.querySelectorAll("#server-manager-tree .server-manager-folder")].map(head => head.dataset.folder));
 
+  // The panel has no button of its own any more: it is chosen in the view menu. Between the steps below it is put
+  // away and back the way that menu does it.
+  const togglePanel = async () => {
+    await page.evaluate(() => window.MatgateChooseView(window.MatgateSidePanel.isOpen() ? "normal" : "sidebar"));
+    await sleep(100);
+  };
+
   // ---- there from the start, in place of the list on the start page
-  check("on a wide screen it is there from the start", [await shown(), await page.evaluate(() => document.getElementById("server-manager-toggle").getAttribute("aria-pressed"))], [true, "true"]);
+  check("on a wide screen it is there from the start - and the tab row has no button for it", [await shown(), await page.evaluate(() => !!document.getElementById("server-manager-toggle"))], [true, false]);
   const beside = await startPage();
   check("the start page beside it is quick connect, not the same list a second time", [beside.quick, beside.list, /New connection|Neue Verbindung/.test(beside.title)], [true, false, true]);
   const widthBeside = await page.evaluate(() => document.getElementById("shell-page-panels").offsetWidth);
-  await page.click("#server-manager-toggle");
+  await togglePanel();
   await sleep(300);
-  check("the button in the tab row puts it away", [await shown(), await page.evaluate(() => document.getElementById("server-manager-toggle").getAttribute("aria-pressed"))], [false, "false"]);
+  check("the view \"Normal\" puts it away", await shown(), false);
   const alone = await startPage();
   check("then the page has the room and is the list again", [await page.evaluate(() => document.getElementById("shell-page-panels").offsetWidth) > widthBeside + 200, alone.list, /Connections|Verbindungen/.test(alone.title)], [true, true, true]);
-  await page.click("#server-manager-toggle");
+  await togglePanel();
   await sleep(300);
-  check("and the same button brings it back", await shown(), true);
+  check("and \"Normal with side panel\" brings it back", await shown(), true);
 
   const all = await rows();
   check("it lists the saved connections, by name", [all.includes("Linux-Testhost"), all.includes("Linux-Testhost 2"), JSON.stringify(all) === JSON.stringify([...all].sort((a, c) => a.localeCompare(c, undefined, { sensitivity: "base" })))], [true, true, true]);
@@ -101,7 +108,7 @@ const check = (name, got, want) => {
   await sleep(1500);
   check("it is still shown after loading the page anew", await shown(), true);
   check("what was used last stands at the top, the newest first", [(await rows("recent"))[0], (await headings()).indexOf("recent:") < (await headings()).indexOf("")], ["Linux-Testhost", true]);
-  await page.click("#server-manager-toggle");
+  await togglePanel();
   await sleep(300);
   await page.reload({ waitUntil: "networkidle" });
   await sleep(1500);
@@ -120,7 +127,7 @@ const check = (name, got, want) => {
   });
   const wasFavourite = await page.evaluate(() => [...document.querySelectorAll("[data-home2-all] [data-home2-card]")].find(c => c.querySelector("h3").textContent.trim() === "Linux-Testhost 2").dataset.fav === "1");
   if (!wasFavourite) { await star(); await sleep(900); }
-  await page.click("#server-manager-toggle");
+  await togglePanel();
   await sleep(400);
   check("a favourite stands in the group of the favourites, which comes first", [(await rows("favorites")).includes("Linux-Testhost 2"), (await headings())[0]], [true, "favorites:"]);
   check("and under its folder as before", (await rows()).includes("Linux-Testhost 2"), true);
@@ -128,7 +135,7 @@ const check = (name, got, want) => {
   await sleep(900);
   check("without the star it is gone from there, without loading the page anew", (await rows("favorites")).includes("Linux-Testhost 2"), false);
   if (wasFavourite) { await star(); await sleep(900); }
-  await page.click("#server-manager-toggle");
+  await togglePanel();
   await sleep(300);
 
   // ---- folders: a connection filed in one stands under it, and a folder can be shut
@@ -158,7 +165,7 @@ const check = (name, got, want) => {
   const unfiled = all.length - 1;
   try {
     await file("Managerordner");
-    await page.click("#server-manager-toggle");
+    await togglePanel();
     await sleep(400);
     const filed = await tree();
     check("a folder is a heading with its connections under it, and those without a folder come last",
@@ -177,12 +184,12 @@ const check = (name, got, want) => {
     await sleep(300);
     check("the other groups can be shut the same way", [(await rows("places")).length, (await headings()).includes("places:")], [0, true]);
     await page.click("#server-manager-tree .server-manager-folder[data-folder='places:']");
-    await page.click("#server-manager-toggle");
+    await togglePanel();
   }
   finally {
     await file("");
   }
-  await page.click("#server-manager-toggle");
+  await togglePanel();
   await sleep(300);
   const plain = (await tree()).filter(entry => entry.startsWith("["));
   check("where nobody made a folder the connections stand under what they are", [plain.length, /^\[(Connections|Verbindungen) /.test(plain[0] || "")], [1, true]);
@@ -211,7 +218,7 @@ const check = (name, got, want) => {
   check("a second click on the button closes it", await page.locator(".view-choice-panel:not([hidden])").count(), 0);
   await choices();
   await choose("Compact");
-  check("compact: one bar, no side panel, and the tab row's button is gone with it", [await viewMode(), await shown(), await page.evaluate(() => document.getElementById("server-manager-toggle").offsetWidth)], ["minimal", false, 0]);
+  check("compact: one bar, no side panel", [await viewMode(), await shown()], ["minimal", false]);
   await page.click(".shell-burger-trigger");
   await sleep(300);
   check("the menu has no side panel entry on a wide screen - the view is where it is chosen", await page.locator("[data-server-manager-menu]:visible").count(), 0);
@@ -237,8 +244,8 @@ const check = (name, got, want) => {
   small.on("pageerror", e => { console.log("JS ERROR: " + e.message); failures.push("JS error"); });
   await small.goto(BASE + "/", { waitUntil: "networkidle" });
   await sleep(1000);
-  const sheet = () => small.evaluate(() => { const panel = document.getElementById("server-manager"); return [panel.offsetWidth, document.getElementById("server-manager-toggle").offsetWidth]; });
-  check("on a phone it is not there until asked for, though the wide screen has it shown - and its button never is", await sheet(), [0, 0]);
+  const sheet = () => small.evaluate(() => [document.getElementById("server-manager").offsetWidth]);
+  check("on a phone it is not there until asked for, though the wide screen has it shown", await sheet(), [0]);
   check("the start page there is the list, as ever", await small.evaluate(() => [...document.querySelectorAll("[data-home2-card]")].some(card => card.offsetParent)), true);
   await small.click(".shell-burger-trigger");
   await sleep(300);

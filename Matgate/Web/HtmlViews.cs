@@ -5358,7 +5358,7 @@ public sealed partial class HtmlViews
         var body = $$"""
             <div id="matgate-shell" class="matgate-shell">
             <div class="shell-page-row">
-                <button id="server-manager-toggle" type="button" class="tab-action-button icon-only server-manager-toggle" aria-pressed="false" aria-controls="server-manager" title="{{A(Language(context) == "de" ? "Seitenleiste ein-/ausblenden" : "Show/hide the side panel")}}" aria-label="{{A(Language(context) == "de" ? "Seitenleiste ein-/ausblenden" : "Show/hide the side panel")}}">{{Icon("panel-left")}}</button>
+                <!-- No button of its own for the side panel: it is chosen in the view menu ("Normal with side panel"). -->
                 <div id="session-tabs" class="session-tabs shell-page-tabs" role="tablist">
                     <div id="new-connection-tab" class="session-tab session-tab--add" role="tab" data-tab-kind="add" aria-label="{{A(T(context, "New connection"))}}">
                         <button type="button" class="session-tab-main">

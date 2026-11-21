@@ -160,10 +160,10 @@ const shots = [];
         await sleep(500);
         // There from the start; put away, the start page is the list again.
         await shot(page, p("manager"), "The side panel, beside the start page");
-        await page.click("#server-manager-toggle");
+        await page.evaluate(() => window.MatgateChooseView("normal"));
         await sleep(400);
         await shot(page, p("manager-hidden"), "The side panel put away: the start page is the list");
-        await page.click("#server-manager-toggle");
+        await page.evaluate(() => window.MatgateChooseView("sidebar"));
         await sleep(400);
         await page.click("#server-manager-tree [data-manager-server='" + rdp.id + "']");
         await waitPicture(page);
