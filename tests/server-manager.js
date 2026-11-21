@@ -201,18 +201,33 @@ const check = (name, got, want) => {
   const plain = (await tree()).filter(entry => entry.startsWith("["));
   check("where nobody made a folder the connections stand under what they are", [plain.length, /^\[(Connections|Verbindungen) /.test(plain[0] || "")], [1, true]);
 
-  // ---- the view: a choice of three behind the view button - normal, normal with the side panel, compact
+  // ---- no head of its own: switched in the view menu, things made with a right click on it
+  check("beside the page the panel has no head - no title, no plus, no close button", await page.evaluate(() => {
+    const head = document.querySelector("#server-manager .server-manager-head");
+    return [!head || head.offsetParent === null, /Connections|Verbindungen/.test(document.getElementById("server-manager").innerText.split("\n")[0])];
+  }), [true, false]);
+  const panelMenu = () => page.evaluate(() => [...document.querySelectorAll(".toolbar-menu-panel[data-menu-dynamic]:not([hidden]) .toolbar-menu-item")].map(item => item.textContent.trim()));
+  const emptySpot = await page.evaluate(() => { const r = document.getElementById("server-manager-tree").getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.bottom - 20 }; });
+  await page.mouse.click(emptySpot.x, emptySpot.y, { button: "right" });
+  await sleep(300);
+  const offered = await panelMenu();
+  check("a right click on the panel makes a new connection or a folder", [offered.includes("New connection"), offered.some(label => /^New folder/.test(label))], [true, true]);
+  await page.keyboard.press("Escape");
+  await sleep(200);
+
+  // ---- the view: normal or compact, and apart from that the side panel, ticked or not
   const choices = async () => {
     await page.click("#view-mode-toggle");
     await sleep(400);
-    return page.evaluate(() => [...document.querySelectorAll(".view-choice-panel:not([hidden]) .toolbar-menu-item")].map(item => (item.classList.contains("active") ? "*" : "") + item.textContent.trim()));
+    return page.evaluate(() => [...document.querySelectorAll(".view-choice-panel:not([hidden]) .toolbar-menu-item, .view-choice-panel:not([hidden]) .toolbar-menu-separator")]
+      .map(item => item.classList.contains("toolbar-menu-separator") ? "-" : (item.getAttribute("aria-checked") === "true" ? "*" : "") + item.textContent.trim()));
   };
   const choose = async label => {
     await page.locator(".view-choice-panel:not([hidden]) .toolbar-menu-item").filter({ hasText: new RegExp("^\\s*" + label + "\\s*$") }).click();
     await sleep(600);
   };
   const viewMode = () => page.evaluate(() => document.documentElement.dataset.viewMode);
-  check("the view button offers three views, the one shown marked", await choices(), ["Normal", "*Normal with side panel", "Compact"]);
+  check("the view button offers two views and, apart, the side panel - what is on marked", await choices(), ["*Normal", "Compact", "-", "*Side panel"]);
   // It opens at the button, not in the page's top left corner.
   const placed = await page.evaluate(() => {
     const button = document.getElementById("view-mode-toggle").getBoundingClientRect();
@@ -225,7 +240,10 @@ const check = (name, got, want) => {
   check("a second click on the button closes it", await page.locator(".view-choice-panel:not([hidden])").count(), 0);
   await choices();
   await choose("Compact");
-  check("compact: one bar, no side panel", [await viewMode(), await shown()], ["minimal", false]);
+  check("compact: one bar - and the side panel stays, it is switched on its own", [await viewMode(), await shown()], ["minimal", true]);
+  await choices();
+  await choose("Side panel");
+  check("unticked, it goes", [await viewMode(), await shown()], ["minimal", false]);
   await page.click(".shell-burger-trigger");
   await sleep(300);
   check("the menu has no side panel entry on a wide screen - the view is where it is chosen", await page.locator("[data-server-manager-menu]:visible").count(), 0);
@@ -233,12 +251,12 @@ const check = (name, got, want) => {
   await page.reload({ waitUntil: "networkidle" });
   await sleep(1200);
   check("compact is remembered - still without the panel", [await viewMode(), await shown()], ["minimal", false]);
-  check("and marked as the view shown", await choices(), ["Normal", "Normal with side panel", "*Compact"]);
+  check("and marked as the view shown", await choices(), ["Normal", "*Compact", "-", "Side panel"]);
   await choose("Normal");
-  check("normal: the bars as before, no side panel", [await viewMode(), await shown()], ["normal", false]);
+  check("normal: the bars as before, the panel still off", [await viewMode(), await shown()], ["normal", false]);
   await choices();
-  await choose("Normal with side panel");
-  check("normal with side panel: the panel is back", [await viewMode(), await shown()], ["normal", true]);
+  await choose("Side panel");
+  check("ticked: the panel is back", [await viewMode(), await shown()], ["normal", true]);
   await page.locator(".account-menu > summary").click();
   await sleep(300);
   check("the account's menu has no entry for it either", await page.locator("[data-server-manager-menu]:visible").count(), 0);
@@ -266,6 +284,25 @@ const check = (name, got, want) => {
   await small.click(".shell-burger-trigger");
   await small.locator("[data-server-manager-menu]:visible").click();
   await sleep(400);
+  check("on the sheet only the way back is left of the head", await small.evaluate(() => [...document.querySelectorAll("#server-manager .server-manager-head > *")].map(e => e.innerText.trim()).join("|") + "|" + document.querySelectorAll("#server-manager .server-manager-head a").length), "|0");
+  // A finger held still on it is its right click (iOS sends no contextmenu for that).
+  await small.evaluate(() => {
+    const tree = document.getElementById("server-manager-tree").getBoundingClientRect();
+    const spot = document.elementFromPoint(tree.left + tree.width / 2, tree.bottom - 20);
+    spot.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerType: "touch", clientX: tree.left + tree.width / 2, clientY: tree.bottom - 20 }));
+  });
+  await sleep(800);
+  const held = await small.evaluate(() => [...document.querySelectorAll(".toolbar-menu-panel[data-menu-dynamic]:not([hidden]) .toolbar-menu-item")].map(item => item.textContent.trim()));
+  // (The sheet is full of rows - one held brings that row's menu, as a right click on it does.)
+  check("a finger held on the panel brings its menu", held.length > 0, true);
+  await small.evaluate(() => document.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerType: "touch" })));
+  await small.evaluate(() => window.MatgateCloseMenus());
+  await sleep(200);
+  if (!(await sheet())[0]) {
+    await small.click(".shell-burger-trigger");
+    await small.locator("[data-server-manager-menu]:visible").click();
+    await sleep(400);
+  }
   await small.locator("#server-manager-tree [data-manager-in='folder']").filter({ has: small.locator("strong", { hasText: /^Linux-Testhost$/ }) }).click();
   await sleep(3500);
   check("a tap on a connection opens it, and the sheet goes", [await small.evaluate(() => document.querySelectorAll(".session-tab[data-tab-kind='connection'], .session-tab[data-tab-kind='page']").length), (await sheet())[0]], [1, 0]);

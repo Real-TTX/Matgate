@@ -5387,10 +5387,11 @@ public sealed partial class HtmlViews
                  the start page's place as the list of connections; on a narrow one it is a sheet over the
                  page, brought by the menu. -->
             <aside id="server-manager" class="server-manager" hidden data-can-edit="{{(user.IsAdmin || user.CanManageServers || user.CanCreateServers ? "1" : "0")}}" aria-label="{{A(Language(context) == "de" ? "Seitenleiste" : "Side panel")}}">
+                <!-- No head beside the page: the panel is switched in the view menu, and a new connection or folder
+                     is made with a right click (or a finger held) on the panel. Only the sheet on a narrow
+                     screen has one - its way back. -->
                 <div class="server-manager-head">
-                    <strong>{{(Language(context) == "de" ? "Verbindungen" : "Connections")}}</strong>
                     <span class="server-manager-head-actions">
-                        {{(user.IsAdmin || user.CanManageServers || user.CanCreateServers ? $"""<a class="tab-action-button icon-only" href="/admin/servers/new" data-shell-open-tab="1" data-shell-title="{A(T(context, "New connection"))}" title="{A(T(context, "New connection"))}" aria-label="{A(T(context, "New connection"))}">{Icon("plus")}</a>""" : "")}}
                         <button type="button" class="tab-action-button icon-only server-manager-close" data-server-manager-close title="{{A(T(context, "Close"))}}" aria-label="{{A(T(context, "Close"))}}">{{Icon("x")}}</button>
                     </span>
                 </div>
@@ -7659,7 +7660,7 @@ public sealed partial class HtmlViews
                         const row = target.closest('.file-table tbody tr');
                         // A finger held on a tab is the start of dragging it, not a wish for a menu.
                         const folderHead = target.closest('#server-manager-tree .server-manager-folder');
-                        const sidePanel = target.closest('#server-manager-tree, #server-manager .server-manager-head');
+                        const sidePanel = target.closest('#server-manager');
                         const menu = tab ? (event.pointerType === 'touch' ? null : contextMenuOfTab(tab))
                             : managed ? contextMenuOfManaged(managed, card)
                             : folderHead ? contextMenuOfFolder(folderHead)
@@ -7681,6 +7682,64 @@ public sealed partial class HtmlViews
                             items: menu.items
                         });
                     });
+
+                    // A finger held still on the side panel is its right click: that is where a new connection
+                    // or folder is made now that the panel has no head. iOS sends no contextmenu for it, so it is
+                    // made here; where the browser sends one itself (Android), that one is taken and ours dropped.
+                    let holdTimer = 0;
+                    let holdStart = null;
+                    let holdFiredAt = 0;
+                    const cancelHold = () => {
+                        window.clearTimeout(holdTimer);
+                        holdTimer = 0;
+                        holdStart = null;
+                    };
+                    document.addEventListener('pointerdown', event => {
+                        cancelHold();
+                        // A new touch: whatever the last hold kept from being a tap is over.
+                        holdFiredAt = 0;
+                        const target = event.target instanceof Element ? event.target : null;
+                        if (event.pointerType !== 'touch' || !target || !target.closest('#server-manager') || target.closest('input, textarea, select, button.server-manager-close')) {
+                            return;
+                        }
+                        holdStart = { x: event.clientX, y: event.clientY, target };
+                        holdTimer = window.setTimeout(() => {
+                            const start = holdStart;
+                            cancelHold();
+                            if (!start || !start.target.isConnected) {
+                                return;
+                            }
+                            holdFiredAt = Date.now();
+                            start.target.dispatchEvent(new MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: start.x, clientY: start.y }));
+                        }, 550);
+                    }, true);
+                    document.addEventListener('pointermove', event => {
+                        if (holdStart && Math.hypot(event.clientX - holdStart.x, event.clientY - holdStart.y) > 10) {
+                            cancelHold();
+                        }
+                    }, true);
+                    ['pointerup', 'pointercancel', 'scroll'].forEach(name => document.addEventListener(name, cancelHold, true));
+                    window.addEventListener('contextmenu', event => {
+                        if (!event.isTrusted) {
+                            return;
+                        }
+                        if (holdTimer) {
+                            // The browser's own came first: it is the one.
+                            cancelHold();
+                        }
+                        else if (Date.now() - holdFiredAt < 1500 && event.target instanceof Element && event.target.closest('#server-manager')) {
+                            // Ours is open already - the browser's would be a second menu, or its own callout.
+                            event.preventDefault();
+                            event.stopImmediatePropagation();
+                        }
+                    }, true);
+                    // Lifting the finger after the menu came is no tap: it must not open what was held.
+                    document.addEventListener('click', event => {
+                        if (Date.now() - holdFiredAt < 800 && event.target instanceof Element && event.target.closest('#server-manager')) {
+                            event.preventDefault();
+                            event.stopImmediatePropagation();
+                        }
+                    }, true);
 
                     // Safety net: on the shell, NO internal navigation may replace the page - that would
                     // tear down every live session. Any internal <a> that isn't already a shell-tab link,
@@ -9273,21 +9332,8 @@ public sealed partial class HtmlViews
                             closeSheet();
                         }
                     });
-                    // The compact view has no side panel beside the page: it is one of the three views
-                    // (normal, normal with the panel, compact) the view button chooses between.
-                    const compactView = () => {
-                        if (document.documentElement.dataset.viewMode) {
-                            return document.documentElement.dataset.viewMode === 'minimal';
-                        }
-
-                        try {
-                            return window.localStorage.getItem('matgate.view.mode.v1') === 'minimal';
-                        }
-                        catch {
-                            return false;
-                        }
-                    };
-                    const wantedOpen = () => !isPoppedWindow && !serverManagerNarrow.matches && !compactView() && serverManagerStore.read('open', true) === true;
+                    // In the compact view as well: the panel is switched on its own, apart from the view.
+                    const wantedOpen = () => !isPoppedWindow && !serverManagerNarrow.matches && serverManagerStore.read('open', true) === true;
                     // Into a folder ("" = none; "Lab/Linux" = a subfolder). The list is read anew either way: a
                     // refusal leaves the connection where it was.
                     const moveToFolder = async (serverId, folder) => {
@@ -18234,8 +18280,8 @@ public sealed partial class HtmlViews
             <button id="view-mode-toggle" type="button" class="view-mode-toggle" aria-haspopup="menu" data-label-compact="{{A(T(context, "Compact view"))}}" data-label-normal="{{A(T(context, "Normal view"))}}" title="{{A(viewLabel)}}" aria-label="{{A(viewLabel)}}"><span class="view-mode-icon view-mode-icon--compact">{{Icon("chevrons-down-up")}}</span><span class="view-mode-icon view-mode-icon--normal">{{Icon("chevrons-up-down")}}</span></button>
             <template id="view-mode-choices" data-title="{{A(viewLabel)}}" data-close="{{A(T(context, "Close"))}}">
                 <span data-view-choice="normal" data-label="{{A(Language(context) == "de" ? "Normal" : "Normal")}}">{{Icon("chevrons-up-down")}}</span>
-                <span data-view-choice="sidebar" data-wide-only="1" data-label="{{A(Language(context) == "de" ? "Normal mit Seitenleiste" : "Normal with side panel")}}">{{Icon("panel-left")}}</span>
                 <span data-view-choice="minimal" data-label="{{A(Language(context) == "de" ? "Kompakt" : "Compact")}}">{{Icon("chevrons-down-up")}}</span>
+                <span data-view-panel data-label="{{A(Language(context) == "de" ? "Seitenleiste" : "Side panel")}}"></span>
                 <span data-view-check>{{Icon("check")}}</span>
             </template>
             """;
@@ -18471,6 +18517,8 @@ public sealed partial class HtmlViews
                         width: 280px;
                     }
                     .server-manager[hidden] { display: none; }
+                    /* A finger held on the panel opens its menu (the layout script), not the phone's own callout. */
+                    .server-manager-tree { -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; }
                     .server-manager-head { align-items: center; display: flex; flex: 0 0 auto; gap: 8px; justify-content: space-between; padding: 10px 10px 6px 14px; }
                     .server-manager-head strong { font-size: 13px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
                     .server-manager-head a { color: var(--muted); text-decoration: none; }
@@ -18598,6 +18646,8 @@ public sealed partial class HtmlViews
                        page is the list again, as it is on a narrow screen. */
                     .home2-title-side, .home2-side-hint { display: none; }
                     @media (min-width: 901px) {
+                        .server-manager-head { display: none; }
+                        .server-manager-search { margin-top: 10px; }
                         html[data-server-manager] .home2 > :not(.home2-head):not(.home2-quick-section):not(.home2-farm-section):not(.home2-empty):not(dialog) { display: none !important; }
                         html[data-server-manager] .home2-title-list { display: none; }
                         html[data-server-manager] .home2-title-side { display: inline; }
@@ -18620,7 +18670,7 @@ public sealed partial class HtmlViews
                             width: min(380px, 100vw);
                             z-index: 60;
                         }
-                        .server-manager-head { min-height: 60px; padding: 8px 12px 6px 18px; }
+                        .server-manager-head { justify-content: flex-end; min-height: 60px; padding: 8px 12px 6px 18px; }
                         .server-manager-head strong { color: var(--text); font-size: 20px; letter-spacing: 0; text-transform: none; }
                         .server-manager-close { display: inline-flex; }
                         .server-manager-head .tab-action-button { border: 1px solid var(--line); border-radius: 12px; height: 44px; width: 44px; }
@@ -21318,6 +21368,21 @@ public sealed partial class HtmlViews
                     .kind-text { display: grid; justify-items: start; line-height: 1.25; min-width: 0; text-align: left; }
                     .kind-name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
                     .kind-desc { color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                    /* A box to tick in a menu (the side panel in the view menu). */
+                    .menu-checkbox {
+                        align-items: center;
+                        border: 1.5px solid var(--muted);
+                        border-radius: 5px;
+                        box-sizing: border-box;
+                        color: var(--bg);
+                        display: inline-flex;
+                        flex: 0 0 auto;
+                        height: 18px;
+                        justify-content: center;
+                        width: 18px;
+                    }
+                    .menu-checkbox.on { background: var(--accent); border-color: var(--accent); }
+                    .menu-checkbox .icon { height: 13px; stroke-width: 3; width: 13px; }
                     .toolbar-menu-panel.kind-menu { gap: 2px; overflow-y: auto; overscroll-behavior: contain; }
                     .kind-menu .toolbar-menu-heading {
                         color: var(--muted);
@@ -25106,9 +25171,9 @@ public sealed partial class HtmlViews
                                 const button = document.createElement('button');
                                 button.type = 'button';
                                 button.className = 'toolbar-button toolbar-menu-item file-menu-item' + (item.danger ? ' danger' : '') + (item.active ? ' active' : '');
-                                button.setAttribute('role', item.active !== undefined ? 'menuitemradio' : 'menuitem');
-                                if (item.active !== undefined) {
-                                    button.setAttribute('aria-checked', item.active ? 'true' : 'false');
+                                button.setAttribute('role', item.checked !== undefined ? 'menuitemcheckbox' : item.active !== undefined ? 'menuitemradio' : 'menuitem');
+                                if (item.checked !== undefined || item.active !== undefined) {
+                                    button.setAttribute('aria-checked', (item.checked !== undefined ? item.checked : item.active) ? 'true' : 'false');
                                 }
                                 button.disabled = !!item.disabled;
                                 if (item.html !== undefined) {
@@ -25561,12 +25626,17 @@ public sealed partial class HtmlViews
                         const currentView = () => document.documentElement.dataset.viewMode === 'minimal'
                             ? 'minimal'
                             : (sidePanelFits() && window.MatgateSidePanel.isOpen() ? 'sidebar' : 'normal');
+                        // Two views (normal, compact) and, apart from them, the side panel on or off - in either view.
+                        // 'sidebar' is kept for the scripts that ask for it: the normal view with the panel; 'normal'
+                        // from them is the normal view without it.
                         const chooseView = choice => {
                             applyViewMode(choice === 'minimal' ? 'minimal' : 'normal', true);
-                            if (window.MatgateSidePanel && sidePanelFits()) {
+                            if (window.MatgateSidePanel && sidePanelFits() && choice !== 'minimal') {
                                 window.MatgateSidePanel.set(choice === 'sidebar');
                             }
                         };
+                        const chooseMode = mode => applyViewMode(mode === 'minimal' ? 'minimal' : 'normal', true);
+                        const sidePanelOn = () => sidePanelFits() && window.MatgateSidePanel.isOpen();
                         let viewChoiceWasOpen = false;
                         const openViewChoice = (trigger, at) => {
                             if (!viewChoices || typeof window.MatgateOpenMenu !== 'function') {
@@ -25590,14 +25660,26 @@ public sealed partial class HtmlViews
                             }
 
                             const check = (viewChoices.content.querySelector('[data-view-check]') || {}).innerHTML || '';
-                            const now = currentView();
+                            const mode = document.documentElement.dataset.viewMode === 'minimal' ? 'minimal' : 'normal';
                             const items = Array.from(viewChoices.content.querySelectorAll('[data-view-choice]'))
-                                .filter(entry => !entry.dataset.wideOnly || sidePanelFits())
                                 .map(entry => ({
                                     label: entry.dataset.label || '',
-                                    iconHtml: entry.dataset.viewChoice === now ? check : entry.innerHTML,
-                                    onSelect: () => chooseView(entry.dataset.viewChoice)
+                                    iconHtml: entry.dataset.viewChoice === mode ? check : entry.innerHTML,
+                                    active: entry.dataset.viewChoice === mode,
+                                    onSelect: () => chooseMode(entry.dataset.viewChoice)
                                 }));
+                            // The side panel apart from the view, as a box to tick - where it fits beside the page.
+                            const panelEntry = viewChoices.content.querySelector('[data-view-panel]');
+                            if (panelEntry && sidePanelFits()) {
+                                const on = sidePanelOn();
+                                items.push({ separator: true });
+                                items.push({
+                                    label: panelEntry.dataset.label || '',
+                                    iconHtml: '<span class="menu-checkbox' + (on ? ' on' : '') + '" aria-hidden="true">' + (on ? check : '') + '</span>',
+                                    checked: on,
+                                    onSelect: () => window.MatgateSidePanel.set(!on)
+                                });
+                            }
                             window.MatgateOpenMenu({ trigger, at, title: viewChoices.dataset.title || '', closeLabel: viewChoices.dataset.close || 'Close', items });
                             const panel = document.querySelector('.toolbar-menu-panel[data-menu-dynamic]:not([hidden])');
                             if (panel && button && !panel.classList.contains('menu-sheet')) {
@@ -25611,12 +25693,6 @@ public sealed partial class HtmlViews
 
                             if (panel) {
                                 panel.classList.add('view-choice-panel');
-                                const chosen = items.findIndex(item => item.iconHtml === check);
-                                const buttons = panel.querySelectorAll('.toolbar-menu-item');
-                                if (buttons[chosen]) {
-                                    buttons[chosen].classList.add('active');
-                                    buttons[chosen].setAttribute('aria-checked', 'true');
-                                }
                             }
                         };
                         window.MatgateChooseView = chooseView;
