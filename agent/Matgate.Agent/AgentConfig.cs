@@ -69,6 +69,20 @@ public sealed class AgentConfig
     // Game controllers of the browser as Xbox controllers of this machine. Needs the ViGEmBus driver.
     public bool Gamepads { get; set; } = true;
 
+    // The tunnel: Matgate reaches other machines in this machine's network through the agent - an RDP server,
+    // a share, a database - as if it stood here. Off unless switched on: it opens this network to whoever may
+    // use the agent's connection in Matgate.
+    public bool Tunnel { get; set; }
+
+    // Where the tunnel may lead: addresses or networks ("10.0.0.0/8", "192.168.1.20", "nas.local"). Empty: anywhere
+    // this machine can reach.
+    public List<string> TunnelAllow { get; set; } = [];
+
+    // Matgate's address ("https://matgate.example.com"). Set, the agent connects to Matgate itself and keeps
+    // that connection - for a machine Matgate cannot reach (no open port, behind a router). Matgate then uses
+    // this connection for everything, the tunnel included.
+    public string MatgateUrl { get; set; } = "";
+
     public static AgentConfig LoadOrCreate(string path, out bool created)
     {
         created = !File.Exists(path);

@@ -68,6 +68,8 @@ public static class Installer
                 options.PowerShell = config.Terminals.Any(t => t.Id == "powershell" && t.Enabled);
                 options.AutoUpdate = config.AutoUpdate;
                 options.Screen = config.Screen;
+                options.Tunnel = config.Tunnel;
+                options.MatgateUrl = config.MatgateUrl;
                 options.CurrentLogo = AgentLogo.Find(config, DataFolder)?.Path ?? "";
             }
         }
@@ -151,6 +153,12 @@ public static class Installer
         config.ListenAddress = "0.0.0.0";
         config.AutoUpdate = options.AutoUpdate;
         config.Screen = options.Screen;
+        config.Tunnel = options.Tunnel;
+        if (options.MatgateUrl is not null)
+        {
+            config.MatgateUrl = options.MatgateUrl.Trim();
+        }
+
         if (config.DetachedSessionMinutes == 60)
         {
             config.DetachedSessionMinutes = 0;

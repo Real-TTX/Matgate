@@ -3887,7 +3887,8 @@ public sealed partial class HtmlViews
         var workspaceAreas = servers
             .Where(server => server.Protocol == ServerProtocol.Local && server.AreaKind == "workspace")
             .ToList();
-        var connections = servers.Where(server => server.Protocol != ServerProtocol.Local).ToList();
+        // A WireGuard tunnel is a way in, not something to open.
+        var connections = servers.Where(server => server.Protocol is not (ServerProtocol.Local or ServerProtocol.WireGuard)).ToList();
         var placesSection = PlacesSection(context, user, areas, returnUrl, de);
         var connectionsSection = ConnectionsSection(context, user, connections, includeEditButtons, returnUrl, de);
 
@@ -9018,7 +9019,7 @@ public sealed partial class HtmlViews
                         };
                     };
                     const isPlace = server => String(server.protocol || '').toUpperCase() === 'LOCAL';
-                    const connections = availableServers.filter(server => !server.areaKind && !isPlace(server) && !server.ephemeral);
+                    const connections = availableServers.filter(server => !server.areaKind && !isPlace(server) && !server.ephemeral && String(server.protocol || '').toUpperCase() !== 'WIREGUARD');
                     const byId = new Map(connections.map(server => [server.id, server]));
                     // The groups, from top to bottom. A group's key is what its closed state is remembered by:
                     // a folder's is its name, the others carry their kind in front.
@@ -25927,6 +25928,7 @@ public sealed partial class HtmlViews
                     <label class="conn-port" data-protocols="rdp,vnc,ssh,sftp,ftp,smb,webdav,agent,mssql,mysql,postgres">Port
                         <input name="port" type="number" min="1" max="65535" value="{{A(port)}}" placeholder="3389" data-port-input>
                     </label>
+                    {{TunnelChoice(context, server)}}
                     <label class="conn-wide" data-protocols="website"><span>{{T(context, "Website URL")}}<span class="req" aria-hidden="true">*</span></span>
                         <input name="websiteUrl" value="{{A(websiteUrl)}}" placeholder="https://nas.local/admin/" required aria-required="true" autocapitalize="off" spellcheck="false">
                     </label>
@@ -26057,6 +26059,16 @@ public sealed partial class HtmlViews
                     </div>
                     <div class="conn-grid" data-protocols="agent">
                         <label class="check conn-wide"><input type="checkbox" name="ignoreCertificate"{{Checked(server?.IgnoreCertificate ?? true)}}> {{(de ? "Zertifikat ignorieren (selbst signiertes Zertifikat des Agents)" : "Ignore certificate (the agent's self-signed certificate)")}}</label>
+                    </div>
+                    <div class="conn-grid" data-protocols="wireguard">
+                        <label class="conn-wide">{{(de ? "WireGuard-Konfiguration" : "WireGuard configuration")}}
+                            <textarea name="wgConfig" rows="12" spellcheck="false" autocapitalize="off" autocomplete="off" style="font-family: ui-monospace, Consolas, monospace" placeholder="{{A(server?.Protocol == ServerProtocol.WireGuard
+                                ? (de ? "Gespeichert. Leer lassen behält sie, eine neue ersetzt sie." : "Stored. Leave empty to keep it, a new one replaces it.")
+                                : "[Interface]\nPrivateKey = ...\nAddress = 10.8.0.2/32\n\n[Peer]\nPublicKey = ...\nEndpoint = vpn.example.com:51820\nAllowedIPs = 192.168.1.0/24")}}"></textarea>
+                            <small class="muted">{{(de
+                                ? "Die Datei, wie sie der WireGuard-Server ausgibt (wg-quick). Andere Verbindungen wählen diesen Tunnel unter „Verbindung über“. Matgate braucht dafür keine Rechte am Host: wireproxy läuft als normales Programm."
+                                : "The file as the WireGuard server gives it (wg-quick). Other connections pick this tunnel under \"Connect via\". Matgate needs no rights on the host for it: wireproxy runs as an ordinary program.")}}</small>
+                        </label>
                     </div>
                     <div class="conn-grid" data-protocols="mssql,mysql,postgres">
                         <label>{{(de ? "Datenbank" : "Database")}} <small class="muted">(optional)</small>
@@ -26287,6 +26299,7 @@ public sealed partial class HtmlViews
             (ServerProtocol.MsSql, "MsSql", "SQL Server", "database", "#d9534f"),
             (ServerProtocol.MySql, "MySql", "MySQL", "database", "#00758f"),
             (ServerProtocol.Postgres, "Postgres", "PostgreSQL", "database", "#336791"),
+            (ServerProtocol.WireGuard, "WireGuard", "WireGuard", "shield", "#88171a"),
             (ServerProtocol.Website, "Website", T(context, "Website (Beta)"), "globe", "#3aa0ff"),
         };
 
@@ -26381,6 +26394,7 @@ public sealed partial class HtmlViews
             ServerProtocol.MsSql => "SQL Server",
             ServerProtocol.MySql => "MySQL",
             ServerProtocol.Postgres => "PostgreSQL",
+            ServerProtocol.WireGuard => "WireGuard",
             _ => protocol.ToString().ToUpperInvariant(),
         };
     }

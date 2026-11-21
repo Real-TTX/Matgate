@@ -16,8 +16,27 @@ RUN if [ -n "$MATGATE_VERSION" ]; then \
       dotnet publish Matgate/Matgate.csproj -c Release -o /app/publish /p:UseAppHost=false; \
     fi
 
+# WireGuard tunnels (see Services/TunnelService.cs): wireproxy, a WireGuard client that runs as an ordinary
+# program - no kernel module, no NET_ADMIN, no TUN device - and offers the network behind the tunnel as a
+# SOCKS5 proxy on 127.0.0.1. ISC licence. Pinned to one release and checked against its published SHA-256.
+FROM --platform=$BUILDPLATFORM mcr.microsoft.com/dotnet/sdk:10.0 AS wireproxy
+ARG TARGETARCH
+RUN set -eu; \
+    arch="${TARGETARCH:-amd64}"; \
+    case "$arch" in \
+      amd64) sum=e88c1d090740373fc606c1bafd81d9a5eadc642cce5667616e20e9d7a444f51c ;; \
+      arm64) sum=370e00bd2167960d1ecd1c3c1439715bbaa94a0a110a2040468670c9af6021b6 ;; \
+      *) echo "no wireproxy for $arch" >&2; exit 1 ;; \
+    esac; \
+    curl -fsSL -o /tmp/wireproxy.tar.gz "https://github.com/windtf/wireproxy/releases/download/v1.1.3/wireproxy_linux_${arch}.tar.gz"; \
+    echo "$sum  /tmp/wireproxy.tar.gz" | sha256sum -c -; \
+    mkdir -p /tmp/wireproxy; \
+    tar -xzf /tmp/wireproxy.tar.gz -C /tmp/wireproxy; \
+    install -m 0755 "$(find /tmp/wireproxy -type f -name wireproxy | head -n 1)" /usr/local/bin/wireproxy
+
 FROM mcr.microsoft.com/dotnet/aspnet:10.0
 WORKDIR /app
+COPY --from=wireproxy /usr/local/bin/wireproxy /usr/local/bin/wireproxy
 
 # The H.264 encoder of Matgate's own engine for RDP and VNC: OpenH264 as the distribution builds it (BSD,
 # about 1 MB). Not libopenh264-cisco7 - that one fetches Cisco's binary at install time.

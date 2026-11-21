@@ -45,6 +45,12 @@ public sealed class SetupOptions
     // The screen in Matgate (desktop, sound, clipboard).
     public bool Screen { get; set; } = true;
 
+    // The tunnel into this machine's network (see AgentConfig.Tunnel).
+    public bool Tunnel { get; set; }
+
+    // Matgate's address, for the agent to connect to Matgate itself. Null: whatever is there stays.
+    public string? MatgateUrl { get; set; }
+
     // The picture for this machine's start page in Matgate. A path: that picture is taken (a copy of it).
     // Empty: no logo any more. Null: whatever is there stays.
     public string? Logo { get; set; }

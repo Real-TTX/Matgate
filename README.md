@@ -94,6 +94,10 @@ usable from a laptop or a phone – installable as a PWA.
   row or the view button (normal, normal with side panel, compact), and on a phone it is a sheet from the menu.
   Subfolders are names with a "/"; connections are moved by dragging them onto a folder, and a right click on
   a folder makes a new connection in it
+- **Into other networks without a VPN on the gateway**: a connection goes *through* a Matgate agent standing in
+  that network (its **tunnel**; the agent can also connect to Matgate itself, so no port has to be open there),
+  or *through* a **WireGuard** tunnel - paste the peer configuration; Matgate runs it with wireproxy, as an
+  ordinary program, without any rights on the host. Tunnelled connections open with Matgate's own engine
 - **Credentials** stored once and chosen in as many connections as you like - a new password in one place
   is the new one for all of them; personal, or shared by an administrator
 - **Quick connect** for ad-hoc sessions without saving anything

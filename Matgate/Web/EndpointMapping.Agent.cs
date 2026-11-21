@@ -19,6 +19,8 @@ public static partial class EndpointMapping
     private static void MapAgentEndpoints(WebApplication app)
     {
         app.MapGet("/api/agent/{id:guid}/status", AgentStatusAsync).RequireAuthorization();
+        // Not behind the sign-in: an agent has no account - its token is its key (see AgentAttachAsync).
+        app.Map("/api/agent/attach", AgentAttachAsync).AllowAnonymous();
         app.MapGet("/api/agent/{id:guid}/logo", AgentLogoAsync).RequireAuthorization();
         app.MapGet("/api/agent/{id:guid}/terminal-socket", AgentTerminalSocketAsync).RequireAuthorization();
         app.MapPost("/api/agent/{id:guid}/terminal/kill", AgentTerminalKillAsync).RequireAuthorization();
@@ -54,6 +56,68 @@ public static partial class EndpointMapping
         return user.IsAdmin
             || server.OwnerUserId == user.Id
             || user.FileAccessRules?.Any(rule => rule.ServerId == server.Id) != true;
+    }
+
+    // An agent that connects to Matgate itself (its configuration has Matgate's address): for a machine Matgate
+    // cannot reach. It shows its token; the agent connection with that token is the one it is - compared in
+    // constant time, and a wrong one gets nothing but the status, a little late. From then on Matgate uses this
+    // connection for that agent - files, terminals, screen, tunnel - until it ends.
+    private static async Task AgentAttachAsync(HttpContext context, JsonDataStore store, AgentClientPool agents, ILoggerFactory loggers)
+    {
+        if (!context.WebSockets.IsWebSocketRequest)
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            return;
+        }
+
+        var header = context.Request.Headers.Authorization.ToString();
+        var offered = header.StartsWith("Bearer ", StringComparison.Ordinal) ? System.Text.Encoding.UTF8.GetBytes(header[7..].Trim()) : [];
+        ServerEndpoint? match = null;
+        if (offered.Length >= 16)
+        {
+            foreach (var server in (await store.GetServersAsync(context.RequestAborted)).Where(server => server.Protocol == ServerProtocol.Agent && server.IsEnabled))
+            {
+                var token = System.Text.Encoding.UTF8.GetBytes((server.Password ?? "").Trim());
+                if (token.Length > 0 && System.Security.Cryptography.CryptographicOperations.FixedTimeEquals(offered, token))
+                {
+                    match = server;
+                }
+            }
+        }
+
+        var logger = loggers.CreateLogger("Matgate.Agent");
+        if (match is null)
+        {
+            logger.LogWarning("An agent with an unknown token tried to connect from {Address}.", context.Connection.RemoteIpAddress);
+            await Task.Delay(500);
+            context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+            return;
+        }
+
+        using var socket = await context.WebSockets.AcceptWebSocketAsync();
+        AgentLink link;
+        try
+        {
+            link = await AgentLink.AttachAsync(socket, logger, context.RequestAborted);
+        }
+        catch (Exception exception) when (exception is TimeoutException or InvalidOperationException or OperationCanceledException)
+        {
+            return;
+        }
+
+        agents.Attach(match.Id, link);
+        try
+        {
+            await link.Completion.WaitAsync(context.RequestAborted);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        finally
+        {
+            agents.Detach(match.Id, link);
+            link.Dispose();
+        }
     }
 
     private static async Task<IResult> AgentStatusAsync(Guid id, HttpContext context, JsonDataStore store, AgentClientPool agents, AgentUpdates updates)

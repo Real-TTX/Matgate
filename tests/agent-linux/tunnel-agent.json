@@ -1,0 +1,10 @@
+{
+  "Port": 7488,
+  "ListenAddress": "0.0.0.0",
+  "Token": "test-only-tunnel-agent-token-1234",
+  "Name": "Tunnel-Kiste",
+  "Screen": false,
+  "Tunnel": true,
+  "TunnelAllow": [ "hidden-ssh" ],
+  "MatgateUrl": "http://matgate:8080"
+}

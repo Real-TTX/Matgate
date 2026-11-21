@@ -505,6 +505,54 @@ static async Task RunAgentAsync(string[] args, string version)
         AgentLog.Write("Matgate disconnected");
     });
 
+    // With Matgate's address set, the agent connects to Matgate itself - for a machine Matgate cannot reach - and
+    // keeps that connection, again and again when it breaks. It is the same connection as one Matgate opens.
+    if (Uri.TryCreate(config.MatgateUrl.Trim(), UriKind.Absolute, out var matgateUri) && matgateUri.Scheme is "https" or "http")
+    {
+        var attach = new UriBuilder(matgateUri) { Scheme = matgateUri.Scheme == "https" ? "wss" : "ws", Path = matgateUri.AbsolutePath.TrimEnd('/') + "/api/agent/attach" }.Uri;
+        var stopping = app.Lifetime.ApplicationStopping;
+        _ = Task.Run(async () =>
+        {
+            var wait = TimeSpan.FromSeconds(5);
+            while (!stopping.IsCancellationRequested)
+            {
+                try
+                {
+                    using var outgoing = new System.Net.WebSockets.ClientWebSocket();
+                    outgoing.Options.KeepAliveInterval = TimeSpan.FromSeconds(20);
+                    outgoing.Options.SetRequestHeader("Authorization", "Bearer " + config.Token.Trim());
+                    await outgoing.ConnectAsync(attach, stopping);
+                    AgentLog.Write($"Connected to Matgate at {matgateUri.Host}");
+                    wait = TimeSpan.FromSeconds(5);
+                    await new Connection(outgoing, config, directory, version, files, terminals, updates, screen, () =>
+                    {
+                        Environment.Exit(AgentStatus.Mode == "service" ? 1 : 0);
+                    }).RunAsync(stopping);
+                    AgentLog.Write("The connection to Matgate ended");
+                }
+                catch (Exception exception) when (exception is System.Net.WebSockets.WebSocketException or HttpRequestException or IOException or InvalidOperationException)
+                {
+                    AgentLog.Write($"Matgate at {matgateUri.Host} not reached ({exception.Message.Split('\n')[0]}) - trying again in {wait.TotalSeconds:0} s");
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+
+                try
+                {
+                    await Task.Delay(wait, stopping);
+                }
+                catch (OperationCanceledException)
+                {
+                    break;
+                }
+
+                wait = TimeSpan.FromSeconds(Math.Min(60, wait.TotalSeconds * 2));
+            }
+        });
+    }
+
     AgentStatus.StartServer(app.Lifetime.ApplicationStopping);
     await app.RunAsync();
 }

@@ -729,7 +729,18 @@ Reihenfolge noch nicht abgesprochen - vor dem Anfangen fragen, welcher zuerst.
    Verbindungen) und Ziehen von Dateien auf einen anderen Tab (Tab wird beim Darüberhalten aktiv, Ablegen
    kopiert dorthin) - „wie im Windows Explorer“. Der Strom bleibt auf dem Gateway (`/api/files/{id}/copy-to`
    gibt es schon zwischen Ablagen).
-3. **Matgate-Tunnel.** Alternative zum Agent: ein kleines Programm in einem fremden Netz, über das Matgate
+3. **Agent-Tunnel erledigt in 0.35.0 (Agent 0.15.0):** Agent `TunnelPlugin` (`tcp.open`/`tcp.data`/`tcp.close`,
+   `Tunnel`, `TunnelAllow`), Reverse-Verbindung (`MatgateUrl` → `/api/agent/attach`, Token gegen Agent-Verbindungen
+   geprüft, `AgentClientPool.Attach`). Matgate: `ServerEndpoint.TunnelId`, `TunnelService` stellt je Agent+Ziel
+   einen Port auf 127.0.0.1 bereit; `ResolveServerForUserAsync` leitet um; getunnelte Verbindungen nur mit eigener
+   Engine; Protokolle RDP, VNC, SSH, SFTP, SMB, Datenbanken (nicht FTP, WebDAV, Websites). `tests/tunnel.js` mit
+   `agent-tunnel` und `hidden-ssh` im Netz `behind`.
+   **WireGuard (auch 0.35.0):** Verbindungsart `WireGuard` (Konfiguration im verschlüsselten Passwort-Feld,
+   Endpoint als Host/Port, nicht in Seitenleiste/Startseite), `TunnelService` startet je Tunnel `wireproxy`
+   (v1.1.3, ISC, im Dockerfile gepinnt mit SHA-256, amd64/arm64) mit SOCKS5 auf 127.0.0.1 und geht per SOCKS5
+   ans Ziel; wg-quick-Dateien werden auf das zugeschnitten, was wireproxy kennt (DNS ohne IPs fällt weg).
+   Test: `wg-server` (linuxserver/wireguard, nur dort NET_ADMIN) vor `hidden-ssh` (10.253.82.10).
+   Ursprünglicher Wunsch: **Matgate-Tunnel.** Alternative zum Agent: ein kleines Programm in einem fremden Netz, über das Matgate
    Verbindungen dorthin aufbaut. Je Verbindung wählbar: „Direkt“ oder „Über Tunnel X“. Arten: Reverse-Tunnel
    (das Programm verbindet sich zu Matgate, wie der Agent), offener Port, oder WireGuard / OpenVPN - dann baut
    der Container für diese Verbindung selbst ein VPN auf und verbindet sich darüber (RDP, SSH, Dateien ...).

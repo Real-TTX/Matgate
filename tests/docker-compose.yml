@@ -115,6 +115,41 @@ services:
       context: ..
       dockerfile: tests/agent-linux/Dockerfile
     init: true
+  # The tunnel (tests/tunnel.js): an agent with its tunnel on, standing in two networks - the stack's and one of
+  # its own ("behind") with an SSH server Matgate cannot reach. It also connects to Matgate itself (MatgateUrl),
+  # so it is reached without its port being reachable.
+  agent-tunnel:
+    build:
+      context: ..
+      dockerfile: tests/agent-linux/Dockerfile
+    init: true
+    entrypoint: ["/bin/sh", "-c", "while true; do /opt/matgate-agent/matgate-agent run --config /data/tunnel.json; sleep 1; done"]
+    volumes: ["./agent-linux/tunnel-agent.json:/data/tunnel.json"]
+    networks: [default, behind]
+  hidden-ssh:
+    image: lscr.io/linuxserver/openssh-server:latest
+    environment:
+      USER_NAME: demo
+      USER_PASSWORD: demo-only-pw
+      PASSWORD_ACCESS: "true"
+      SUDO_ACCESS: "false"
+    networks:
+      behind:
+        ipv4_address: 10.253.82.10
+  # A WireGuard server in front of the same network (tests/tunnel.js): Matgate reaches hidden-ssh through it with
+  # wireproxy. Only this test server needs NET_ADMIN - Matgate itself gets no rights for WireGuard.
+  wg-server:
+    image: lscr.io/linuxserver/wireguard:latest
+    cap_add: [NET_ADMIN]
+    sysctls: ["net.ipv4.conf.all.src_valid_mark=1"]
+    environment:
+      SERVERURL: wg-server
+      SERVERPORT: "51820"
+      PEERS: "1"
+      PEERDNS: "none"
+      INTERNAL_SUBNET: 10.13.13.0
+      ALLOWEDIPS: 10.253.82.0/24
+    networks: [default, behind]
   # Databases for the database browser (tests/database.js): one of each kind, with a small table to read.
   # SQL Server has no folder for scripts at its first start - the test makes its table itself.
   postgres:
@@ -137,3 +172,8 @@ networks:
     ipam:
       config:
         - subnet: 10.253.81.0/24
+  # Only the tunnel's agent and the machine behind it: Matgate is not in it.
+  behind:
+    ipam:
+      config:
+        - subnet: 10.253.82.0/24

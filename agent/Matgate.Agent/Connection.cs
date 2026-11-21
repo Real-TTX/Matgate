@@ -9,6 +9,7 @@ namespace Matgate.Agent;
 public sealed class Connection(WebSocket socket, AgentConfig config, string folder, string version, FilesPlugin files, TerminalPlugin terminals, IAgentUpdates updates, IAgentScreen screen, Action shutdown)
 {
     private readonly SemaphoreSlim _sendLock = new(1, 1);
+    private readonly TunnelPlugin _tunnel = new(config);
 
     public async Task RunAsync(CancellationToken cancellationToken)
     {
@@ -37,6 +38,13 @@ public sealed class Connection(WebSocket socket, AgentConfig config, string fold
                     case "evt" when frame.Op == "pty.detach":
                         terminals.Detach(frame);
                         break;
+                    case "evt" when frame.Op == "tcp.data":
+                        // In order, as it came: a stream must not be reordered.
+                        await _tunnel.DataAsync(frame);
+                        break;
+                    case "evt" when frame.Op == "tcp.close":
+                        _tunnel.Close(frame.Text("id") ?? "");
+                        break;
                     case "evt" when frame.Op.StartsWith("screen.", StringComparison.Ordinal):
                         // Input and acknowledgements in order; whatever takes long (the clipboard) goes its own way inside.
                         screen.Event(frame);
@@ -53,6 +61,7 @@ public sealed class Connection(WebSocket socket, AgentConfig config, string fold
             terminals.DetachAll(SendAsync);
             screen.DetachAll(SendAsync);
             files.DropAllUploads();
+            _tunnel.CloseAll();
         }
     }
 
@@ -74,6 +83,7 @@ public sealed class Connection(WebSocket socket, AgentConfig config, string fold
                 "update.apply" => updates.Apply(request, shutdown),
                 "screen.open" => await screen.OpenAsync(request, SendAsync),
                 "screen.clip.read" => await screen.ReadClipAsync(request),
+                "tcp.open" => await _tunnel.OpenAsync(request, SendAsync),
                 _ when request.Op.StartsWith("files.", StringComparison.Ordinal) && files.IsAvailable
                     => await files.HandleAsync(request, cancellationToken),
                 _ => throw new InvalidOperationException("The agent does not offer this."),
@@ -112,6 +122,11 @@ public sealed class Connection(WebSocket socket, AgentConfig config, string fold
                 ["microphone"] = screen.MicrophoneState == "ok",
                 ["gamepad"] = screen.GamepadState == "ok",
             });
+        }
+
+        if (_tunnel.IsAvailable)
+        {
+            plugins.Add(new JsonObject { ["id"] = "tunnel", ["kind"] = "tunnel", ["title"] = "Tunnel" });
         }
 
         foreach (var terminal in terminals.Available)

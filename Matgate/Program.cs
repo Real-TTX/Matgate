@@ -150,6 +150,7 @@ builder.Services.AddSingleton<BrowserFarmSessionManager>();
 builder.Services.AddHostedService<BrowserFarmReaper>();
 builder.Services.AddSingleton<NetworkToolsService>();
 builder.Services.AddSingleton<Matgate.Agent.AgentClientPool>();
+builder.Services.AddSingleton<Matgate.Services.TunnelService>();
 builder.Services.AddHttpClient();
 builder.Services.AddSingleton<Matgate.Agent.AgentUpdates>();
 builder.Services.AddHostedService<Matgate.Agent.AgentAutoUpdater>();

@@ -34,11 +34,34 @@ public sealed class AgentClientPool(ILogger<AgentClientPool> logger)
     private readonly ConcurrentDictionary<Guid, AgentLink> _links = new();
     private readonly ConcurrentDictionary<Guid, SemaphoreSlim> _connecting = new();
 
+    // Connections the agents opened themselves (an agent with Matgate's address set, see /api/agent/attach): used
+    // first, for a machine Matgate could not reach.
+    private readonly ConcurrentDictionary<Guid, AgentLink> _attached = new();
+
+    public void Attach(Guid serverId, AgentLink link)
+    {
+        if (_attached.TryGetValue(serverId, out var before) && !ReferenceEquals(before, link))
+        {
+            before.Dispose();
+        }
+
+        _attached[serverId] = link;
+    }
+
+    public void Detach(Guid serverId, AgentLink link) => _attached.TryRemove(new KeyValuePair<Guid, AgentLink>(serverId, link));
+
+    public bool IsAttached(Guid serverId) => _attached.TryGetValue(serverId, out var link) && link.IsOpen;
+
     public async Task<AgentLink> GetAsync(ServerEndpoint server, CancellationToken cancellationToken)
     {
         if (server.Protocol != ServerProtocol.Agent)
         {
             throw new InvalidOperationException("This connection is not an agent.");
+        }
+
+        if (_attached.TryGetValue(server.Id, out var attached) && attached.IsOpen)
+        {
+            return attached;
         }
 
         var fingerprint = Fingerprint(server);
@@ -83,6 +106,14 @@ public interface IAgentScreenListener
     Task OnClosedAsync();
 }
 
+// One stream of the tunnel on the gateway: the bytes the machine behind the agent sends, and its end.
+public interface IAgentTunnelListener
+{
+    Task OnDataAsync(ReadOnlyMemory<byte> data);
+
+    void OnClosed();
+}
+
 // Something on the gateway that shows a terminal session (the browser's WebSocket).
 public interface IAgentTerminalListener
 {
@@ -95,17 +126,18 @@ public sealed class AgentLink : IDisposable
 {
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(60);
 
-    private readonly ClientWebSocket _socket;
+    private readonly WebSocket _socket;
     private readonly ILogger _logger;
     private readonly SemaphoreSlim _sendLock = new(1, 1);
     private readonly ConcurrentDictionary<long, TaskCompletionSource<AgentFrame>> _pending = new();
     private readonly ConcurrentDictionary<string, IAgentTerminalListener> _terminals = new();
     private readonly ConcurrentDictionary<string, IAgentScreenListener> _screens = new();
+    private readonly ConcurrentDictionary<string, IAgentTunnelListener> _tunnels = new();
     private readonly TaskCompletionSource<AgentHello> _hello = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly CancellationTokenSource _closed = new();
     private long _nextId;
 
-    private AgentLink(ClientWebSocket socket, string fingerprint, ILogger logger)
+    private AgentLink(WebSocket socket, string fingerprint, ILogger logger)
     {
         _socket = socket;
         Fingerprint = fingerprint;
@@ -165,6 +197,24 @@ public sealed class AgentLink : IDisposable
         logger.LogInformation("Agent {Name} ({Os}, {Version}) connected with {Count} plugins.", hello.Name, hello.Os, hello.Version, hello.Plugins.Count);
         return link;
     }
+
+    // A connection the agent opened itself (it knows Matgate's address): the same as one Matgate opens, once the
+    // agent has introduced itself.
+    public static async Task<AgentLink> AttachAsync(WebSocket socket, ILogger logger, CancellationToken cancellationToken)
+    {
+        var link = new AgentLink(socket, "attached", logger);
+        _ = Task.Run(link.ReceiveLoopAsync, CancellationToken.None);
+        var hello = await link._hello.Task.WaitAsync(TimeSpan.FromSeconds(15), cancellationToken);
+        logger.LogInformation("Agent {Name} ({Os}, {Version}) connected itself with {Count} plugins.", hello.Name, hello.Os, hello.Version, hello.Plugins.Count);
+        return link;
+    }
+
+    // Ends when the connection does.
+    public Task Completion => Task.Delay(Timeout.Infinite, _closed.Token).ContinueWith(_ => { }, TaskScheduler.Default);
+
+    public void ListenTunnel(string id, IAgentTunnelListener listener) => _tunnels[id] = listener;
+
+    public void StopListeningTunnel(string id) => _tunnels.TryRemove(id, out _);
 
     public async Task<AgentFrame> RequestAsync(string op, JsonObject? data = null, ReadOnlyMemory<byte> payload = default, CancellationToken cancellationToken = default)
     {
@@ -259,6 +309,12 @@ public sealed class AgentLink : IDisposable
                     case "evt" when frame.Op == "pty.exit" && _terminals.TryRemove(frame.Text("session") ?? "", out var ended):
                         await ended.OnExitAsync(frame.Data?["code"]?.GetValue<int>());
                         break;
+                    case "evt" when frame.Op == "tcp.data" && _tunnels.TryGetValue(frame.Text("id") ?? "", out var stream):
+                        await stream.OnDataAsync(frame.Payload);
+                        break;
+                    case "evt" when frame.Op == "tcp.close" && _tunnels.TryRemove(frame.Text("id") ?? "", out var gone):
+                        gone.OnClosed();
+                        break;
                     case "evt" when frame.Op.StartsWith("screen.", StringComparison.Ordinal) && _screens.TryGetValue(frame.Text("session") ?? "", out var screen):
                         // Queued by the listener: a slow browser must not hold up this connection.
                         await screen.OnFrameAsync(frame);
@@ -291,6 +347,12 @@ public sealed class AgentLink : IDisposable
             }
 
             _screens.Clear();
+            foreach (var stream in _tunnels.Values)
+            {
+                stream.OnClosed();
+            }
+
+            _tunnels.Clear();
         }
     }
 

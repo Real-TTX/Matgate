@@ -32,6 +32,7 @@ internal sealed class AgentSetup
     private readonly TextBox _account = new() { Width = 190, Watermark = @"Konto: .\name" };
     private readonly TextBox _password = new() { Width = 150, PasswordChar = '•', Watermark = "Passwort" };
     private readonly TextBox _runAs = new() { Width = 220, HorizontalAlignment = HorizontalAlignment.Left };
+    private readonly TextBox _matgateUrl = new() { Width = 320, HorizontalAlignment = HorizontalAlignment.Left, Watermark = "https://matgate.example.com" };
     private readonly StackPanel _rootRows = new() { Spacing = 0 };
     private readonly List<AgentRoot> _roots = [];
     private readonly Image _logoPicture = new() { Width = 32, Height = 32, Stretch = Stretch.Uniform };
@@ -236,6 +237,7 @@ internal sealed class AgentSetup
             _windows
                 ? new("powershell", "PowerShell", "Ein Terminal auf diesem Rechner", has?.PowerShell ?? false)
                 : new("shell", "Shell", "Ein Terminal auf diesem Rechner (die Login-Shell des Benutzers)", has?.Shell ?? false),
+            new("tunnel", "Tunnel", "Matgate erreicht über diesen Rechner andere Rechner in seinem Netz - RDP, Freigaben, Datenbanken", has?.Tunnel ?? false),
         ];
 
         var add = new Button { Content = "Ordner hinzufügen …", HorizontalAlignment = HorizontalAlignment.Left };
@@ -284,15 +286,24 @@ internal sealed class AgentSetup
 
         var step = MatSetupStep.WithOptions(null, options);
         step.Title = "Betrieb und Aussehen";
+        _matgateUrl.Text ??= has?.MatgateUrl ?? "";
+        var fields = new StackPanel { Spacing = 14 };
+        fields.Children.Add(new MatFormField
+        {
+            Label = "Logo auf der Startseite dieses Rechners in Matgate",
+            Hint = "PNG, JPG, WebP, GIF oder SVG, höchstens 1 MB.",
+            Content = logo,
+        });
+        fields.Children.Add(new MatFormField
+        {
+            Label = "Matgate-Adresse (optional)",
+            Hint = "Gesetzt, verbindet sich der Agent selbst mit Matgate - für einen Rechner ohne offenen Port, hinter einem Router.",
+            Content = _matgateUrl,
+        });
         step.Content = new Border
         {
             Padding = new Thickness(0, 14, 0, 0),
-            Child = new MatFormField
-            {
-                Label = "Logo auf der Startseite dieses Rechners in Matgate",
-                Hint = "PNG, JPG, WebP, GIF oder SVG, höchstens 1 MB.",
-                Content = logo,
-            },
+            Child = fields,
         };
         return step;
     }
@@ -434,6 +445,8 @@ internal sealed class AgentSetup
             PowerShell = On("powershell", false),
             Shell = On("shell", false),
             Screen = On("screen", true),
+            Tunnel = On("tunnel", false),
+            MatgateUrl = (_matgateUrl.Text ?? "").Trim(),
             AutoUpdate = On("updates", true),
             Tray = On("tray", true),
             // Only what was chosen here is an instruction; an untouched logo stays as it is.

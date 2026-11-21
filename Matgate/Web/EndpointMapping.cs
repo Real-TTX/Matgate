@@ -4970,6 +4970,7 @@ public static partial class EndpointMapping
 
         var folders = await VisibleFolderNamesAsync(user, (await store.GetServersAsync(context.RequestAborted)).Where(server => CanEditServer(user, server)), store, context.RequestAborted);
         context.Items[HtmlViews.CredentialChoicesKey] = (await store.GetCredentialsAsync(context.RequestAborted)).Where(credential => credential.UsableBy(user)).ToList();
+        context.Items[HtmlViews.TunnelChoicesKey] = (await store.GetServersAsync(context.RequestAborted)).Where(candidate => candidate.Protocol is ServerProtocol.Agent or ServerProtocol.WireGuard && candidate.IsEnabled && CanAccessServer(user, candidate)).ToList();
         return Results.Content(views.ServerCreate(context, user, preferredProtocol, folders, ServerFormReturn(context.Request.Query["return"])), "text/html");
     }
 
@@ -5011,6 +5012,7 @@ public static partial class EndpointMapping
         }
 
         var server = ReadServerForm(form, user, null);
+        ApplyWireGuardForm(server, form);
         await KeepOwnCredentialsAsync(server, user, store, context.RequestAborted);
         var requiresWebsiteUrl = server.Protocol == ServerProtocol.Website;
         var hasRequiredTarget = requiresWebsiteUrl
@@ -5061,6 +5063,7 @@ public static partial class EndpointMapping
 
         var folders = await VisibleFolderNamesAsync(user, (await store.GetServersAsync(context.RequestAborted)).Where(candidate => CanEditServer(user, candidate)), store, context.RequestAborted);
         context.Items[HtmlViews.CredentialChoicesKey] = (await store.GetCredentialsAsync(context.RequestAborted)).Where(credential => credential.UsableBy(user)).ToList();
+        context.Items[HtmlViews.TunnelChoicesKey] = (await store.GetServersAsync(context.RequestAborted)).Where(candidate => candidate.Protocol is ServerProtocol.Agent or ServerProtocol.WireGuard && candidate.IsEnabled && CanAccessServer(user, candidate)).ToList();
         return Results.Content(
             views.ServerDetail(context, user, server, await store.GetUsersAsync(context.RequestAborted), folders, ServerFormReturn(context.Request.Query["return"])),
             "text/html");
@@ -5097,6 +5100,7 @@ public static partial class EndpointMapping
         }
 
         var updated = ReadServerForm(form, user, currentServer);
+        ApplyWireGuardForm(updated, form, currentServer);
         await KeepOwnCredentialsAsync(updated, user, store, context.RequestAborted);
         var hasRequiredTarget = updated.Protocol == ServerProtocol.Website
             ? !string.IsNullOrWhiteSpace(updated.WebsiteUrl)
@@ -5139,6 +5143,7 @@ public static partial class EndpointMapping
             storedServer.FileRootPath = updated.FileRootPath;
             storedServer.DatabaseName = updated.DatabaseName;
             storedServer.CredentialId = updated.CredentialId;
+            storedServer.TunnelId = updated.TunnelId;
             storedServer.KeyboardLayout = updated.KeyboardLayout;
             storedServer.TerminalFontSize = updated.TerminalFontSize;
             storedServer.Engine = updated.Engine;
@@ -5249,6 +5254,19 @@ public static partial class EndpointMapping
         var server = await store.FindServerByIdAsync(id, context.RequestAborted);
         if (server is not null)
         {
+            // Into another network: opened against a port of the tunnel on this machine (see TunnelService).
+            if (server.TunnelId is not null && context.RequestServices.GetService<TunnelService>() is { } tunnels)
+            {
+                try
+                {
+                    return await tunnels.RouteAsync(server, context.RequestAborted);
+                }
+                catch (InvalidOperationException exception)
+                {
+                    context.RequestServices.GetRequiredService<ILoggerFactory>().CreateLogger("Matgate.Tunnel").LogWarning("Tunnel of {Server}: {Message}", server.Name, exception.Message);
+                }
+            }
+
             return server;
         }
 
@@ -5710,8 +5728,37 @@ public static partial class EndpointMapping
 
     // Stored credentials only the user may use: their own or shared ones - an id from the form is not taken on
     // trust. With them chosen, the connection keeps no login of its own.
+    // A WireGuard tunnel: its configuration (pasted as wg-quick has it) is kept where a password is, encrypted;
+    // the peer's address goes into host and port, for the list. Left empty on a change, the stored one stays.
+    private static void ApplyWireGuardForm(ServerEndpoint server, IFormCollection form, ServerEndpoint? existing = null)
+    {
+        if (server.Protocol != ServerProtocol.WireGuard)
+        {
+            return;
+        }
+
+        var config = form["wgConfig"].ToString().Trim();
+        server.Password = config;
+        server.UserName = "";
+        server.CredentialId = null;
+        server.TunnelId = null;
+        var (host, port) = TunnelService.Endpoint(config.Length > 0 ? config : existing?.Password ?? "");
+        server.Host = host.Length > 0 ? host : existing?.Host ?? "";
+        server.Port = port;
+    }
+
     private static async Task KeepOwnCredentialsAsync(ServerEndpoint server, MatgateUser user, JsonDataStore store, CancellationToken cancellationToken)
     {
+        // The same for the tunnel: only through an agent the user may use.
+        if (server.TunnelId is not null)
+        {
+            var agent = (await store.GetServersAsync(cancellationToken)).FirstOrDefault(candidate => candidate.Id == server.TunnelId);
+            if (agent is null || agent.Protocol is not (ServerProtocol.Agent or ServerProtocol.WireGuard) || !CanAccessServer(user, agent))
+            {
+                server.TunnelId = null;
+            }
+        }
+
         if (server.CredentialId is null)
         {
             return;
@@ -5826,6 +5873,7 @@ public static partial class EndpointMapping
             FileRootPath = Clean(form["fileRootPath"].ToString(), ""),
             DatabaseName = ServerEndpoint.IsDatabaseProtocol(protocol) ? Clean(form["databaseName"].ToString(), "") : "",
             CredentialId = Guid.TryParse(form["credentialId"].ToString(), out var credentialId) ? credentialId : null,
+            TunnelId = ServerEndpoint.CanTunnel(protocol) && Guid.TryParse(form["tunnelId"].ToString(), out var tunnelId) ? tunnelId : null,
             KeyboardLayout = CleanKeyboardLayout(
                 form["keyboardLayout"].ToString(),
                 existing?.KeyboardLayout ?? ServerEndpoint.DefaultKeyboardLayout),

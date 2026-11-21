@@ -102,6 +102,15 @@ public sealed class ServerEndpoint
     // A database connection: the database it opens in (empty: the server's list of databases).
     public string DatabaseName { get; set; } = "";
 
+    // The agent this connection goes through into another network (see TunnelService); null: directly.
+    public Guid? TunnelId { get; set; }
+
+    // Which protocols can go through a tunnel: those that open one TCP connection to the host and its port.
+    // (FTP opens further ones to addresses the server names; WebDAV and websites are addressed by name.)
+    public static bool CanTunnel(ServerProtocol protocol) =>
+        protocol is ServerProtocol.Rdp or ServerProtocol.Vnc or ServerProtocol.Ssh or ServerProtocol.Sftp or ServerProtocol.Smb
+            or ServerProtocol.MsSql or ServerProtocol.MySql or ServerProtocol.Postgres;
+
     // Stored credentials this connection signs in with (see Credential); null: its own login below.
     public Guid? CredentialId { get; set; }
 
@@ -118,6 +127,8 @@ public sealed class ServerEndpoint
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
 
     public bool IsPrivate => OwnerUserId.HasValue;
+
+    public ServerEndpoint Clone() => (ServerEndpoint)MemberwiseClone();
 
     // Shallow copy with a different file root - used to confine a user to a subfolder without
     // mutating the shared/cached endpoint instance.
@@ -145,6 +156,12 @@ public sealed class ServerEndpoint
         }
 
         var ownAvailable = Protocol == ServerProtocol.Ssh || displayEngineAvailable;
+        // Through a tunnel only Matgate itself can go: Guacamole's guacd connects on its own, from elsewhere.
+        if (TunnelId is not null)
+        {
+            return ownAvailable ? "matgate" : "";
+        }
+
         if (NormalizeEngine(Engine) == "guacamole")
         {
             return guacamoleAvailable ? "guacamole" : ownAvailable ? "matgate" : "";
@@ -190,6 +207,7 @@ public sealed class ServerEndpoint
             ServerProtocol.Website => "globe",
             ServerProtocol.Agent => "desktop",
             ServerProtocol.MsSql or ServerProtocol.MySql or ServerProtocol.Postgres => "database",
+            ServerProtocol.WireGuard => "shield",
             _ => "server"
         };
     }

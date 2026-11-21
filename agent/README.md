@@ -319,6 +319,18 @@ Linux and macOS: `Unix/`. `Setup/AgentInstall.cs` is the one door to either inst
 One self-contained file. `matgate-agent.exe run [--config path]` starts the agent by hand (a
 `matgate-agent.json` next to the exe is created if missing).
 
+## The tunnel
+
+With **Tunnel** switched on (setup, or `"Tunnel": true` in the configuration), Matgate reaches other
+machines in this machine's network through the agent - an RDP server, a share, a database - as if it stood here.
+In Matgate a connection is set to *Connect via: Tunnel through <agent>*. `TunnelAllow` limits where it may lead
+(`["10.0.0.0/8", "nas.local"]`; empty: anywhere this machine reaches). Off by default: it opens this network to
+whoever may use the agent's connection in Matgate.
+
+**Without an open port:** with `MatgateUrl` set (`"https://matgate.example.com"`, also in the setup) the agent
+connects to Matgate itself and keeps that connection, trying again when it breaks. Matgate then uses it for
+everything - files, terminals, screen, tunnel - also when it cannot reach the agent's host.
+
 ## Configuration
 
 ```json

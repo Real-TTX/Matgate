@@ -21,5 +21,8 @@ public enum ServerProtocol
     // browser for all three, one driver each (see Services/Database).
     MsSql,
     MySql,
-    Postgres
+    Postgres,
+    // A WireGuard tunnel into another network: not opened itself, chosen as the way in by other connections
+    // (see TunnelService). Its configuration is kept where a password is, encrypted.
+    WireGuard
 }
