@@ -199,6 +199,17 @@ const check = (name, got, want) => {
   };
   const viewMode = () => page.evaluate(() => document.documentElement.dataset.viewMode);
   check("the view button offers three views, the one shown marked", await choices(), ["Normal", "*Normal with side panel", "Compact"]);
+  // It opens at the button, not in the page's top left corner.
+  const placed = await page.evaluate(() => {
+    const button = document.getElementById("view-mode-toggle").getBoundingClientRect();
+    const panel = document.querySelector(".view-choice-panel:not([hidden])").getBoundingClientRect();
+    return Math.abs(panel.top - button.bottom) < 16 && panel.right > button.left - 4 && panel.left < button.right + 4;
+  });
+  check("the choice opens just below the view button", placed, true);
+  await page.click("#view-mode-toggle");
+  await sleep(300);
+  check("a second click on the button closes it", await page.locator(".view-choice-panel:not([hidden])").count(), 0);
+  await choices();
   await choose("Compact");
   check("compact: one bar, no side panel, and the tab row's button is gone with it", [await viewMode(), await shown(), await page.evaluate(() => document.getElementById("server-manager-toggle").offsetWidth)], ["minimal", false, 0]);
   await page.click(".shell-burger-trigger");

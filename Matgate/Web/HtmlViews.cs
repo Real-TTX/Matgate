@@ -25353,10 +25353,26 @@ public sealed partial class HtmlViews
                                 window.MatgateSidePanel.set(choice === 'sidebar');
                             }
                         };
+                        let viewChoiceWasOpen = false;
                         const openViewChoice = (trigger, at) => {
                             if (!viewChoices || typeof window.MatgateOpenMenu !== 'function') {
                                 chooseView(currentView() === 'minimal' ? 'normal' : 'minimal');
                                 return;
+                            }
+
+                            // A second click on the button closes the choice again. (Pressing outside a menu
+                            // closes it already, before the click - hence what was open at the press counts.)
+                            if (document.querySelector('.view-choice-panel:not([hidden])') || (trigger === viewModeToggle && viewChoiceWasOpen)) {
+                                viewChoiceWasOpen = false;
+                                window.MatgateCloseMenus();
+                                return;
+                            }
+
+                            // The button sits in no menu of its own that the panel could hang from: it opens at
+                            // the button's place instead - just below it, moved into place once its width is known.
+                            const button = at ? null : trigger.getBoundingClientRect();
+                            if (button) {
+                                at = { x: button.left, y: button.bottom + 4 };
                             }
 
                             const check = (viewChoices.content.querySelector('[data-view-check]') || {}).innerHTML || '';
@@ -25370,6 +25386,15 @@ public sealed partial class HtmlViews
                                 }));
                             window.MatgateOpenMenu({ trigger, at, title: viewChoices.dataset.title || '', closeLabel: viewChoices.dataset.close || 'Close', items });
                             const panel = document.querySelector('.toolbar-menu-panel[data-menu-dynamic]:not([hidden])');
+                            if (panel && button && !panel.classList.contains('menu-sheet')) {
+                                // Starting at the button's left edge where it fits, else ending at its right edge.
+                                const width = panel.getBoundingClientRect().width;
+                                const left = button.left + width <= window.innerWidth - 8 ? button.left : button.right - width;
+                                panel.style.left = '0';
+                                panel.style.right = 'auto';
+                                panel.parentElement.style.left = Math.max(8, left) + 'px';
+                            }
+
                             if (panel) {
                                 panel.classList.add('view-choice-panel');
                                 const chosen = items.findIndex(item => item.iconHtml === check);
@@ -25382,7 +25407,14 @@ public sealed partial class HtmlViews
                         };
                         window.MatgateChooseView = chooseView;
                         if (viewModeToggle) {
-                            viewModeToggle.addEventListener('click', () => openViewChoice(viewModeToggle));
+                            // On the window, so it is seen before the document's "pressed outside" closes it.
+                            window.addEventListener('pointerdown', event => {
+                                viewChoiceWasOpen = viewModeToggle.contains(event.target) && !!document.querySelector('.view-choice-panel:not([hidden])');
+                            }, true);
+                            viewModeToggle.addEventListener('click', () => {
+                                openViewChoice(viewModeToggle);
+                                viewChoiceWasOpen = false;
+                            });
                         }
                         // Also reachable as a labelled entry in the burger menu (the icon-only toggle
                         // is easy to miss on phones): the menu closes, the choice opens at its button.
