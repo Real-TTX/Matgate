@@ -3945,6 +3945,10 @@ public sealed partial class HtmlViews
             ("website", "Browser", de ? "Webseite oder Gerät über Matgate öffnen (HTTP / HTTPS)" : "Open a website or a device through Matgate (HTTP / HTTPS)", "globe", "#3aa0ff"),
             ("ftp", "FTP", de ? "Dateiübertragung" : "File transfer", "ftp", "#e0863a"),
             ("webdav", "WebDAV", de ? "Dateien über HTTP" : "Files over HTTP", "cloud", "#2bb3c0"),
+            // Short names: on a phone the home page's chips are tiles of 60 pixels.
+            ("mssql", "MSSQL", "Microsoft SQL Server", "database", "#d9534f"),
+            ("mysql", "MySQL", "MySQL / MariaDB", "database", "#00758f"),
+            ("postgres", "Postgres", "PostgreSQL", "database", "#336791"),
         };
     }
 
@@ -4018,12 +4022,12 @@ public sealed partial class HtmlViews
                 <input type="hidden" name="engine" value="" data-home2-qc-engine-input>
             </div>
             """;
-        var protoButtons = string.Join("", protocols.Select((protocol, index) => $$"""
-            <button type="button" class="home2-qc-proto{{(index == 0 ? " active" : "")}}" data-home2-qc-proto="{{A(protocol.Protocol)}}" style="--proto: {{protocol.Color}}" title="{{A(protocol.Desc)}}">
-                <span class="home2-qc-proto-icon">{{Icon(protocol.IconKey)}}</span>
-                <span>{{E(protocol.Name)}}</span>
-            </button>
-            """));
+        // The kinds in the user's order, grouped in the list; the dialog starts on the first of that order.
+        var protoButtons = KindSelect(
+            protocols.Select(protocol => new KindOption(protocol.Protocol, protocol.Name, protocol.Desc, protocol.IconKey, protocol.Color, KindGroup(protocol.Protocol, de))).ToList(),
+            firstProtocol,
+            "data-home2-qc-proto",
+            de);
 
         return $$"""
             <dialog class="home2-proto-dialog" data-home2-proto-dialog>
@@ -4035,7 +4039,7 @@ public sealed partial class HtmlViews
                     <button type="button" class="button icon-only home2-proto-dialog-close" data-home2-proto-close aria-label="{{A(de ? "Schließen" : "Close")}}">{{Icon("x")}}</button>
                 </div>
                 <form class="home2-qc-form" data-home2-qc-form>
-                    <div class="home2-qc-protos">{{protoButtons}}</div>
+                    {{protoButtons}}
                     <input type="hidden" name="protocol" value="{{A(firstProtocol)}}" data-home2-qc-proto-input>
                     {{engineChoice}}
                     <label class="home2-qc-label">
@@ -4062,6 +4066,10 @@ public sealed partial class HtmlViews
                             <input name="password" type="password" autocomplete="off">
                         </label>
                     </div>
+                    <label class="home2-qc-label" data-home2-qc-field="database" hidden>
+                        <span>{{(de ? "Datenbank (optional)" : "Database (optional)")}}</span>
+                        <input name="database" autocomplete="off" spellcheck="false" placeholder="{{A(de ? "leer: alle zeigen" : "empty: show all")}}">
+                    </label>
                     <label class="home2-qc-label" data-home2-qc-field="fileRoot">
                         <span>{{(de ? "Startverzeichnis (optional)" : "Start folder (optional)")}}</span>
                         <input name="fileRoot" autocomplete="off" spellcheck="false" placeholder="/">
@@ -6546,12 +6554,14 @@ public sealed partial class HtmlViews
                         const qcSubmitLabel = protoDialog.querySelector('[data-home2-qc-submit]');
                         const originalHostPlaceholder = qcHostInput ? (qcHostInput.getAttribute('placeholder') || '') : '';
                         const originalHostLabel = qcHostLabel ? qcHostLabel.textContent : 'Host';
-                        const defaultPorts = { rdp: '3389', ssh: '22', vnc: '5900', sftp: '22', ftp: '21', smb: '445', website: '', webdav: '' };
+                        const defaultPorts = { rdp: '3389', ssh: '22', vnc: '5900', sftp: '22', ftp: '21', smb: '445', website: '', webdav: '', mssql: '1433', mysql: '3306', postgres: '5432' };
                         // Which chip the dialog starts on. Not a fixed protocol: the user decides
                         // which ones exist here, and the first surviving one is the only safe pick.
-                        const qcDefaultProto = qcProtoButtons.length
+                        // (The first in the user's order - the server put it into the field; the list itself
+                        // is grouped and may start with another.)
+                        const qcDefaultProto = (qcProtoInput && qcProtoInput.value) || (qcProtoButtons.length
                             ? qcProtoButtons[0].dataset.home2QcProto
-                            : 'rdp';
+                            : 'rdp');
 
                         const setField = (name, on) => {
                             const el = protoDialog.querySelector('[data-home2-qc-field="' + name + '"]');
@@ -6567,7 +6577,11 @@ public sealed partial class HtmlViews
                                 qcProtoInput.value = value;
                             }
                             qcProtoButtons.forEach(button => button.classList.toggle('active', button.dataset.home2QcProto === value));
+                            if (typeof window.MatgateKindSync === 'function') {
+                                window.MatgateKindSync(protoDialog.querySelector('[data-kind-select]'));
+                            }
                             const isWeb = value === 'website';
+                            setField('database', value === 'mssql' || value === 'mysql' || value === 'postgres');
                             const isDav = value === 'webdav';
                             if (qcSubmitLabel) {
                                 qcSubmitLabel.textContent = isWeb ? qcSubmitLabel.dataset.browser : qcSubmitLabel.dataset.connect;
@@ -18424,6 +18438,10 @@ public sealed partial class HtmlViews
                         background: var(--surface);
                         border-bottom: 1px solid var(--line);
                         display: flex;
+                        /* Never squeezed: with the side panel open the column below asks for all the height
+                           there is, and the row shrank to its 40 pixels - lower than without the panel, the
+                           tabs sticking out above it. */
+                        flex: 0 0 auto;
                         gap: 8px;
                         min-height: 40px;
                         overflow: visible;
@@ -21253,7 +21271,67 @@ public sealed partial class HtmlViews
                     .home2-qc-proto-icon .icon { height: 14px; width: 14px; }
                     /* Server form: protocol picker reuses the quick-connect chip look. */
                     .server-protocol-field { display: grid; gap: 8px; }
-                    .server-protocol-picker { display: flex; flex-wrap: wrap; gap: 8px; }
+                    .server-protocol-picker { display: block; max-width: 460px; }
+                    /* The choice of a kind (HtmlViews.KindSelect): a field showing the chosen one, and a
+                       grouped list below it. */
+                    .kind-select { position: relative; }
+                    .kind-select-options { display: none !important; }
+                    .kind-select-button {
+                        align-items: center;
+                        background: var(--surface);
+                        border: 1px solid var(--line);
+                        border-radius: 12px;
+                        box-shadow: none;
+                        color: var(--text);
+                        cursor: pointer;
+                        display: flex;
+                        font: inherit;
+                        gap: 10px;
+                        justify-content: space-between;
+                        min-height: 52px;
+                        padding: 7px 12px 7px 9px;
+                        text-align: left;
+                        width: 100%;
+                    }
+                    .kind-select-button:hover { border-color: var(--accent); }
+                    .kind-select-button:focus-visible,
+                    .kind-select-button[aria-expanded="true"] {
+                        border-color: var(--accent);
+                        box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 22%, transparent);
+                        outline: none;
+                    }
+                    .kind-select-current { align-items: center; display: flex; gap: 10px; min-width: 0; }
+                    .kind-select-chevron { color: var(--muted); display: inline-flex; flex: 0 0 auto; }
+                    .kind-select-chevron .icon { height: 16px; width: 16px; }
+                    .kind-icon {
+                        align-items: center;
+                        background: color-mix(in srgb, var(--proto, var(--accent)) 18%, transparent);
+                        border-radius: 10px;
+                        color: var(--proto, var(--accent));
+                        display: inline-flex;
+                        flex: 0 0 auto;
+                        height: 34px;
+                        justify-content: center;
+                        width: 34px;
+                    }
+                    .kind-icon .icon { height: 18px; width: 18px; }
+                    .kind-text { display: grid; justify-items: start; line-height: 1.25; min-width: 0; text-align: left; }
+                    .kind-name { font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                    .kind-desc { color: var(--muted); font-size: 12.5px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                    .toolbar-menu-panel.kind-menu { gap: 2px; overflow-y: auto; overscroll-behavior: contain; }
+                    .kind-menu .toolbar-menu-heading {
+                        color: var(--muted);
+                        font-size: 11.5px;
+                        font-weight: 700;
+                        letter-spacing: .04em;
+                        padding: 10px 10px 4px;
+                        text-transform: uppercase;
+                    }
+                    .kind-menu .toolbar-menu-heading:first-child { padding-top: 4px; }
+                    .kind-menu .toolbar-menu-item { border-radius: 10px; gap: 10px; min-height: 48px; padding: 6px 10px 6px 7px; white-space: normal; }
+                    .kind-menu .toolbar-menu-item .kind-icon { height: 30px; width: 30px; }
+                    .kind-menu .toolbar-menu-item.active { background: color-mix(in srgb, var(--proto, var(--accent)) 14%, transparent); }
+                    .kind-menu .toolbar-menu-item.active .kind-name { color: var(--proto, var(--accent)); }
                     /* Server form: visual icon picker (shows the real icons as tiles). */
                     .icon-picker-field { display: grid; gap: 8px; }
                     .icon-picker { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -24971,7 +25049,8 @@ public sealed partial class HtmlViews
                                 head.append(heading, close);
                                 panel.insertBefore(head, panel.firstChild);
                                 panel.classList.add('menu-sheet');
-                                document.body.appendChild(panel);
+                                // In an open dialog the sheet stays in it: under <body> it would lie beneath the dialog.
+                                (trigger.closest('dialog[open]') || document.body).appendChild(panel);
                             }
                             else if (panel.getBoundingClientRect().right > window.innerWidth - 8) {
                                 // Beside its button, but never off the right edge of the screen.
@@ -25002,6 +25081,9 @@ public sealed partial class HtmlViews
                             panel.setAttribute('data-menu-dynamic', '1');
                             panel.setAttribute('data-menu-close', options.closeLabel || 'Close');
                             panel.hidden = true;
+                            if (options.panelClass) {
+                                panel.classList.add(options.panelClass);
+                            }
                             options.items.forEach((item) => {
                                 if (item.separator) {
                                     const line = document.createElement('div');
@@ -25011,13 +25093,38 @@ public sealed partial class HtmlViews
                                     return;
                                 }
 
+                                // A heading over the entries that follow it (a group of them).
+                                if (item.heading) {
+                                    const heading = document.createElement('div');
+                                    heading.className = 'toolbar-menu-heading';
+                                    heading.setAttribute('role', 'presentation');
+                                    heading.textContent = item.heading;
+                                    panel.appendChild(heading);
+                                    return;
+                                }
+
                                 const button = document.createElement('button');
                                 button.type = 'button';
-                                button.className = 'toolbar-button toolbar-menu-item file-menu-item' + (item.danger ? ' danger' : '');
-                                button.setAttribute('role', 'menuitem');
+                                button.className = 'toolbar-button toolbar-menu-item file-menu-item' + (item.danger ? ' danger' : '') + (item.active ? ' active' : '');
+                                button.setAttribute('role', item.active !== undefined ? 'menuitemradio' : 'menuitem');
+                                if (item.active !== undefined) {
+                                    button.setAttribute('aria-checked', item.active ? 'true' : 'false');
+                                }
                                 button.disabled = !!item.disabled;
-                                button.innerHTML = (item.iconHtml || '') + '<span></span>';
-                                button.lastChild.textContent = item.label || '';
+                                if (item.html !== undefined) {
+                                    // Markup of the page's own (an option's face), never text from outside.
+                                    button.innerHTML = item.html;
+                                }
+                                else {
+                                    button.innerHTML = (item.iconHtml || '') + '<span></span>';
+                                    button.lastChild.textContent = item.label || '';
+                                }
+                                if (item.style) {
+                                    button.style.cssText = item.style;
+                                }
+                                if (item.value !== undefined) {
+                                    button.dataset.value = item.value;
+                                }
                                 button.addEventListener('click', () => {
                                     closeToolbarMenu();
                                     item.onSelect();
@@ -25059,6 +25166,113 @@ public sealed partial class HtmlViews
                         window.addEventListener('scroll', closeContextMenu, true);
                         window.addEventListener('blur', closeContextMenu);
                         window.addEventListener('resize', closeContextMenu);
+
+                        // ---- The choice of a kind (HtmlViews.KindSelect) ----------------------------------
+                        // A field that shows the chosen kind; a click opens all kinds, grouped, just below it
+                        // (on a phone as a sheet). The options are hidden buttons in the page: choosing one in
+                        // the list clicks it, so whatever the page listens to on the options still hears it.
+                        const kindSync = (select) => {
+                            if (!select) {
+                                return;
+                            }
+                            const chosen = select.querySelector('[data-kind-options] > .active') || select.querySelector('[data-kind-options] > button');
+                            const face = select.querySelector('[data-kind-current]');
+                            if (chosen && face) {
+                                face.innerHTML = chosen.innerHTML;
+                            }
+                        };
+                        window.MatgateKindSync = kindSync;
+                        let kindWasOpen = null;
+                        window.addEventListener('pointerdown', (event) => {
+                            const button = event.target instanceof Element ? event.target.closest('[data-kind-button]') : null;
+                            kindWasOpen = button && button.getAttribute('aria-expanded') === 'true' ? button : null;
+                        }, true);
+                        document.addEventListener('click', (event) => {
+                            const target = event.target instanceof Element ? event.target : null;
+                            if (!target) {
+                                return;
+                            }
+
+                            // An option chosen - by the list or by a script: it is the one shown from now on.
+                            const option = target.closest('[data-kind-options] > button');
+                            if (option) {
+                                const select = option.closest('[data-kind-select]');
+                                select.querySelectorAll('[data-kind-options] > button').forEach((other) => other.classList.toggle('active', other === option));
+                                kindSync(select);
+                                return;
+                            }
+
+                            const trigger = target.closest('[data-kind-button]');
+                            if (!trigger || typeof window.MatgateOpenMenu !== 'function') {
+                                return;
+                            }
+
+                            // A second click on the field closes the list again (the press already did).
+                            if (kindWasOpen === trigger || trigger.getAttribute('aria-expanded') === 'true') {
+                                kindWasOpen = null;
+                                closeToolbarMenu();
+                                return;
+                            }
+
+                            const select = trigger.closest('[data-kind-select]');
+                            const items = [];
+                            let group = null;
+                            select.querySelectorAll('[data-kind-options] > button').forEach((entry) => {
+                                if (entry.dataset.kindGroup && entry.dataset.kindGroup !== group) {
+                                    group = entry.dataset.kindGroup;
+                                    items.push({ heading: group });
+                                }
+                                items.push({
+                                    html: entry.innerHTML,
+                                    style: entry.getAttribute('style') || '',
+                                    active: entry.classList.contains('active'),
+                                    value: entry.dataset.kindValue,
+                                    onSelect: () => {
+                                        entry.click();
+                                        trigger.focus();
+                                    }
+                                });
+                            });
+
+                            const box = trigger.getBoundingClientRect();
+                            window.MatgateOpenMenu({
+                                trigger,
+                                at: { x: box.left, y: box.bottom + 4 },
+                                title: select.dataset.title || '',
+                                closeLabel: select.dataset.close || 'Close',
+                                panelClass: 'kind-menu',
+                                items
+                            });
+                            const panel = activeMenu && activeMenu.trigger === trigger ? activeMenu.panel : null;
+                            if (panel && !panel.classList.contains('menu-sheet')) {
+                                // As wide as the field at least; below it where there is room, else above it.
+                                panel.style.minWidth = box.width + 'px';
+                                panel.style.left = '0';
+                                panel.style.right = 'auto';
+                                panel.style.top = '0';
+                                panel.style.bottom = '';
+                                const below = window.innerHeight - box.bottom - 12;
+                                const above = box.top - 12;
+                                const height = panel.scrollHeight;
+                                if (height > below && above > below) {
+                                    panel.parentElement.style.top = (box.top - 4) + 'px';
+                                    panel.style.top = 'auto';
+                                    panel.style.bottom = '0';
+                                    panel.style.maxHeight = Math.max(160, above) + 'px';
+                                }
+                                else {
+                                    panel.style.maxHeight = Math.max(160, below) + 'px';
+                                }
+                                const width = panel.getBoundingClientRect().width;
+                                panel.parentElement.style.left = Math.max(8, Math.min(box.left, window.innerWidth - width - 8)) + 'px';
+                                const current = panel.querySelector('.toolbar-menu-item.active');
+                                if (current && current.offsetTop + current.offsetHeight > panel.clientHeight) {
+                                    // The chosen one in sight - by the list's own scroll position: scrollIntoView
+                                    // would scroll the dialog as well, and a scroll outside the list closes it.
+                                    panel.scrollTop = current.offsetTop - 8;
+                                }
+                            }
+                        });
 
                         document.addEventListener('click', (event) => {
                             const target = event.target instanceof Element ? event.target : null;
@@ -26314,40 +26528,38 @@ public sealed partial class HtmlViews
             """;
     }
 
-    // Start-page-style protocol picker for the server form: coloured icon chips (matching the New Tab
-    // quick-connect chips) writing to a hidden protocol input. The form script wires chip clicks +
-    // per-protocol field visibility.
+    // The kind of a connection in its form: one field that opens the list of all kinds, grouped (see
+    // KindSelect), writing to a hidden protocol input. The form script listens to the options and shows the
+    // fields of the kind chosen.
     private static string ServerProtocolPicker(HttpContext context, ServerProtocol? effective)
     {
-        var options = new (ServerProtocol Protocol, string Value, string Name, string IconKey, string Color)[]
+        var de = Language(context) == "de";
+        var options = new (ServerProtocol Protocol, string Name, string Desc, string IconKey, string Color)[]
         {
-            (ServerProtocol.Rdp, "Rdp", "RDP", "rdp", "#4c8dff"),
-            (ServerProtocol.Vnc, "Vnc", "VNC", "vnc", "#b06cff"),
-            (ServerProtocol.Ssh, "Ssh", "SSH", "ssh", "#8a7cff"),
-            (ServerProtocol.Sftp, "Sftp", "SFTP", "sftp", "#f0a92b"),
-            (ServerProtocol.Ftp, "Ftp", "FTP", "ftp", "#e0863a"),
-            (ServerProtocol.Smb, "Smb", "SMB", "smb", "#35c07f"),
-            (ServerProtocol.WebDav, "WebDav", "WebDAV", "cloud", "#2bb3c0"),
-            (ServerProtocol.Agent, "Agent", "Agent", "desktop", "#7fd6a8"),
-            (ServerProtocol.MsSql, "MsSql", "SQL Server", "database", "#d9534f"),
-            (ServerProtocol.MySql, "MySql", "MySQL", "database", "#00758f"),
-            (ServerProtocol.Postgres, "Postgres", "PostgreSQL", "database", "#336791"),
-            (ServerProtocol.WireGuard, "WireGuard", "WireGuard", "shield", "#88171a"),
-            (ServerProtocol.Website, "Website", T(context, "Website (Beta)"), "globe", "#3aa0ff"),
+            (ServerProtocol.Rdp, "RDP", de ? "Windows-Remotedesktop" : "Windows remote desktop", "rdp", "#4c8dff"),
+            (ServerProtocol.Vnc, "VNC", de ? "Bildschirm eines Rechners" : "A computer's screen", "vnc", "#b06cff"),
+            (ServerProtocol.Ssh, "SSH", de ? "Terminal (Linux / Unix)" : "Terminal (Linux / Unix)", "ssh", "#8a7cff"),
+            (ServerProtocol.Agent, "Agent", de ? "Matgate-Agent auf einem Rechner" : "Matgate agent on a computer", "desktop", "#7fd6a8"),
+            (ServerProtocol.Sftp, "SFTP", de ? "Dateien über SSH" : "Files over SSH", "sftp", "#f0a92b"),
+            (ServerProtocol.Ftp, "FTP", de ? "Dateiübertragung" : "File transfer", "ftp", "#e0863a"),
+            (ServerProtocol.Smb, "SMB", de ? "Windows-Freigabe" : "Windows share", "smb", "#35c07f"),
+            (ServerProtocol.WebDav, "WebDAV", de ? "Dateien über HTTP" : "Files over HTTP", "cloud", "#2bb3c0"),
+            (ServerProtocol.MsSql, "SQL Server", "Microsoft SQL Server", "database", "#d9534f"),
+            (ServerProtocol.MySql, "MySQL", "MySQL / MariaDB", "database", "#00758f"),
+            (ServerProtocol.Postgres, "PostgreSQL", de ? "PostgreSQL-Datenbank" : "PostgreSQL database", "database", "#336791"),
+            (ServerProtocol.Website, T(context, "Website (Beta)"), de ? "Webseite oder Gerät über Matgate" : "A website or a device through Matgate", "globe", "#3aa0ff"),
+            (ServerProtocol.WireGuard, "WireGuard", de ? "Tunnel in ein anderes Netz" : "A tunnel into another network", "shield", "#88171a"),
         };
 
         var current = effective is null or ServerProtocol.LegacyBrowser ? ServerProtocol.Rdp : effective.Value;
-        var chips = string.Join("", options.Select(option => $$"""
-            <button type="button" class="home2-qc-proto server-proto-option{{(option.Protocol == current ? " active" : "")}}" data-protocol-option="{{option.Value}}" style="--proto: {{option.Color}}">
-                <span class="home2-qc-proto-icon">{{Icon(option.IconKey)}}</span>
-                <span>{{E(option.Name)}}</span>
-            </button>
-            """));
+        var kinds = options
+            .Select(option => new KindOption(option.Protocol.ToString(), option.Name, option.Desc, option.IconKey, option.Color, KindGroup(option.Protocol.ToString(), de)))
+            .ToList();
 
         return $$"""
             <div class="server-protocol-picker" data-protocol-picker>
                 <input type="hidden" name="protocol" value="{{A(current.ToString())}}" data-protocol-input>
-                {{chips}}
+                {{KindSelect(kinds, current.ToString(), "data-protocol-option", de)}}
             </div>
             """;
     }

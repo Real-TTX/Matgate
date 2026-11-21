@@ -11,6 +11,7 @@
 // Matgate is opened as mg.localhost: a frame keeps its cookies only within one site, and
 // <label>.mg.localhost is the same site as mg.localhost (127.0.0.1 is not).
 const { chromium } = require("playwright-core");
+const chooseKind = require("./choose-kind");
 const crypto = require("crypto");
 const BASE = "http://mg.localhost:18091";
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -351,7 +352,7 @@ const SITE = /^http:\/\/[a-z2-7]{20}\.mg\.localhost:18091/;
   // where it takes a start address or a sign-in.
   await home.click(".home2-quick-row [data-home2-more]");
   await home.waitForSelector("[data-home2-proto-dialog][open]", { timeout: 10000 });
-  await home.click("[data-home2-qc-proto='website']");
+  await chooseKind(home, "[data-home2-proto-dialog]", "website");
   // With host names for websites a tab can go anywhere - so the browser may start without an address.
   check("it asks for a start address, and needs none", await home.evaluate(() => ({
     label: document.querySelector("[data-home2-qc-hostlabel]").textContent,

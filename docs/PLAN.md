@@ -713,8 +713,8 @@ Reihenfolge noch nicht abgesprochen - vor dem Anfangen fragen, welcher zuerst.
    „Zertifikat nicht prüfen“ = `IgnoreCertificate`), `Services/Database/DatabaseGateway.cs` (je Server ein
    `IDatabaseDialect`, Ausführen/Lesen gemeinsam), Seite `/db/<id>/browser` (`HtmlViews.Database.cs`), API
    `/api/db/<id>/databases|objects|rows|query`; Zugangsdaten ohne gespeichertes Passwort fragt die Seite und
-   schickt sie als Header mit. Test `tests/database.js` gegen postgres/mariadb/mssql im Teststapel. Offen:
-   Quick-Connect für Datenbanken, Bearbeiten von Zeilen, Export (CSV), Spalten-/Index-Ansicht.
+   schickt sie als Header mit. Test `tests/database.js` gegen postgres/mariadb/mssql im Teststapel. Seit 0.37.0 auch im Quick-Connect (Feld „Datenbank“, optional); die Verbindungsart ist dort und im Formular ein gruppiertes Aufklappfeld (`HtmlViews.KindSelect.cs`). Offen:
+   Bearbeiten von Zeilen, Export (CSV), Spalten-/Index-Ansicht.
    Ursprünglicher Wunsch: **Datenbanken als Verbindung + Datenbank-Browser.** Neue Protokolle MSSQL, MySQL/MariaDB, PostgreSQL
    (Host, Port, Benutzer, Passwort, Datenbank optional). Ein Browser wie der Dateimanager: links Datenbanken
    → Schemas → Tabellen/Sichten, rechts Tabellendaten (Seiten, Filter, Sortierung) und ein Abfragefenster.

@@ -62,6 +62,7 @@ usable from a laptop or a phone – installable as a PWA.
 - **SQL Server, MySQL / MariaDB and PostgreSQL** as connections, opened in one **database browser**: the
   databases with their tables and views, a table's rows a page at a time (a click on a column orders by it),
   and a field for statements of your own. A login that is not stored is asked for
+- Also through **quick connect**, with nothing saved: host, port, sign-in and optionally the database
 
 **Files**
 - File gateway for **SFTP, FTP and SMB** – no extra privileges in the container

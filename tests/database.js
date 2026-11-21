@@ -154,6 +154,48 @@ const check = (name, got, want) => {
   const status = await page.evaluate(async id => (await fetch("/api/db/" + id + "/databases", { headers: { "X-Matgate-Csrf": "wrong" } })).status, kinds[0].server.id);
   check("without the page's token the database is not read", status, 400);
 
+  // ================================================================== quick connect, with nothing saved
+  await page.goto(BASE + "/", { waitUntil: "networkidle" });
+  await sleep(800);
+  check("the home page offers the three databases for quick connect", await page.evaluate(() => [...document.querySelectorAll(".home2-quick-row [data-home2-qc]")].map(chip => chip.dataset.home2Qc).filter(key => /sql|postgres/.test(key))), ["mssql", "mysql", "postgres"]);
+  await page.click(".home2-quick-row [data-home2-more]");
+  await page.waitForSelector("[data-home2-proto-dialog][open]", { timeout: 10000 });
+  check("the kind is one field, not a row of chips", await page.evaluate(() => [
+    document.querySelectorAll("[data-home2-proto-dialog] [data-kind-button]").length,
+    [...document.querySelectorAll("[data-home2-proto-dialog] [data-home2-qc-proto]")].filter(chip => chip.offsetParent !== null).length]), [1, 0]);
+  await page.click("[data-home2-proto-dialog] [data-kind-button]");
+  check("it opens a list grouped by what a connection is for", await page.evaluate(() => [...document.querySelectorAll(".kind-menu .toolbar-menu-heading")].map(h => h.textContent)), ["Remote access", "Files", "Web", "Databases"]);
+  check("the list hangs from the field, inside the dialog", await page.evaluate(() => {
+    const field = document.querySelector("[data-home2-proto-dialog] [data-kind-button]").getBoundingClientRect();
+    const list = document.querySelector(".kind-menu").getBoundingClientRect();
+    return [!!document.querySelector(".kind-menu").closest("dialog[open]"), Math.abs(list.left - field.left) < 2, list.top >= field.bottom, list.width >= field.width - 1];
+  }), [true, true, true, true]);
+  await page.click(".kind-menu .toolbar-menu-item[data-value='postgres']");
+  const quickFields = () => page.evaluate(() => ({
+    kind: document.querySelector("[data-home2-qc-proto-input]").value,
+    shown: document.querySelector("[data-home2-proto-dialog] [data-kind-current] .kind-name").textContent,
+    port: document.querySelector("[data-home2-qc-port]").value,
+    fields: [...document.querySelectorAll("[data-home2-qc-form] input:not([type='hidden'])")].filter(field => field.offsetParent !== null).map(field => field.name),
+  }));
+  check("PostgreSQL asks for host, port, sign-in and, if wanted, the database", await quickFields(), { kind: "postgres", shown: "Postgres", port: "5432", fields: ["host", "port", "username", "password", "database"] });
+  check("and the list is closed again", await page.evaluate(() => !document.querySelector(".kind-menu")), true);
+  await page.click("[data-home2-proto-dialog] [data-kind-button]");
+  await page.click("[data-home2-proto-dialog] [data-kind-button]");
+  check("a second click on the field closes the list", await page.evaluate(() => !document.querySelector(".kind-menu")), true);
+  await page.fill("[data-home2-qc-host]", "postgres");
+  await page.fill("[data-home2-qc-form] [name='username']", "demo");
+  await page.fill("[data-home2-qc-form] [name='password']", "demo-only-pw");
+  await page.fill("[data-home2-qc-form] [name='database']", "shop");
+  await page.click("[data-home2-qc-form] button[type='submit']");
+  let quickFrame = null;
+  for (let i = 0; i < 60 && !quickFrame; i++) { await sleep(300); quickFrame = frameOf(); }
+  check("connecting opens the database browser in a tab", !!quickFrame, true);
+  if (quickFrame) {
+    const quickTables = await waitFor(() => { const names = [...document.querySelectorAll("[data-db-tree] .dbx-node-table span")].map(s => s.textContent); return names.includes("customers") ? names : null; }, null, 30000);
+    check("with the tables of the database asked for", !!quickTables && quickTables.includes("customers"), true);
+  }
+  check("and nothing was saved", (await servers()).filter(s => s.name === "postgres").length, 0);
+
   await b.close();
   console.log(failures.length ? "\n" + failures.length + " FAILED: " + failures.join(", ") : "\nall passed");
   process.exit(failures.length ? 1 : 0);

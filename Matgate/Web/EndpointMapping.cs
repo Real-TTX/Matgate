@@ -5368,9 +5368,13 @@ public static partial class EndpointMapping
             ServerProtocol.Sftp => 22,
             ServerProtocol.Ftp => 21,
             ServerProtocol.Smb => 445,
+            ServerProtocol.MsSql => 1433,
+            ServerProtocol.MySql => 3306,
+            ServerProtocol.Postgres => 5432,
             _ => 0
         };
         var port = int.TryParse(form["port"].ToString(), out var parsedPort) && parsedPort > 0 ? parsedPort : defaultPort;
+        var isDatabase = ServerEndpoint.IsDatabaseProtocol(protocol);
 
         var server = new ServerEndpoint
         {
@@ -5388,6 +5392,8 @@ public static partial class EndpointMapping
             Domain = (form["domain"].ToString() ?? "").Trim(),
             FileRootPath = (form["fileRoot"].ToString() ?? "").Trim(),
             WebsiteUrl = isWebsite ? target : "",
+            // A database: the one to open, or all of them when the field stays empty.
+            DatabaseName = isDatabase ? (form["database"].ToString() ?? "").Trim() : "",
             Notes = HtmlViews.Translate(context, "Quick connect")
         };
 

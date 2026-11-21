@@ -5,6 +5,7 @@
 // and a link or a redirect to another machine is followed through Matgate - each website in a frame of its
 // own under the path. Anywhere: 0.27.0 stopped at the edge of the network, which the owner did not want.
 const { chromium } = require("playwright-core");
+const chooseKind = require("./choose-kind");
 const BASE = "http://127.0.0.1:18092";
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const failures = [];
@@ -39,15 +40,15 @@ const check = (name, got, want) => {
     const boxes = [...document.querySelectorAll(".home2-quick-row .home2-proto-chip")].map(chip => chip.getBoundingClientRect());
     const row = document.querySelector(".home2-quick-row");
     return [boxes.length, boxes.every(box => box.left >= 0 && box.right <= window.innerWidth && box.width > 40), row.scrollWidth <= row.clientWidth + 1];
-  }), [9, true, true]);
-  check("and their names are not cut off", await page.evaluate(() => [...document.querySelectorAll(".home2-quick-row .home2-proto-chip-name")].every(name => name.scrollWidth <= name.clientWidth + 1)), true);
+  }), [12, true, true]);
+  check("and their names are not cut off", await page.evaluate(() => [...document.querySelectorAll(".home2-quick-row .home2-proto-chip-name")].filter(name => name.scrollWidth > name.clientWidth + 1).map(name => name.textContent + ":" + name.scrollWidth + "/" + name.clientWidth)), []);
   await page.setViewportSize({ width: 1300, height: 860 });
   await sleep(300);
 
   // The dialog (under "More") still has the browser, for a start address or a sign-in.
   await page.click(".home2-quick-row [data-home2-more]");
   await page.waitForSelector("[data-home2-proto-dialog][open]", { timeout: 10000 });
-  await page.click("[data-home2-qc-proto='website']");
+  await chooseKind(page, "[data-home2-proto-dialog]", "website");
   const asked = () => page.evaluate(() => ({
     label: document.querySelector("[data-home2-qc-hostlabel]").textContent,
     required: document.querySelector("[data-home2-qc-host]").required,
@@ -57,9 +58,9 @@ const check = (name, got, want) => {
   }));
   check("the dialog asks for the address to start with, and takes none as well", (({ focused, ...rest }) => rest)(await asked()), { label: "Start URL", required: false, button: "Open browser", fields: ["host", "username", "password"] });
   check("and says so", await page.evaluate(() => /empty/i.test(document.querySelector("[data-home2-qc-host]").placeholder)), true);
-  await page.click("[data-home2-qc-proto='rdp']");
+  await chooseKind(page, "[data-home2-proto-dialog]", "rdp");
   check("another protocol has its own words again", [(await asked()).label, (await asked()).button, (await asked()).required], ["Host", "Connect", true]);
-  await page.click("[data-home2-qc-proto='website']");
+  await chooseKind(page, "[data-home2-proto-dialog]", "website");
 
   // ---------------------------------------------------------------- started with an address, written without http://
   await page.fill("[data-home2-qc-host]", "site:8080");

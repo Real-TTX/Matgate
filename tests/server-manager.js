@@ -54,9 +54,16 @@ const check = (name, got, want) => {
   const beside = await startPage();
   check("the start page beside it is quick connect, not the same list a second time", [beside.quick, beside.list, /New connection|Neue Verbindung/.test(beside.title)], [true, false, true]);
   const widthBeside = await page.evaluate(() => document.getElementById("shell-page-panels").offsetWidth);
+  const tabRow = () => page.evaluate(() => {
+    const row = document.querySelector(".shell-page-row").getBoundingClientRect();
+    const tab = document.querySelector("#session-tabs .session-tab").getBoundingClientRect();
+    return [Math.round(row.height), Math.round(tab.top - row.top)];
+  });
+  const rowBeside = await tabRow();
   await togglePanel();
   await sleep(300);
   check("the view \"Normal\" puts it away", await shown(), false);
+  check("the tab row is as high with the panel as without, the tabs in the same place", rowBeside, await tabRow());
   const alone = await startPage();
   check("then the page has the room and is the list again", [await page.evaluate(() => document.getElementById("shell-page-panels").offsetWidth) > widthBeside + 200, alone.list, /Connections|Verbindungen/.test(alone.title)], [true, true, true]);
   await togglePanel();

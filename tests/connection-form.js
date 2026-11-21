@@ -6,6 +6,7 @@
 // sits behind one button; a folder is chosen from those there are; a folder has a page of its own (name,
 // icon, which connections); and a connection opened from the home page closes its tab when it is done.
 const { chromium } = require("playwright-core");
+const chooseKind = require("./choose-kind");
 const BASE = "http://127.0.0.1:18091";
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const failures = [];
@@ -69,13 +70,13 @@ const RENAMED = "Test-Ordner neu";
   check("the rest waits behind one button", await page.evaluate(() => [document.querySelector("[data-more-body]").hidden, document.querySelector("[data-more-toggle]").getAttribute("aria-expanded")]), [true, "false"]);
   check("the icons do not take the page: the choice is closed", await page.evaluate(() => document.querySelector("[data-icon-body]").hidden), true);
   check("the port field says which port an empty one means", await page.getAttribute("[data-port-input]", "placeholder"), "3389");
-  await page.click("[data-protocol-option='Ssh']");
+  await chooseKind(page, "form[data-server-form]", "Ssh");
   check("and follows the kind of connection", await page.getAttribute("[data-port-input]", "placeholder"), "22");
-  await page.click("[data-protocol-option='Website']");
+  await chooseKind(page, "form[data-server-form]", "Website");
   check("a website has an address instead of host and port - and a sign-in, for the pages that ask the browser for one", await page.evaluate(() => [
     document.querySelector("[name='host']").closest("label").hidden, document.querySelector("[name='websiteUrl']").closest("label").hidden,
     document.querySelector("[name='targetUserName']").closest("section").hidden]), [true, false, false]);
-  await page.click("[data-protocol-option='Ssh']");
+  await chooseKind(page, "form[data-server-form]", "Ssh");
   await page.click("[data-more-toggle]");
   check("the button opens the rest, with what belongs to this kind", await page.evaluate(() => [
     document.querySelector("[data-more-body]").hidden,
@@ -102,7 +103,7 @@ const RENAMED = "Test-Ordner neu";
 
   // --- The second connection takes the folder from the list.
   await page.goto(BASE + "/admin/servers/new", { waitUntil: "networkidle" });
-  await page.click("[data-protocol-option='Ssh']");
+  await chooseKind(page, "form[data-server-form]", "Ssh");
   await page.fill("[name='name']", NAMES[1]);
   await page.fill("[name='host']", "ssh");
   check("the folder just made is in the list", await page.evaluate(n => [...document.querySelectorAll("[data-folder-select] option")].some(o => o.value === n), FOLDER), true);
@@ -150,7 +151,7 @@ const RENAMED = "Test-Ordner neu";
 
   // --- A third connection joins: it gets the folder's icon without being asked for one.
   await page.goto(BASE + "/admin/servers/new", { waitUntil: "networkidle" });
-  await page.click("[data-protocol-option='Vnc']");
+  await chooseKind(page, "form[data-server-form]", "Vnc");
   await page.fill("[name='name']", NAMES[2]);
   await page.fill("[name='host']", "desktop");
   await page.selectOption("[data-folder-select]", RENAMED);
