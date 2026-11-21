@@ -131,6 +131,7 @@ public sealed class JsonDataStore
             foreach (var credential in credentials)
             {
                 credential.Password = _protector.Protect(credential.Password);
+                credential.PrivateKey = _protector.Protect(credential.PrivateKey);
             }
 
             await WriteListAsync(CredentialsPath, credentials, cancellationToken);
@@ -147,6 +148,7 @@ public sealed class JsonDataStore
         foreach (var credential in credentials)
         {
             credential.Password = _protector.Unprotect(credential.Password);
+            credential.PrivateKey = _protector.Unprotect(credential.PrivateKey);
         }
 
         return credentials;
@@ -251,6 +253,7 @@ public sealed class JsonDataStore
             foreach (var server in servers)
             {
                 server.Password = _protector.Unprotect(server.Password);
+                server.PrivateKey = _protector.Unprotect(server.PrivateKey);
             }
 
             // A connection that uses stored credentials gets their login here, where every use of a
@@ -266,6 +269,7 @@ public sealed class JsonDataStore
                         server.UserName = credential.UserName;
                         server.Password = credential.Password;
                         server.Domain = credential.Domain;
+                        server.PrivateKey = credential.PrivateKey;
                         server.CredentialName = credential.Name;
                     }
                 }
@@ -402,11 +406,13 @@ public sealed class JsonDataStore
             foreach (var server in servers)
             {
                 server.Password = _protector.Unprotect(server.Password);
+                server.PrivateKey = _protector.Unprotect(server.PrivateKey);
             }
             update(servers);
             foreach (var server in servers)
             {
                 server.Password = _protector.Protect(server.Password);
+                server.PrivateKey = _protector.Protect(server.PrivateKey);
             }
             await WriteListAsync(ServersPath, servers, cancellationToken);
         }

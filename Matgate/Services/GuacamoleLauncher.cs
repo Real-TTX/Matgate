@@ -115,6 +115,15 @@ public sealed class GuacamoleLauncher
             parameters["password"] = server.Password;
         }
 
+        if (server.Protocol is ServerProtocol.Ssh && !string.IsNullOrWhiteSpace(server.PrivateKey))
+        {
+            parameters["private-key"] = server.PrivateKey.Replace("\r\n", "\n").Trim() + "\n";
+            if (!string.IsNullOrEmpty(server.Password))
+            {
+                parameters["passphrase"] = server.Password;
+            }
+        }
+
         if (server.Protocol == ServerProtocol.Rdp)
         {
             if (!string.IsNullOrWhiteSpace(server.Domain))

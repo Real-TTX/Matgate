@@ -111,6 +111,17 @@ public static partial class EndpointMapping
                 target.Password = password;
             }
 
+            // The key as the password: never shown again, replaced by a new one, removed only when asked.
+            var key = CleanPrivateKey(form["privateKey"].ToString());
+            if (IsChecked(form, "clearPrivateKey"))
+            {
+                target.PrivateKey = "";
+            }
+            else if (key.Length > 0)
+            {
+                target.PrivateKey = key;
+            }
+
             target.OwnerUserId = shared ? null : (existing?.OwnerUserId ?? user.Id);
             if (!shared && existing is not null && existing.IsShared)
             {

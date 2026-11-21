@@ -47,6 +47,46 @@ public sealed partial class HtmlViews
             """;
     }
 
+    // An SSH private key, pasted or read from a file - for credentials and for SSH/SFTP connections. Like the
+    // password it is never shown again: empty keeps the stored one, a box removes it.
+    internal static string PrivateKeyField(bool de, bool hasKey, string attributes = "")
+    {
+        var placeholder = hasKey
+            ? (de ? "Ein Schlüssel ist gespeichert - leer lassen: bleibt wie er ist" : "A key is stored - leave empty: stays as it is")
+            : "-----BEGIN OPENSSH PRIVATE KEY-----\n...";
+        var remove = hasKey
+            ? $"""<label class="checkbox-row"><input type="checkbox" name="clearPrivateKey" value="true"> {(de ? "Gespeicherten Schlüssel entfernen" : "Remove the stored key")}</label>"""
+            : "";
+        return $$"""
+            <label class="conn-wide private-key-field"{{attributes}}>{{(de ? "SSH-Schlüssel" : "SSH key")}} <small class="muted">({{(de ? "optional - das Passwort ist dann seine Passphrase" : "optional - the password is then its passphrase")}})</small>
+                <textarea name="privateKey" rows="4" spellcheck="false" autocomplete="off" autocapitalize="off" placeholder="{{A(placeholder)}}"></textarea>
+                <span class="private-key-actions">
+                    <button type="button" class="button" data-private-key-file>{{Icon("upload")}}<span>{{(de ? "Aus Datei" : "From file")}}</span></button>
+                    {{remove}}
+                </span>
+                <input type="file" hidden data-private-key-input>
+            </label>
+            <script>
+                (() => {
+                    // A key file (id_ed25519, .pem, .ppk) is read here and put into the box - it goes with the form.
+                    const field = document.currentScript.previousElementSibling;
+                    const input = field.querySelector('[data-private-key-input]');
+                    field.querySelector('[data-private-key-file]').addEventListener('click', () => input.click());
+                    input.addEventListener('change', async () => {
+                        const file = input.files && input.files[0];
+                        if (file && file.size < 64 * 1024) { field.querySelector('textarea').value = await file.text(); }
+                        input.value = '';
+                    });
+                })();
+            </script>
+            <style>
+                .private-key-field textarea { font-family: ui-monospace, Consolas, monospace; font-size: 12px; resize: vertical; width: 100%; }
+                .private-key-actions { align-items: center; display: flex; flex-wrap: wrap; gap: 12px; margin-top: 6px; }
+                .private-key-actions .button { align-items: center; display: inline-flex; gap: 6px; }
+            </style>
+            """;
+    }
+
     public string CredentialList(HttpContext context, MatgateUser user, IReadOnlyList<Credential> credentials, IReadOnlyDictionary<Guid, int> usage)
     {
         var de = Language(context) == "de";
@@ -164,6 +204,7 @@ public sealed partial class HtmlViews
                         <label>{{(de ? "Benutzer" : "User")}}<input name="userName" value="{{A(credential?.UserName)}}" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
                         <label>{{(de ? "Passwort" : "Password")}}<input name="password" type="password" autocomplete="new-password" placeholder="{{A(isNew ? "" : (de ? "leer lassen: bleibt wie es ist" : "leave empty: stays as it is"))}}"></label>
                         <label>{{(de ? "Domäne" : "Domain")}} <small class="muted">(optional)</small><input name="domain" value="{{A(credential?.Domain)}}" autocapitalize="off" spellcheck="false"></label>
+                        {{PrivateKeyField(de, !string.IsNullOrEmpty(credential?.PrivateKey))}}
                         <label class="conn-wide">{{(de ? "Notiz" : "Note")}} <small class="muted">(optional)</small><input name="notes" maxlength="300" value="{{A(credential?.Notes)}}"></label>
                     </div>
                 </form>

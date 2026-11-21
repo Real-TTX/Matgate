@@ -44,6 +44,10 @@ public sealed class ServerEndpoint
 
     public string Domain { get; set; } = "";
 
+    // SSH and SFTP: a private key to sign in with (stored encrypted, like the password - which is then the key's
+    // passphrase, if it has one).
+    public string PrivateKey { get; set; } = "";
+
     public string FileRootPath { get; set; } = "";
 
     // Only set for the gateway's own places ("global" | "user" | "connection" | "session") so the file

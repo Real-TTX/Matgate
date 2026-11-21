@@ -26,23 +26,7 @@ public static partial class EndpointMapping
     // the server with the login that terminal was opened with (which may have been typed in, not stored).
     private static readonly ConcurrentDictionary<string, SshLive> SshSessions = new();
 
-    private sealed record SshLive(Guid UserId, Guid ServerId, string Host, int Port, string User, string Password);
-
-    private static Renci.SshNet.ConnectionInfo SshConnectionInfo(string host, int port, string user, string password)
-    {
-        var keyboard = new KeyboardInteractiveAuthenticationMethod(user);
-        keyboard.AuthenticationPrompt += (_, e) =>
-        {
-            foreach (var prompt in e.Prompts)
-            {
-                prompt.Response = password;
-            }
-        };
-        return new Renci.SshNet.ConnectionInfo(host, port, user, new PasswordAuthenticationMethod(user, password), keyboard)
-        {
-            Timeout = TimeSpan.FromSeconds(15),
-        };
-    }
+    private sealed record SshLive(Guid UserId, Guid ServerId, string Host, int Port, string User, string Password, string PrivateKey);
 
     // A file pasted or dropped into the terminal (or picked with the toolbar's button): written through SFTP
     // into the folder the login starts in - its home - under its own name, never over a file that is there.
@@ -79,7 +63,7 @@ public static partial class EndpointMapping
 
         try
         {
-            using var sftp = new SftpClient(SshConnectionInfo(live.Host, live.Port, live.User, live.Password));
+            using var sftp = new SftpClient(SshLogin.For(live.Host, live.Port, live.User, live.Password, live.PrivateKey));
             sftp.HostKeyReceived += (_, e) => e.CanTrust = true;
             await sftp.ConnectAsync(context.RequestAborted);
             var folder = sftp.WorkingDirectory.TrimEnd('/');
@@ -442,21 +426,28 @@ public static partial class EndpointMapping
                 }
 
                 SshClient? client = null;
+                var key = server.PrivateKey ?? "";
                 for (var attempt = 0; attempt < 3 && client is null; attempt++)
                 {
-                    if (string.IsNullOrEmpty(password))
+                    // With a key the first try goes without asking: the key may need no passphrase.
+                    if (string.IsNullOrEmpty(password) && !(attempt == 0 && key.Length > 0))
                     {
-                        password = await PromptAsync($"{user}@{server.Host}'s password: ", echo: false);
+                        password = await PromptAsync(key.Length > 0 ? "Passphrase for key (or password): " : $"{user}@{server.Host}'s password: ", echo: false);
                         if (password is null)
                         {
                             return null;
                         }
                     }
 
-                    client = await ConnectAsync(server, user, password);
+                    client = await ConnectAsync(server, user, password ?? "", key);
                     if (client is null)
                     {
-                        await WriteAsync("Access denied\r\n");
+                        // Without a password yet, a refused key is no "Access denied": the password comes next.
+                        if (!string.IsNullOrEmpty(password) || key.Length == 0)
+                        {
+                            await WriteAsync("Access denied\r\n");
+                        }
+
                         password = "";
                     }
                 }
@@ -470,7 +461,7 @@ public static partial class EndpointMapping
                 try
                 {
                     var stream = client.CreateShellStream("xterm-256color", _columns, _rows, 0, 0, 64 * 1024);
-                    return new SshShell(client, stream, userId, server.Id, new SshLive(userId, server.Id, server.Host, server.Port, user, password!));
+                    return new SshShell(client, stream, userId, server.Id, new SshLive(userId, server.Id, server.Host, server.Port, user, password ?? "", key));
                 }
                 catch
                 {
@@ -548,9 +539,20 @@ public static partial class EndpointMapping
             end();
         }
 
-        private async Task<SshClient?> ConnectAsync(ServerEndpoint server, string user, string password)
+        private async Task<SshClient?> ConnectAsync(ServerEndpoint server, string user, string password, string key)
         {
-            var client = new SshClient(SshConnectionInfo(server.Host, server.Port, user, password));
+            Renci.SshNet.ConnectionInfo login;
+            try
+            {
+                login = SshLogin.For(server.Host, server.Port, user, password, key);
+            }
+            catch (Exception exception) when (exception is SshException or System.Security.Cryptography.CryptographicException or FormatException or ArgumentException or InvalidOperationException)
+            {
+                // A key that is encrypted and has no (or the wrong) passphrase yet - or is no key at all.
+                return null;
+            }
+
+            var client = new SshClient(login);
             // As Guacamole did: the host key is not checked against a list (there is none to keep it in yet).
             client.HostKeyReceived += (_, e) => e.CanTrust = true;
             try

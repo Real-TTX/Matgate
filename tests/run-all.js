@@ -72,7 +72,8 @@ const GROUPS = [
   },
   {
     name: "Group 15 - stored credentials, the order of things and the way back to it",
-    scripts: ["credentials.js", "order-defaults.js", "groups.js", "keybar-keeps-keyboard.js", "tunnel.js"],
+    scripts: ["credentials.js", "order-defaults.js", "groups.js", "keybar-keeps-keyboard.js", "tunnel.js",
+      "ssh-key.js"],
   },
 ];
 

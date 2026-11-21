@@ -1525,7 +1525,7 @@ public sealed partial class FileGatewayService(Matgate.Agent.AgentClientPool age
             throw new InvalidOperationException("SFTP benoetigt einen Ziel-Benutzer.");
         }
 
-        return new SftpClient(server.Host, server.Port, server.UserName, server.Password);
+        return new SftpClient(SshLogin.For(server.Host, server.Port, server.UserName, server.Password, server.PrivateKey));
     }
 
     private static AsyncFtpClient CreateFtpClient(ServerEndpoint server)

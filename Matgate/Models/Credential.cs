@@ -16,6 +16,9 @@ public sealed class Credential
 
     public string Domain { get; set; } = "";
 
+    // For SSH and SFTP: a private key (stored encrypted); the password is then its passphrase, if it has one.
+    public string PrivateKey { get; set; } = "";
+
     public string Notes { get; set; } = "";
 
     public Guid? OwnerUserId { get; set; }

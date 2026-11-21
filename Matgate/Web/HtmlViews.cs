@@ -25976,6 +25976,7 @@ public sealed partial class HtmlViews
                     <label data-protocols="rdp,smb" data-credential-own><span>{{(de ? "Domäne" : "Domain")}} <small class="muted">(optional)</small></span>
                         <input name="domain" value="{{A(server?.Domain)}}" autocapitalize="off" spellcheck="false">
                     </label>
+                    {{PrivateKeyField(de, server?.CredentialId is null && !string.IsNullOrEmpty(server?.PrivateKey), " data-protocols=\"ssh,sftp\" data-credential-own")}}
                 </div>
                 {{clearPassword}}
             </section>

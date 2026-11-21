@@ -100,6 +100,8 @@ usable from a laptop or a phone – installable as a PWA.
   ordinary program, without any rights on the host. Tunnelled connections open with Matgate's own engine
 - **Credentials** stored once and chosen in as many connections as you like - a new password in one place
   is the new one for all of them; personal, or shared by an administrator
+- **SSH keys** for SSH and SFTP - pasted or read from a file, in a connection or in stored credentials
+  (OpenSSH, PEM or PuTTY `.ppk`; the password is the key's passphrase), with Matgate's own engine and Guacamole
 - **Quick connect** for ad-hoc sessions without saving anything
 - **Folders** with a page of their own (name, icon, which connections lie in them), per-user **favorites**,
   search across names, folders and hosts

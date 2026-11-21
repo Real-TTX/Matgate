@@ -751,8 +751,14 @@ Reihenfolge noch nicht abgesprochen - vor dem Anfangen fragen, welcher zuerst.
    Verbindung: `CredentialId`; `JsonDataStore.GetServersAsync` setzt beim Lesen Benutzer/Passwort/Domäne der
    Zugangsdaten ein (Schreiben liest roh und speichert nie die eingesetzten Werte). Persönliche nur für den
    Besitzer, geteilte (`OwnerUserId` null) legen Admins/Server-Verwalter an; fremde IDs aus dem Formular werden
-   verworfen. Löschen nimmt sie aus allen Verbindungen. `tests/credentials.js`. Offen: SSH-Schlüssel als
-   Zugangsdaten, Zugangsdaten im Quick-Connect.
+   verworfen. Löschen nimmt sie aus allen Verbindungen. `tests/credentials.js`. Offen: Zugangsdaten im
+   Quick-Connect.
+   **SSH-Schlüssel (0.36.0):** `PrivateKey` an `ServerEndpoint` und `Credential` (verschlüsselt wie das Passwort,
+   nie wieder angezeigt, leer = bleibt, Kästchen „entfernen“), nur SSH/SFTP. `Services/SshLogin.cs` baut die
+   Anmeldung (Schlüssel, Passwort = Passphrase; dazu Passwort/keyboard-interactive) für Terminal, SFTP und
+   Datei-Upload; Guacamole bekommt `private-key`/`passphrase`. Das eigene Terminal versucht den Schlüssel erst
+   ohne zu fragen und fragt sonst „Passphrase for key (or password)“. Test `tests/ssh-key.js` gegen `ssh-key`
+   (nur Schlüssel, Testschlüssel in `tests/ssh-key/`).
    Ursprünglicher Wunsch: **Zugangsdaten-Verwaltung.** Gespeicherte Zugangsdaten als eigene Objekte (Name, Benutzer, Passwort/Schlüssel,
    Domäne), die mehrere Verbindungen benutzen; ändern an einer Stelle. Persönliche und geteilte; verschlüsselt
    wie heute die Passwörter der Verbindungen.

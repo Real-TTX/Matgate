@@ -100,6 +100,16 @@ services:
       USER_PASSWORD: demo-only-pw
       PASSWORD_ACCESS: "true"
       SUDO_ACCESS: "false"
+  # An SSH server that lets in only by key (tests/ssh-key.js): the two test-only keys in tests/ssh-key, one of
+  # them locked with a passphrase.
+  ssh-key:
+    image: lscr.io/linuxserver/openssh-server:latest
+    environment:
+      USER_NAME: demo
+      PASSWORD_ACCESS: "false"
+      PUBLIC_KEY_DIR: /keys
+      SUDO_ACCESS: "false"
+    volumes: ["./ssh-key/pub:/keys:ro"]
   # A website to show through Matgate (tests/site/server.js): "site" and, as a second host name, "other".
   site:
     image: node:22-alpine

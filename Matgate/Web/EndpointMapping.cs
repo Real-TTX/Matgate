@@ -5154,6 +5154,10 @@ public static partial class EndpointMapping
             storedServer.Password = updated.CredentialId is not null || IsChecked(form, "clearPassword")
                 ? ""
                 : string.IsNullOrWhiteSpace(updated.Password) ? storedServer.Password : updated.Password;
+            // The key, like the password: never shown again, kept unless a new one comes or it is removed.
+            storedServer.PrivateKey = updated.CredentialId is not null || IsChecked(form, "clearPrivateKey") || !UsesSshKey(updated.Protocol)
+                ? ""
+                : string.IsNullOrWhiteSpace(updated.PrivateKey) ? storedServer.PrivateKey : updated.PrivateKey;
             storedServer.OwnerUserId = updated.OwnerUserId;
             storedServer.UpdatedAt = DateTimeOffset.UtcNow;
         }, context.RequestAborted);
@@ -5774,6 +5778,7 @@ public static partial class EndpointMapping
         server.UserName = "";
         server.Password = "";
         server.Domain = "";
+        server.PrivateKey = "";
     }
 
     private static ServerEndpoint ReadServerForm(IFormCollection form, MatgateUser currentUser, ServerEndpoint? existing)
@@ -5870,6 +5875,7 @@ public static partial class EndpointMapping
             UserName = Clean(form["targetUserName"].ToString(), ""),
             Password = form["targetPassword"].ToString(),
             Domain = Clean(form["domain"].ToString(), ""),
+            PrivateKey = UsesSshKey(protocol) ? CleanPrivateKey(form["privateKey"].ToString()) : "",
             FileRootPath = Clean(form["fileRootPath"].ToString(), ""),
             DatabaseName = ServerEndpoint.IsDatabaseProtocol(protocol) ? Clean(form["databaseName"].ToString(), "") : "",
             CredentialId = Guid.TryParse(form["credentialId"].ToString(), out var credentialId) ? credentialId : null,
@@ -5887,6 +5893,16 @@ public static partial class EndpointMapping
             CreatedAt = existing?.CreatedAt ?? now,
             UpdatedAt = now
         };
+    }
+
+    // Which connections sign in with an SSH key: SSH and SFTP.
+    internal static bool UsesSshKey(ServerProtocol protocol) => protocol is ServerProtocol.Ssh or ServerProtocol.Sftp;
+
+    // A pasted private key: only what looks like one, and no more than any key is long.
+    internal static string CleanPrivateKey(string value)
+    {
+        var key = (value ?? "").Replace("\r\n", "\n").Trim();
+        return key.Length is > 0 and <= 32 * 1024 && SshLogin.LooksLikeKey(key) ? key : "";
     }
 
     private sealed record WorkspaceAccess(WorkspaceDefinition? Workspace, IResult? Result);
