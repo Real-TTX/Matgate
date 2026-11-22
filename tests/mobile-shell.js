@@ -28,8 +28,7 @@ const button = page => page.evaluate(() => {
 });
 
 (async () => {
-  let b; try { b = await chromium.launch({ channel: "msedge", headless: true }); }
-  catch { b = await chromium.launch({ channel: "chrome", headless: true }); }
+  let b = await chromium.launch({ headless: true });
   const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
   await ctx.addInitScript(() => { try { localStorage.setItem("matgate.view.mode.v1", "minimal"); } catch (e) {} });
   const page = await ctx.newPage();

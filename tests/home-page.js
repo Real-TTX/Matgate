@@ -41,8 +41,7 @@ const toHomePage = async (page) => {
 };
 
 (async () => {
-  let b; try { b = await chromium.launch({ channel: "msedge", headless: true }); }
-  catch { b = await chromium.launch({ channel: "chrome", headless: true }); }
+  let b = await chromium.launch({ headless: true });
   const ctx = await b.newContext({ viewport: { width: 1280, height: 950 } });
   await require("./list-on-start-page")(ctx);
   const page = await ctx.newPage();

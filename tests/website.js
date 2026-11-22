@@ -24,8 +24,7 @@ const check = (name, got, want) => {
 const SITE = /^http:\/\/[a-z2-7]{20}\.mg\.localhost:18091/;
 
 (async () => {
-  let b; try { b = await chromium.launch({ channel: "msedge", headless: true }); }
-  catch { b = await chromium.launch({ channel: "chrome", headless: true }); }
+  let b = await chromium.launch({ headless: true });
   const context = await b.newContext({ viewport: { width: 1300, height: 860 } });
   const page = await context.newPage();
   const signIn = async (target, base) => {

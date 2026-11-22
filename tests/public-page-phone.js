@@ -14,8 +14,7 @@ const NAME = "Handyseite";
 const PHONE = { width: 390, height: 844 };
 
 (async () => {
-  let b; try { b = await chromium.launch({ channel: "msedge", headless: true }); }
-  catch { b = await chromium.launch({ channel: "chrome", headless: true }); }
+  let b = await chromium.launch({ headless: true });
   const owner = await b.newContext({ viewport: { width: 1200, height: 900 } });
   const page = await owner.newPage();
   page.on("pageerror", e => { console.log("JS ERROR (owner): " + e.message); failures.push("JS error"); });

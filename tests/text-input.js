@@ -20,8 +20,7 @@ const onDesktop = (command, display) => {
 };
 
 (async () => {
-  let b; try { b = await chromium.launch({ channel: "msedge", headless: true }); }
-  catch { b = await chromium.launch({ channel: "chrome", headless: true }); }
+  let b = await chromium.launch({ headless: true });
   const admin = await b.newContext({ viewport: { width: 1300, height: 860 } });
   const page = await admin.newPage();
   await page.goto(BASE + "/login", { waitUntil: "networkidle" });

@@ -13,8 +13,7 @@ const check = (name, got, want) => {
 };
 
 (async () => {
-  let b; try { b = await chromium.launch({ channel: "msedge", headless: true }); }
-  catch { b = await chromium.launch({ channel: "chrome", headless: true }); }
+  let b = await chromium.launch({ headless: true });
 
   // --- The page on its own, without signing in: it has to stand for someone who is locked out.
   const plain = await b.newContext({ viewport: { width: 760, height: 620 } });

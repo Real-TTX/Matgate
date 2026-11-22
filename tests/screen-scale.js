@@ -25,8 +25,7 @@ const check = (name, got, want) => {
 const near = (a, b, tolerance) => Math.abs(a - b) <= tolerance;
 
 (async () => {
-  let b; try { b = await chromium.launch({ channel: "msedge", headless: true }); }
-  catch { b = await chromium.launch({ channel: "chrome", headless: true }); }
+  let b = await chromium.launch({ headless: true });
   const admin = await b.newContext({ viewport: { width: 1300, height: 860 } });
   const page = await admin.newPage();
   page.on("pageerror", e => { console.log("JS ERROR: " + e.message); failures.push("JS error"); });
@@ -125,6 +124,9 @@ const near = (a, b, tolerance) => Math.abs(a - b) <= tolerance;
       sessionStorage.setItem("fresh", "1");
       localStorage.removeItem("matgate.screen.scale." + id);
       localStorage.removeItem("matgate.screen.keyboard.resize");
+      // A phone starts in the compact view, where the tabs wait behind a button of the header. This is about
+      // the key bar and the keyboard, and steps between tabs: the normal view, where they are in sight.
+      localStorage.setItem("matgate.view.mode.v1", "normal");
     }
   }, vnc.id);
   await phone.addInitScript(() => {

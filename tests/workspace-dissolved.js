@@ -12,8 +12,7 @@ const check = (name, got, want) => {
 const NAME = "DissolvedShare";
 
 (async () => {
-  let b; try { b = await chromium.launch({ channel: "msedge", headless: true }); }
-  catch { b = await chromium.launch({ channel: "chrome", headless: true }); }
+  let b = await chromium.launch({ headless: true });
   const page = await (await b.newContext({ viewport: { width: 1400, height: 1000 } })).newPage();
   await require("./list-on-start-page")(page);
   page.on("pageerror", e => { console.log("JS ERROR: " + e.message); failures.push("JS error"); });

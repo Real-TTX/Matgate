@@ -18,8 +18,7 @@ const PHONE = { width: 390, height: 844 };
 const FOLDER = "Telefon";
 
 (async () => {
-  let b; try { b = await chromium.launch({ channel: "msedge", headless: true }); }
-  catch { b = await chromium.launch({ channel: "chrome", headless: true }); }
+  let b = await chromium.launch({ headless: true });
   const ctx = await b.newContext({
     viewport: PHONE, deviceScaleFactor: 2, hasTouch: true, isMobile: true,
     userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1",

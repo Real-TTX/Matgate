@@ -14,8 +14,7 @@ const NAME = "Frisch angelegt";
 const MARKER = "__create-place__";
 
 (async () => {
-  let b; try { b = await chromium.launch({ channel: "msedge", headless: true }); }
-  catch { b = await chromium.launch({ channel: "chrome", headless: true }); }
+  let b = await chromium.launch({ headless: true });
   const page = await (await b.newContext({ viewport: { width: 1400, height: 950 } })).newPage();
   page.on("pageerror", e => { console.log("JS ERROR: " + e.message); failures.push("JS error"); });
   // The app asks in a dialog of its own now, so there is nothing to accept - it gets typed.

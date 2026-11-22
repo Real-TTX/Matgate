@@ -149,8 +149,8 @@ function seedBigFile() {
 
 (async () => {
   let browser;
-  try { browser = await chromium.launch({ channel: "msedge", headless: true }); }
-  catch { browser = await chromium.launch({ channel: "chrome", headless: true }); }
+  try { browser = await chromium.launch({ headless: true }); }
+  catch { browser = await chromium.launch({ headless: true }); }
   const page = await (await browser.newContext()).newPage();
   await page.goto(BASE + "/login", { waitUntil: "networkidle" });
   await page.fill("input[name=\"username\"]", "admin");

@@ -12,8 +12,7 @@ const check = (name, got, want) => {
 };
 
 (async () => {
-  let b; try { b = await chromium.launch({ channel: "msedge", headless: true }); }
-  catch { b = await chromium.launch({ channel: "chrome", headless: true }); }
+  let b = await chromium.launch({ headless: true });
   const signIn = async (page, user, password) => {
     await page.goto(BASE + "/login", { waitUntil: "networkidle" });
     await page.fill("input[name=\"username\"]", user);

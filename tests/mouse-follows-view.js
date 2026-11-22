@@ -14,8 +14,7 @@ const near = (got, want, tolerance) => !!got && Math.abs(got.x - want.x) <= tole
 
 (async () => {
   const stopServer = await rig.startServer();
-  let b; try { b = await chromium.launch({ channel: "msedge", headless: true }); }
-  catch { b = await chromium.launch({ channel: "chrome", headless: true }); }
+  let b = await chromium.launch({ headless: true });
   const ctx = await b.newContext({ viewport: { width: 1000, height: 700 } });
   const page = await ctx.newPage();
   page.on("pageerror", e => { console.log("JS ERROR: " + e.message); failures.push("JS error"); });

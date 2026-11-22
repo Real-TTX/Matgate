@@ -23,8 +23,7 @@ const fields = page => page.evaluate(() => [...document.querySelectorAll("input,
   .filter(field => !["checkbox", "radio", "range", "color", "hidden", "file", "submit", "button"].includes(field.type)).length);
 
 (async () => {
-  let b; try { b = await chromium.launch({ channel: "msedge", headless: true }); }
-  catch { b = await chromium.launch({ channel: "chrome", headless: true }); }
+  let b = await chromium.launch({ headless: true });
   const phone = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true });
   const page = await phone.newPage();
   page.on("pageerror", e => { console.log("JS ERROR: " + e.message); failures.push("JS error"); });

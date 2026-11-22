@@ -48,8 +48,8 @@ let agent;
   check("the agent starts", /listening on/.test(agentLog), true);
 
   const flags = ["--autoplay-policy=no-user-gesture-required", "--use-fake-device-for-media-stream", "--use-fake-ui-for-media-stream"];
-  let b; try { b = await chromium.launch({ channel: "msedge", headless: true, args: flags }); }
-  catch { b = await chromium.launch({ channel: "chrome", headless: true, args: flags }); }
+  let b; try { b = await chromium.launch({ headless: true, args: flags }); }
+  catch { b = await chromium.launch({ headless: true, args: flags }); }
   const context = await b.newContext({ viewport: { width: 1400, height: 900 }, permissions: ["microphone"] });
   // A controller for the page to find: navigator.getGamepads() gives what the test puts here.
   await context.addInitScript(() => {

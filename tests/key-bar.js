@@ -38,8 +38,7 @@ const ON_SCREEN = DEFAULT.filter(id => id !== "shift-tab" && id !== "enter");
 const IN_TERMINAL = DEFAULT.filter(id => id !== "win" && id !== "delete" && id !== "ctrl-alt-delete");
 
 (async () => {
-  let b; try { b = await chromium.launch({ channel: "msedge", headless: true }); }
-  catch { b = await chromium.launch({ channel: "chrome", headless: true }); }
+  let b = await chromium.launch({ headless: true });
   const admin = await b.newContext({ viewport: { width: 1300, height: 860 } });
   const page = await admin.newPage();
   page.on("pageerror", e => { console.log("JS ERROR: " + e.message); failures.push("JS error"); });

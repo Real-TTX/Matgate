@@ -75,8 +75,7 @@ const signIn = async (page, name, pw) => {
 };
 
 (async () => {
-  let b; try { b = await chromium.launch({ channel: "msedge", headless: true }); }
-  catch { b = await chromium.launch({ channel: "chrome", headless: true }); }
+  let b = await chromium.launch({ headless: true });
   const status = { last: 0, posts: 0 };
   const newTab = async () => {
     const p = await (await b.newContext({ viewport: { width: 1280, height: 950 } })).newPage();

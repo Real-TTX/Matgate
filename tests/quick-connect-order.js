@@ -16,8 +16,7 @@ const GROUP = { rdp: 0, ssh: 0, vnc: 0, sftp: 1, smb: 1, ftp: 1, webdav: 1, webs
 const grouped = keys => { const first = []; keys.forEach(k => { if (!first.includes(GROUP[k])) first.push(GROUP[k]); }); return [...keys].sort((a, b) => first.indexOf(GROUP[a]) - first.indexOf(GROUP[b]) || keys.indexOf(a) - keys.indexOf(b)); };
 
 (async () => {
-  let b; try { b = await chromium.launch({ channel: "msedge", headless: true }); }
-  catch { b = await chromium.launch({ channel: "chrome", headless: true }); }
+  let b = await chromium.launch({ headless: true });
   const context = await b.newContext({ viewport: { width: 1300, height: 900 } });
   const page = await context.newPage();
   page.on("pageerror", e => { console.log("JS ERROR: " + e.message); failures.push("JS error"); });

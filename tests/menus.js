@@ -24,8 +24,7 @@ const signIn = async (page) => {
 };
 
 (async () => {
-  let b; try { b = await chromium.launch({ channel: "msedge", headless: true }); }
-  catch { b = await chromium.launch({ channel: "chrome", headless: true }); }
+  let b = await chromium.launch({ headless: true });
 
   // ================= Desktop, normal view
   const ctx = await b.newContext({ viewport: { width: 1400, height: 950 } });

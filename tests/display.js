@@ -29,8 +29,8 @@ const onSsh = command => {
 const only = process.argv[2] || "";
 
 (async () => {
-  let b; try { b = await chromium.launch({ channel: "msedge", headless: true, args: ["--autoplay-policy=no-user-gesture-required"] }); }
-  catch { b = await chromium.launch({ channel: "chrome", headless: true }); }
+  let b; try { b = await chromium.launch({ headless: true, args: ["--autoplay-policy=no-user-gesture-required"] }); }
+  catch { b = await chromium.launch({ headless: true }); }
   const context = await b.newContext({ viewport: { width: 1300, height: 860 }, permissions: ["clipboard-read", "clipboard-write"] });
   const page = await context.newPage();
   page.on("pageerror", e => { console.log("JS ERROR: " + e.message); failures.push("JS error"); });

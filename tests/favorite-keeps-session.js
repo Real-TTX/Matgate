@@ -9,7 +9,7 @@ const check = (name, got, want) => {
   if (!ok) failures.push(name);
 };
 (async () => {
-  const b = await chromium.launch({ channel: "msedge", headless: true });
+  const b = await chromium.launch({ headless: true });
   const page = await (await b.newContext({ viewport: { width: 1400, height: 950 } })).newPage();
   await page.goto(BASE + "/login", { waitUntil: "networkidle" });
   await page.fill("input[name=username]", "admin");

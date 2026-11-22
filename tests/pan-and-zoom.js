@@ -15,8 +15,7 @@ const within = (got, want, tolerance) => Math.abs(got - want) <= tolerance;
 
 (async () => {
   const stopServer = await rig.startServer();
-  let b; try { b = await chromium.launch({ channel: "msedge", headless: true }); }
-  catch { b = await chromium.launch({ channel: "chrome", headless: true }); }
+  let b = await chromium.launch({ headless: true });
   const ctx = await b.newContext({
     viewport: { width: 768, height: 800 }, deviceScaleFactor: 2, hasTouch: true, isMobile: true,
     userAgent: "Mozilla/5.0 (iPad; CPU OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1",

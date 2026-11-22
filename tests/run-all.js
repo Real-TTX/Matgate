@@ -112,7 +112,22 @@ function run(file) {
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
+// Never the installed Edge or Chrome: each of their starts with a fresh profile signs in to Windows with an
+// empty password (to see whether the account has one), Windows counts that as a wrong password, and a run
+// of all scripts locked the account of whoever ran it. See README.
+function refuseInstalledBrowsers() {
+  const fs = require("fs");
+  const path = require("path");
+  const offenders = GROUPS.flatMap(group => group.scripts)
+    .filter(file => /channel:\s*["'](msedge|chrome)/.test(fs.readFileSync(path.join(__dirname, file), "utf8")));
+  if (offenders.length) {
+    console.log("NOT RUN: these start Edge or Chrome (locks the Windows account, see README): " + offenders.join(", "));
+    process.exit(1);
+  }
+}
+
 (async () => {
+  refuseInstalledBrowsers();
   await seed();
   const results = [];
   for (let g = 0; g < GROUPS.length; g++) {

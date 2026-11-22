@@ -43,8 +43,8 @@ let agent;
   check("the agent starts on loopback", /listening on:\s+127\.0\.0\.1:17489/.test(agentLog), true);
   if (!/listening on/.test(agentLog)) { console.log("agent output: " + agentLog.slice(-2000)); }
 
-  let b; try { b = await chromium.launch({ channel: "msedge", headless: true, args: ["--autoplay-policy=no-user-gesture-required"] }); }
-  catch { b = await chromium.launch({ channel: "chrome", headless: true }); }
+  let b; try { b = await chromium.launch({ headless: true, args: ["--autoplay-policy=no-user-gesture-required"] }); }
+  catch { b = await chromium.launch({ headless: true }); }
   const context = await b.newContext({ viewport: { width: 1400, height: 900 }, permissions: ["clipboard-read", "clipboard-write"] });
   const page = await context.newPage();
   page.on("pageerror", e => { console.log("JS ERROR: " + e.message); failures.push("JS error"); });

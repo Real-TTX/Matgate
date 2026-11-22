@@ -12,8 +12,7 @@ const NEU = "UmbauTester";
 const PW = "test-only-pw-1234";
 
 (async () => {
-  let b; try { b = await chromium.launch({ channel: "msedge", headless: true }); }
-  catch { b = await chromium.launch({ channel: "chrome", headless: true }); }
+  let b = await chromium.launch({ headless: true });
   const page = await (await b.newContext({ viewport: { width: 1360, height: 1000 } })).newPage();
   page.on("pageerror", e => { console.log("JS ERROR: " + e.message); failures.push("JS error"); });
   await page.goto(BASE + "/login", { waitUntil: "networkidle" });

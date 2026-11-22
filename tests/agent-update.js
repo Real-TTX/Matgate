@@ -70,8 +70,7 @@ let feedServer;
   for (let i = 0; i < 40 && running(installed) < 1; i++) { await sleep(250); }
   await sleep(2000);
 
-  let b; try { b = await chromium.launch({ channel: "msedge", headless: true }); }
-  catch { b = await chromium.launch({ channel: "chrome", headless: true }); }
+  let b = await chromium.launch({ headless: true });
   const page = await (await b.newContext({ viewport: { width: 1300, height: 900 } })).newPage();
   page.on("pageerror", e => { console.log("JS ERROR: " + e.message); failures.push("JS error"); });
   await page.goto(BASE + "/login", { waitUntil: "networkidle" });

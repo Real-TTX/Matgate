@@ -33,8 +33,7 @@ const shells = () => onMachine("ps -eo user:20,args | grep 'bash --noprofile' | 
   // The machine as its image has it: an earlier run may have left it updated.
   execFileSync("docker", ["compose", "-f", path.join(__dirname, "docker-compose.yml"), "up", "-d", "--force-recreate", "agent-linux"], { stdio: "ignore" });
   await sleep(3000);
-  let b; try { b = await chromium.launch({ channel: "msedge", headless: true }); }
-  catch { b = await chromium.launch({ channel: "chrome", headless: true }); }
+  let b = await chromium.launch({ headless: true });
   const context = await b.newContext({ viewport: { width: 1400, height: 900 } });
   const page = await context.newPage();
   page.on("pageerror", e => { console.log("JS ERROR: " + e.message); failures.push("JS error"); });

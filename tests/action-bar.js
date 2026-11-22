@@ -13,8 +13,7 @@ const bar = page => page.evaluate(() =>
     .map(b => ({ id: b.dataset.serverId || "", name: (b.getAttribute("aria-label") || "").trim(), colour: b.style.getPropertyValue("--proto") })));
 
 (async () => {
-  let b; try { b = await chromium.launch({ channel: "msedge", headless: true }); }
-  catch { b = await chromium.launch({ channel: "chrome", headless: true }); }
+  let b = await chromium.launch({ headless: true });
   const page = await (await b.newContext({ viewport: { width: 1400, height: 950 } })).newPage();
   page.on("pageerror", e => { console.log("JS ERROR: " + e.message); failures.push("JS error"); });
   await page.goto(BASE + "/login", { waitUntil: "networkidle" });

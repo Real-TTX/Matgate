@@ -13,8 +13,7 @@ const check = (name, got, want) => {
 };
 
 (async () => {
-  let b; try { b = await chromium.launch({ channel: "msedge", headless: true }); }
-  catch { b = await chromium.launch({ channel: "chrome", headless: true }); }
+  let b = await chromium.launch({ headless: true });
   const context = await b.newContext({ viewport: { width: 1300, height: 860 } });
   const page = await context.newPage();
   const errors = p => p.on("pageerror", e => { console.log("JS ERROR: " + e.message); failures.push("JS error"); });

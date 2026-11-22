@@ -37,9 +37,14 @@ A single test runs on its own:
 node add-tab-plus.js
 ```
 
-Requirements: Node, Docker, and a Chromium-based browser Playwright can drive - `msedge` or
-`chrome`, whichever is installed. `npm install` in this folder pulls `playwright-core`; the browser
-itself is the one already on the machine, so nothing downloads a second Chromium.
+Requirements: Node, Docker, and Playwright's own test browser: `npm install` in this folder, then once
+`npx playwright-core install chromium-headless-shell` (about 100 MB, into %LOCALAPPDATA%\ms-playwright).
+The scripts launch it with `chromium.launch({ headless: true })` - never with `channel: "msedge"` or
+`"chrome"`. Edge and Chrome check on their first start with a fresh profile whether the Windows password
+is empty, by signing in with an empty one, and Windows counts every such start as a wrong password. The
+scripts start dozens of browsers in a row; with the default lockout policy (10 attempts in 10 minutes)
+that locked the Windows account of whoever ran them. The test browser has no password manager and does
+not check; it decodes H.264 and plays sound like the others.
 
 ## Pictures
 

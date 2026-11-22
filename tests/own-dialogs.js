@@ -15,8 +15,7 @@ const check = (name, got, want) => {
 const FOLDER = "Eigene-Dialoge";
 
 (async () => {
-  let b; try { b = await chromium.launch({ channel: "msedge", headless: true }); }
-  catch { b = await chromium.launch({ channel: "chrome", headless: true }); }
+  let b = await chromium.launch({ headless: true });
   const page = await (await b.newContext({ viewport: { width: 1400, height: 950 } })).newPage();
   page.on("pageerror", e => { console.log("JS ERROR: " + e.message); failures.push("JS error"); });
   // Any browser dialog at all is a failure - and it is dismissed so the page does not hang on it.

@@ -12,8 +12,7 @@ const check = (name, got, want) => {
 };
 
 (async () => {
-  let b; try { b = await chromium.launch({ channel: "msedge", headless: true }); }
-  catch { b = await chromium.launch({ channel: "chrome", headless: true }); }
+  let b = await chromium.launch({ headless: true });
   const ctx = await b.newContext({ viewport: { width: 1400, height: 950 }, acceptDownloads: true });
   await require("./list-on-start-page")(ctx);
   const page = await ctx.newPage();
