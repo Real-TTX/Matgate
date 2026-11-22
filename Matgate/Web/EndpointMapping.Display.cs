@@ -17,6 +17,26 @@ public static partial class EndpointMapping
         app.MapGet("/display/{id:guid}/screen", DisplayScreenPageAsync).RequireAuthorization();
         app.MapGet("/api/display/{id:guid}/screen-socket", DisplayScreenSocketAsync).RequireAuthorization();
         app.MapGet("/api/display/{id:guid}/screen-clip", DisplayScreenClipAsync).RequireAuthorization();
+        app.MapGet("/api/display/{id:guid}/open-sessions", DisplayOpenSessionsAsync).RequireAuthorization();
+    }
+
+    // This user's sessions to this connection that are still running - shown somewhere right now, or waiting
+    // for a viewer to come back. The page asks before it opens a second one: a second RDP sign-in of the same
+    // Windows user throws the first one out, or makes Windows ask which session to take.
+    private static async Task<IResult> DisplayOpenSessionsAsync(Guid id, HttpContext context, JsonDataStore store, DisplayBridge bridge)
+    {
+        var (_, result, user) = await RequireDisplayAsync(id, context, store);
+        if (result is not null)
+        {
+            return result;
+        }
+
+        var sessions = bridge.Held
+            .Where(entry => entry.Value.UserId == user!.Id && entry.Value.ServerId == id && !entry.Value.Screen.Completion.IsCompleted)
+            .OrderByDescending(entry => entry.Value.Since)
+            .Select(entry => new { session = entry.Key, watched = entry.Value.Watched, since = entry.Value.Since })
+            .ToList();
+        return Results.Json(new { sessions });
     }
 
     private static async Task<(ServerEndpoint? Server, IResult? Result, MatgateUser? User)> RequireDisplayAsync(Guid id, HttpContext context, JsonDataStore store)

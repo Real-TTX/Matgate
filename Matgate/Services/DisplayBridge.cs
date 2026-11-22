@@ -46,6 +46,12 @@ public sealed class DisplayBridge
 
         public Guid ServerId => serverId;
 
+        // Since when it runs, and whether a viewer has it right now - for the question "already open" when the
+        // same connection is opened again (here, on another device, or after the app was started anew).
+        public DateTimeOffset Since { get; } = DateTimeOffset.UtcNow;
+
+        public bool Watched { get; private set; } = true;
+
         // The viewer the session was opened by. What comes back completes when another viewer takes the screen.
         public Task First()
         {
@@ -67,6 +73,7 @@ public sealed class DisplayBridge
                 _replaced = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
                 before.TrySetResult();
                 screen.Attach(viewer);
+                Watched = true;
                 return _replaced.Task;
             }
         }
@@ -89,6 +96,7 @@ public sealed class DisplayBridge
                 }
 
                 screen.Detach();
+                Watched = false;
                 var expiry = new CancellationTokenSource();
                 _expiry = expiry;
                 _ = Task.WhenAny(Task.Delay(keep, expiry.Token), screen.Completion).ContinueWith(_ =>

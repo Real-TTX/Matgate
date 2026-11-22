@@ -1046,7 +1046,7 @@ public static partial class EndpointMapping
 
         return Results.Content(
             views.SessionsWorkspace(context, user, servers, visibleWorkspaces, openServerId,
-                SessionPreferences.NormalizeKeepSessionMinutes(user.Session?.KeepSessionMinutes ?? 0) > 0
+                SessionPreferences.KeptMinutes(user.Session) > 0
                     ? context.RequestServices.GetRequiredService<ShellStateStore>().Get(user.Id)
                     : null),
             "text/html");
@@ -4563,7 +4563,8 @@ public static partial class EndpointMapping
             current.Session.PasteAsKeystrokes = Checked(form, "pasteAsKeystrokes");
             current.Session.KeepSessionMinutes = SessionPreferences.NormalizeKeepSessionMinutes(
                 int.TryParse(form["keepSessionMinutes"].ToString(), out var keepMinutes) ? keepMinutes : 0);
-            if (current.Session.KeepSessionMinutes == 0)
+            current.Session.RestoreAll = Checked(form, "restoreAll");
+            if (SessionPreferences.KeptMinutes(current.Session) == 0)
             {
                 // Switched off: the tabs are the browser's own again, and the server forgets its copy.
                 context.RequestServices.GetRequiredService<ShellStateStore>().Forget(current.Id);

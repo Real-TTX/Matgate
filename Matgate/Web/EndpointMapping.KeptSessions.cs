@@ -29,7 +29,7 @@ public static partial class EndpointMapping
             return Results.StatusCode(StatusCodes.Status403Forbidden);
         }
 
-        if (SessionPreferences.NormalizeKeepSessionMinutes(user.Session?.KeepSessionMinutes ?? 0) == 0)
+        if (SessionPreferences.KeptMinutes(user.Session) == 0)
         {
             // Not this user's wish: the tabs stay the browser's own.
             return Results.NoContent();

@@ -252,6 +252,100 @@ const arrived = async file => {
     await p.close();
   }
 
+  // ============================================================================================ open already
+  // The same connection opened anew while a session to it runs - in another window, on another device, or left
+  // behind by an app that was closed: the page asks instead of signing in a second time (which on Windows throws
+  // the first one out, or makes Windows ask which session to keep).
+  const pictureOf = async target => { for (let i = 0; i < 200 && (await target.evaluate(() => window.__screen && window.__screen.frames)) < 2; i++) { await sleep(300); } };
+  const noticeOf = target => target.evaluate(() => ({
+    shown: !document.getElementById("notice").classList.contains("hidden"),
+    text: document.getElementById("notice-text").textContent,
+    buttons: [...document.querySelectorAll(".notice-actions button:not(.hidden)")].map(button => button.textContent),
+  }));
+  const endSession = address => page.evaluate(async ([s, t]) => fetch("/api/kept-sessions/end?session=" + s, { method: "POST", headers: { "X-Matgate-Csrf": t }, credentials: "same-origin" }), [new URL(address).searchParams.get("session"), token]);
+  const firstView = await context.newPage();
+  await firstView.goto(BASE + "/display/" + vnc.id + "/screen", { waitUntil: "domcontentloaded" });
+  await pictureOf(firstView);
+  const firstSession = new URL(firstView.url()).searchParams.get("session");
+  const countBefore = vncConnections();
+  const device = await b.newContext({ viewport: { width: 1300, height: 860 }, storageState: { cookies: (await context.storageState()).cookies, origins: [] } });
+  const secondView = await device.newPage();
+  secondView.on("pageerror", e => { console.log("JS ERROR: " + e.message); failures.push("JS error"); });
+  await secondView.goto(BASE + "/display/" + vnc.id + "/screen", { waitUntil: "domcontentloaded" });
+  let asked = null;
+  for (let i = 0; i < 40 && !(asked && asked.buttons.length === 2); i++) { await sleep(250); asked = await noticeOf(secondView); }
+  check("opened again on another device: it asks - bring it here, or a new session", [asked.shown, /open already/.test(asked.text), asked.buttons], [true, true, ["Bring it here", "New session"]]);
+  check("and has not signed in a second time while it asks", vncConnections() - countBefore, 0);
+  await secondView.click("#notice-action");
+  await pictureOf(secondView);
+  check("\"bring it here\": the running session, with its picture - no second connection", [new URL(secondView.url()).searchParams.get("session") === firstSession, await secondView.evaluate(() => window.__screen.attached), vncConnections() - countBefore], [true, true, 0]);
+  await sleep(800);
+  check("and the first window says another one shows it now", /Another window/.test((await noticeOf(firstView)).text), true);
+  // Asked for on purpose (Ctrl or middle click): a second session without a question.
+  const thirdView = await device.newPage();
+  await thirdView.goto(BASE + "/display/" + vnc.id + "/screen?fresh=1", { waitUntil: "domcontentloaded" });
+  await pictureOf(thirdView);
+  check("a second session asked for on purpose opens without a question", [await thirdView.evaluate(() => window.__screen.attached), new URL(thirdView.url()).searchParams.get("session") !== firstSession, new URL(thirdView.url()).searchParams.has("fresh")], [false, true, false]);
+  await endSession(thirdView.url());
+  await thirdView.close();
+  // The app was closed (its page is gone, the session waits) and opened again: the restored tab's own session
+  // is no more, but the one it left is waiting - it goes on there, without asking.
+  await firstView.close();
+  await secondView.close();
+  await sleep(1200);
+  const countRestored = vncConnections();
+  const restored = await device.newPage();
+  await restored.goto(BASE + "/display/" + vnc.id + "/screen?session=00000000-dead-beef-0000-000000000000", { waitUntil: "domcontentloaded" });
+  await pictureOf(restored);
+  check("restored with a session that is gone, while the one it left waits: back in that one, no question", [new URL(restored.url()).searchParams.get("session") === firstSession, await restored.evaluate(() => window.__screen.attached), (await noticeOf(restored)).shown, vncConnections() - countRestored], [true, true, false, 0]);
+  await endSession(restored.url());
+  await restored.close();
+  await device.close();
+
+  // ============================================================================================ restore everything
+  const restoreAll = async on => {
+    await page.goto(BASE + "/account?tab=session", { waitUntil: "networkidle" });
+    await page.evaluate(wanted => { document.querySelector("input[name='restoreAll']").checked = wanted; }, on);
+    await Promise.all([
+      page.waitForResponse(r => r.request().method() === "POST", { timeout: 20000 }),
+      page.evaluate(() => document.querySelector("input[name='restoreAll']").form.requestSubmit()).catch(() => { /* navigated */ }),
+    ]);
+    await page.waitForLoadState("networkidle");
+    await page.goto(BASE + "/account?tab=session", { waitUntil: "networkidle" });
+    return page.evaluate(() => document.querySelector("input[name='restoreAll']").checked);
+  };
+  check("sessions end with their browser again (keep: no)", await keepFor(0), "0");
+  check("\"always restore everything\" is ticked in the account", await restoreAll(true), true);
+  const shellA = await context.newPage();
+  shellA.on("pageerror", e => { console.log("JS ERROR: " + e.message); failures.push("JS error"); });
+  await shellA.goto(BASE + "/connect/" + vnc.id, { waitUntil: "networkidle" });
+  const frameA = await frameOf(shellA);
+  await pictureOf(frameA);
+  const restoreSession = new URL(frameA.url()).searchParams.get("session");
+  await sleep(1500);
+  const phone = await b.newContext({ viewport: { width: 1300, height: 860 }, storageState: { cookies: (await context.storageState()).cookies, origins: [] } });
+  const phonePage = await phone.newPage();
+  await phonePage.goto(BASE + "/", { waitUntil: "networkidle" });
+  const phoneFrame = await frameOf(phonePage);
+  check("with it on, another device has the tab though sessions were set to end with the browser", !!phoneFrame, true);
+  if (phoneFrame) {
+    await pictureOf(phoneFrame);
+    check("and the same session behind it", [new URL(phoneFrame.url()).searchParams.get("session") === restoreSession, await phoneFrame.evaluate(() => window.__screen.attached)], [true, true]);
+    check("the tab that was in front is in front again", await phonePage.evaluate(() => !!document.querySelector(".session-tab--page.active")), true);
+  }
+  // The start page in front, then a restart: the start page is in front again, the tab is still there.
+  const tabsBefore = await phonePage.evaluate(() => document.querySelectorAll(".session-tab--page").length);
+  await phonePage.evaluate(() => document.getElementById("new-connection-tab").click());
+  await sleep(1200);
+  await phonePage.reload({ waitUntil: "networkidle" });
+  await sleep(800);
+  check("the start page in front before a restart is in front after it, the tabs all there", await phonePage.evaluate(() => [document.getElementById("new-connection-tab").classList.contains("active"), document.querySelectorAll(".session-tab--page").length]), [true, tabsBefore]);
+  await phonePage.evaluate(() => document.querySelectorAll(".session-tab--page .session-tab-close").forEach(x => x.click()));
+  await sleep(1500);
+  await phone.close();
+  await shellA.close();
+  check("\"always restore everything\" goes off again", await restoreAll(false), false);
+
   // ============================================================================================ off again
   check("the option goes off again", await keepFor(0), "0");
   const plain = await b.newContext({ viewport: { width: 1300, height: 860 }, storageState: { cookies: (await context.storageState()).cookies, origins: [] } });

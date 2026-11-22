@@ -47,6 +47,11 @@ usable from a laptop or a phone – installable as a PWA.
   an RDP, VNC or SSH session of Matgate's own engine keeps running when its browser is reloaded, loses its
   network or is closed, and the page that comes back - on another device too - gets that very session and
   the same tabs; closing a tab ends its session at once
+- **Already open?** An RDP or VNC connection opened while a session to it runs (another window, another
+  device, an app closed on the phone) asks first - *bring it here* or *new session* - instead of signing the
+  same Windows user in twice; a tab restored after a restart goes back to the session it left without asking.
+  *Always restore everything* (Account -> Session) keeps the tabs on the server for every device and through
+  updates, brings back the tab last in front, and lets sessions run on for at least 30 minutes
 - **Pop a session out into a window of its own** - just that session, no tabs around it - and hand it back
   with one button; the main window lists the windows that are out beside its tabs (great for multi-monitor)
 - **Real fullscreen / immersive mode** (safe-area aware on iPhone), clipboard sync, a live status bar

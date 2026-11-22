@@ -32,6 +32,8 @@ public static class AgentScreenPage
             #sink { border: 0; caret-color: transparent; color: transparent; font-size: 16px; height: 1px; left: 0; opacity: 0; outline: 0; padding: 0; pointer-events: none; position: fixed; resize: none; top: 0; width: 1px; }
             .notice { align-items: center; background: rgba(11, 15, 13, .82); display: flex; flex-direction: column; gap: 12px; inset: 0; justify-content: center; padding: 24px; position: absolute; text-align: center; }
             .notice p { font-size: 15px; margin: 0; max-width: 460px; }
+            .notice-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+            .notice-actions .secondary { background: transparent; border: 1px solid #5b6b63; color: inherit; }
             .toast { background: #18211d; border: 1px solid #33413a; border-radius: 10px; bottom: 16px; box-shadow: 0 8px 24px rgba(0,0,0,.5); max-width: min(420px, calc(100% - 32px)); padding: 12px 14px; position: absolute; right: 16px; }
             /* The session's numbers in a corner of the picture: there to be read, never in the way of a click. */
             .perf { background: rgba(11, 15, 13, .62); border-radius: 6px; color: #e6efe9; font: 11px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; left: 8px; padding: 4px 7px; pointer-events: none; position: absolute; text-shadow: 0 1px 1px rgba(0, 0, 0, .6); top: 8px; white-space: pre; z-index: 3; }
@@ -116,7 +118,7 @@ public static class AgentScreenPage
         <button id="handle" type="button"></button>
         <div id="stage">
             <div id="frame"><canvas id="screen" width="16" height="9"></canvas><img id="pointer" class="hidden" alt=""></div>
-            <div id="notice" class="notice"><p id="notice-text"></p><button id="notice-action" type="button" class="hidden"></button></div>
+            <div id="notice" class="notice"><p id="notice-text"></p><div class="notice-actions"><button id="notice-action" type="button" class="hidden"></button><button id="notice-action-2" type="button" class="hidden secondary"></button></div></div>
             <div id="toast" class="toast hidden"></div>
             <div id="perf" class="perf hidden" aria-hidden="true"></div>
             <div id="auth" class="auth hidden">
@@ -163,6 +165,7 @@ public static class AgentScreenPage
             const notice = $('notice');
             const noticeText = $('notice-text');
             const noticeAction = $('notice-action');
+            const noticeAction2 = $('notice-action-2');
             const toast = $('toast');
             const coarse = matchMedia('(pointer: coarse)').matches;
             const isMac = /Mac|iPhone|iPad/.test(navigator.platform || '');
@@ -213,12 +216,15 @@ public static class AgentScreenPage
                 statusLine.classList.toggle('bad', !!bad);
                 notifyStats();
             };
-            const showNotice = (message, action, onAction) => {
+            const showNotice = (message, action, onAction, action2, onAction2) => {
                 noticeText.textContent = message;
                 notice.classList.remove('hidden');
                 noticeAction.classList.toggle('hidden', !action);
                 noticeAction.textContent = action || '';
                 noticeAction.onclick = onAction || null;
+                noticeAction2.classList.toggle('hidden', !action2);
+                noticeAction2.textContent = action2 || '';
+                noticeAction2.onclick = onAction2 || null;
             };
             const hideNotice = () => notice.classList.add('hidden');
 
@@ -572,7 +578,72 @@ public static class AgentScreenPage
             monitorSelect.title = text.monitor;
             monitorSelect.addEventListener('change', () => send('screen.config', { monitor: Number(monitorSelect.value) }));
 
-            const connect = () => {
+            // Before a session of its own is opened: is this connection open already - in another window, on
+            // another device, or left running when the app was closed? A second RDP sign-in of the same user makes
+            // Windows throw the first one out or ask which session to keep. What comes back is the session to
+            // connect to: the page's own (`own`) while it still runs, one that is running already, or '' for a new one.
+            let connectAttempt = 0;
+            const pickOpenSession = async own => {
+                if (params.get('fresh') === '1') {
+                    // Asked for a second session on purpose (Ctrl or middle click).
+                    params.delete('fresh');
+                    return own;
+                }
+
+                let running = [];
+                try {
+                    const response = await fetch(base + '/open-sessions', { credentials: 'same-origin' });
+                    if (response.ok) {
+                        running = (await response.json()).sessions || [];
+                    }
+                }
+                catch {
+                    // No answer: as before, its own or a new one.
+                }
+
+                if (own && running.some(entry => entry.session === own)) {
+                    return own;
+                }
+
+                let shownHere = [];
+                try {
+                    if (window.parent !== window && typeof window.parent.MatgateShellSessions === 'function') {
+                        shownHere = window.parent.MatgateShellSessions(window) || [];
+                    }
+                }
+                catch {
+                }
+
+                const others = running.filter(entry => !shownHere.includes(entry.session));
+                if (others.length === 0) {
+                    return own;
+                }
+
+                // Restored after the app was started anew, and its session is gone - but exactly one other is
+                // waiting with nobody looking: that is where it was left. It goes on there, without asking.
+                const waiting = others.filter(entry => !entry.watched);
+                if (own && others.length === 1 && waiting.length === 1) {
+                    return waiting[0].session;
+                }
+
+                const latest = others[0];
+                let time = '';
+                try {
+                    time = new Date(latest.since).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                }
+                catch {
+                }
+
+                setStatus('');
+                return await new Promise(resolve => {
+                    showNotice(
+                        (latest.watched ? text.openWatched : text.openWaiting).replace('{time}', time),
+                        text.bringHere, () => resolve(latest.session),
+                        text.newSession, () => resolve(''));
+                });
+            };
+
+            const connect = async () => {
                 window.clearTimeout(retryTimer);
                 hideAuth();
                 ended = false;
@@ -591,8 +662,16 @@ public static class AgentScreenPage
                 }
                 else if (!session || sessionOver) {
                     const fromAddress = params.get('session') || '';
-                    session = !sessionOver && /^[A-Za-z0-9-]{8,64}$/.test(fromAddress) ? fromAddress : crypto.randomUUID();
+                    const own = !sessionOver && /^[A-Za-z0-9-]{8,64}$/.test(fromAddress) ? fromAddress : '';
                     sessionOver = false;
+                    const attempt = ++connectAttempt;
+                    const picked = await pickOpenSession(own);
+                    if (attempt !== connectAttempt) {
+                        // Asked again meanwhile (a click on the notice, a reload of the connection): that one goes on.
+                        return;
+                    }
+                    showNotice(text.connecting);
+                    session = picked || crypto.randomUUID();
                     params.set('session', session);
                     try {
                         history.replaceState(null, '', location.pathname + '?' + params.toString());

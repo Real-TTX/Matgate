@@ -1804,6 +1804,9 @@ public sealed partial class HtmlViews
                                             {{string.Join("", SessionPreferences.KeepSessionChoices.Select(minutes => $"<option value=\"{minutes}\"{(SessionPreferences.NormalizeKeepSessionMinutes(prefs.KeepSessionMinutes) == minutes ? " selected" : "")}>{E(KeepSessionLabel(minutes, de))}</option>"))}}
                                         </select>
                                     </label>
+                                {{Toggle("restoreAll", prefs.RestoreAll, "Beim Start immer alles wiederherstellen", "Always restore everything on start",
+                                    $"Alle Tabs auf jedem Gerät gleich, auch nach einem Update; der zuletzt aktive Tab kommt wieder nach vorn, und die Sitzungen laufen mindestens {SessionPreferences.RestoreAllMinutes} Minuten weiter - die App am Handy schließen und wieder öffnen findet sie, wie sie waren.",
+                                    $"All tabs the same on every device, also after an update; the tab last in front comes to the front again, and the sessions run on for at least {SessionPreferences.RestoreAllMinutes} minutes - closing the app on the phone and opening it again finds them as they were.")}}
                                 </fieldset>
                                 <fieldset class="settings-group">
                                     <legend>{{(de ? "Zwischenablage" : "Clipboard")}}</legend>
@@ -5015,7 +5018,7 @@ public sealed partial class HtmlViews
         Matgate.Services.ShellStateStore.ShellState? storedTabs = null)
     {
         // For a user whose sessions outlive the browser: the tabs as the server has them (null: none yet).
-        var keepSessions = SessionPreferences.NormalizeKeepSessionMinutes(user.Session?.KeepSessionMinutes ?? 0) > 0;
+        var keepSessions = SessionPreferences.KeptMinutes(user.Session) > 0;
         var serverTabs = keepSessions && storedTabs is not null
             ? JsonSerializer.Serialize(storedTabs, new JsonSerializerOptions(JsonSerializerDefaults.Web))
             : "null";
@@ -5639,6 +5642,9 @@ public sealed partial class HtmlViews
 
                 let activeTabId = null;
                 let activeShellTabId = '';
+                // While the tabs come back at start: bringing one forward then must not write down the others as
+                // gone - those of the other kind are not back yet.
+                let restoringTabs = true;
                 let draggedTabId = null;
                 let suppressTabClicks = false;
                 let transparentDragImage = null;
@@ -6823,6 +6829,22 @@ public sealed partial class HtmlViews
                     return tab;
                 }
                 window.MatgateTabAddressChanged = () => saveShellTabs();
+                // The sessions the other tabs of this browser show - a screen page asks before it opens a second
+                // session to the same machine, and these it need not ask about. `self` is the asking page's window.
+                window.MatgateShellSessions = self => Array.from(shellTabs.values())
+                    .filter(tab => {
+                        const frame = tab.panel ? tab.panel.querySelector('iframe') : null;
+                        return !(frame && frame.contentWindow === self);
+                    })
+                    .map(tab => {
+                        try {
+                            return new URL(syncShellTabUrl(tab).url, location.origin).searchParams.get('session') || '';
+                        }
+                        catch {
+                            return '';
+                        }
+                    })
+                    .filter(Boolean);
 
                 function saveShellTabs() {
                     if (isPoppedWindow) { return; }
@@ -7017,6 +7039,10 @@ public sealed partial class HtmlViews
                 function activateShellTab(tabId) {
                     activeShellTabId = tabId;
                     activeTabId = null;
+                    if (!restoringTabs) {
+                        // What is in front is written down with the other kind of tabs (saveWorkspaceTabs: front).
+                        saveWorkspaceTabs();
+                    }
                     newConnectionTab.classList.remove('active');
                     newConnectionPanel.classList.add('hidden');
                     for (const tab of tabs.values()) {
@@ -9495,7 +9521,7 @@ public sealed partial class HtmlViews
                             return;
                         }
 
-                        openServer(serverId);
+                        openServer(serverId, '', '', another);
                     };
                     serverManagerTree.addEventListener('click', event => {
                         const target = event.target instanceof Element ? event.target : null;
@@ -10734,7 +10760,11 @@ public sealed partial class HtmlViews
                     releaseInactiveHeldKeys();
 
                     updateTabActions();
-                    saveWorkspaceTabs();
+                    if (!restoringTabs) {
+                        // At start this is the page tabs coming back - the other tabs are not, yet, and writing them
+                        // down now would write them down as none.
+                        saveWorkspaceTabs();
+                    }
                 }
 
                 function createTab(server, options = {}) {
@@ -11989,13 +12019,14 @@ public sealed partial class HtmlViews
                     return protocol === 'SSH' ? '/ssh/' + encodeURIComponent(server.id) + '/terminal' : '';
                 }
 
-                function openServer(serverId, filePath = '', tabId = '') {
+                function openServer(serverId, filePath = '', tabId = '', another = false) {
                     const server = findServer(serverId);
                     const own = ownEnginePath(server);
                     if (own) {
                         // A tab of its own every time: two sessions to the same machine are two tabs.
                         openShellTab(
-                            own + '?tab=' + Math.random().toString(36).slice(2, 10),
+                            // "another": a second session on purpose - the page does not ask whether one is open already.
+                            own + '?tab=' + Math.random().toString(36).slice(2, 10) + (another ? '&fresh=1' : ''),
                             server.name || '',
                             server.iconHtml || '',
                             (server.protocol || '') + ' ' + (server.target || ''));
@@ -12084,7 +12115,10 @@ public sealed partial class HtmlViews
                                 serverId: tab.serverId,
                                 filePath: isFileProtocol(tab.protocol) ? (tab.filePath || '/') : ''
                             })),
-                            activeTabId: activeTab ? activeTab.id : ''
+                            activeTabId: activeTab ? activeTab.id : '',
+                            // What was in front of all tabs - this one, a page tab (Matgate's own engine, files, ...)
+                            // or the start page - so it is that again after a restart.
+                            front: activeTab ? 'tab' : (activeShellTabId ? 'page' : 'home')
                         };
 
                         localStorage.setItem(workspaceStorageKey, JSON.stringify(state));
@@ -12115,6 +12149,7 @@ public sealed partial class HtmlViews
                                     })
                                 .filter(tabState => Boolean(findServer(tabState.serverId))),
                             activeTabId: typeof state.activeTabId === 'string' ? state.activeTabId : '',
+                            front: typeof state.front === 'string' ? state.front : '',
                             activeServerId: findServer(state.activeServerId) ? state.activeServerId : ''
                         };
                     }
@@ -17741,18 +17776,25 @@ public sealed partial class HtmlViews
                     }
                 }
 
-                const preferredTab = openedTabs.find(tab => tab.id === restoredWorkspace.activeTabId)
-                    || openedTabs.find(tab => tab.serverId === (initialOpenServerId || restoredWorkspace.activeServerId))
-                    || openedTabs[0];
+                // In front again is what was in front: the tab asked for by ?open=, else the one remembered - a
+                // page tab (restoreShellTabs brought it forward already), the start page, or one of these.
+                const front = restoredWorkspace.front;
+                const askedFor = initialOpenServerId ? openedTabs.find(tab => tab.serverId === initialOpenServerId) : null;
+                const preferredTab = askedFor
+                    || openedTabs.find(tab => tab.id === restoredWorkspace.activeTabId)
+                    || (front === 'page' && activeShellTabId ? null
+                        : front === 'home' ? null
+                        : openedTabs.find(tab => tab.serverId === restoredWorkspace.activeServerId) || openedTabs[0]);
                 if (ownEngineOpened) {
                     // Already at the front.
                 }
                 else if (preferredTab) {
                     activateTab(preferredTab.id);
                 }
-                else {
+                else if (!activeShellTabId || front === 'home') {
                     activateNewConnectionTab();
                 }
+                restoringTabs = false;
 
                 restoreTabOrder();
                 saveTabOrder();

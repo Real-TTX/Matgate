@@ -248,6 +248,14 @@ public static partial class EndpointMapping
                 reconnect = de ? "Neu verbinden" : "Connect again",
                 taken = de ? "Ein anderes Fenster oder Gerät zeigt diesen Bildschirm jetzt." : "Another window or device shows this screen now.",
                 takeBack = de ? "Wieder hierher holen" : "Bring it back here",
+                openWatched = de
+                    ? "Diese Verbindung ist schon offen (seit {time}) - in einem anderen Fenster oder auf einem anderen Gerät. Eine neue Sitzung meldet denselben Benutzer noch einmal an; Windows beendet dann meist die andere oder fragt, welche bleiben soll."
+                    : "This connection is open already (since {time}) - in another window or on another device. A new session signs the same user in once more; Windows then mostly ends the other one or asks which one to keep.",
+                openWaiting = de
+                    ? "Diese Verbindung läuft noch (seit {time}) und wartet darauf, wieder angezeigt zu werden."
+                    : "This connection is still running (since {time}) and waits to be shown again.",
+                bringHere = de ? "Hierher holen" : "Bring it here",
+                newSession = de ? "Neue Sitzung" : "New session",
                 unavailable = de ? "Der Rechner zeigt gerade einen geschützten Bildschirm (gesperrt oder eine Administrator-Abfrage). Sobald er wieder normal läuft, geht es hier weiter. Läuft der Agent als Systemdienst, ist auch dieser Bildschirm zu sehen." : "The machine shows a protected screen right now (locked or an administrator prompt). This continues as soon as it is back. With the agent running as a system service, this screen is shown too.",
                 error = de ? "Der Bildschirm kann nicht übertragen werden." : "The screen cannot be shared.",
                 noDecoder = de ? "Dieser Browser kann den Bildschirm nicht anzeigen (kein WebCodecs). Bitte einen aktuellen Edge, Chrome, Firefox oder Safari nehmen." : "This browser cannot show the screen (no WebCodecs). Please use a current Edge, Chrome, Firefox or Safari.",

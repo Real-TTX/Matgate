@@ -239,6 +239,20 @@ public sealed class SessionPreferences
     public static int NormalizeKeepSessionMinutes(int minutes) =>
         KeepSessionChoices.Contains(minutes) ? minutes : 0;
 
+    // Start where it was left, always: the open tabs live on the server (on every device the same, and through
+    // an update of Matgate), the one last in front comes to the front again, and the sessions run on for at
+    // least RestoreAllMinutes - so an app closed on the phone and opened again finds its sessions running.
+    public bool RestoreAll { get; set; }
+
+    public const int RestoreAllMinutes = 30;
+
+    // The minutes that count: the ones chosen, or with RestoreAll at least RestoreAllMinutes.
+    public static int KeptMinutes(SessionPreferences? preferences)
+    {
+        var chosen = NormalizeKeepSessionMinutes(preferences?.KeepSessionMinutes ?? 0);
+        return chosen == 0 && preferences?.RestoreAll == true ? RestoreAllMinutes : chosen;
+    }
+
     // For the tests, where nobody waits five minutes for a session to run out: this many seconds instead of
     // the minutes a user chose. It does not switch the option on for anyone.
     private static readonly int KeepSecondsOverride =
@@ -247,7 +261,7 @@ public sealed class SessionPreferences
     // How long this user's sessions stay without a browser; zero: not at all.
     public static TimeSpan KeepSessionTime(SessionPreferences? preferences)
     {
-        var minutes = NormalizeKeepSessionMinutes(preferences?.KeepSessionMinutes ?? 0);
+        var minutes = KeptMinutes(preferences);
         return minutes == 0 ? TimeSpan.Zero
             : KeepSecondsOverride > 0 ? TimeSpan.FromSeconds(KeepSecondsOverride)
             : TimeSpan.FromMinutes(minutes);
