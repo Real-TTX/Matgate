@@ -431,10 +431,22 @@ let agent;
   await sleep(500);
   check("a tap is a left click", (await touchDebug()).filter(l => /^button/.test(l)), ["button 0 down", "button 0 up"]);
   await touch("pointerdown", [[1, cx, cy]]);
-  await sleep(800);
+  await sleep(350);
+  // Held still: a ring fills until the right click comes - under the finger, or on the phone's touchpad at the
+  // cursor, where the click goes.
+  check("while held, a ring fills where the click will go", await tapPage.evaluate(() => {
+    const ring = document.querySelector(".hold-ring");
+    const box = ring ? ring.getBoundingClientRect() : null;
+    const stage = document.getElementById("stage").getBoundingClientRect();
+    const x = box ? box.left + box.width / 2 : -1;
+    const y = box ? box.top + box.height / 2 : -1;
+    return [!!ring && ring.classList.contains("show"), x >= stage.left && x <= stage.right && y >= stage.top && y <= stage.bottom];
+  }), [true, true]);
+  await sleep(450);
   await touch("pointerup", [[1, cx, cy]]);
   await sleep(400);
   check("a long press is the right button", (await touchDebug()).filter(l => /^button/.test(l)), ["button 2 down", "button 2 up"]);
+  check("and the ring is gone again", await tapPage.evaluate(() => document.querySelector(".hold-ring").classList.contains("show")), false);
   await touch("pointerdown", [[1, cx - 30, cy], [2, cx + 30, cy]]);
   for (let step = 1; step <= 5; step++) { await touch("pointermove", [[1, cx - 30, cy - step * 12], [2, cx + 30, cy - step * 12]]); await sleep(30); }
   await touch("pointerup", [[1, cx - 30, cy - 60], [2, cx + 30, cy - 60]]);

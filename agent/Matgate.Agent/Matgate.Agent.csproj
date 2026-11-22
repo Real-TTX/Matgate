@@ -23,7 +23,7 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <AssemblyName>matgate-agent</AssemblyName>
     <RootNamespace>Matgate.Agent</RootNamespace>
-    <VersionPrefix>0.15.0</VersionPrefix>
+    <VersionPrefix>0.16.0</VersionPrefix>
     <AvaloniaVersion>11.3.22</AvaloniaVersion>
     <!-- The windows are built in code; bindings in MatDesktop's templates resolve as its own project compiles them. -->
     <AvaloniaUseCompiledBindingsByDefault>false</AvaloniaUseCompiledBindingsByDefault>

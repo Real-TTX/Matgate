@@ -55,6 +55,12 @@ usable from a laptop or a phone – installable as a PWA.
 - **Fastest response (fewer colours)**: a picture quality for RDP and VNC over Matgate's own engine that
   trades colour for latency - RDP at 16 bit, short buffers, fewer pictures in flight; chosen per connection in
   the session's display dialog or as the default under Settings -> Sessions
+- **Right click with a finger, visible**: while a finger is held still on an RDP, VNC or agent screen a ring
+  fills under it (on the touchpad at the cursor) - full, it is a right click. Settings -> Sessions -> Touch
+  chooses how a finger right-clicks (hold, two-finger tap, or either) and how long holding takes
+- **How busy an agent's machine is**: while a tab of an agent is in front, the status bar shows its CPU and
+  RAM in percent (also on a phone); a click shows memory used, free and total in MB/GB, swap and uptime
+  (agent 0.16.0 or later, Windows and Linux)
 - **Settings, account menu and start page** in one style: a settings page with sections (on a phone a list
   that opens each one), a save bar that shows what is unsaved, an account menu with light/dark/system right
   in it, and quick connect on a phone as one row to swipe

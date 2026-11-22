@@ -174,6 +174,23 @@ public sealed class SessionPreferences
     // Stretch the remote image to fill the whole window (may distort the aspect ratio).
     public bool StretchToWindow { get; set; }
 
+    // --- Touch (Matgate's own engine: RDP, VNC, the agent's screen) ---
+    // How a finger makes a right click: "both" (holding it still, or tapping with two fingers), "two" (only two
+    // fingers - holding still does nothing of its own), "long" (only holding still).
+    public string TouchRightClick { get; set; } = "both";
+
+    public static readonly string[] TouchRightClickChoices = ["both", "two", "long"];
+
+    public static string NormalizeTouchRightClick(string? value) =>
+        TouchRightClickChoices.Contains(value ?? "") ? value! : "both";
+
+    // How long a finger is held still before it is a right click, in milliseconds.
+    public int LongPressMs { get; set; } = 550;
+
+    public static readonly int[] LongPressChoices = [400, 550, 700, 850, 1000];
+
+    public static int NormalizeLongPressMs(int value) => LongPressChoices.Contains(value) ? value : 550;
+
     // --- Keyboard helpers ---
     // In fullscreen, capture browser-reserved shortcuts (Windows, Alt+Tab, Alt+F4, Ctrl+W/T, Escape)
     // via the Keyboard Lock API and send them to the session instead of the browser.

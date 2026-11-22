@@ -22,6 +22,7 @@ public static partial class EndpointMapping
         // Not behind the sign-in: an agent has no account - its token is its key (see AgentAttachAsync).
         app.Map("/api/agent/attach", AgentAttachAsync).AllowAnonymous();
         app.MapGet("/api/agent/{id:guid}/logo", AgentLogoAsync).RequireAuthorization();
+        app.MapGet("/api/agent/{id:guid}/system", AgentSystemAsync).RequireAuthorization();
         app.MapGet("/api/agent/{id:guid}/terminal-socket", AgentTerminalSocketAsync).RequireAuthorization();
         app.MapPost("/api/agent/{id:guid}/terminal/kill", AgentTerminalKillAsync).RequireAuthorization();
         app.MapGet("/api/agent/{id:guid}/sessions", AgentSessionsAsync).RequireAuthorization();
@@ -177,6 +178,43 @@ public static partial class EndpointMapping
         catch (Exception exception) when (exception is InvalidOperationException or TimeoutException)
         {
             return null;
+        }
+    }
+
+    // How busy the machine is (processor, memory), for the status bar. An agent from before this, or one on a system
+    // that cannot tell: { available: false }, and the status bar shows nothing.
+    private static async Task<IResult> AgentSystemAsync(Guid id, HttpContext context, JsonDataStore store, AgentClientPool agents)
+    {
+        var (server, result, _) = await RequireAgentAsync(id, context, store);
+        if (result is not null)
+        {
+            return result;
+        }
+
+        context.Response.Headers.CacheControl = "no-store";
+        try
+        {
+            var link = await agents.GetAsync(server!, context.RequestAborted);
+            var answer = await link.RequestAsync("sys.stats", cancellationToken: context.RequestAborted);
+            var data = answer.Data ?? [];
+            long Number(string name) => data[name] is System.Text.Json.Nodes.JsonValue value && value.TryGetValue<long>(out var number) ? number : 0;
+            double? cpu = data["cpu"] is System.Text.Json.Nodes.JsonValue cpuValue && cpuValue.TryGetValue<double>(out var percent) ? percent : null;
+            return Results.Json(new
+            {
+                available = true,
+                cpu,
+                cores = Number("cores"),
+                memTotal = Number("memTotal"),
+                memUsed = Number("memUsed"),
+                memAvailable = Number("memAvailable"),
+                swapTotal = Number("swapTotal"),
+                swapUsed = Number("swapUsed"),
+                uptime = Number("uptime"),
+            });
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or TimeoutException)
+        {
+            return Results.Json(new { available = false });
         }
     }
 

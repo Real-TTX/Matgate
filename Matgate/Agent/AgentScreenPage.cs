@@ -99,9 +99,19 @@ public static class AgentScreenPage
             #handle { display: none; }
             body.fs #handle { background: rgba(159, 224, 189, .5); border: 0; border-radius: 0 0 6px 6px; cursor: pointer; display: block; height: 7px; left: 50%; min-height: 0; padding: 0; position: absolute; top: 0; transform: translateX(-50%); width: 72px; z-index: 5; }
             body.fs .keys { display: none !important; }
+            /* Holding a finger still: a ring fills under it; full, it is a right click. */
+            .hold-ring { --hold: 400ms; height: 64px; left: 0; margin: -32px 0 0 -32px; opacity: 0; pointer-events: none; position: fixed; top: 0; transform: scale(.7); transition: opacity .12s ease, transform .12s ease; width: 64px; z-index: 20; }
+            .hold-ring.show { opacity: 1; transform: scale(1); }
+            .hold-ring svg { display: block; height: 100%; overflow: visible; transform: rotate(-90deg); width: 100%; }
+            .hold-ring .track { fill: rgba(16, 22, 19, .35); stroke: rgba(255, 255, 255, .55); stroke-width: 4; }
+            .hold-ring .fill { fill: none; stroke: #9fe0bd; stroke-dasharray: 176; stroke-dashoffset: 176; stroke-linecap: round; stroke-width: 5; }
+            .hold-ring.show .fill { animation: hold-fill var(--hold) linear forwards; }
+            .hold-ring.done { opacity: 0; transform: scale(1.35); transition: opacity .28s ease, transform .28s ease; }
+            .hold-ring.done .fill { animation: none; stroke-dashoffset: 0; }
+            @keyframes hold-fill { to { stroke-dashoffset: 0; } }
         </style>
         </head>
-        <body data-server="__SERVER__" data-text="__TEXT__" data-kind="__KIND__" data-base="__BASE__" data-keys="__KEYS__" data-quality-default="__QUALITY__" data-csrf="__CSRF__">
+        <body data-server="__SERVER__" data-text="__TEXT__" data-kind="__KIND__" data-base="__BASE__" data-keys="__KEYS__" data-quality-default="__QUALITY__" data-right-click="__RIGHTCLICK__" data-hold-ms="__HOLDMS__" data-csrf="__CSRF__">
         <div class="bar">
             <button id="home" type="button" class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></button>
             <strong>__TITLE__</strong>
@@ -1110,6 +1120,58 @@ public static class AgentScreenPage
             let gesture = null;
             let longPress = 0;
             let lastTap = { time: 0, x: 0, y: 0 };
+            // How a finger makes a right click (Settings - Sessions): holding it still, tapping with two fingers, or
+            // either; and how long holding takes.
+            const rightClickMode = ['both', 'two', 'long'].includes(document.body.dataset.rightClick) ? document.body.dataset.rightClick : 'both';
+            const holdMs = Math.min(1500, Math.max(300, parseInt(document.body.dataset.holdMs, 10) || 550));
+            const holdRightClicks = rightClickMode !== 'two';
+            const twoFingerRightClicks = rightClickMode !== 'long';
+            // The ring that fills while a finger is held: it appears after a moment (a tap shows nothing) and is
+            // full exactly when the right click happens.
+            const holdRing = document.createElement('div');
+            holdRing.className = 'hold-ring';
+            holdRing.setAttribute('aria-hidden', 'true');
+            holdRing.innerHTML = '<svg viewBox="0 0 64 64"><circle class="track" cx="32" cy="32" r="28"></circle><circle class="fill" cx="32" cy="32" r="28"></circle></svg>';
+            document.body.appendChild(holdRing);
+            const ringDelay = 150;
+            let ringTimer = 0;
+            const showRingAt = (x, y) => {
+                window.clearTimeout(ringTimer);
+                holdRing.classList.remove('show', 'done');
+                holdRing.style.left = x + 'px';
+                holdRing.style.top = y + 'px';
+                holdRing.style.setProperty('--hold', Math.max(50, holdMs - ringDelay) + 'ms');
+                ringTimer = window.setTimeout(() => {
+                    // Restart the animation from empty.
+                    void holdRing.offsetWidth;
+                    holdRing.classList.add('show');
+                }, ringDelay);
+            };
+            const hideRing = () => {
+                window.clearTimeout(ringTimer);
+                holdRing.classList.remove('show');
+            };
+            const ringDone = () => {
+                window.clearTimeout(ringTimer);
+                holdRing.classList.add('show', 'done');
+                try {
+                    if (navigator.vibrate) {
+                        navigator.vibrate(15);
+                    }
+                }
+                catch {
+                    // No vibration on this device.
+                }
+                window.setTimeout(() => holdRing.classList.remove('show', 'done'), 300);
+            };
+            // Where the touchpad's cursor is on the screen: there the ring stands, because there it clicks.
+            const cursorOnScreen = () => {
+                const at = ensureCursor();
+                const box = canvas.getBoundingClientRect();
+                return remote.width
+                    ? { x: box.left + at.x * box.width / remote.width, y: box.top + at.y * box.height / remote.height }
+                    : { x: box.left + box.width / 2, y: box.top + box.height / 2 };
+            };
             const ensureCursor = () => {
                 if (!cursor) {
                     cursor = pointerAt.x || pointerAt.y
@@ -1205,23 +1267,33 @@ public static class AgentScreenPage
                         gesture.dragging = true;
                         buttonAtCursor(0, true);
                     }
-                    longPress = window.setTimeout(() => {
-                        if (gesture && gesture.kind === 'pad' && !gesture.moved && !gesture.dragging) {
-                            gesture.kind = 'done';
-                            clickAtCursor(2);
-                        }
-                    }, 550);
+                    if (holdRightClicks && !gesture.dragging) {
+                        const at = cursorOnScreen();
+                        showRingAt(at.x, at.y);
+                        longPress = window.setTimeout(() => {
+                            if (gesture && gesture.kind === 'pad' && !gesture.moved && !gesture.dragging) {
+                                gesture.kind = 'done';
+                                ringDone();
+                                clickAtCursor(2);
+                            }
+                        }, holdMs);
+                    }
                 }
                 else if (touches.size === 1) {
                     gesture = { kind: 'one', moved: false, dragging: false, start: performance.now() };
-                    longPress = window.setTimeout(() => {
-                        if (gesture && gesture.kind === 'one' && !gesture.moved) {
-                            gesture.kind = 'done';
-                            tap(event.clientX, event.clientY, 2);
-                        }
-                    }, 550);
+                    if (holdRightClicks) {
+                        showRingAt(event.clientX, event.clientY);
+                        longPress = window.setTimeout(() => {
+                            if (gesture && gesture.kind === 'one' && !gesture.moved) {
+                                gesture.kind = 'done';
+                                ringDone();
+                                tap(event.clientX, event.clientY, 2);
+                            }
+                        }, holdMs);
+                    }
                 }
                 else if (touches.size === 2) {
+                    hideRing();
                     if (gesture && gesture.dragging) {
                         button(0, false);
                     }
@@ -1237,6 +1309,7 @@ public static class AgentScreenPage
                     // Three fingers, tapped: the controls - in full screen the bar is away, and a picture that
                     // fills the screen leaves no other place to ask for it.
                     window.clearTimeout(longPress);
+                    hideRing();
                     gesture = { kind: 'three', moved: false, start: gesture ? gesture.start : performance.now() };
                 }
             });
@@ -1265,6 +1338,7 @@ public static class AgentScreenPage
                     if (!gesture.moved && Math.hypot(touch.x - touch.startX, touch.y - touch.startY) > 6) {
                         gesture.moved = true;
                         window.clearTimeout(longPress);
+                        hideRing();
                     }
                     if (gesture.moved) {
                         moveCursorBy(dx, dy);
@@ -1275,6 +1349,7 @@ public static class AgentScreenPage
                     if (!gesture.moved && Math.hypot(touch.x - touch.startX, touch.y - touch.startY) > 8) {
                         gesture.moved = true;
                         window.clearTimeout(longPress);
+                        hideRing();
                         // Finger down and moving: a drag with the left button, like a mouse.
                         queueMove(touch.startX, touch.startY);
                         flushMove();
@@ -1353,6 +1428,9 @@ public static class AgentScreenPage
                 }
                 touches.delete(event.pointerId);
                 window.clearTimeout(longPress);
+                if (!holdRing.classList.contains('done')) {
+                    hideRing();
+                }
                 if (!gesture) {
                     return;
                 }
@@ -1391,8 +1469,8 @@ public static class AgentScreenPage
                     gesture = null;
                 }
                 else if (gesture.kind === 'two' && touches.size === 0) {
-                    // Two fingers, tapped: the right mouse button.
-                    if (!gesture.moved && performance.now() - gesture.start < 400) {
+                    // Two fingers, tapped: the right mouse button (unless only holding is to do that).
+                    if (twoFingerRightClicks && !gesture.moved && performance.now() - gesture.start < 400) {
                         if (pointerMode === 'touchpad') {
                             clickAtCursor(2);
                         }

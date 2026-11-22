@@ -4607,6 +4607,15 @@ public static partial class EndpointMapping
             current.Session.KeepSessionMinutes = SessionPreferences.NormalizeKeepSessionMinutes(
                 int.TryParse(form["keepSessionMinutes"].ToString(), out var keepMinutes) ? keepMinutes : 0);
             current.Session.RestoreAll = Checked(form, "restoreAll");
+            if (form.ContainsKey("touchRightClick"))
+            {
+                current.Session.TouchRightClick = SessionPreferences.NormalizeTouchRightClick(form["touchRightClick"].ToString());
+            }
+            if (form.ContainsKey("longPressMs"))
+            {
+                current.Session.LongPressMs = SessionPreferences.NormalizeLongPressMs(
+                    int.TryParse(form["longPressMs"].ToString(), out var holdMs) ? holdMs : 0);
+            }
             if (SessionPreferences.KeptMinutes(current.Session) == 0)
             {
                 // Switched off: the tabs are the browser's own again, and the server forgets its copy.

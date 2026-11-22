@@ -87,6 +87,24 @@ const shells = () => onMachine("ps -eo user:20,args | grep 'bash --noprofile' | 
     ];
   }), ["Linux-Kiste", true, true, ["Freigabe"], ["Shell"], true]);
 
+  // ================================================================================== how busy the machine is
+  const system = await page.evaluate(async id => (await fetch("/api/agent/" + id + "/system", { credentials: "same-origin" })).json(), server.id);
+  check("the agent tells how busy its machine is", [system.available, typeof system.cpu === "number", system.memTotal > 0, system.memUsed > 0 && system.memUsed <= system.memTotal], [true, true, true, true]);
+  for (let i = 0; i < 30 && await page.evaluate(() => document.getElementById("status-system").hidden); i++) { await sleep(250); }
+  check("the status bar shows processor and memory while its tab is in front", await page.evaluate(() => {
+    const button = document.getElementById("status-system");
+    return !button.hidden && /^CPU \d+ %RAM \d+ %$/.test(button.textContent);
+  }), true);
+  await page.click("#status-system");
+  await sleep(300);
+  check("a click shows them in MB/GB", await page.evaluate(() => {
+    const panel = document.getElementById("status-system-panel");
+    return !panel.hidden && /\d+(\.\d)? (MB|GB) .* (of|von) \d+(\.\d)? (MB|GB)/.test(panel.textContent);
+  }), true);
+  await page.keyboard.press("Escape");
+  await sleep(200);
+  check("and Escape closes that again", await page.evaluate(() => document.getElementById("status-system-panel").hidden), true);
+
   // ================================================================================== files
   const listing = await page.evaluate(async id => (await fetch("/api/files/" + id + "/list?path=" + encodeURIComponent("/Freigabe"), { credentials: "same-origin" })).json(), server.id);
   const names = (listing.entries || listing.Entries || []).map(e => (e.name || e.Name) + ((e.isDirectory ?? e.IsDirectory) ? "/" : "")).sort();

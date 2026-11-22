@@ -84,6 +84,7 @@ public sealed class Connection(WebSocket socket, AgentConfig config, string fold
                 "screen.open" => await screen.OpenAsync(request, SendAsync),
                 "screen.clip.read" => await screen.ReadClipAsync(request),
                 "tcp.open" => await _tunnel.OpenAsync(request, SendAsync),
+                "sys.stats" => new AgentFrame { Id = request.Id, Kind = "res", Op = request.Op, Data = SystemStats.Read() },
                 _ when request.Op.StartsWith("files.", StringComparison.Ordinal) && files.IsAvailable
                     => await files.HandleAsync(request, cancellationToken),
                 _ => throw new InvalidOperationException("The agent does not offer this."),

@@ -14,6 +14,9 @@ Plugins today:
   (`--continue`) and "Unterhaltung auswählen" (`--resume`), which survive a restart of the machine.
 - **Screen** - the machine's desktop in the browser, to work on it as if sitting in front of it
   (see below).
+- **How busy the machine is** - CPU and RAM for Matgate's status bar while one of the machine's tabs is in
+  front; a click there shows memory in MB/GB, swap (Linux) and uptime. Windows and Linux; a Mac says it
+  cannot tell, and nothing is shown.
 
 Windows first. The file plugin runs anywhere .NET runs; terminals use Windows' pseudo console
 (ConPTY) and the screen uses DXGI and Media Foundation, so both are only offered on Windows so far.

@@ -391,6 +391,26 @@ public sealed partial class HtmlViews
                     : "For RDP, VNC and screens through the agent. “As last used”: each device remembers the choice from a session's “Display” dialog – good when phone and PC sit on connections of different speed. A fixed choice applies to every new session on every device.",
                 ScreenQualityOptions(de, prefs.ScreenQuality)),
             id: "screen-quality");
+        var rightClick = SessionPreferences.NormalizeTouchRightClick(prefs.TouchRightClick);
+        var rightClickOptions = string.Join("", new[]
+        {
+            ("both", de ? "Lang drücken oder mit zwei Fingern tippen" : "Hold or tap with two fingers"),
+            ("two", de ? "Nur mit zwei Fingern tippen" : "Only tap with two fingers"),
+            ("long", de ? "Nur lang drücken" : "Only hold"),
+        }.Select(choice => $"""<option value="{choice.Item1}"{Selected(rightClick == choice.Item1)}>{E(choice.Item2)}</option>"""));
+        var hold = SessionPreferences.NormalizeLongPressMs(prefs.LongPressMs);
+        var holdOptions = string.Join("", SessionPreferences.LongPressChoices.Select(ms =>
+            $"""<option value="{ms.ToString(CultureInfo.InvariantCulture)}"{Selected(hold == ms)}>{E((ms / 1000.0).ToString("0.0##", de ? CultureInfo.GetCultureInfo("de-DE") : CultureInfo.InvariantCulture) + (de ? " Sekunden" : " seconds"))}</option>"""));
+        var touch = SettingsCard(de ? "Touch" : "Touch",
+            SelectRow("set-touch-right-click", "touchRightClick",
+                de ? "Rechtsklick mit dem Finger" : "Right click with a finger",
+                de ? "Beim langen Drücken füllt sich unter dem Finger ein Kreis – ist er voll, ist es ein Rechtsklick." : "While holding, a circle fills under the finger – once it is full, it is a right click.",
+                rightClickOptions)
+            + SelectRow("set-long-press", "longPressMs",
+                de ? "Lang drücken dauert" : "Holding takes",
+                "",
+                holdOptions),
+            de ? "Für RDP, VNC und Bildschirme über den Agent (Matgates eigene Engine)." : "For RDP, VNC and screens through the agent (Matgate's own engine).");
         var keyboard = SettingsCard(de ? "Tastatur" : "Keyboard",
             SwitchRow("systemCombos", prefs.SystemCombos,
                 de ? "Browser-Tasten durchreichen (Vollbild)" : "Pass browser keys through (fullscreen)",
@@ -438,6 +458,7 @@ public sealed partial class HtmlViews
             <form id="set-form-session" method="post" action="/account/session" class="set-form" data-settings-form>
                 {{Csrf(context)}}
                 {{picture}}
+                {{touch}}
                 {{keyboard}}
                 {{browserGone}}
                 {{bar}}

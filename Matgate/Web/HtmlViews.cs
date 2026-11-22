@@ -4361,6 +4361,16 @@ public sealed partial class HtmlViews
             page = T(context, "Page"),
             fullscreen = T(context, "Fullscreen"),
             openInNewWindow = Language(context) == "de" ? "In neuem Fenster öffnen" : "Open in a new window",
+            systemTitle = Language(context) == "de" ? "Auslastung des Rechners" : "How busy the machine is",
+            systemCpu = Language(context) == "de" ? "Prozessor" : "Processor",
+            systemCores = Language(context) == "de" ? "Kerne" : "cores",
+            systemMemory = Language(context) == "de" ? "Arbeitsspeicher" : "Memory",
+            systemUsed = Language(context) == "de" ? "belegt" : "used",
+            systemFree = Language(context) == "de" ? "frei" : "free",
+            systemOf = Language(context) == "de" ? "von" : "of",
+            systemSwap = Language(context) == "de" ? "Auslagerung" : "Swap",
+            systemUptime = Language(context) == "de" ? "Läuft seit" : "Up for",
+            systemHint = Language(context) == "de" ? "Vom Matgate-Agent, alle 3 Sekunden neu." : "From the Matgate agent, every 3 seconds.",
             reattachToMain = Language(context) == "de" ? "Zurück ins Hauptfenster" : "Re-attach to main window",
             poppedFocus = Language(context) == "de" ? "Fenster nach vorn holen" : "Bring the window to the front",
             popupBlocked = Language(context) == "de" ? "Pop-ups erlauben, um dies in einem neuen Fenster zu öffnen." : "Allow pop-ups to open this in a new window.",
@@ -4796,6 +4806,8 @@ public sealed partial class HtmlViews
                         <span id="status-message">-</span>
                     </div>
                     <div class="status-actions">
+                        <button id="status-system" type="button" class="status-system" hidden aria-haspopup="dialog" aria-expanded="false"><span class="status-system-cpu"></span><span class="status-system-ram"></span></button>
+                        <div id="status-system-panel" class="status-system-panel" role="dialog" hidden></div>
                         <button id="status-info-button" type="button" class="status-info-button" title="{{A(aboutTitle)}}" aria-label="{{A(aboutTitle)}}">{{Icon("info")}}</button>
                     </div>
                 </div>
@@ -12247,7 +12259,179 @@ public sealed partial class HtmlViews
                     }
                 }
 
+                // ---- How busy an agent's machine is: processor and memory in the status bar while one of its tabs
+                // is in front, asked every 3 seconds; a click shows the numbers in MB/GB. An agent from before this
+                // (or on a system that cannot tell) answers that it cannot, and the status bar shows nothing.
+                // var, not const: the status bar is updated before this part of the script has run.
+                var systemButton = document.getElementById('status-system');
+                var systemPanel = document.getElementById('status-system-panel');
+                var systemServerId = '';
+                var systemTimer = 0;
+                var systemData = null;
+                var systemAsking = false;
+                function activeAgentServerId() {
+                    const tab = tabs.get(activeTabId);
+                    if (tab) {
+                        return isAgentTab(tab) ? tab.serverId : '';
+                    }
+                    const shellTab = shellTabs.get(activeShellTabId);
+                    const match = shellTab ? /^\/agent\/([0-9a-fA-F-]{36})\//.exec(shellTab.url || '') : null;
+                    return match ? match[1] : '';
+                }
+                function formatBytes(bytes) {
+                    if (!bytes || bytes < 0) {
+                        return '0 MB';
+                    }
+                    const gb = bytes / 1073741824;
+                    return gb >= 1 ? `${gb.toFixed(gb >= 100 ? 0 : 1)} GB` : `${Math.round(bytes / 1048576)} MB`;
+                }
+                function formatUptime(seconds) {
+                    const days = Math.floor(seconds / 86400);
+                    const hours = Math.floor(seconds % 86400 / 3600);
+                    const minutes = Math.floor(seconds % 3600 / 60);
+                    return days ? `${days} d ${hours} h` : hours ? `${hours} h ${minutes} min` : `${minutes} min`;
+                }
+                function renderSystem() {
+                    if (!systemButton) {
+                        return;
+                    }
+                    const data = systemData;
+                    const shown = !!(systemServerId && data && data.available);
+                    systemButton.hidden = !shown;
+                    if (!shown) {
+                        closeSystemPanel();
+                        return;
+                    }
+                    const memPercent = data.memTotal ? Math.round(100 * data.memUsed / data.memTotal) : null;
+                    const cpuText = data.cpu === null || data.cpu === undefined ? '-' : `${Math.round(data.cpu)} %`;
+                    systemButton.querySelector('.status-system-cpu').textContent = `CPU ${cpuText}`;
+                    systemButton.querySelector('.status-system-ram').textContent = `RAM ${memPercent === null ? '-' : memPercent + ' %'}`;
+                    systemButton.title = ui('systemTitle');
+                    systemButton.classList.toggle('is-high', (data.cpu || 0) >= 90 || (memPercent || 0) >= 90);
+                    if (systemPanel.hidden) {
+                        return;
+                    }
+                    const bar = (percent, label, detail) => {
+                        const row = document.createElement('div');
+                        row.className = 'status-system-row';
+                        const head = document.createElement('div');
+                        head.className = 'status-system-head';
+                        const name = document.createElement('strong');
+                        name.textContent = label;
+                        const value = document.createElement('span');
+                        value.textContent = percent === null ? '-' : `${percent} %`;
+                        head.append(name, value);
+                        const track = document.createElement('div');
+                        track.className = 'status-system-track';
+                        const fill = document.createElement('span');
+                        fill.style.width = `${Math.max(0, Math.min(100, percent || 0))}%`;
+                        fill.classList.toggle('is-high', (percent || 0) >= 90);
+                        track.append(fill);
+                        const small = document.createElement('small');
+                        small.textContent = detail;
+                        row.append(head, track, small);
+                        return row;
+                    };
+                    const title = document.createElement('div');
+                    title.className = 'status-system-title';
+                    title.textContent = ui('systemTitle');
+                    const rows = [
+                        title,
+                        bar(data.cpu === null || data.cpu === undefined ? null : Math.round(data.cpu), ui('systemCpu'), `${data.cores} ${ui('systemCores')}`),
+                        bar(memPercent, ui('systemMemory'), `${formatBytes(data.memUsed)} ${ui('systemUsed')} ${ui('systemOf')} ${formatBytes(data.memTotal)} · ${formatBytes(data.memAvailable)} ${ui('systemFree')}`),
+                    ];
+                    if (data.swapTotal > 0) {
+                        rows.push(bar(Math.round(100 * data.swapUsed / data.swapTotal), ui('systemSwap'), `${formatBytes(data.swapUsed)} ${ui('systemOf')} ${formatBytes(data.swapTotal)}`));
+                    }
+                    const foot = document.createElement('small');
+                    foot.className = 'status-system-foot';
+                    foot.textContent = `${ui('systemUptime')} ${formatUptime(data.uptime || 0)} · ${ui('systemHint')}`;
+                    rows.push(foot);
+                    systemPanel.replaceChildren(...rows);
+                }
+                async function askSystem() {
+                    const id = systemServerId;
+                    if (!id || systemAsking || document.hidden) {
+                        return;
+                    }
+                    systemAsking = true;
+                    try {
+                        const response = await fetch(`/api/agent/${id}/system`, { credentials: 'same-origin', cache: 'no-store' });
+                        const data = response.ok ? await response.json() : { available: false };
+                        if (id === systemServerId) {
+                            systemData = data;
+                            renderSystem();
+                        }
+                    }
+                    catch {
+                        // No answer this time: the last numbers stay until the next one.
+                    }
+                    finally {
+                        systemAsking = false;
+                    }
+                }
+                function followSystemStats() {
+                    if (!systemButton) {
+                        return;
+                    }
+                    const id = activeAgentServerId();
+                    if (id === systemServerId) {
+                        return;
+                    }
+                    systemServerId = id;
+                    systemData = null;
+                    window.clearInterval(systemTimer);
+                    systemTimer = 0;
+                    renderSystem();
+                    if (id) {
+                        askSystem();
+                        systemTimer = window.setInterval(askSystem, 3000);
+                    }
+                }
+                function closeSystemPanel() {
+                    if (systemPanel && !systemPanel.hidden) {
+                        systemPanel.hidden = true;
+                        systemButton.setAttribute('aria-expanded', 'false');
+                    }
+                }
+                if (systemButton && systemPanel) {
+                    // The click does not take the keyboard away from the session in front.
+                    systemButton.addEventListener('pointerdown', event => event.preventDefault());
+                    systemButton.addEventListener('click', () => {
+                        if (!systemPanel.hidden) {
+                            closeSystemPanel();
+                            return;
+                        }
+                        // Just above the status bar, whatever its height (on a phone it is taller).
+                        const bar = document.getElementById('session-statusbar');
+                        if (bar) {
+                            systemPanel.style.bottom = `${Math.max(8, Math.round(window.innerHeight - bar.getBoundingClientRect().top + 8))}px`;
+                        }
+                        systemPanel.hidden = false;
+                        systemButton.setAttribute('aria-expanded', 'true');
+                        renderSystem();
+                    });
+                    document.addEventListener('pointerdown', event => {
+                        if (!systemPanel.hidden && !systemPanel.contains(event.target) && !systemButton.contains(event.target)) {
+                            closeSystemPanel();
+                        }
+                    }, true);
+                    document.addEventListener('keydown', event => {
+                        if (event.key === 'Escape') {
+                            closeSystemPanel();
+                        }
+                    });
+                    // Into a session (its frame takes the focus): closed as well.
+                    window.addEventListener('blur', closeSystemPanel);
+                    document.addEventListener('visibilitychange', () => {
+                        if (!document.hidden) {
+                            askSystem();
+                        }
+                    });
+                }
+
                 function updateStatusBar() {
+                    followSystemStats();
                     const tab = tabs.get(activeTabId);
                     const screen = tab ? null : activeAgentScreen();
                     if (screen && screen.api) {
@@ -21471,6 +21655,49 @@ public sealed partial class HtmlViews
                     html[data-view-mode="minimal"] .session-tab-main {
                         min-height: 40px;
                     }
+                    .status-system {
+                        align-items: center;
+                        appearance: none;
+                        background: var(--surface-2, transparent);
+                        border: 1px solid var(--line);
+                        border-radius: var(--radius-pill, 999px);
+                        color: var(--text);
+                        cursor: pointer;
+                        display: inline-flex;
+                        font: inherit;
+                        font-size: 12px;
+                        font-variant-numeric: tabular-nums;
+                        gap: 8px;
+                        height: 24px;
+                        padding: 0 10px;
+                        white-space: nowrap;
+                    }
+                    .status-system[hidden] { display: none; }
+                    .status-system:hover, .status-system[aria-expanded="true"] { border-color: var(--accent); }
+                    .status-system.is-high { border-color: var(--danger, #c0392b); color: var(--danger, #c0392b); }
+                    .status-system-panel {
+                        background: var(--surface);
+                        border: 1px solid var(--line);
+                        border-radius: var(--radius-card, 14px);
+                        bottom: calc(var(--statusbar-height, 34px) + 8px + env(safe-area-inset-bottom, 0px));
+                        box-shadow: var(--shadow-pop, 0 12px 32px rgba(0, 0, 0, .18));
+                        display: grid;
+                        gap: 12px;
+                        padding: 14px 16px;
+                        position: fixed;
+                        right: 12px;
+                        width: min(320px, calc(100vw - 24px));
+                        z-index: 40;
+                    }
+                    .status-system-panel[hidden] { display: none; }
+                    .status-system-title { font-weight: 700; }
+                    .status-system-row { display: grid; gap: 6px; }
+                    .status-system-head { display: flex; justify-content: space-between; font-variant-numeric: tabular-nums; }
+                    .status-system-head span { font-weight: 600; }
+                    .status-system-row small, .status-system-foot { color: var(--muted); font-size: 12px; }
+                    .status-system-track { background: var(--surface-2, rgba(127, 127, 127, .15)); border-radius: 999px; height: 8px; overflow: hidden; }
+                    .status-system-track span { background: var(--accent); border-radius: 999px; display: block; height: 100%; transition: width .3s ease; }
+                    .status-system-track span.is-high { background: var(--danger, #c0392b); }
                     .status-info-button {
                         align-items: center;
                         appearance: none;
@@ -25284,6 +25511,7 @@ public sealed partial class HtmlViews
                             min-width: 40px;
                             width: 40px;
                         }
+                        .status-system { height: 40px; padding: 0 12px; font-size: 13px; }
                         .favorite-toggle {
                             height: 40px;
                             min-height: 40px;
