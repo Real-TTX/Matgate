@@ -21,13 +21,14 @@ internal readonly record struct Coarseness(int Quantiser, int Block);
 // library's own rate control, which is made for a camera: that one takes many pictures to make a still screen
 // sharp and has no way of keeping a bit rate without leaving pictures out.
 //
-// The connection is a bucket that fills with the allowed bit rate and holds half a second of it; every picture
-// takes its bits out. A full bucket pays for a sharp key frame or a change of the whole screen at once. An
-// overdrawn one is no reason to act as long as the pictures are smaller than what flows in - then it fills by
-// itself. Only when they stay larger does the picture get coarser, step by step, and finer again when there is
-// room. Changing the coarseness is not free: a screen of text that was coded coarsely costs a third of a key
-// frame to make sharp again, and a jump in either direction makes the next picture larger than staying put
-// would have. So the controller would rather go into debt for a moment than move.
+// The connection is a bucket that fills with the allowed bit rate and holds half a second of it (or what the
+// caller says - less where the next picture matters more than a sharp one); every picture takes its bits out.
+// A full bucket pays for a sharp key frame or a change of the whole screen at once. An overdrawn one is no
+// reason to act as long as the pictures are smaller than what flows in - then it fills by itself. Only when
+// they stay larger does the picture get coarser, step by step, and finer again when there is room. Changing
+// the coarseness is not free: a screen of text that was coded coarsely costs a third of a key frame to make
+// sharp again, and a jump in either direction makes the next picture larger than staying put would have. So
+// the controller would rather go into debt for a moment than move.
 //
 // Coarseness is one scale. Up to FinestMosaic it is H.264's quantiser. Some pictures do not get smaller that
 // way - text scrolled faster than the encoder can follow costs as much at 46 as at 34, and more at 51 - so
@@ -62,8 +63,9 @@ internal sealed class RateController
     internal const int Top = 70;
     private const int FinestMosaic = 46;
 
-    // Half a second of the bit rate, as the engine this replaces had it.
-    private const double BucketSeconds = 0.5;
+    // Half a second of the bit rate, as the engine this replaces had it. It bounds how long one picture may
+    // hold the connection: a caller that wants the next picture sooner rather than a sharper one passes less.
+    internal const double DefaultBucketSeconds = 0.5;
 
     // The bucket fills a little more slowly than allowed, so that the rate stays below the ceiling rather than
     // around it.
@@ -71,7 +73,7 @@ internal sealed class RateController
 
     // A picture that stands still is worth a little more than the ceiling: from the second repeat on it may
     // borrow this many seconds of bit rate. The pictures after it pay it back.
-    private const double OverdraftSeconds = 0.25;
+    internal const double DefaultOverdraftSeconds = 0.25;
 
     // How much of a bucket the debt may be before pictures that are larger than the inflow get coarser, and
     // from where on they get coarser quickly.
@@ -107,6 +109,7 @@ internal sealed class RateController
 
     private readonly double _bitsPerMillisecond;
     private readonly double _capacity;
+    private readonly double _overdraftSeconds;
 
     // The caller's own pace, and what flows in between two pictures at it.
     private readonly double _paceMilliseconds;
@@ -149,12 +152,24 @@ internal sealed class RateController
     private double _refine;
     private double _lastBits;
 
-    public RateController(int width, int height, int framesPerSecond, int maxKilobitsPerSecond, int floor)
+    // bucketSeconds and overdraftSeconds are the size of the bucket and what a still picture may borrow, in
+    // seconds of the bit rate.
+    public RateController(
+        int width,
+        int height,
+        int framesPerSecond,
+        int maxKilobitsPerSecond,
+        int floor,
+        double bucketSeconds = DefaultBucketSeconds,
+        double overdraftSeconds = DefaultOverdraftSeconds)
     {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(bucketSeconds);
+        ArgumentOutOfRangeException.ThrowIfNegative(overdraftSeconds);
         _bitsPerMillisecond = maxKilobitsPerSecond * Margin;
         _paceMilliseconds = 1000.0 / framesPerSecond;
         _paceInflow = _paceMilliseconds * _bitsPerMillisecond;
-        _capacity = maxKilobitsPerSecond * 1000.0 * BucketSeconds;
+        _capacity = maxKilobitsPerSecond * 1000.0 * bucketSeconds;
+        _overdraftSeconds = overdraftSeconds;
         _bucket = _capacity;
         _floor = floor;
         _level = floor;
@@ -204,7 +219,7 @@ internal sealed class RateController
                 // Nothing moves, so nothing has to be kept back for the next picture - and nothing is gained
                 // by coding the picture more coarsely than the viewer already has it.
                 _repeats++;
-                var borrowed = _repeats >= 2 ? OverdraftSeconds * 1000 * _bitsPerMillisecond : 0;
+                var borrowed = _repeats >= 2 ? _overdraftSeconds * 1000 * _bitsPerMillisecond : 0;
                 _share = 0;
                 _level = Fit(_floor, Math.Max(_floor, _picture), Math.Max(0, _bucket) + borrowed, key: false);
 

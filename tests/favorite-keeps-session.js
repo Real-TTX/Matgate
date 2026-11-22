@@ -10,7 +10,9 @@ const check = (name, got, want) => {
 };
 (async () => {
   const b = await chromium.launch({ headless: true });
-  const page = await (await b.newContext({ viewport: { width: 1400, height: 950 } })).newPage();
+  const ctx = await b.newContext({ viewport: { width: 1400, height: 950 } });
+  await require("./list-on-start-page")(ctx);
+  const page = await ctx.newPage();
   await page.goto(BASE + "/login", { waitUntil: "networkidle" });
   await page.fill("input[name=username]", "admin");
   await page.fill("input[name=password]", "test-only-pw");

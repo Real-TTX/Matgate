@@ -9,14 +9,12 @@ namespace Matgate.Display;
 // the other. It speaks the screen protocol of the Matgate agent, so the same page shows both: the picture
 // as H.264, the pointer, sound, the clipboard, the resolution of the viewer's window.
 //
-// The picture is paced by the browser: at most three pictures are on their way, each one is acknowledged
-// when it has been decoded. Where the screen stands still, the same picture is encoded again until the
-// encoder says it is sharp - quick pictures while things move, sharp text once they stop. On a slow
-// connection that takes more repeats than on a fast one.
+// The picture is paced by the browser: at most three pictures are on their way (two for the fastest
+// response), each one is acknowledged when it has been decoded. Where the screen stands still, the same
+// picture is encoded again until the encoder says it is sharp - quick pictures while things move, sharp text
+// once they stop. On a slow connection that takes more repeats than on a fast one.
 public sealed class ScreenSession : IScreenHost, IAsyncDisposable
 {
-    private const int MaxInFlight = 3;
-
     private static readonly string[] Modes =
     [
         "3840x2160", "2560x1440", "1920x1200", "1920x1080", "1680x1050", "1600x900",
@@ -44,8 +42,7 @@ public sealed class ScreenSession : IScreenHost, IAsyncDisposable
     private int _fitHeight;
     private int _nativeWidth;
     private int _nativeHeight;
-    private int _fps = 60;
-    private int _bitratePerFullHd = 8000;
+    private ScreenQuality _quality = ScreenQuality.Smooth;
 
     // The picture. Guarded by _state where the browser's messages and the backend's threads meet the video thread.
     private H264Encoder? _encoder;
@@ -149,8 +146,15 @@ public sealed class ScreenSession : IScreenHost, IAsyncDisposable
             ["clipImage"] = _backend.ClipImages ? "dib" : "none",
             ["clipFiles"] = _backend.ClipFiles,
             ["audio"] = _backend.Sound,
+            ["colours"] = _backend.ColorDepth,
+            ["fewerColours"] = FewerColours,
+            ["qualityColours"] = _backend.QualityColours,
         };
     }
+
+    // Whether the remote desktop was asked for fewer colours when this session connected. Colours are settled
+    // then: a session that should have other ones needs a new connection (the page offers it).
+    private bool FewerColours => _backend.QualityColours && ScreenQuality.From(_target.Quality).RdpColorDepth < 32;
 
     private async Task RunAsync()
     {
@@ -294,25 +298,22 @@ public sealed class ScreenSession : IScreenHost, IAsyncDisposable
         _wake.Set();
     }
 
-    // Fast enough for a mouse that feels like one's own; fewer pictures where data is scarce.
+    // Fast enough for a mouse that feels like one's own; fewer pictures where data is scarce; or every picture
+    // as soon as it can be had (see ScreenQuality). What the remote desktop was asked for when it connected
+    // stays as it is.
     private void Quality(string quality)
     {
-        var (fps, bitrate) = quality switch
-        {
-            "medium" => (30, 4000),
-            "low" => (20, 1500),
-            _ => (60, 8000),
-        };
+        var wanted = ScreenQuality.From(quality);
         lock (_state)
         {
-            if (fps != _fps || bitrate != _bitratePerFullHd)
+            if (!wanted.SameEncoder(_quality))
             {
-                _fps = fps;
-                _bitratePerFullHd = bitrate;
                 // Made again with the next picture.
                 _reopen = true;
                 _dirty = true;
             }
+
+            _quality = wanted;
         }
 
         _wake.Set();
@@ -442,6 +443,9 @@ public sealed class ScreenSession : IScreenHost, IAsyncDisposable
             ["clipImage"] = _backend.ClipImages ? "dib" : "none",
             ["clipFiles"] = _backend.ClipFiles,
             ["audio"] = _backend.Sound,
+            ["colours"] = _backend.ColorDepth,
+            ["fewerColours"] = FewerColours,
+            ["qualityColours"] = _backend.QualityColours,
         };
     }
 
@@ -583,8 +587,7 @@ public sealed class ScreenSession : IScreenHost, IAsyncDisposable
         bool dirty;
         bool key;
         bool reopen;
-        int fps;
-        int bitrate;
+        ScreenQuality quality;
         int left;
         int top;
         int right;
@@ -593,6 +596,7 @@ public sealed class ScreenSession : IScreenHost, IAsyncDisposable
         {
             dirty = _dirty;
             key = _keyRequested;
+            quality = _quality;
             var refineDue = _refine && now - _lastEncode >= RefineDelay;
             if (!dirty && !key && !refineDue)
             {
@@ -600,7 +604,7 @@ public sealed class ScreenSession : IScreenHost, IAsyncDisposable
             }
 
             // The browser is behind: wait for it instead of piling up pictures it would show late.
-            if (_sent - _acked >= MaxInFlight)
+            if (_sent - _acked >= quality.MaxInFlight)
             {
                 if (now - _lastAck > 3000)
                 {
@@ -614,9 +618,10 @@ public sealed class ScreenSession : IScreenHost, IAsyncDisposable
             // Where the screen changes faster than the connection carries, the encoder asks for fewer
             // pictures before it makes them hard to read: it says how long a picture with this much new in
             // it should wait. A key frame does not wait, and neither does a small change - the encoder asks
-            // nothing for a cursor or a letter typed.
-            var interval = 1000 / _fps;
-            if (dirty && !key && !_reopen && _encoder is { } pacing)
+            // nothing for a cursor or a letter typed. Nor does anything wait where the viewer wants the
+            // fastest response: the next picture now, however coarse.
+            var interval = 1000 / quality.FramesPerSecond;
+            if (quality.Pace && dirty && !key && !_reopen && _encoder is { } pacing)
             {
                 var width = Math.Clamp(_dirtyRight, 0, pacing.Width) - Math.Clamp(_dirtyLeft, 0, pacing.Width);
                 var height = Math.Clamp(_dirtyBottom, 0, pacing.Height) - Math.Clamp(_dirtyTop, 0, pacing.Height);
@@ -633,8 +638,6 @@ public sealed class ScreenSession : IScreenHost, IAsyncDisposable
             }
 
             reopen = _reopen;
-            fps = _fps;
-            bitrate = _bitratePerFullHd;
             left = _dirtyLeft;
             top = _dirtyTop;
             right = _dirtyRight;
@@ -663,8 +666,7 @@ public sealed class ScreenSession : IScreenHost, IAsyncDisposable
                 _encoder?.Dispose();
                 _frame?.Dispose();
                 // Sharp text where the screen stands still, a ceiling for the network where it moves.
-                var kbps = Math.Max(500, (int)((long)bitrate * width * height / (1920 * 1080) * (15 + fps / 2) / 30));
-                _encoder = new H264Encoder(width, height, fps, kbps);
+                _encoder = new H264Encoder(width, height, quality.FramesPerSecond, quality.KilobitsPerSecond(width, height), quality.EncoderOptions());
                 _frame = new I420Frame(width, height);
                 opened = true;
                 key = true;
@@ -761,7 +763,11 @@ public sealed class ScreenSession : IScreenHost, IAsyncDisposable
                 ["rtt"] = _statRttCount > 0 ? JsonValue.Create(_statRtt / _statRttCount) : null,
                 ["agentMs"] = _statFrames > 0 ? JsonValue.Create(Math.Round(_statEncodeMs / _statFrames, 1)) : null,
                 ["encoder"] = "OpenH264",
-                ["fpsLimit"] = _fps,
+                ["fpsLimit"] = _quality.FramesPerSecond,
+                ["quality"] = _quality.Name,
+                // Bits a pixel as the remote desktop sends them: fewer colours show as bands, and should not
+                // look like a fault.
+                ["colours"] = _backend.ColorDepth,
             };
             _statStart = now;
             _statFrames = 0;

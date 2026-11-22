@@ -52,6 +52,12 @@ usable from a laptop or a phone – installable as a PWA.
   same Windows user in twice; a tab restored after a restart goes back to the session it left without asking.
   *Always restore everything* (Account -> Session) keeps the tabs on the server for every device and through
   updates, brings back the tab last in front, and lets sessions run on for at least 30 minutes
+- **Fastest response (fewer colours)**: a picture quality for RDP and VNC over Matgate's own engine that
+  trades colour for latency - RDP at 16 bit, short buffers, fewer pictures in flight; chosen per connection in
+  the session's display dialog or as the default under Settings -> Sessions
+- **Settings, account menu and start page** in one style: a settings page with sections (on a phone a list
+  that opens each one), a save bar that shows what is unsaved, an account menu with light/dark/system right
+  in it, and quick connect on a phone as one row to swipe
 - **Pop a session out into a window of its own** - just that session, no tabs around it - and hand it back
   with one button; the main window lists the windows that are out beside its tabs (great for multi-monitor)
 - **Real fullscreen / immersive mode** (safe-area aware on iPhone), clipboard sync, a live status bar

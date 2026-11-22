@@ -206,13 +206,25 @@ const check = (name, got, want) => {
     return [!head || head.offsetParent === null, /Connections|Verbindungen/.test(document.getElementById("server-manager").innerText.split("\n")[0])];
   }), [true, false]);
   const panelMenu = () => page.evaluate(() => [...document.querySelectorAll(".toolbar-menu-panel[data-menu-dynamic]:not([hidden]) .toolbar-menu-item")].map(item => item.textContent.trim()));
-  const emptySpot = await page.evaluate(() => { const r = document.getElementById("server-manager-tree").getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.bottom - 20 }; });
+  // An empty spot on the panel: below its last entry. A stack with many connections has none in sight, so
+  // the list is narrowed to a few first.
+  await page.fill("#server-manager-filter", "Linux-Testhost");
+  await sleep(300);
+  const emptySpot = await page.evaluate(() => {
+    const tree = document.getElementById("server-manager-tree");
+    const r = tree.getBoundingClientRect();
+    const last = [...tree.children].filter(entry => entry.offsetParent).pop();
+    const below = last ? last.getBoundingClientRect().bottom : r.top;
+    return { x: r.left + r.width / 2, y: Math.round((below + r.bottom) / 2) };
+  });
   await page.mouse.click(emptySpot.x, emptySpot.y, { button: "right" });
   await sleep(300);
   const offered = await panelMenu();
   check("a right click on the panel makes a new connection or a folder", [offered.includes("New connection"), offered.some(label => /^New folder/.test(label))], [true, true]);
   await page.keyboard.press("Escape");
   await sleep(200);
+  await page.fill("#server-manager-filter", "");
+  await sleep(300);
 
   // ---- the view: normal or compact, and apart from that the side panel, ticked or not
   const choices = async () => {
@@ -256,11 +268,12 @@ const check = (name, got, want) => {
   await choices();
   await choose("Side panel");
   check("ticked: the panel is back", [await viewMode(), await shown()], ["normal", true]);
-  await page.locator(".account-menu > summary").click();
+  await page.locator(".account-menu [data-menu-toggle]").click();
   await sleep(300);
   check("the account's menu has no entry for it either", await page.locator("[data-server-manager-menu]:visible").count(), 0);
   await page.keyboard.press("Escape");
-  await page.locator(".account-menu > summary").click().catch(() => {});
+  await sleep(200);
+  check("Escape closes the account's menu", await page.locator(".account-menu [data-menu-toggle]").getAttribute("aria-expanded"), "false");
 
   // ---- a phone: a sheet over the page, brought by the menu
   const phone = await b.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true, storageState: await context.storageState() });
@@ -275,7 +288,7 @@ const check = (name, got, want) => {
   await sleep(300);
   await small.locator("[data-server-manager-menu]:visible").click();
   await sleep(400);
-  check("the menu's entry brings it as a sheet over the whole page", [(await sheet())[0], await small.evaluate(() => !!document.querySelector(".shell-burger[open]"))], [390, false]);
+  check("the menu's entry brings it as a sheet over the whole page", [(await sheet())[0], await small.evaluate(() => !!document.querySelector(".shell-burger-panel:not([hidden])"))], [390, false]);
   check("with rows a thumb can hit", await small.evaluate(() => [...document.querySelectorAll("#server-manager-tree .server-manager-item")].every(item => item.offsetHeight >= 44)), true);
   await small.locator("#server-manager [data-server-manager-close]").click();
   await sleep(300);

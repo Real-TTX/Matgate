@@ -134,8 +134,23 @@ const shots = [];
         await page.click(".shell-burger-trigger");
         await sleep(400);
         await shot(page, p("home-menu"), "The menu");
-        await page.evaluate(() => { const close = document.querySelector("[data-burger-close]"); if (close) { close.click(); } const open = document.querySelector(".shell-burger[open]"); if (open) { open.removeAttribute("open"); } });
+        await page.evaluate(() => window.MatgateCloseMenus());
         await sleep(300);
+      }
+      if (!phone) {
+        // The account menu, open; then the main menu as it drops down from the burger in the compact view.
+        await page.click(".account-menu [data-menu-toggle]");
+        await sleep(400);
+        await shot(page, p("account-menu"), "The account menu");
+        await page.evaluate(() => window.MatgateCloseMenus());
+        await page.evaluate(() => window.MatgateChooseView("minimal"));
+        await sleep(500);
+        await page.click(".shell-burger-trigger");
+        await sleep(400);
+        await shot(page, p("menu-compact"), "The menu in the compact view");
+        await page.evaluate(() => window.MatgateCloseMenus());
+        await page.evaluate(() => window.MatgateChooseView("sidebar"));
+        await sleep(400);
       }
       await page.evaluate(() => document.querySelector("[data-home2-more]").click());
       await sleep(500);
@@ -150,6 +165,13 @@ const shots = [];
         await page.locator("[data-server-manager-menu]:visible").click();
         await sleep(500);
         await shot(page, p("side-panel"), "The side panel as a sheet");
+        // Quick connect on a phone is one row to swipe through: at its end the last tile stands beside "More",
+        // and the start of the row fades.
+        await page.goto(BASE + "/", { waitUntil: "networkidle" });
+        await sleep(500);
+        await page.evaluate(() => { const row = document.querySelector(".home2-quick-row"); row.scrollLeft = row.scrollWidth; });
+        await sleep(400);
+        await shot(page, p("home-strip-end"), "Quick connect swiped to its end");
       }
     });
 
@@ -196,17 +218,28 @@ const shots = [];
     await stop(p("settings"), async () => {
       await page.goto(BASE + "/account", { waitUntil: "networkidle" });
       await sleep(500);
+      // A desktop shows the rail and the profile, a phone the list of sections.
       await shot(page, p("settings"), "Settings");
-      // The colour sheet, asked for from the settings.
+      // The colour sheet, asked for from the appearance section.
+      await page.goto(BASE + "/account?tab=appearance", { waitUntil: "networkidle" });
+      await sleep(400);
       await page.locator("[data-colour-open]").first().click();
       await sleep(500);
       await shot(page, p("colour"), "Choosing a colour");
       await page.click("[data-colour-cancel]");
-      for (const tab of ["security", "session", "keys", "home", "favorites"]) {
+      // Every section ("favorites" is another name for the start page's); on a desktop the profile is the first
+      // picture already.
+      for (const tab of ["profile", "appearance", "security", "home", "session", "keys"]) {
+        if (tab === "profile" && !phone) { continue; }
         await page.goto(BASE + "/account?tab=" + tab, { waitUntil: "networkidle" });
         await sleep(400);
         await shot(page, p("settings-" + tab), "Settings: " + tab);
       }
+      // The end of the longest section: the card of what only Guacamole does, and the save bar in its place.
+      await page.goto(BASE + "/account?tab=session", { waitUntil: "networkidle" });
+      await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+      await sleep(400);
+      await shot(page, p("settings-session-end"), "Settings: the end of the sessions");
       await page.goto(BASE + "/admin", { waitUntil: "networkidle" });
       await sleep(400);
       await shot(page, p("admin"), "Administration");
@@ -228,10 +261,11 @@ const shots = [];
         await sleep(400);
         await shot(page, p("rdp-more"), "An RDP session, the rest of its actions");
         await page.mouse.click(10, 400);
-        // The list of open connections only exists in the compact view: switch into it, take the
-        // picture, switch back.
-        const compact = () => page.evaluate(() => { window.MatgateChooseView(document.documentElement.dataset.viewMode === 'minimal' ? 'normal' : 'minimal'); });
-        await compact();
+        // The list of open connections only exists in the compact view: into it (a phone is usually
+        // there already - a toggle took it out of it, and the picture was never taken), the picture,
+        // and back to the view it was in.
+        const before = await page.evaluate(() => document.documentElement.dataset.viewMode === "minimal" ? "minimal" : "normal");
+        await page.evaluate(() => window.MatgateChooseView("minimal"));
         await sleep(500);
         if (await page.locator(".mobile-tab-menu-trigger").isVisible()) {
           await page.click(".mobile-tab-menu-trigger");
@@ -239,7 +273,7 @@ const shots = [];
           await shot(page, p("rdp-connections"), "The open connections, in the compact view");
           await page.evaluate(() => { const close = document.querySelector(".mobile-tab-sheet-close"); if (close) { close.click(); } });
         }
-        await compact();
+        await page.evaluate(mode => window.MatgateChooseView(mode), before);
         await sleep(500);
       }
       await action(page, "resolution");

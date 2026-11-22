@@ -24,12 +24,32 @@ const check = (name, got, want) => {
   await Promise.all([page.waitForURL(u => !/login/.test(u.toString()), { timeout: 20000 }), page.click(".login-submit")]);
   await sleep(1000);
 
-  const servers = await page.evaluate(async () => {
+  const servers = () => page.evaluate(async () => {
     const text = await (await fetch("/", { credentials: "same-origin" })).text();
     return JSON.parse(text.match(/const availableServers = (\[.*?\]);/s)[1]);
   });
-  const rdp = servers.find(s => s.name === "Test-RDP");
-  if (!rdp) { throw new Error("no connection Test-RDP - display.js or gallery.js creates it"); }
+  // The connection display.js and gallery.js use - made here as they make it when neither left it behind
+  // (display.js removes it at its end, so in a full run it is not there).
+  let rdp = (await servers()).find(s => s.name === "Test-RDP");
+  if (!rdp) {
+    await page.goto(BASE + "/admin/servers/new", { waitUntil: "networkidle" });
+    await sleep(400);
+    await page.evaluate(() => {
+      document.querySelector("[data-protocol-option='Rdp']").click();
+      const set = (field, value) => {
+        const all = [...document.querySelectorAll("[name='" + field + "']")];
+        const el = all.find(e => !e.disabled) || all[0];
+        el.value = value;
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+      };
+      Object.entries({ name: "Test-RDP", host: "desktop", port: "3389", targetUserName: "demo", targetPassword: "demo-only-pw", keyboardLayout: "en-us-qwerty", engine: "" })
+        .forEach(([field, value]) => set(field, value));
+      document.querySelector("[name='name']").form.requestSubmit();
+    }).catch(() => { /* the submit navigated before the call returned */ });
+    await sleep(1500);
+    rdp = (await servers()).find(s => s.name === "Test-RDP");
+  }
+  if (!rdp) { throw new Error("no connection Test-RDP, and making one failed"); }
 
   await page.goto(BASE + "/?open=" + rdp.id, { waitUntil: "networkidle" });
   let frame = null;
@@ -84,6 +104,14 @@ const check = (name, got, want) => {
     const tops = [...row.children].map(item => Math.round(item.getBoundingClientRect().top));
     return [row.children.length, new Set(tops).size, document.querySelector("#resolution-options .resolution-fixed-list").hidden];
   }), [3, 1, true]);
+  check("picture quality: four choices in two rows of two, title and a line below, the fastest one last", await page.evaluate(() => {
+    const row = document.querySelector("#resolution-extra .resolution-seg--cards");
+    if (!row) return null;
+    const items = [...row.children];
+    return [items.length, new Set(items.map(i => Math.round(i.getBoundingClientRect().top))).size,
+      items.every(i => !!i.querySelector(".resolution-option-title") && !!i.querySelector(".resolution-option-hint")),
+      /Fastest response|Schnellste Reaktion/.test(items[3].textContent), !!document.querySelector("#resolution-extra .resolution-note")];
+  }), [4, 2, true, true, true]);
   await page.click("#resolution-dialog [data-dialog-x]");
   await sleep(300);
   check("the X closes it", await open(), false);

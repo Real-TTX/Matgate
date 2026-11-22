@@ -48,19 +48,21 @@ const barHeight = page => page.evaluate(() => {
   check("strip equally high with and without tabs", empty.bar, full.bar);
   check("at least one tab open", full.tabs > 0, true);
 
-  // ---------- The account menu on the desktop: closed after a choice
-  const accountOpen = () => page.evaluate(() => {
-    const d = document.querySelector("details.account-menu");
-    return d ? d.hasAttribute("open") : "missing";
+  // ---------- The account menu on the desktop (a button and its panel): closed after a choice
+  const accountState = () => page.evaluate(() => {
+    const trigger = document.querySelector(".account-menu [data-menu-toggle]");
+    const panel = document.querySelector(".account-menu-panel");
+    return trigger && panel ? [trigger.getAttribute("aria-expanded"), !panel.hidden] : "missing";
   });
-  const accountHandle = page.locator("details.account-menu > summary");
-  if (await accountHandle.count()) {
-    await accountHandle.click(); await sleep(400);
-    check("account menu open", await accountOpen(), true);
-    await page.locator("details.account-menu a[href], details.account-menu button").first().click();
-    await sleep(900);
-    check("account menu closed after the choice", await accountOpen(), false);
-  }
+  check("the account menu's button is there", await page.locator(".account-menu [data-menu-toggle]").count(), 1);
+  await page.click(".account-menu [data-menu-toggle]"); await sleep(400);
+  check("account menu open", await accountState(), ["true", true]);
+  // The first link in it is the settings (the user card above it is no entry).
+  await page.locator(".account-menu-panel a[href]").first().click();
+  await sleep(900);
+  check("account menu closed after the choice", await accountState(), ["false", false]);
+  check("the choice opened the settings as a page tab", await page.evaluate(() => [...document.querySelectorAll(".shell-page-panel iframe")]
+    .some(frame => { try { return frame.contentWindow.location.pathname === "/account"; } catch (e) { return false; } })), true);
   await page.screenshot({ path: "burger-bar-desktop.png", clip: { x: 0, y: 0, width: 1280, height: 130 } });
   await ctx.close();
 
@@ -70,13 +72,14 @@ const barHeight = page => page.evaluate(() => {
   const p2 = await ctx2.newPage();
   p2.on("pageerror", e => { console.log("JS ERROR phone: " + e.message); failures.push("JS error phone"); });
   await signIn(p2);
+  // The burger is a button and a panel; open, the panel is a sheet under <body>.
+  const burgerState = () => p2.evaluate(() => [document.querySelector(".shell-burger-trigger").getAttribute("aria-expanded"),
+    !!document.querySelector(".shell-burger-panel.menu-sheet:not([hidden])")]);
   await p2.locator(".shell-burger-trigger").tap(); await sleep(500);
-  const open1 = await p2.evaluate(() => document.querySelector("details.shell-burger").hasAttribute("open"));
-  check("phone: burger open", open1, true);
-  await p2.locator(".shell-burger .shell-menu-item").filter({ hasText: /Tools/i }).first().tap();
+  check("phone: burger open", await burgerState(), ["true", true]);
+  await p2.locator(".shell-burger-panel .shell-menu-item").filter({ hasText: /Tools|Werkzeuge/i }).first().tap();
   await sleep(1000);
-  const open2 = await p2.evaluate(() => document.querySelector("details.shell-burger").hasAttribute("open"));
-  check("phone: burger closed after the choice", open2, false);
+  check("phone: burger closed after the choice", await burgerState(), ["false", false]);
   await p2.screenshot({ path: "burger-bar-phone.png" });
   await ctx2.close();
 

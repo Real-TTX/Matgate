@@ -13,7 +13,7 @@ const check = (name, got, want) => {
   console.log((ok ? "ok   " : "FAIL ") + name + "  got=" + JSON.stringify(got) + (ok ? "" : " want=" + JSON.stringify(want)));
   if (!ok) failures.push(name);
 };
-const ACCOUNT = BASE + "/account?tab=profile";
+const ACCOUNT = BASE + "/account?tab=appearance";
 const ACCENT = { toggle: "accentOwn", value: "accentColor" };
 const ACCENT2 = { toggle: "accent2Own", value: "accentColor2" };
 

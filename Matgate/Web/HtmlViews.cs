@@ -313,6 +313,9 @@ public sealed partial class HtmlViews
         ["Current folder"] = "Aktueller Ordner",
         ["Clear finished"] = "Fertige löschen",
         ["No uploads in the queue."] = "Keine Uploads in der Warteschlange.",
+        ["Actions"] = "Aktionen",
+        ["Delete"] = "Löschen",
+        ["Menu"] = "Menü",
         ["Aborted"] = "Abgebrochen"
     };
 
@@ -1191,831 +1194,15 @@ public sealed partial class HtmlViews
         return Layout(context, currentUser, de ? "Verbindungen" : "Connections", body);
     }
 
+    // The settings (/account): six sections in two groups, built in HtmlViews.Settings.cs. Also the answer to
+    // switching the second factor on, then with the recovery codes, which are shown this once.
     public string Account(
         HttpContext context,
         MatgateUser user,
         IReadOnlyList<ServerEndpoint> servers,
         IReadOnlyList<string>? recoveryCodes = null)
     {
-        var displayName = string.IsNullOrWhiteSpace(user.DisplayName) ? user.UserName : user.DisplayName;
-        var favoriteServers = servers
-            .Where(server => IsFavoriteServer(user, server.Id))
-            .OrderBy(server => string.IsNullOrWhiteSpace(server.FolderName) ? 1 : 0)
-            .ThenBy(server => server.FolderName)
-            .ThenBy(server => server.Name)
-            .ToList();
-        var favoriteRows = favoriteServers.Count == 0
-            ? $"""<tr><td colspan="4" class="muted">{T(context, "No favorite servers yet.")}</td></tr>"""
-            : string.Join("", favoriteServers.Select(server => $$"""
-                <tr>
-                    <td><span class="server-name-cell">{{ServerIcon(server, "small")}}<span>{{E(server.Name)}}</span></span></td>
-                    <td>{{(string.IsNullOrWhiteSpace(server.FolderName) ? "<span class=\"muted\">-</span>" : ServerFolderBadge(context, server))}}</td>
-                    <td><span class="badge">{{E(ServerProtocolLabel(server.Protocol))}}</span></td>
-                    <td class="table-actions">{{FavoriteToggleForm(context, user, server, "/account")}}</td>
-                </tr>
-                """));
-        var tab = context.Request.Query["tab"].ToString().ToLowerInvariant();
-        if (tab is not ("security" or "favorites" or "session" or "keys" or "home"))
-        {
-            tab = "profile";
-        }
-
-        // After the second factor is switched on this page is served directly, not through an address
-        // with ?tab= - without this the recovery codes would sit in a hidden tab, and nobody would
-        // ever see them.
-        if (recoveryCodes is not null && recoveryCodes.Count > 0)
-        {
-            tab = "security";
-        }
-        var de = Language(context) == "de";
-        var prefs = user.Session;
-
-        // The sortable session actions: the user's own order first, then everything they never moved,
-        // in its built-in place. That way an action added later shows up at the end instead of being
-        // missing because the saved order predates it.
-        var actionLabels = new Dictionary<string, string>(StringComparer.Ordinal)
-        {
-            ["fullscreen"] = de ? "Vollbild" : "Fullscreen",
-            ["popOut"] = de ? "In eigenem Fenster öffnen" : "Open in a new window",
-            ["reattach"] = de ? "Fenster zurückholen" : "Re-attach window",
-            ["pointer"] = de ? "Zeigermodus" : "Pointer mode",
-            ["rightClick"] = de ? "Rechtsklick" : "Right click",
-            ["keyboard"] = de ? "Geraetetastatur" : "Device keyboard",
-            ["osk"] = de ? "Bildschirmtastatur" : "On-screen keyboard",
-            ["resolution"] = de ? "Auflösung" : "Resolution",
-            ["autoResize"] = de ? "Automatisch anpassen" : "Auto-resize",
-            ["zoomOut"] = de ? "Verkleinern" : "Zoom out",
-            ["zoomIn"] = de ? "Vergrößern" : "Zoom in",
-            ["copyUrl"] = de ? "Adresse kopieren" : "Copy address",
-            ["clipboard"] = de ? "Einfuegen" : "Paste",
-            ["cad"] = de ? "Strg+Alt+Entf" : "Ctrl+Alt+Del",
-            ["upload"] = de ? "Dateien senden" : "Send files",
-            ["fileArea"] = de ? "Dateien dieser Verbindung" : "Files for this connection",
-        };
-        var savedOrder = (prefs.ActionOrder ?? []).Where(SessionPreferences.IsKnownAction).ToList();
-        var sortedActions = savedOrder
-            .Concat(SessionPreferences.SortableActions.Where(key => !savedOrder.Contains(key)))
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
-        // The same icons the toolbar uses, so a row is recognised at a glance instead of being read.
-        var actionIconKeys = new Dictionary<string, string>(StringComparer.Ordinal)
-        {
-            ["fullscreen"] = "maximize",
-            ["popOut"] = "external-link",
-            ["reattach"] = "arrow-left",
-            ["pointer"] = "pointer",
-            ["rightClick"] = "menu",
-            ["keyboard"] = "keyboard",
-            ["osk"] = "grid",
-            ["resolution"] = "monitor",
-            ["autoResize"] = "refresh",
-            ["zoomOut"] = "zoom-out",
-            ["zoomIn"] = "zoom-in",
-            ["copyUrl"] = "copy",
-            ["clipboard"] = "clipboard",
-            ["cad"] = "command",
-            ["upload"] = "upload",
-            ["fileArea"] = "folder",
-        };
-        // Quick-connect chips, one tick each. Ticked means shown, which is the way round people read
-        // a list of things they could have.
-        var hiddenQuickProtocols = prefs.HiddenQuickProtocols ?? [];
-        var quickProtocolItems = string.Join("", QuickProtocols(de, null, prefs.QuickProtocolOrder).Select(protocol => $"""
-            <li class="action-order-item" data-order-key="{A(protocol.Protocol)}"><span class="action-order-grip" aria-hidden="true">{Icon("menu")}</span><span class="action-order-icon" aria-hidden="true">{Icon(protocol.IconKey)}</span><span class="action-order-name">{E(protocol.Name)}</span><label class="action-order-show"><input type="checkbox" data-order-visible{(hiddenQuickProtocols.Contains(protocol.Protocol) ? "" : " checked")}> {E(de ? "zeigen" : "show")}</label></li>
-            """));
-
-        var hiddenActions = prefs.HiddenActions ?? [];
-        var actionOrderItems = string.Join("", sortedActions.Select(key => $"""
-            <li class="action-order-item" data-action="{A(key)}"><span class="action-order-grip" aria-hidden="true">{Icon("menu")}</span><span class="action-order-icon" aria-hidden="true">{Icon(actionIconKeys.TryGetValue(key, out var iconKey) ? iconKey : "square")}</span><span class="action-order-name">{E(actionLabels[key])}</span><label class="action-order-show"><input type="checkbox" data-action-visible{(hiddenActions.Contains(key) ? "" : " checked")}> {E(de ? "zeigen" : "show")}</label></li>
-            """));
-
-        string Toggle(string name, bool on, string titleDe, string titleEn, string descDe, string descEn) => $$"""
-            <label class="toggle-row">
-                <input type="checkbox" name="{{name}}"{{(on ? " checked" : "")}}>
-                <span class="toggle-switch" aria-hidden="true"></span>
-                <span class="toggle-copy"><strong>{{E(de ? titleDe : titleEn)}}</strong><small>{{E(de ? descDe : descEn)}}</small></span>
-            </label>
-            """;
-        var body = $$"""
-            <div class="settings-page">
-            <section class="page-head conn-head">
-                <span class="conn-head-icon" aria-hidden="true">{{Icon("user")}}</span>
-                <div>
-                    <p class="eyebrow">{{T(context, "Account")}}</p>
-                    <h1>{{E(displayName)}}</h1>
-                    <p class="muted">{{E(user.UserName)}}</p>
-                </div>
-            </section>
-            <section class="tabs" data-tabs>
-                <div class="tab-strip" role="tablist">
-                    <a class="tab-button{{(tab == "profile" ? " active" : "")}}" href="?tab=profile" data-tab-target="profile" role="tab" aria-selected="{{(tab == "profile" ? "true" : "false")}}">{{Icon("user")}}<span>{{(de ? "Profil" : "Profile")}}</span></a>
-                    <a class="tab-button{{(tab == "security" ? " active" : "")}}" href="?tab=security" data-tab-target="security" role="tab" aria-selected="{{(tab == "security" ? "true" : "false")}}">{{Icon("key")}}<span>{{(de ? "Sicherheit" : "Security")}}</span></a>
-                    <a class="tab-button{{(tab == "session" ? " active" : "")}}" href="?tab=session" data-tab-target="session" role="tab" aria-selected="{{(tab == "session" ? "true" : "false")}}">{{Icon("monitor")}}<span>{{(de ? "Sitzung" : "Session")}}</span></a>
-                    <a class="tab-button{{(tab == "keys" ? " active" : "")}}" href="?tab=keys" data-tab-target="keys" role="tab" aria-selected="{{(tab == "keys" ? "true" : "false")}}">{{Icon("keyboard")}}<span>{{(de ? "Tastenleiste" : "Key bar")}}</span></a>
-                    <a class="tab-button{{(tab == "home" ? " active" : "")}}" href="?tab=home" data-tab-target="home" role="tab" aria-selected="{{(tab == "home" ? "true" : "false")}}">{{Icon("home")}}<span>{{(de ? "Startseite" : "Start page")}}</span></a>
-                    <a class="tab-button{{(tab == "favorites" ? " active" : "")}}" href="?tab=favorites" data-tab-target="favorites" role="tab" aria-selected="{{(tab == "favorites" ? "true" : "false")}}">{{Icon("star")}}<span>{{(de ? "Favoriten" : "Favorites")}}</span></a>
-                </div>
-                <div class="tab-panels">
-                    <div class="tab-panel{{(tab == "profile" ? "" : " hidden")}}" data-tab-panel="profile">
-                        <section class="panel">
-                            <h2>{{(de ? "Profil" : "Profile")}}</h2>
-                            <form method="post" action="/account" class="form-grid">
-                                {{Csrf(context)}}
-                                <label>{{T(context, "Display name")}}
-                                    <input name="displayName" value="{{A(user.DisplayName)}}">
-                                </label>
-                                <label>{{T(context, "Email (optional)")}}
-                                    <input name="email" type="email" maxlength="200" value="{{A(user.Email)}}">
-                                </label>
-                                <label>{{T(context, "Preferred language")}}
-                                    <select name="preferredLanguage">
-                                        {{LanguageOptions(context, user.PreferredLanguage)}}
-                                    </select>
-                                </label>
-                                <div class="actions"><button type="submit" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button></div>
-                            </form>
-                        </section>
-                        <section class="panel">
-                            <h2>{{(de ? "Darstellung" : "Appearance")}}</h2>
-                            <p class="muted settings-lead">{{(de ? "Gilt auf jedem Gerät, auf dem du angemeldet bist." : "Applies on every device you are signed in on.")}}</p>
-                            <form method="post" action="/account" class="settings-form">
-                                {{Csrf(context)}}
-                                <fieldset class="settings-group">
-                                    <legend>{{(de ? "Hell oder dunkel" : "Light or dark")}}</legend>
-                                    <div class="mode-choice">{{ThemeModeChooser(context, user.PreferredTheme)}}</div>
-                                </fieldset>
-                                <fieldset class="settings-group">
-                                    <legend>{{(de ? "Farbschema" : "Colour scheme")}}</legend>
-                                    <p class="muted settings-hint">{{(de ? "Jedes Schema hat einen hellen und einen dunklen Satz – die Wahl darüber entscheidet, welcher gilt." : "Every scheme has a light and a dark set – the choice above decides which one applies.")}}</p>
-                                    <div class="theme-cards">{{ThemeCards(context, user.PreferredThemeName)}}</div>
-                                </fieldset>
-                                {{ColourGroups(context, user)}}
-                                <script>
-                                    (() => {
-                                        // What you set is what you should see - namely what comes out after saving.
-                                        // It is therefore computed on the server (/api/theme/preview): the same
-                                        // function that builds the page, including the correction that keeps a
-                                        // too-pale colour readable.
-                                        const form = document.currentScript.closest("form");
-                                        if (!form) {
-                                            return;
-                                        }
-                                
-                                        form.querySelectorAll("[data-colour-field]").forEach(field => {
-                                            const toggle = field.querySelector("[data-colour-own]");
-                                            const valueField = field.querySelector("[data-colour-value]");
-                                            const swatches = field.querySelector("[data-colour-presets]");
-                                            if (!toggle || !valueField || !swatches) {
-                                                return;
-                                            }
-                                
-                                            // A swatch sets the colour and switches it on in one go - otherwise you
-                                            // pick a colour and nothing happens.
-                                            swatches.addEventListener("click", event => {
-                                                const button = event.target.closest("[data-colour-preset]");
-                                                if (!button) {
-                                                    return;
-                                                }
-                                
-                                                event.preventDefault();
-                                                valueField.value = button.dataset.colourPreset;
-                                                toggle.checked = true;
-                                                markChosen(field);
-                                                schedulePreview();
-                                            });
-                                            valueField.addEventListener("input", () => { toggle.checked = true; markChosen(field); schedulePreview(); });
-                                            toggle.addEventListener("change", () => { markChosen(field); schedulePreview(); });
-                                            markChosen(field);
-                                        });
-                                
-                                        function markChosen(field) {
-                                            const toggle = field.querySelector("[data-colour-own]");
-                                            const valueField = field.querySelector("[data-colour-value]");
-                                            field.classList.toggle("is-own", toggle.checked);
-                                            const dot = field.querySelector(".colour-chip-dot");
-                                            if (dot) {
-                                                dot.style.setProperty("--dot", valueField.value);
-                                            }
-                                            field.querySelectorAll("[data-colour-preset]").forEach(button => {
-                                                button.classList.toggle("is-selected",
-                                                    toggle.checked && button.dataset.colourPreset.toLowerCase() === valueField.value.toLowerCase());
-                                            });
-                                        }
-                                
-                                        // The colour sheet - the application's own picker. It replaces the operating system's, which looked
-                                        // different on every machine, was a small floating box on a phone and could not follow the page.
-                                        // This one fills the screen on a phone, offers the eyedropper where the browser has one, and works
-                                        // the page behind it live: every change goes out as the same "input" event a native picker fired,
-                                        // so the "own colour" switch, the swatches and the server preview follow without knowing that a
-                                        // new control is there.
-                                        const sheet = document.getElementById("colour-dialog");
-                                        if (sheet) {
-                                            // Out of the form. Enter in the hex field would otherwise send the whole settings form, and a
-                                            // fixed sheet should not depend on whatever it happens to sit in.
-                                            document.body.appendChild(sheet);
-
-                                            const area = sheet.querySelector("[data-colour-area]");
-                                            const hue = sheet.querySelector("[data-colour-hue]");
-                                            const hex = sheet.querySelector("[data-colour-hex]");
-                                            const preview = sheet.querySelector("[data-colour-preview]");
-                                            const dropper = sheet.querySelector("[data-colour-eyedropper]");
-                                            const problem = sheet.querySelector("[data-colour-problem]");
-                                            const heading = sheet.querySelector("[data-colour-title]");
-
-                                            // Hue in degrees, saturation and value from 0 to 1. A colour is kept in this form rather than
-                                            // as hex, because round-tripping through hex loses the hue of every grey and the slider would
-                                            // jump to red whenever the square is dragged to the left edge.
-                                            const state = { h: 0, s: 1, v: 1 };
-                                            let current = null;
-                                            let dragging = false;
-
-                                            const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
-
-                                            const toRgb = () => {
-                                                const chroma = state.v * state.s;
-                                                const x = chroma * (1 - Math.abs(((state.h / 60) % 2) - 1));
-                                                const m = state.v - chroma;
-                                                const sectors = [[chroma, x, 0], [x, chroma, 0], [0, chroma, x], [0, x, chroma], [x, 0, chroma], [chroma, 0, x]];
-                                                return sectors[Math.floor(state.h / 60) % 6].map(part => Math.round((part + m) * 255));
-                                            };
-
-                                            const toHex = () => "#" + toRgb().map(part => part.toString(16).padStart(2, "0")).join("");
-
-                                            // "#1a2b3c", "1a2b3c" and "#abc" are all colours; anything else is not.
-                                            const parseHex = text => {
-                                                let digits = String(text || "").trim().replace(/^#/, "");
-                                                if (/^[0-9a-f]{3}$/i.test(digits)) {
-                                                    digits = digits.split("").map(digit => digit + digit).join("");
-                                                }
-
-                                                return /^[0-9a-f]{6}$/i.test(digits) ? "#" + digits.toLowerCase() : null;
-                                            };
-
-                                            const fromHex = text => {
-                                                const value = parseHex(text);
-                                                if (!value) {
-                                                    return false;
-                                                }
-
-                                                const r = parseInt(value.slice(1, 3), 16) / 255;
-                                                const g = parseInt(value.slice(3, 5), 16) / 255;
-                                                const b = parseInt(value.slice(5, 7), 16) / 255;
-                                                const max = Math.max(r, g, b);
-                                                const spread = max - Math.min(r, g, b);
-                                                // A grey has no hue: keep the one the person had instead of falling back to red.
-                                                let h = state.h;
-                                                if (spread > 0.0001) {
-                                                    if (max === r) { h = 60 * (((g - b) / spread) % 6); }
-                                                    else if (max === g) { h = 60 * ((b - r) / spread + 2); }
-                                                    else { h = 60 * ((r - g) / spread + 4); }
-                                                    if (h < 0) { h += 360; }
-                                                }
-
-                                                state.h = h;
-                                                state.s = max === 0 ? 0 : spread / max;
-                                                state.v = max;
-                                                return true;
-                                            };
-
-                                            // Paints the sheet from the state. The hex box is only rewritten when asked to: while the
-                                            // person is typing into it, it must not be overwritten under their fingers.
-                                            const draw = writeHex => {
-                                                const value = toHex();
-                                                area.style.setProperty("--hue", String(Math.round(state.h)));
-                                                area.style.setProperty("--s", String(state.s));
-                                                area.style.setProperty("--v", String(state.v));
-                                                area.setAttribute("aria-valuetext", Math.round(state.s * 100) + " %, " + Math.round(state.v * 100) + " %");
-                                                hue.value = String(Math.round(state.h));
-                                                preview.style.setProperty("--dot", value);
-                                                if (writeHex) {
-                                                    hex.value = value;
-                                                    hex.removeAttribute("aria-invalid");
-                                                    problem.classList.add("hidden");
-                                                }
-
-                                                return value;
-                                            };
-
-                                            const commit = writeHex => {
-                                                const value = draw(writeHex);
-                                                if (!current) {
-                                                    return;
-                                                }
-
-                                                current.valueField.value = value;
-                                                current.valueField.dispatchEvent(new Event("input", { bubbles: true }));
-                                            };
-
-                                            const place = event => {
-                                                const box = area.getBoundingClientRect();
-                                                state.s = clamp((event.clientX - box.left) / box.width, 0, 1);
-                                                state.v = 1 - clamp((event.clientY - box.top) / box.height, 0, 1);
-                                                commit(true);
-                                            };
-
-                                            area.addEventListener("pointerdown", event => {
-                                                dragging = true;
-                                                area.setPointerCapture(event.pointerId);
-                                                area.focus();
-                                                place(event);
-                                                event.preventDefault();
-                                            });
-                                            area.addEventListener("pointermove", event => {
-                                                if (dragging) {
-                                                    place(event);
-                                                }
-                                            });
-                                            const stopDragging = () => { dragging = false; };
-                                            area.addEventListener("pointerup", stopDragging);
-                                            area.addEventListener("pointercancel", stopDragging);
-
-                                            // The square is a two-axis control, which HTML has no element for - so the arrow keys do it, a
-                                            // percent at a time and ten with Shift, and the hex box is the accessible way in for anything
-                                            // more exact.
-                                            area.addEventListener("keydown", event => {
-                                                const step = event.shiftKey ? 0.1 : 0.01;
-                                                const moves = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, step], ArrowDown: [0, -step] };
-                                                const move = moves[event.key];
-                                                if (!move) {
-                                                    return;
-                                                }
-
-                                                event.preventDefault();
-                                                state.s = clamp(state.s + move[0], 0, 1);
-                                                state.v = clamp(state.v + move[1], 0, 1);
-                                                commit(true);
-                                            });
-
-                                            hue.addEventListener("input", () => {
-                                                state.h = Number(hue.value);
-                                                commit(true);
-                                            });
-
-                                            hex.addEventListener("input", () => {
-                                                if (fromHex(hex.value)) {
-                                                    hex.removeAttribute("aria-invalid");
-                                                    problem.classList.add("hidden");
-                                                    commit(false);
-                                                }
-                                                else {
-                                                    hex.setAttribute("aria-invalid", "true");
-                                                }
-                                            });
-                                            // Leaving the box: what is shown has to be what is chosen. A half-typed or wrong entry says so
-                                            // once and is put back, instead of leaving a colour on the page that the box does not show.
-                                            hex.addEventListener("change", () => {
-                                                if (!parseHex(hex.value)) {
-                                                    problem.classList.remove("hidden");
-                                                }
-
-                                                hex.value = toHex();
-                                                hex.removeAttribute("aria-invalid");
-                                            });
-                                            hex.addEventListener("keydown", event => {
-                                                if (event.key !== "Enter") {
-                                                    return;
-                                                }
-
-                                                event.preventDefault();
-                                                if (fromHex(hex.value)) {
-                                                    commit(true);
-                                                    close(true);
-                                                }
-                                                else {
-                                                    hex.setAttribute("aria-invalid", "true");
-                                                    problem.classList.remove("hidden");
-                                                }
-                                            });
-
-                                            // Not every browser has one, and a button that does nothing is worse than none.
-                                            if (dropper && "EyeDropper" in window) {
-                                                dropper.hidden = false;
-                                                dropper.addEventListener("click", async () => {
-                                                    try {
-                                                        const picked = await new window.EyeDropper().open();
-                                                        if (fromHex(picked.sRGBHex)) {
-                                                            commit(true);
-                                                        }
-                                                    }
-                                                    catch (error) {
-                                                        // Closed without picking anything.
-                                                    }
-                                                });
-                                            }
-
-                                            const show = field => {
-                                                if (current) {
-                                                    close(true);
-                                                }
-
-                                                const valueField = field.querySelector("[data-colour-value]");
-                                                const toggle = field.querySelector("[data-colour-own]");
-                                                if (!fromHex(valueField.value)) {
-                                                    fromHex("#176b5b");
-                                                }
-
-                                                const legend = field.closest("fieldset") ? field.closest("fieldset").querySelector("legend") : null;
-                                                heading.textContent = legend ? legend.textContent.trim() : "";
-                                                draw(true);
-                                                // Remembered before anything is changed, so "Cancel" can put it all back - including the
-                                                // "own colour" switch, which the first change turns on.
-                                                current = {
-                                                    field,
-                                                    valueField,
-                                                    toggle,
-                                                    opener: field.querySelector("[data-colour-open]"),
-                                                    original: { value: valueField.value, own: toggle.checked }
-                                                };
-                                                sheet.classList.remove("hidden");
-                                                area.focus();
-                                                window.setTimeout(() => area.focus(), 0);
-                                            };
-
-                                            function close(keep) {
-                                                if (!current) {
-                                                    return;
-                                                }
-
-                                                const done = current;
-                                                current = null;
-                                                dragging = false;
-                                                if (!keep) {
-                                                    done.valueField.value = done.original.value;
-                                                    done.toggle.checked = done.original.own;
-                                                    markChosen(done.field);
-                                                    schedulePreview();
-                                                }
-
-                                                sheet.classList.add("hidden");
-                                                if (done.opener) {
-                                                    done.opener.focus();
-                                                }
-                                            }
-
-                                            form.querySelectorAll("[data-colour-open]").forEach(button => {
-                                                button.addEventListener("click", () => show(button.closest("[data-colour-field]")));
-                                            });
-                                            sheet.querySelector("[data-colour-done]").addEventListener("click", () => close(true));
-                                            sheet.querySelector("[data-colour-cancel]").addEventListener("click", () => close(false));
-
-                                            document.addEventListener("keydown", event => {
-                                                if (current && event.key === "Escape") {
-                                                    event.preventDefault();
-                                                    close(false);
-                                                }
-                                            });
-
-                                            // Tab stays inside the sheet while it is open - there is no backdrop on a desktop, so nothing
-                                            // else would stop the focus from wandering off into the page behind it.
-                                            sheet.addEventListener("keydown", event => {
-                                                if (event.key !== "Tab") {
-                                                    return;
-                                                }
-
-                                                const items = Array.from(sheet.querySelectorAll("button, input, [tabindex='0']"))
-                                                    .filter(item => !item.disabled && !item.hidden && item.getClientRects().length > 0);
-                                                if (!items.length) {
-                                                    return;
-                                                }
-
-                                                const first = items[0];
-                                                const last = items[items.length - 1];
-                                                if (event.shiftKey && document.activeElement === first) {
-                                                    event.preventDefault();
-                                                    last.focus();
-                                                }
-                                                else if (!event.shiftKey && document.activeElement === last) {
-                                                    event.preventDefault();
-                                                    first.focus();
-                                                }
-                                            });
-                                        }
-
-                                        // The theme cards and the light/dark choice belong to the same preview.
-                                        form.querySelectorAll("[name='preferredThemeName'], [name='preferredTheme']")
-                                            .forEach(el => el.addEventListener("change", () => {
-                                                form.querySelectorAll(".theme-card").forEach(card =>
-                                                    card.classList.toggle("is-selected", !!card.querySelector("input:checked")));
-                                                schedulePreview();
-                                            }));
-                                
-                                        let waitTimer = 0;
-                                        let inFlight = null;
-                                        function schedulePreview() {
-                                            window.clearTimeout(waitTimer);
-                                            waitTimer = window.setTimeout(fetchPreview, 120);
-                                        }
-                                
-                                        function ownColour(name, toggleName) {
-                                            const field = form.querySelector("[name='" + name + "']");
-                                            const toggleEl = form.querySelector("[name='" + toggleName + "']");
-                                            return field && toggleEl && toggleEl.checked ? field.value : "";
-                                        }
-                                
-                                        async function fetchPreview() {
-                                            const mode = (form.querySelector("[name='preferredTheme']:checked") || {}).value || "system";
-                                            const schema = (form.querySelector("[name='preferredThemeName']:checked") || {}).value || "matgate";
-                                            const query = new URLSearchParams({
-                                                theme: schema,
-                                                accent: ownColour("accentColor", "accentOwn"),
-                                                accent2: ownColour("accentColor2", "accent2Own"),
-                                                background: ownColour("backgroundColor", "backgroundOwn"),
-                                            });
-                                
-                                            if (inFlight) {
-                                                inFlight.abort();
-                                            }
-                                
-                                            inFlight = new AbortController();
-                                            let colours;
-                                            try {
-                                                const response = await fetch("/api/theme/preview?" + query, { signal: inFlight.signal });
-                                                if (!response.ok) {
-                                                    return;
-                                                }
-                                
-                                                colours = await response.json();
-                                            }
-                                            catch (e) {
-                                                // Aborted or no connection: then what was on screen stays.
-                                                return;
-                                            }
-                                
-                                            const isDark = mode === "dark"
-                                                || (mode === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
-                                            document.documentElement.dataset.theme = mode;
-                                            // Set inline it beats both :root blocks - until the next load,
-                                            // and then the server delivers the same thing again.
-                                            Object.entries(colours[isDark ? "dark" : "light"] || {}).forEach(([name, colour]) => {
-                                                document.documentElement.style.setProperty(name, colour);
-                                            });
-                                        }
-                                    })();
-                                </script>
-                                <div class="actions"><button type="submit" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button></div>
-                            </form>
-                        </section>
-                    </div>
-                    <div class="tab-panel{{(tab == "security" ? "" : " hidden")}}" data-tab-panel="security">
-                        <section class="panel">
-                            <h2>{{(de ? "Passwort ändern" : "Change password")}}</h2>
-                            <p class="muted settings-lead">{{(de ? "Mindestens 8 Zeichen. Nach dem Ändern bleibst du angemeldet." : "At least 8 characters. You stay signed in after changing it.")}}</p>
-                            <form method="post" action="/account/password" class="settings-form form-grid">
-                                {{Csrf(context)}}
-                                <label>{{(de ? "Aktuelles Passwort" : "Current password")}}
-                                    <input type="password" name="currentPassword" autocomplete="current-password" required>
-                                </label>
-                                <label>{{(de ? "Neues Passwort" : "New password")}}
-                                    <input type="password" name="newPassword" autocomplete="new-password" minlength="8" required>
-                                </label>
-                                <label>{{(de ? "Neues Passwort bestätigen" : "Confirm new password")}}
-                                    <input type="password" name="confirmPassword" autocomplete="new-password" minlength="8" required>
-                                </label>
-                                <div class="actions"><button type="submit" class="primary">{{Icon("key")}}{{(de ? "Passwort ändern" : "Change password")}}</button></div>
-                            </form>
-                        </section>
-                        {{TotpPanel(context, user, recoveryCodes)}}
-                    </div>
-                    <div class="tab-panel{{(tab == "session" ? "" : " hidden")}}" data-tab-panel="session">
-                        <section class="panel">
-                            <h2>{{(de ? "Sitzungs-Einstellungen" : "Session settings")}}</h2>
-                            <p class="muted settings-lead">{{(de ? "Gelten für alle deine Remote-Sitzungen (RDP/VNC/SSH), auf jedem Gerät." : "Apply to all your remote sessions (RDP/VNC/SSH), on every device.")}}</p>
-                            <form method="post" action="/account/session" class="session-prefs settings-form">
-                                {{Csrf(context)}}
-                                <fieldset class="settings-group">
-                                    <legend>{{(de ? "Anzeige (bei fester Auflösung)" : "Display (in fixed-resolution mode)")}}</legend>
-                                {{Toggle("edgePanning", prefs.EdgePanning, "Maus-Rand-Panning", "Mouse-edge panning", "Maus an den Fensterrand -> Ausschnitt wandert (wie auf einer Karte).", "Move the mouse to the window edge -> the view pans (like a map).")}}
-                                {{Toggle("dragPanning", prefs.DragPanning, "Ziehen mit Maustaste", "Drag to pan", "Ausschnitt mit gedrückter mittlerer Maustaste verschieben.", "Pan the view by holding the middle mouse button.")}}
-                                {{Toggle("stretchToWindow", prefs.StretchToWindow, "Stretch auf Fenster", "Stretch to window", "Remote-Bild füllt das ganze Fenster (kann leicht verzerren).", "Stretch the remote image to fill the window (may distort).")}}
-                                </fieldset>
-                                <fieldset class="settings-group">
-                                    <legend>{{(de ? "Tastatur" : "Keyboard")}}</legend>
-                                {{Toggle("systemCombos", prefs.SystemCombos, "Browser-Tasten durchreichen (Vollbild)", "Pass browser keys through (fullscreen)", "Im Vollbild Windows-Taste, Alt+Tab, Alt+F4, Strg+W/T usw. an die Session statt an den Browser.", "In fullscreen, send Windows key, Alt+Tab, Alt+F4, Ctrl+W/T etc. to the session instead of the browser.")}}
-                                {{Toggle("functionKeys", prefs.FunctionKeys, "Funktionstasten F1-F12", "Function keys F1-F12", "Zusätzliche F-Tasten-Reihe auf der Bildschirmtastatur.", "Extra F-key row on the on-screen keyboard.")}}
-                                {{Toggle("ctrlAltDelHotkey", prefs.CtrlAltDelHotkey, "Strg+Alt+Entf als Button", "Ctrl+Alt+Del button", "Zusätzlich zur Bildschirmtastatur auch als Toolbar-Button.", "In addition to the on-screen keyboard, also as a toolbar button.")}}
-                                </fieldset>
-                                <fieldset class="settings-group">
-                                    <legend>{{(de ? "Sitzungen, die den Browser überdauern" : "Sessions that outlive the browser")}}</legend>
-                                    <p class="muted settings-hint">{{(de
-                                        ? "Eine RDP-, VNC- oder SSH-Sitzung über Matgates eigene Engine läuft so lange weiter, wenn ihr Browser weg ist - neu geladen, Netz verloren, anderes Gerät. Die offenen Tabs liegen dann auf dem Server: wer sich wieder anmeldet, findet alles, wie es war. Ein Tab, der geschlossen wird, beendet seine Sitzung sofort. Sitzungen über Guacamole verbinden sich wie bisher neu; ein Neustart von Matgate beendet alle."
-                                        : "An RDP, VNC or SSH session through Matgate's own engine keeps running for this long after its browser went away - reloaded, lost its network, another device. The open tabs are kept on the server then: whoever signs in again finds everything as it was. A tab that is closed ends its session at once. Sessions through Guacamole reconnect as before; restarting Matgate ends them all.")}}</p>
-                                    <label>{{(de ? "Weiterlaufen lassen" : "Keep running for")}}
-                                        <select name="keepSessionMinutes">
-                                            {{string.Join("", SessionPreferences.KeepSessionChoices.Select(minutes => $"<option value=\"{minutes}\"{(SessionPreferences.NormalizeKeepSessionMinutes(prefs.KeepSessionMinutes) == minutes ? " selected" : "")}>{E(KeepSessionLabel(minutes, de))}</option>"))}}
-                                        </select>
-                                    </label>
-                                {{Toggle("restoreAll", prefs.RestoreAll, "Beim Start immer alles wiederherstellen", "Always restore everything on start",
-                                    $"Alle Tabs auf jedem Gerät gleich, auch nach einem Update; der zuletzt aktive Tab kommt wieder nach vorn, und die Sitzungen laufen mindestens {SessionPreferences.RestoreAllMinutes} Minuten weiter - die App am Handy schließen und wieder öffnen findet sie, wie sie waren.",
-                                    $"All tabs the same on every device, also after an update; the tab last in front comes to the front again, and the sessions run on for at least {SessionPreferences.RestoreAllMinutes} minutes - closing the app on the phone and opening it again finds them as they were.")}}
-                                </fieldset>
-                                <fieldset class="settings-group">
-                                    <legend>{{(de ? "Zwischenablage" : "Clipboard")}}</legend>
-                                {{Toggle("pasteAsKeystrokes", prefs.PasteAsKeystrokes, "Einfuegen als Tastatureingaben", "Paste as keystrokes", "Text wird Zeichen für Zeichen getippt statt über die Zwischenablage geschickt - nötig z. B. bei SSH-Terminals.", "Text is typed character by character instead of sent over the clipboard - needed e.g. for SSH terminals.")}}
-                                </fieldset>
-                                <fieldset class="settings-group">
-                                    <legend>{{(de ? "Schnell verbinden" : "Quick connect")}}</legend>
-                                    <p class="muted settings-hint">{{(de
-                                        ? "Was auf der Startseite und im Quick-Connect-Dialog angeboten wird, und in welcher Reihenfolge: zum Sortieren ziehen, mit dem Haken ein- oder ausblenden."
-                                        : "What the start page and the quick-connect dialog offer, and in which order: drag to sort, use the tick to show or hide.")}}</p>
-                                <div data-order-group>
-                                    <ol id="quick-order-list" class="action-order-list" data-order-list data-default-order="{{A(string.Join(",", SessionPreferences.QuickProtocolKeys))}}">{{quickProtocolItems}}</ol>
-                                    <button type="button" class="button order-reset" data-order-reset>{{Icon("refresh")}}<span>{{(de ? "Standard wiederherstellen" : "Restore default")}}</span></button>
-                                    <input type="hidden" name="quickProtocols" data-order-value value="">
-                                    <input type="hidden" name="hiddenQuickProtocols" data-order-hidden value="">
-                                </div>
-                                </fieldset>
-                                <fieldset class="settings-group">
-                                    <legend>{{(de ? "Aktionen in der Sitzungsleiste" : "Actions in the session bar")}}</legend>
-                                    <p class="muted settings-hint">{{(de
-                                        ? "Zum Sortieren ziehen, mit dem Haken ein- oder ausblenden. Auf schmalen Schirmen passen nur die vordersten in die Leiste – der Rest landet im Drei-Punkte-Menü. Trennen bleibt immer ganz rechts."
-                                        : "Drag to sort, use the tick to show or hide. On narrow screens only the first ones fit in the bar – the rest go into the three-dots menu. Disconnect always stays on the right.")}}</p>
-                                <div data-order-group>
-                                    <ol id="action-order-list" class="action-order-list" data-order-list data-default-order="{{A(string.Join(",", SessionPreferences.SortableActions))}}">{{actionOrderItems}}</ol>
-                                    <button type="button" class="button order-reset" data-order-reset>{{Icon("refresh")}}<span>{{(de ? "Standard wiederherstellen" : "Restore default")}}</span></button>
-                                    <input type="hidden" name="actionOrder" data-order-value value="">
-                                    <input type="hidden" name="hiddenActions" data-order-hidden value="">
-                                </div>
-                                </fieldset>
-                                <div class="actions"><button type="submit" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button></div>
-                            </form>
-                            <script>
-                                // One sortable list, used twice: the actions of the session toolbar and the
-                                // sections of the home page. Every group carries its own hidden fields, so
-                                // that the same piece of code can serve both.
-                                // Only once the page is up: the second list - the sections of the home
-                                // page - sits in the document AFTER this script. Looking for it right
-                                // here finds nothing and posts two empty fields on save.
-                                const initSortLists = () => {
-                                    document.querySelectorAll('[data-order-group]').forEach(group => {
-                                        const list = group.querySelector('[data-order-list]');
-                                        const field = group.querySelector('[data-order-value]');
-                                        const hiddenField = group.querySelector('[data-order-hidden]');
-                                        if (!list || !field || !hiddenField) {
-                                            return;
-                                        }
-                            
-                                        const key = item => item.dataset.orderKey || item.dataset.action || '';
-                                        const sync = () => {
-                                            const items = Array.from(list.children);
-                                            field.value = items.map(key).filter(Boolean).join(',');
-                                            // Unticked means hidden, so the form carries what to leave out.
-                                            hiddenField.value = items
-                                                .filter(item => !item.querySelector('[data-order-visible], [data-action-visible]')?.checked)
-                                                .map(key)
-                                                .filter(Boolean)
-                                                .join(',');
-                                        };
-                                        sync();
-                                        list.addEventListener('change', sync);
-                            
-                                        // Pointer events, not HTML5 drag and drop: that one does not fire at
-                                        // all on iOS Safari, which is where this setting matters most.
-                                        let dragged = null;
-                                        list.addEventListener('pointerdown', event => {
-                                            const item = event.target.closest('.action-order-item');
-                                            if (!item) {
-                                                return;
-                                            }
-                            
-                                            // The checkbox belongs to the checkbox. Without this the entry's pointer
-                                            // capture swallowed the click, and "pointer" could not be switched over -
-                                            // it got dragged instead.
-                                            if (event.target.closest('label, input')) {
-                                                return;
-                                            }
-                            
-                                            dragged = item;
-                                            item.classList.add('dragging');
-                                            try { item.setPointerCapture(event.pointerId); } catch { }
-                                        });
-                                        list.addEventListener('pointermove', event => {
-                                            if (!dragged) {
-                                                return;
-                                            }
-                            
-                                            // The item has the pointer captured, so what is under the finger
-                                            // has to be looked up rather than read off the event target.
-                                            const under = document.elementFromPoint(event.clientX, event.clientY);
-                                            const over = under && under.closest ? under.closest('.action-order-item') : null;
-                                            if (!over || over === dragged || over.parentElement !== list) {
-                                                return;
-                                            }
-                            
-                                            const items = Array.from(list.children);
-                                            list.insertBefore(
-                                                dragged,
-                                                items.indexOf(dragged) < items.indexOf(over) ? over.nextSibling : over);
-                                            sync();
-                                        });
-                                        const endDrag = () => {
-                                            if (!dragged) {
-                                                return;
-                                            }
-                            
-                                            dragged.classList.remove('dragging');
-                                            dragged = null;
-                                            sync();
-                                        };
-                                        list.addEventListener('pointerup', endDrag);
-                                        list.addEventListener('pointercancel', endDrag);
-
-                                        // Back to the built-in order, everything shown - and saved at once, so it
-                                        // is not lost by leaving the page.
-                                        const reset = group.querySelector('[data-order-reset]');
-                                        if (reset && list.dataset.defaultOrder) {
-                                            reset.addEventListener('click', () => {
-                                                const wanted = list.dataset.defaultOrder.split(',');
-                                                const rank = item => { const at = wanted.indexOf(key(item)); return at < 0 ? wanted.length : at; };
-                                                Array.from(list.children).sort((a, b) => rank(a) - rank(b)).forEach(item => list.appendChild(item));
-                                                list.querySelectorAll('[data-order-visible], [data-action-visible]').forEach(box => { box.checked = true; });
-                                                sync();
-                                                const form = group.closest('form');
-                                                if (form) {
-                                                    form.requestSubmit();
-                                                }
-                                            });
-                                        }
-                                    });
-                                };
-                                if (document.readyState === 'loading') {
-                                    document.addEventListener('DOMContentLoaded', initSortLists);
-                                }
-                                else {
-                                    initSortLists();
-                                }
-                            </script>
-                        </section>
-                    </div>
-                    <div class="tab-panel{{(tab == "keys" ? "" : " hidden")}}" data-tab-panel="keys">
-                        {{KeyBarPanel(context, user)}}
-                    </div>
-                    <div class="tab-panel{{(tab == "home" ? "" : " hidden")}}" data-tab-panel="home">
-                        <section class="panel">
-                            <h2>{{(de ? "Startseite" : "Start page")}}</h2>
-                            <p class="muted settings-lead">{{(de ? "Was auf der Seite \"Neue Verbindung\" steht und in welcher Reihenfolge." : "What the \"New connection\" page shows, and in which order.")}}</p>
-                            <form method="post" action="/account/home" class="settings-form">
-                                {{Csrf(context)}}
-                                <fieldset class="settings-group">
-                                    <legend>{{(de ? "Abschnitte" : "Sections")}}</legend>
-                                    <p class="muted settings-hint">{{(de
-                                        ? "Zum Sortieren ziehen, mit dem Haken ein- oder ausblenden. Ein Abschnitt ohne Inhalt bleibt ohnehin weg - ein leerer Ordner-Streifen erscheint also nicht, nur weil er angekreuzt ist."
-                                        : "Drag to sort, use the tick to show or hide. A section with nothing in it stays away regardless - an empty folder strip will not appear just because it is ticked.")}}</p>
-                                    <div data-order-group>
-                                        <ol id="home-order-list" class="action-order-list" data-order-list data-default-order="{{A(string.Join(",", HomeLayout.Keys))}}">{{HomeSectionItems(context, user)}}</ol>
-                                        <button type="button" class="button order-reset" data-order-reset>{{Icon("refresh")}}<span>{{(de ? "Standard wiederherstellen" : "Restore default")}}</span></button>
-                                        <input type="hidden" name="homeSections" data-order-value value="">
-                                        <input type="hidden" name="hiddenHomeSections" data-order-hidden value="">
-                                    </div>
-                                </fieldset>
-                                <fieldset class="settings-group">
-                                    <legend>{{(de ? "Knöpfe in der Aktionsleiste" : "Buttons in the action bar")}}</legend>
-                                    <p class="muted settings-hint">{{(de
-                                        ? "Angekreuzte Verbindungen stehen auf der Startseite oben rechts als Knopf - ein Druck verbindet, ohne den Weg über die Karten. Zum Sortieren ziehen. Auf schmalen Schirmen passen nur die vordersten hin."
-                                        : "Ticked connections sit at the top right of the start page as a button - one press connects, without going via the cards. Drag to sort. On narrow screens only the first ones fit.")}}</p>
-                                    <div data-order-group>
-                                        <ol id="action-bar-list" class="action-order-list" data-order-list>{{ActionBarItems(context, user, servers)}}</ol>
-                                        <input type="hidden" name="actionBarServers" data-order-value value="">
-                                        <input type="hidden" name="hiddenActionBarServers" data-order-hidden value="">
-                                    </div>
-                                </fieldset>
-                                {{(user.IsAdmin ? $$"""
-                                    <fieldset class="settings-group">
-                                        <legend>{{(de ? "Vorgabe für neue Benutzer" : "Default for new users")}}</legend>
-                                        <p class="muted settings-hint">{{(de
-                                            ? "Wer ab jetzt angelegt wird, startet mit genau dieser Anordnung. Wer schon da ist, behält seine eigene - eine Vorgabe soll nicht stillschweigend überschreiben, was jemand für sich eingerichtet hat."
-                                            : "Anyone created from now on starts with exactly this arrangement. Everyone already here keeps their own - a default should not quietly overwrite what someone set up for themselves.")}}</p>
-                                        <label class="check"><input type="checkbox" name="asDefault"> <span>{{(de ? "Diese Anordnung beim Speichern als Vorgabe übernehmen" : "Also store this arrangement as the default when saving")}}</span></label>
-                                    </fieldset>
-                                    """ : "")}}
-                                <div class="actions"><button type="submit" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button></div>
-                            </form>
-                        </section>
-                    </div>
-                    <div class="tab-panel{{(tab == "favorites" ? "" : " hidden")}}" data-tab-panel="favorites">
-                        <section class="panel">
-                            <h2>{{T(context, "Favorite servers")}}</h2>
-                            <p class="muted settings-lead">{{T(context, "Favorites are stored per user.")}}</p>
-                            <div class="table-wrap">
-                                <table>
-                                    <thead>
-                                        <tr>
-                                            <th>{{T(context, "Name")}}</th>
-                                            <th>{{T(context, "Folder")}}</th>
-                                            <th>{{T(context, "Type")}}</th>
-                                            <th></th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>{{favoriteRows}}</tbody>
-                                </table>
-                            </div>
-                        </section>
-                    </div>
-                </div>
-            </section>
-            </div>
-            """;
-
-        return Layout(context, user, T(context, "Account"), body);
+        return Layout(context, user, T(context, "Settings"), SettingsPage(context, user, servers, recoveryCodes));
     }
 
     private static string FolderIcon(string iconKey) => Icon(string.IsNullOrWhiteSpace(iconKey) ? "folder" : iconKey);
@@ -2223,11 +1410,12 @@ public sealed partial class HtmlViews
         var create = buttons.Count >= KeyBar.MaxButtons
             ? ""
             : $$"""<a class="button primary" href="/account/keys/new" data-key-new>{{Icon("plus")}}{{(de ? "Neuer Knopf" : "New button")}}</a>""";
-        // Only someone who has a list of their own has something to reset.
+        // Only someone who has a list of their own has something to reset. It stands below the list on the left,
+        // outlined: it deletes, but it is not the main thing of this page.
         var reset = user.KeyBar is null
             ? ""
             : $$"""
-                <form method="post" action="/account/keys/reset" data-confirm="{{A(de ? "Die Tastenleiste auf die Vorgabe zurücksetzen? Eigene Knöpfe und die eigene Reihenfolge gehen dabei verloren." : "Reset the key bar to the default? Your own buttons and your own order are lost.")}}">{{Csrf(context)}}<button type="submit" class="danger" data-key-reset>{{Icon("refresh")}}{{(de ? "Auf Vorgabe zurücksetzen" : "Reset to default")}}</button></form>
+                <form method="post" action="/account/keys/reset" data-confirm="{{A(de ? "Die Tastenleiste auf die Vorgabe zurücksetzen? Eigene Knöpfe und die eigene Reihenfolge gehen dabei verloren." : "Reset the key bar to the default? Your own buttons and your own order are lost.")}}">{{Csrf(context)}}<button type="submit" class="button set-danger-outline" data-key-reset>{{Icon("refresh")}}<span>{{(de ? "Auf Vorgabe zurücksetzen" : "Reset to default")}}</span></button></form>
                 """;
         var table = DataTable(
             de ? "Knopf suchen..." : "Search buttons...",
@@ -2239,15 +1427,14 @@ public sealed partial class HtmlViews
             create,
             reset);
 
-        return $$"""
-            <section class="panel" data-key-bar>
-                <h2>{{(de ? "Tastenleiste" : "Key bar")}}</h2>
-                <p class="muted settings-lead">{{(de
-                    ? "Die Knöpfe unter einer Sitzung am Telefon oder Tablet: Tasten, die dessen Tastatur nicht hat, und deine eigenen Tastenkürzel. In Guacamole-Sitzungen sind sie die oberste Reihe der Bildschirmtastatur. Eine Änderung gilt für Sitzungen, die danach geöffnet werden."
-                    : "The buttons below a session on a phone or tablet: keys its keyboard does not have, and your own shortcuts. In Guacamole sessions they are the top row of the on-screen keyboard. A change applies to sessions opened afterwards.")}}</p>
-                {{table}}
-            </section>
-            """;
+        return SettingsCard(
+            de ? "Knöpfe" : "Buttons",
+            table,
+            de
+                ? "In Guacamole-Sitzungen sind sie die oberste Reihe der Bildschirmtastatur. Eine Änderung gilt für Sitzungen, die danach geöffnet werden."
+                : "In Guacamole sessions they are the top row of the on-screen keyboard. A change applies to sessions opened afterwards.",
+            pillHtml: user.KeyBar is null ? SetPill(de ? "Vorgabe" : "Default", "neutral") : "",
+            attributes: "data-key-bar");
     }
 
     // One button of the key bar: its keys, what is written on it, where it shows.
@@ -2309,70 +1496,75 @@ public sealed partial class HtmlViews
             : $$"""
                 <form method="post" action="/account/keys/{{A(button.Id)}}/delete" data-confirm="{{A(de ? "Diesen Knopf entfernen?" : "Remove this button?")}}">
                     {{Csrf(context)}}
-                    <button type="submit" class="danger" data-key-delete>{{Icon("trash")}}{{(de ? "Knopf entfernen" : "Remove button")}}</button>
+                    <button type="submit" class="button set-danger-outline" data-key-delete>{{Icon("trash")}}<span>{{(de ? "Knopf entfernen" : "Remove button")}}</span></button>
                 </form>
                 """;
-        var body = $$"""
-            <section class="page-head">
-                <div>
-                    <p class="eyebrow">{{(de ? "Tastenleiste" : "Key bar")}}</p>
-                    <h1>{{E(title)}}</h1>
-                </div>
-            </section>
-            <section class="panel">
-                {{(string.IsNullOrWhiteSpace(error) ? "" : $"<p class=\"error\" data-key-error>{E(error)}</p>")}}
-                <form id="key-button-form" method="post" action="{{(isNew ? "/account/keys" : $"/account/keys/{A(button.Id)}")}}" class="settings-form">
-                    {{Csrf(context)}}
-                    <fieldset class="settings-group">
-                        <legend>{{(de ? "Tasten" : "Keys")}}</legend>
-                        <p class="muted settings-hint">{{(de
-                            ? "Die Zusatztasten werden gehalten, während die Taste gedrückt wird - Strg und C ergeben Strg+C. Strg+V fügt ein, was auf diesem Gerät in der Zwischenablage liegt; Strg+Alt+Entf geht an Windows selbst."
-                            : "The modifiers are held while the key is pressed - Ctrl and C make Ctrl+C. Ctrl+V pastes what is on this device's clipboard; Ctrl+Alt+Del goes to Windows itself.")}}</p>
-                        <div class="quick-protocol-grid">{{modifierChecks}}</div>
-                        <div class="form-grid">
-                            <label>{{(de ? "Taste" : "Key")}}
-                                <select name="key">
-                                    <option value=""{{(main is null ? " selected" : "")}}>{{(de ? "Keine - nur die Zusatztasten" : "None - the modifiers alone")}}</option>
-                                    <option value="char"{{(isCharacter ? " selected" : "")}}>{{(de ? "Buchstabe, Ziffer oder Zeichen ..." : "Letter, digit or character ...")}}</option>
-                                    {{keyOptions}}
-                                </select>
-                            </label>
-                            <label data-key-character{{(isCharacter ? "" : " hidden")}}>{{(de ? "Zeichen" : "Character")}}
-                                <input name="character" maxlength="2" size="3" autocomplete="off" autocapitalize="off" spellcheck="false" value="{{A(character)}}">
-                            </label>
-                        </div>
-                        <label class="toggle-row" data-key-sticky{{(main is null ? "" : " hidden")}}>
-                            <input type="checkbox" name="sticky"{{Checked(button.Sticky)}}>
-                            <span class="toggle-switch" aria-hidden="true"></span>
-                            <span class="toggle-copy"><strong>{{(de ? "Bleibt für die nächste Taste gedrückt" : "Stays down for the next key")}}</strong><small>{{(de ? "Erst der Knopf, dann eine Taste der Tastatur oder ein anderer Knopf - wie Strg und Alt in der Vorgabe. Ausgeschaltet wird die Zusatztaste nur einmal angetippt." : "First the button, then a key of the keyboard or another button - like Ctrl and Alt in the default. Switched off, the modifier is only tapped once.")}}</small></span>
-                        </label>
-                    </fieldset>
-                    <fieldset class="settings-group">
-                        <legend>{{(de ? "Aussehen und Ort" : "Look and place")}}</legend>
-                        <div class="form-grid">
-                            <label>{{(de ? "Beschriftung" : "Label")}}
-                                <input name="label" maxlength="{{KeyBar.MaxLabelLength}}" autocomplete="off" value="{{A(button.Label)}}" placeholder="{{A(de ? "automatisch aus den Tasten" : "from the keys")}}">
-                            </label>
-                            <label>{{(de ? "Zeigen in" : "Show in")}}
-                                <select name="scope">{{scopeOptions}}</select>
-                            </label>
-                        </div>
-                        <p class="muted settings-hint">{{(de
-                            ? "Ein Terminal kennt keine Windows-Taste: Knöpfe mit ihr erscheinen dort nicht, was auch eingestellt ist."
-                            : "A terminal knows no Windows key: buttons with it do not appear there, whatever is set.")}}</p>
-                    </fieldset>
-                </form>
-                {{script}}
-            </section>
-            <section class="panel">
-                <div class="form-actions">
-                    <button type="submit" form="key-button-form" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button>
-                    <a class="button" href="/account?tab=keys">{{Icon("arrow-left")}}{{T(context, "Back")}}</a>
-                    {{(deleteForm.Length == 0 ? "" : """<span class="spacer"></span>""")}}
-                    {{deleteForm}}
-                </div>
-            </section>
+        // The form's content as before, in two cards of the settings; the buttons below it in the usual order.
+        var keysCard = SettingsCard(de ? "Tasten" : "Keys", $$"""
+            <div class="quick-protocol-grid">{{modifierChecks}}</div>
+            <div class="form-grid">
+                <label>{{(de ? "Taste" : "Key")}}
+                    <select name="key">
+                        <option value=""{{(main is null ? " selected" : "")}}>{{(de ? "Keine - nur die Zusatztasten" : "None - the modifiers alone")}}</option>
+                        <option value="char"{{(isCharacter ? " selected" : "")}}>{{(de ? "Buchstabe, Ziffer oder Zeichen ..." : "Letter, digit or character ...")}}</option>
+                        {{keyOptions}}
+                    </select>
+                </label>
+                <label data-key-character{{(isCharacter ? "" : " hidden")}}>{{(de ? "Zeichen" : "Character")}}
+                    <input name="character" maxlength="2" size="3" autocomplete="off" autocapitalize="off" spellcheck="false" value="{{A(character)}}">
+                </label>
+            </div>
+            <label class="toggle-row" data-key-sticky{{(main is null ? "" : " hidden")}}>
+                <input type="checkbox" name="sticky"{{Checked(button.Sticky)}}>
+                <span class="toggle-switch" aria-hidden="true"></span>
+                <span class="toggle-copy"><strong>{{(de ? "Bleibt für die nächste Taste gedrückt" : "Stays down for the next key")}}</strong><small>{{(de ? "Erst der Knopf, dann eine Taste der Tastatur oder ein anderer Knopf - wie Strg und Alt in der Vorgabe. Ausgeschaltet wird die Zusatztaste nur einmal angetippt." : "First the button, then a key of the keyboard or another button - like Ctrl and Alt in the default. Switched off, the modifier is only tapped once.")}}</small></span>
+            </label>
+            """,
+            de
+                ? "Die Zusatztasten werden gehalten, während die Taste gedrückt wird - Strg und C ergeben Strg+C. Strg+V fügt ein, was auf diesem Gerät in der Zwischenablage liegt; Strg+Alt+Entf geht an Windows selbst."
+                : "The modifiers are held while the key is pressed - Ctrl and C make Ctrl+C. Ctrl+V pastes what is on this device's clipboard; Ctrl+Alt+Del goes to Windows itself.");
+        var placeCard = SettingsCard(de ? "Aussehen und Ort" : "Look and place", $$"""
+            <div class="form-grid">
+                <label>{{(de ? "Beschriftung" : "Label")}}
+                    <input name="label" maxlength="{{KeyBar.MaxLabelLength}}" autocomplete="off" value="{{A(button.Label)}}" placeholder="{{A(de ? "automatisch aus den Tasten" : "from the keys")}}">
+                </label>
+                <label>{{(de ? "Zeigen in" : "Show in")}}
+                    <select name="scope">{{scopeOptions}}</select>
+                </label>
+            </div>
+            <p class="set-hint">{{(de
+                ? "Ein Terminal kennt keine Windows-Taste: Knöpfe mit ihr erscheinen dort nicht, was auch eingestellt ist."
+                : "A terminal knows no Windows key: buttons with it do not appear there, whatever is set.")}}</p>
+            """);
+        var actions = FormActions(
+            $"""<button type="submit" form="key-button-form" class="button primary">{Icon("save")}<span>{E(T(context, "Save"))}</span></button>""",
+            $"""<a class="button" href="/account?tab=keys">{Icon("arrow-left")}<span>{E(T(context, "Back"))}</span></a>""",
+            deleteForm);
+        var errorNotice = string.IsNullOrWhiteSpace(error) ? "" : SetNotice("error", E(error), attributes: "data-key-error");
+        var content = $$"""
+            {{errorNotice}}
+            <form id="key-button-form" method="post" action="{{(isNew ? "/account/keys" : $"/account/keys/{A(button.Id)}")}}" class="set-form">
+                {{Csrf(context)}}
+                {{keysCard}}
+                {{placeCard}}
+            </form>
+            {{script}}
+            <div class="set-actions">{{actions}}</div>
             """;
+        var panel = SettingsPanel(
+            context,
+            "keys",
+            true,
+            isNew ? (de ? "Neuer Knopf" : "New button") : (de ? "Knopf bearbeiten" : "Edit button"),
+            isNew
+                ? (de ? "Welche Tasten er drückt, was auf ihm steht und wo er erscheint." : "Which keys it presses, what it says and where it shows.")
+                : (de ? $"„{title}“ – welche Tasten er drückt, was auf ihm steht und wo er erscheint." : $"“{title}” – which keys it presses, what it says and where it shows."),
+            content,
+            backHref: "/account?tab=keys",
+            backLabel: de ? "Tastenleiste" : "Key bar");
+        // The rail as on the settings page, its links plain: this page is no tab of it.
+        var favorites = user.FavoriteServerIds?.Count ?? 0;
+        var body = SettingsLayout(context, user, SettingsSections(context, user, favorites), "keys", true, panel, interactive: false);
 
         return Layout(context, user, de ? "Tastenleiste" : "Key bar", body);
     }
@@ -3796,19 +2988,6 @@ public sealed partial class HtmlViews
         var canQuick = user.IsAdmin || user.CanQuickConnect;
         var returnUrl = $"{context.Request.Path}{context.Request.QueryString}";
 
-        // "New connection" = create a SAVED connection (needs create rights); the ad-hoc quick-connect
-        // lives in the "Quick connect" section + dialog and needs the quick-connect permission.
-        var quickButton = canQuick
-            ? $$"""<button type="button" class="button primary home2-new-connection" data-home2-more>{{Icon("play")}}<span>{{(de ? "Quick-Connect" : "Quick connect")}}</span></button>"""
-            : "";
-        var createButtons = canCreate
-            ? $$"""
-                <a class="button{{(canQuick ? "" : " primary")}} home2-new-folder" href="/admin/servers/new?return=home" data-shell-open-tab="1" data-shell-title="{{A(de ? "Neue Verbindung" : "New connection")}}">{{Icon("plus")}}<span>{{(de ? "Neue Verbindung" : "New connection")}}</span></a>
-                """
-            : "";
-        var headerActions = (canQuick || canCreate)
-            ? $$"""<div class="home2-head-actions">{{quickButton}}{{createButtons}}</div>"""
-            : "";
         // No question mark after user: at this point it exists. The earlier "user?." was a leftover
         // that told the compiler it could be missing - whereupon it flagged every hand-off to the
         // sections below as a possible null. Two lines further down it is used without one anyway;
@@ -3816,34 +2995,74 @@ public sealed partial class HtmlViews
         var hiddenQuick = (user.Session?.HiddenQuickProtocols ?? []).ToHashSet(StringComparer.Ordinal);
         var quickOrder = user.Session?.QuickProtocolOrder ?? [];
         var protocolDialog = canQuick ? ProtocolDialog(de, hiddenQuick, quickOrder) : "";
+        var hidden = (user.HiddenHomeSections ?? []).ToHashSet(StringComparer.Ordinal);
+        var quickConnect = canQuick && !hidden.Contains("quick") ? QuickConnectSection(de, hiddenQuick, quickOrder) : "";
 
-        // Beside the side panel the page is not the list of connections any more - the panel is. Then it
-        // says so, and what is left on it is a new connection: quick connect.
+        // "Add connection" = create a SAVED connection (needs create rights); the ad-hoc quick connect lives
+        // in its tiles and their dialog and needs the quick-connect permission. The head has a button of its
+        // own for that dialog only where the tiles are not on the page (switched off as a section, or every
+        // protocol hidden): otherwise the tiles' "More" is the way in, and a second button for the same
+        // dialog was one too many.
+        var quickButton = canQuick && quickConnect.Length == 0
+            ? $$"""<button type="button" class="button primary home2-new-connection" data-home2-more>{{Icon("play")}}<span>{{(de ? "Schnell verbinden" : "Quick connect")}}</span></button>"""
+            : "";
+        var createLabel = de ? "Verbindung anlegen" : "Add connection";
+        // A phone has room for "New" beside the title, not for the whole sentence.
+        var createButton = canCreate
+            ? $$"""<a class="button{{(canQuick ? "" : " primary")}} home2-new-folder" href="/admin/servers/new?return=home" data-shell-open-tab="1" data-shell-title="{{A(de ? "Neue Verbindung" : "New connection")}}" aria-label="{{A(createLabel)}}" title="{{A(createLabel)}}">{{Icon("plus")}}<span class="home2-label-long">{{createLabel}}</span><span class="home2-label-short">{{(de ? "Neu" : "New")}}</span></a>"""
+            : "";
+        var actionCount = (quickButton.Length > 0 ? 1 : 0) + (createButton.Length > 0 ? 1 : 0);
+        var headerActions = actionCount > 0
+            ? $$"""<div class="home2-head-actions">{{quickButton}}{{createButton}}</div>"""
+            : "";
+
+        // Beside the side panel the page is not the list of connections any more - the panel is. What is
+        // left on it is a new connection, and the line under the title says what that is for this user.
+        var lead = canQuick && canCreate
+            ? (de ? "Schnell verbinden, ohne zu speichern – oder eine Verbindung anlegen, die bleibt." : "Connect quickly without saving – or add a connection that stays.")
+            : canQuick
+                ? (de ? "Schnell verbinden, ohne etwas zu speichern." : "Connect quickly, without saving anything.")
+                : (de ? "Deine gespeicherten Verbindungen stehen links in der Seitenleiste." : "Your saved connections are in the side panel on the left.");
         var head = $$"""
-            <section class="home2-head">
+            <section class="home2-head{{(actionCount > 1 ? " home2-head--two" : "")}}">
                 <div class="home2-head-copy">
                     <h1><span class="home2-title-list">{{(de ? "Verbindungen" : "Connections")}}</span><span class="home2-title-side">{{(de ? "Neue Verbindung" : "New connection")}}</span></h1>
-                    <p class="muted home2-side-hint">{{(de ? "Gespeicherte Verbindungen, Favoriten, Ablagen und Freigaben stehen links in der Seitenleiste." : "Saved connections, favourites, places and shares are in the side panel on the left.")}}</p>
+                    <p class="muted home2-side-hint">{{lead}}</p>
                 </div>
                 {{headerActions}}
             </section>
             """;
 
-        // Global empty state: no accessible connections at all.
+        // Nothing saved yet: what can be done about it, by what this user may do. The same words whether the
+        // gateway's places (folders, not connections) are there or not.
+        var emptyLine = canCreate && canQuick
+            ? (de ? "Lege eine an, die bleibt – oder verbinde dich schnell, ohne zu speichern." : "Add one that stays – or connect quickly without saving.")
+            : canCreate
+                ? (de ? "Lege deine erste Verbindung an, um loszulegen." : "Add your first connection to get started.")
+                : canQuick
+                    ? (de ? "Verbinde dich schnell, ohne etwas zu speichern." : "Connect quickly, without saving anything.")
+                    : (de ? "Sobald eine Verbindung für dich eingerichtet ist, steht sie hier." : "Once a connection is set up for you, it shows up here.");
+        var emptyCreate = canCreate
+            ? $$"""<a class="button primary" href="/admin/servers/new?return=home" data-shell-open-tab="1" data-shell-title="{{A(de ? "Neue Verbindung" : "New connection")}}">{{Icon("plus")}}<span>{{createLabel}}</span></a>"""
+            : "";
+        string NothingSavedYet(string headingTag) => $$"""
+            <div>
+                <{{headingTag}}>{{(de ? "Noch keine gespeicherten Verbindungen" : "No saved connections yet")}}</{{headingTag}}>
+                <p class="muted">{{emptyLine}}</p>
+            </div>
+            {{emptyCreate}}
+            """;
+
+        // Global empty state: no accessible connections at all, not even a place.
         if (servers.Count == 0)
         {
-            var createButton = canCreate
-                ? $"""<a class="button primary" href="/admin/servers/new" data-shell-open-tab="1" data-shell-title="{A(T(context, "Create server"))}">{Icon("plus")}{T(context, "Create own server")}</a>"""
-                : "";
+            // Quick connect needs nothing saved: its tiles are there from the first visit on.
             return $$"""
                 <section class="home2" data-home2="1">
                     {{head}}
+                    {{quickConnect}}
                     <section class="home2-empty">
-                        <div>
-                            <h2>{{(de ? "Noch keine Verbindungen" : "No connections yet")}}</h2>
-                            <p class="muted">{{(de ? "Lege deine erste Verbindung an, um loszulegen." : "Create your first connection to get started.")}}</p>
-                        </div>
-                        {{createButton}}
+                        {{NothingSavedYet("h2")}}
                     </section>
                     {{protocolDialog}}
                 </section>
@@ -3872,8 +3091,6 @@ public sealed partial class HtmlViews
             </section>
             """;
 
-        var quickConnect = canQuick ? QuickConnectSection(de, hiddenQuick, quickOrder) : "";
-        var filterRow = FilterTilesSection(context, user, servers, de);
         var recentSection = RecentConnectionsSection(context, user, servers, includeEditButtons, returnUrl, de);
         // A place is a folder on the gateway, not a connection to a machine. As a card among the
         // connections it read like one - with the same filled button, and sorted alphabetically
@@ -3892,8 +3109,24 @@ public sealed partial class HtmlViews
             .ToList();
         // A WireGuard tunnel is a way in, not something to open.
         var connections = servers.Where(server => server.Protocol is not (ServerProtocol.Local or ServerProtocol.WireGuard)).ToList();
+        // The folder tiles filter the connections, so they count the connections: with the places and the
+        // tunnels counted as well, "Unsorted" said 11 where 4 were to be found.
+        var filterRow = FilterTilesSection(context, user, connections, de);
         var placesSection = PlacesSection(context, user, areas, returnUrl, de);
-        var connectionsSection = ConnectionsSection(context, user, connections, includeEditButtons, returnUrl, de);
+        // Places but no connection: the section says so and what to do, instead of standing there empty
+        // (the script used to hide it, and the page then said nothing about connections at all).
+        var connectionsSection = connections.Count > 0
+            ? ConnectionsSection(context, user, connections, includeEditButtons, returnUrl, de)
+            : $$"""
+                <section class="home2-section home2-all-section" data-home2-all data-home2-nothing-saved>
+                    <div class="home2-section-head">
+                        <h2>{{Icon("monitor")}}<span>{{(de ? "Verbindungen" : "Connections")}}</span></h2>
+                    </div>
+                    <div class="home2-empty">
+                        {{NothingSavedYet("h3")}}
+                    </div>
+                </section>
+                """;
 
         // Which sections, in what order: configured under Account -> Home page. What is not ticked
         // is not even built.
@@ -3908,7 +3141,6 @@ public sealed partial class HtmlViews
             ["workspaces"] = WorkspacesSection(context, workspaces, workspaceAreas, de),
             ["farm"] = farmHint,
         };
-        var hidden = (user.HiddenHomeSections ?? []).ToHashSet(StringComparer.Ordinal);
         var column = string.Join("", HomeLayout.Order(user.HomeSections)
             .Where(key => !hidden.Contains(key))
             .Select(key => parts.GetValueOrDefault(key, "")));
@@ -3925,8 +3157,7 @@ public sealed partial class HtmlViews
             """;
     }
 
-    // All protocols offered for a new connection (order = row order; the row shows the first few,
-    // the rest live in the "More" dialog).
+    // All protocols offered for a new connection, as tiles on the start page and in the "More" dialog.
     // Only the protocols this user kept, in the order this user gave them; what is hidden simply falls out.
     private static (string Protocol, string Name, string Desc, string IconKey, string Color)[] QuickProtocols(bool de, IReadOnlyCollection<string>? hidden = null, IReadOnlyList<string>? order = null)
     {
@@ -3937,25 +3168,28 @@ public sealed partial class HtmlViews
             .Where(entry => hidden is null || !hidden.Contains(entry.Protocol))
             .ToArray();
 
+        // The colours are the theme's protocol colours, as on the cards: one shade per protocol, readable on its
+        // tint in light and dark alike. They were the dark theme's shades in both, too pale in the light. The
+        // databases have no colour of their own in the themes yet.
         static (string Protocol, string Name, string Desc, string IconKey, string Color)[] All(bool de) => new (string Protocol, string Name, string Desc, string IconKey, string Color)[]
         {
-            ("rdp", "RDP", de ? "Remote-Desktop" : "Remote Desktop", "rdp", "#4c8dff"),
-            ("ssh", "SSH", "Linux / Unix", "ssh", "#8a7cff"),
-            ("vnc", "VNC", de ? "Remote-Desktop" : "Remote Desktop", "vnc", "#b06cff"),
-            ("sftp", "SFTP", de ? "Sichere Dateien" : "Secure files", "sftp", "#f0a92b"),
-            ("smb", "SMB", de ? "Netzwerkfreigabe" : "Network share", "smb", "#35c07f"),
+            ("rdp", "RDP", de ? "Remote-Desktop" : "Remote Desktop", "rdp", "var(--proto-rdp)"),
+            ("ssh", "SSH", "Linux / Unix", "ssh", "var(--proto-ssh)"),
+            ("vnc", "VNC", de ? "Remote-Desktop" : "Remote Desktop", "vnc", "var(--proto-vnc)"),
+            ("sftp", "SFTP", de ? "Sichere Dateien" : "Secure files", "sftp", "var(--proto-sftp)"),
+            ("smb", "SMB", de ? "Netzwerkfreigabe" : "Network share", "smb", "var(--proto-smb)"),
             // The browser: a website or a device's page, fetched by Matgate and shown in the tab.
-            ("website", "Browser", de ? "Webseite oder Gerät über Matgate öffnen (HTTP / HTTPS)" : "Open a website or a device through Matgate (HTTP / HTTPS)", "globe", "#3aa0ff"),
-            ("ftp", "FTP", de ? "Dateiübertragung" : "File transfer", "ftp", "#e0863a"),
-            ("webdav", "WebDAV", de ? "Dateien über HTTP" : "Files over HTTP", "cloud", "#2bb3c0"),
-            // Short names: on a phone the home page's chips are tiles of 60 pixels.
+            ("website", "Browser", de ? "Webseite oder Gerät über Matgate öffnen (HTTP / HTTPS)" : "Open a website or a device through Matgate (HTTP / HTTPS)", "globe", "var(--proto-website)"),
+            ("ftp", "FTP", de ? "Dateiübertragung" : "File transfer", "ftp", "var(--proto-ftp)"),
+            ("webdav", "WebDAV", de ? "Dateien über HTTP" : "Files over HTTP", "cloud", "var(--proto-webdav)"),
+            // Short names: on a phone the home page's tiles are about 70 pixels wide, and a name is never cut.
             ("mssql", "MSSQL", "Microsoft SQL Server", "database", "#d9534f"),
             ("mysql", "MySQL", "MySQL / MariaDB", "database", "#00758f"),
             ("postgres", "Postgres", "PostgreSQL", "database", "#336791"),
         };
     }
 
-    // Single row of protocol chips + a "More" chip that opens the full protocol dialog.
+    // The protocol tiles + a "More" tile that opens the full protocol dialog.
     private static string QuickConnectSection(bool de, IReadOnlyCollection<string>? hiddenQuick, IReadOnlyList<string>? order)
     {
         var protocols = QuickProtocols(de, hiddenQuick, order);
@@ -3968,8 +3202,7 @@ public sealed partial class HtmlViews
 
         // All the ones the user kept - before it was the first six, which meant WebDAV as the
         // eighth protocol never showed up on the home page even though it was ticked. Which ones
-        // appear is decided by the setting, not by the order; the row can be dragged around when
-        // it does not fit.
+        // appear is decided by the setting, not by the order.
         var chips = string.Join("", protocols.Select(protocol => $$"""
             <button type="button" class="home2-proto-chip" data-home2-qc="{{A(protocol.Protocol)}}" style="--proto: {{protocol.Color}}" title="{{A(protocol.Desc)}}">
                 <span class="home2-proto-chip-icon">{{Icon(protocol.IconKey)}}</span>
@@ -3977,12 +3210,21 @@ public sealed partial class HtmlViews
             </button>
             """));
 
+        // An even grid of tiles: all of them in one row where there is room, otherwise two rows of the same
+        // length (6 and 6 for twelve) instead of a full row and a ragged rest. "More" counts as a tile. On a
+        // phone the CSS makes it one row to swipe through, with "More" pinned at its end.
+        var tiles = protocols.Length + 1;
+        var columns = tiles <= 6 ? tiles : (tiles + 1) / 2;
+        // The order and the selection are changed in the settings. A right click on a tile leads there too,
+        // but an iPhone has no long press for it: this link is its only way.
+        var customise = de ? "Reihenfolge und Auswahl in den Einstellungen" : "Order and selection in the settings";
         return $$"""
             <section class="home2-section home2-quick-section">
                 <div class="home2-section-head">
-                    <h2>{{(de ? "Schnell verbinden" : "Quick connect")}}</h2>
+                    <h2>{{Icon("play")}}<span>{{(de ? "Schnell verbinden" : "Quick connect")}}</span></h2>
+                    <a class="home2-section-link" href="/account?tab=home#quick-order-list" data-shell-open-tab="1" data-shell-title="{{A(de ? "Einstellungen" : "Settings")}}" title="{{A(customise)}}">{{Icon("sliders")}}<span>{{(de ? "Anpassen" : "Customise")}}</span></a>
                 </div>
-                <div class="home2-quick-row">
+                <div class="home2-quick-row" style="--qc-n: {{tiles}}; --qc-cols: {{columns}}">
                     {{chips}}
                     <button type="button" class="home2-proto-chip home2-proto-more" data-home2-more>
                         <span class="home2-proto-chip-icon">{{Icon("grid")}}</span>
@@ -4151,7 +3393,7 @@ public sealed partial class HtmlViews
         return $$"""
             <section class="home2-section home2-folders-section">
                 <div class="home2-section-head">
-                    <h2>{{(de ? "Filter" : "Filter")}}</h2>
+                    <h2>{{Icon("folder")}}<span>{{(de ? "Ordner" : "Folders")}}</span></h2>
                     {{manageFolders}}
                 </div>
                 <div class="home2-folder-grid">
@@ -4201,6 +3443,7 @@ public sealed partial class HtmlViews
             <section class="home2-section" data-home2-recent>
                 <div class="home2-section-head">
                     <h2>{{Icon("clock")}}<span>{{(de ? "Zuletzt verwendet" : "Recently used")}}</span></h2>
+                    <span class="badge">{{cards.Count}}</span>
                 </div>
                 <div class="home2-card-grid">
                     {{string.Join("", cards)}}
@@ -4229,7 +3472,7 @@ public sealed partial class HtmlViews
         return $$"""
             <section class="home2-section home2-places-section" data-home2-places>
                 <div class="home2-section-head">
-                    <h2>{{(de ? "Ablagen" : "Places")}}</h2>
+                    <h2>{{Icon("server")}}<span>{{(de ? "Ablagen" : "Places")}}</span></h2>
                     <span class="badge">{{areas.Count}}</span>
                 </div>
                 <div class="home2-card-grid">
@@ -4274,7 +3517,7 @@ public sealed partial class HtmlViews
         return $$"""
             <section class="home2-section home2-workspaces-section" data-home2-workspaces>
                 <div class="home2-section-head">
-                    <h2>{{Icon("globe")}}{{(de ? "Freigaben" : "Shares")}}</h2>
+                    <h2>{{Icon("globe")}}<span>{{(de ? "Freigaben" : "Shares")}}</span></h2>
                     <span class="badge">{{visible.Count}}</span>
                 </div>
                 <div class="home2-card-grid">
@@ -4328,7 +3571,7 @@ public sealed partial class HtmlViews
         return $$"""
             <section class="home2-section home2-all-section" data-home2-all>
                 <div class="home2-section-head">
-                    <h2>{{(de ? "Verbindungen" : "Connections")}}</h2>
+                    <h2>{{Icon("monitor")}}<span>{{(de ? "Verbindungen" : "Connections")}}</span></h2>
                     <span class="badge">{{ordered.Count}}</span>
                 </div>
                 <div class="home2-card-grid">
@@ -5093,7 +4336,10 @@ public sealed partial class HtmlViews
             windows = Icon("copy"),
             reattach = Icon("arrow-left"),
             folder = Icon("folder"),
-            disconnect = Icon("logout")
+            disconnect = Icon("logout"),
+            // The display dialog: the fastest response's flash, and the settings its note leads to.
+            zap = Icon("zap"),
+            settings = Icon("settings")
         }, new JsonSerializerOptions(JsonSerializerDefaults.Web));
         var websiteIcons = JsonSerializer.Serialize(new
         {
@@ -5187,6 +4433,7 @@ public sealed partial class HtmlViews
             managerNewSession = Language(context) == "de" ? "Weitere Sitzung öffnen" : "Open another session",
             sizeHeading = Language(context) == "de" ? "Größe" : "Size",
             optionsHeading = Language(context) == "de" ? "Optionen" : "Options",
+            settingsTitle = T(context, "Settings"),
             offLabel = Language(context) == "de" ? "Aus" : "Off",
             zoomInLabel = Language(context) == "de" ? "Vergrößern" : "Zoom in",
             zoomOutLabel = Language(context) == "de" ? "Verkleinern" : "Zoom out",
@@ -6440,11 +5687,49 @@ public sealed partial class HtmlViews
                 }
 
                 let home2KeydownWired = false;
+                // Where the sideways rows of the start page were left. The page is built anew after every
+                // favourite, edit or change of the settings - a row that jumped back to its start each time
+                // would be a row nobody scrolls twice.
+                const home2RowScroll = {};
+                // A row that scrolls sideways: it takes back where it was left when it is built anew or comes
+                // back into sight (a hidden row has no position of its own), and says whether it is scrolled -
+                // the fade at its start - and whether there is more after its end. Once per element.
+                function wireHome2Row(row, key) {
+                    if (!row || row.dataset.hscroll) {
+                        return;
+                    }
+                    row.dataset.hscroll = '1';
+                    const mark = () => {
+                        row.classList.toggle('is-scrolled', row.scrollLeft > 4);
+                        row.classList.toggle('has-more', row.scrollLeft + row.clientWidth < row.scrollWidth - 4);
+                    };
+                    const restore = () => {
+                        const wanted = home2RowScroll[key] || 0;
+                        if (row.clientWidth > 0 && Math.abs(row.scrollLeft - wanted) > 1) {
+                            row.scrollLeft = wanted;
+                        }
+                        mark();
+                    };
+                    row.addEventListener('scroll', () => {
+                        if (row.clientWidth > 0) {
+                            home2RowScroll[key] = row.scrollLeft;
+                        }
+                        mark();
+                    }, { passive: true });
+                    if (typeof ResizeObserver === 'function') {
+                        new ResizeObserver(restore).observe(row);
+                    }
+                    restore();
+                }
+
                 function wireHome2() {
                     const root = document.querySelector('[data-home2]');
                     if (!root) {
                         return;
                     }
+
+                    wireHome2Row(root.querySelector('.home2-quick-row'), 'quick');
+                    wireHome2Row(root.querySelector('.home2-folder-grid'), 'folders');
 
                     // The state of the browser farm, if there is one. A failure stays silent:
                     // the line is an extra, not part of the page.
@@ -6510,6 +5795,12 @@ public sealed partial class HtmlViews
                             }
                         });
                         resultSections.forEach(section => {
+                            // Nothing saved yet: that, and what to do about it, stands there until a search
+                            // or a filter asks for cards.
+                            if (section.hasAttribute('data-home2-nothing-saved')) {
+                                section.hidden = searching || activeFilter !== null;
+                                return;
+                            }
                             // "Recently used" and the places only make sense with no folder/favourites
                             // filter active - when the user filters by a folder, hide them entirely
                             // (their cards aren't part of the filtered set, so they would be left
@@ -6527,7 +5818,8 @@ public sealed partial class HtmlViews
                             quickSection.hidden = searching;
                         }
                         if (noResults) {
-                            const empty = visibleCount === 0;
+                            // "No matches" answers a search or a filter - not a page that has no cards yet.
+                            const empty = visibleCount === 0 && (searching || activeFilter !== null);
                             noResults.hidden = !empty;
                             noResults.classList.toggle('hidden', !empty);
                         }
@@ -6784,10 +6076,21 @@ public sealed partial class HtmlViews
                         document.addEventListener('keydown', event => {
                             const si = document.querySelector('[data-home2-search]');
                             if ((event.ctrlKey || event.metaKey) && (event.key === 'k' || event.key === 'K')) {
-                                if (si) {
+                                if (si && si.offsetParent !== null) {
                                     event.preventDefault();
                                     si.focus();
                                     si.select();
+                                    return;
+                                }
+                                // Beside the side panel the page has no search of its own: the panel's is the
+                                // one meant. Only while the start page is in front - in a session the keys
+                                // are the session's, and anywhere else the key stays the browser's.
+                                const filter = document.getElementById('server-manager-filter');
+                                const home = document.getElementById('new-connection-panel');
+                                if (filter && filter.offsetParent !== null && home && home.offsetParent !== null && !home.classList.contains('hidden')) {
+                                    event.preventDefault();
+                                    filter.focus();
+                                    filter.select();
                                 }
                             }
                             else if (event.key === 'Escape' && si && document.activeElement === si && si.value) {
@@ -7108,12 +6411,64 @@ public sealed partial class HtmlViews
                         return;
                     }
 
+                    // The settings are one tab, whichever section is asked for: the open one comes to the front and
+                    // goes to that section - unless something in it is not saved yet, which a new address would lose.
+                    const pathOf = value => { try { return new URL(value, location.href).pathname; } catch (e) { return ''; } };
+                    if (pathOf(url) === '/account') {
+                        const settingsTab = Array.from(shellTabs.values()).find(tab => pathOf(tab.url) === '/account');
+                        if (settingsTab) {
+                            activateShellTab(settingsTab.id);
+                            let unsaved = false;
+                            try {
+                                unsaved = !!settingsTab.iframe.contentDocument?.querySelector('form[data-settings-form][data-dirty]');
+                            }
+                            catch (e) {
+                                unsaved = true;
+                            }
+                            if (!unsaved) {
+                                settingsTab.url = url;
+                                settingsTab.iframe.src = shellEmbeddedUrl(url);
+                                saveShellTabs();
+                            }
+                            return;
+                        }
+                    }
+
                     const id = `shell-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
                     createShellTab({ id, url, title, iconHtml, description });
                     activateShellTab(id);
                 }
 
                 window.MatgateOpenShellTab = openShellTab;
+                // A save in a settings tab reaches the shell at once, without a reload (the page calls this with what it
+                // saved): the theme and its colours (here and in every page tab), the session settings and the key bar
+                // for sessions opened from now on, the action bar and the start page. The lists are filled in place -
+                // everything else holds on to them.
+                window.MatgateSettingsSaved = data => {
+                    if (!data || typeof data !== 'object') {
+                        return;
+                    }
+
+                    if (data.theme && typeof window.MatgateApplyTheme === 'function') {
+                        window.MatgateApplyTheme(data.theme);
+                    }
+                    if (data.sessionPrefs && typeof data.sessionPrefs === 'object') {
+                        Object.assign(sessionPrefs, data.sessionPrefs);
+                        updateTabActions();
+                    }
+                    if (Array.isArray(data.keyBar)) {
+                        keyBarButtons.length = 0;
+                        keyBarButtons.push(...data.keyBar);
+                    }
+                    if (Array.isArray(data.actionBar)) {
+                        actionBarServers.length = 0;
+                        actionBarServers.push(...data.actionBar);
+                        updateTabActions();
+                    }
+                    if (data.refreshPanel) {
+                        refreshConnectionsPanel();
+                    }
+                };
                 // From a page that is done (a connection saved from the home page): its own tab closes, and the
                 // home page behind it reads the connections anew. False when the page is in no tab of this shell.
                 window.MatgateCloseShellTabOf = child => {
@@ -7655,7 +7010,7 @@ public sealed partial class HtmlViews
                             {
                                 label: ui('ctxCustomize'),
                                 iconHtml: fileIcon('settings'),
-                                onSelect: () => openShellTab('/account?tab=session#quick-order-list', ui('ctxCustomize'), fileIcon('settings'), '')
+                                onSelect: () => openShellTab('/account?tab=home#quick-order-list', ui('ctxCustomize'), fileIcon('settings'), '')
                             }
                         ]
                     });
@@ -9324,9 +8679,9 @@ public sealed partial class HtmlViews
                     // The same from the menu: in the compact view and on a phone the button is not there.
                     document.querySelectorAll('[data-server-manager-menu]').forEach(item => {
                         item.addEventListener('click', () => {
-                            const openMenu = item.closest('details[open]');
-                            if (openMenu) {
-                                openMenu.removeAttribute('open');
+                            // The menu goes first: on a phone it is a sheet over everything, the panel's as well.
+                            if (typeof window.MatgateCloseMenus === 'function') {
+                                window.MatgateCloseMenus();
                             }
 
                             toggleServerManager();
@@ -10215,11 +9570,12 @@ public sealed partial class HtmlViews
                     row.addEventListener('click', onToggle);
                     return row;
                 }
-                // A few choices of which one applies, side by side.
-                function resolutionChoices(items) {
+                // A few choices of which one applies, side by side - at most three in a row, unless the caller
+                // says how many (the four picture qualities: two by two).
+                function resolutionChoices(items, columns) {
                     const row = document.createElement('div');
                     row.className = 'resolution-seg';
-                    row.style.setProperty('--count', String(Math.min(items.length, 3)));
+                    row.style.setProperty('--count', String(columns || Math.min(items.length, 3)));
                     row.append(...items);
                     return row;
                 }
@@ -10239,11 +9595,28 @@ public sealed partial class HtmlViews
                     }
 
                     const state = api.state();
-                    const option = (label, active, onClick) => {
+                    // A choice. With a title it is a card of two lines: the name, and under it what it means -
+                    // with a flash for the fastest response.
+                    const option = (label, active, onClick, detail) => {
                         const button = document.createElement('button');
                         button.type = 'button';
                         button.className = 'resolution-option' + (active ? ' active' : '');
-                        button.textContent = label;
+                        if (detail && detail.title) {
+                            const name = document.createElement('span');
+                            name.className = 'resolution-option-title';
+                            name.textContent = detail.title;
+                            const hint = document.createElement('small');
+                            hint.className = 'resolution-option-hint';
+                            if (detail.value === 'fast' && actionIcons.zap) {
+                                hint.insertAdjacentHTML('beforeend', actionIcons.zap);
+                            }
+                            hint.append(detail.hint || '');
+                            button.append(name, hint);
+                            button.setAttribute('aria-label', label);
+                        }
+                        else {
+                            button.textContent = label;
+                        }
                         button.addEventListener('click', () => {
                             onClick();
                             closeResolutionDialog();
@@ -10335,15 +9708,44 @@ public sealed partial class HtmlViews
                             box.append(head, presets, note);
                             resolutionExtra.appendChild(box);
                         }
-                        const group = (title, items, onPick) => {
+                        // A heading and its choices; as cards of two lines, four of them two by two.
+                        const group = (title, items, onPick, cards) => {
                             if (!items || items.length < 2) {
-                                return;
+                                return false;
                             }
 
                             resolutionExtra.appendChild(resolutionHeading(title));
-                            resolutionExtra.appendChild(resolutionChoices(items.map(item => option(item.label, item.active, () => onPick(item.value)))));
+                            const row = resolutionChoices(
+                                items.map(item => option(item.label, item.active, () => onPick(item.value), cards ? item : null)),
+                                cards && items.length === 4 ? 2 : undefined);
+                            if (cards) {
+                                row.classList.add('resolution-seg--cards');
+                            }
+                            resolutionExtra.appendChild(row);
+                            return true;
                         };
-                        group(state.texts?.quality || 'Quality', state.qualities, value => api.setQuality(value));
+                        const qualities = state.qualities || [];
+                        if (group(state.texts?.quality || 'Quality', qualities, value => api.setQuality(value), true) && state.texts?.qualityNoteDevice) {
+                            // Where the choice is kept: on this device for this connection, or - fixed in the
+                            // settings - for every new session. Either way the settings are one tap away.
+                            const fixedQuality = state.qualityDefault || '';
+                            const start = qualities.find(item => item.value === fixedQuality);
+                            const note = document.createElement('p');
+                            note.className = 'resolution-note';
+                            note.textContent = (fixedQuality
+                                ? (state.texts.qualityNoteFixed || '').replace('{title}', start ? (start.title || start.label) : fixedQuality)
+                                : state.texts.qualityNoteDevice) + ' ';
+                            const link = document.createElement('button');
+                            link.type = 'button';
+                            link.className = 'resolution-note-link';
+                            link.textContent = fixedQuality ? state.texts.qualityChange : state.texts.qualityForAll;
+                            link.addEventListener('click', () => {
+                                closeResolutionDialog();
+                                openShellTab('/account?tab=session#screen-quality', uiText.settingsTitle || 'Settings', actionIcons.settings || '');
+                            });
+                            note.appendChild(link);
+                            resolutionExtra.appendChild(note);
+                        }
                         group(state.texts?.monitor || 'Monitor', state.monitors, value => api.setMonitor(value));
 
                         const switches = [];
@@ -18213,107 +17615,16 @@ public sealed partial class HtmlViews
         var darkVars = ThemeCss(themes, palette, dark: true, indent: 12, accent, accent2, ownBackground);
         var darkVarsDeep = ThemeCss(themes, palette, dark: true, indent: 16, accent, accent2, ownBackground);
         var requestPath = context.Request.Path.Value ?? "/";
-        var displayName = user is null ? "" : string.IsNullOrWhiteSpace(user.DisplayName) ? user.UserName : user.DisplayName;
-        var canManageAdminArea = user is not null && (user.IsAdmin || user.CanManageServers);
-        var workspacesActive = requestPath.StartsWith("/workspaces", StringComparison.OrdinalIgnoreCase)
-            || requestPath.StartsWith("/workspace/", StringComparison.OrdinalIgnoreCase)
-            || requestPath.StartsWith("/w/", StringComparison.OrdinalIgnoreCase);
-        var adminActive = requestPath.StartsWith("/admin", StringComparison.OrdinalIgnoreCase);
-        var toolsActive = requestPath.StartsWith("/tools", StringComparison.OrdinalIgnoreCase);
-        var accountActive = requestPath.StartsWith("/account", StringComparison.OrdinalIgnoreCase);
         var shellLayout = string.Equals(mainClass, "shell-main", StringComparison.OrdinalIgnoreCase)
             || string.Equals(mainClass, "session-main", StringComparison.OrdinalIgnoreCase)
             || string.Equals(mainClass, "viewer-main", StringComparison.OrdinalIgnoreCase);
-        var workspacesClass = workspacesActive ? " active" : "";
 
-        // The file manager belongs in the menu: until now you got there only through a tile on the
-        // home page or out of a session. What opens is your own place - from there the select in the
-        // bar leads to every other one, including the workspaces. Anyone not allowed a place at all
-        // does not see the entry.
-        var filesAreaId = user is null
-            ? (Guid?)null
-            : user.FileShare?.Personal == true
-                ? FileShareService.PersonalAreaId(user.Id)
-                : user.FileShare?.Global == true
-                    ? FileShareService.GlobalAreaId
-                    : null;
-        var filesLabel = Language(context) == "de" ? "Dateien" : "Files";
-        // Three ways to the same destination, depending on where the page sits: in the shell
-        // wireOpenControls intercepts the click, in an embedded page the bridge to the shell does, and
-        // when the page stands on its own the link itself carries.
-        string FilesEntry(string cssClass) => filesAreaId is null
-            ? ""
-            : $$"""
-                <a class="{{A(cssClass)}}" href="/connect/{{filesAreaId}}" data-server-id="{{filesAreaId}}" data-shell-open-server="{{filesAreaId}}" data-shell-title="{{A(filesLabel)}}">{{Icon("folder")}}<span>{{E(filesLabel)}}</span></a>
-                """;
-        // The side panel is shown and hidden from the menu as well: in the compact view its button in the tab
-        // row is not there, and on a phone the menu is the only way to it. Only the page that has the panel
-        // has the entry.
-        var sidePanelEntry = user is not null && string.Equals(mainClass, "session-main", StringComparison.OrdinalIgnoreCase)
-            ? $$"""<button type="button" class="shell-menu-item side-panel-entry" data-server-manager-menu>{{Icon("panel-left")}}<span class="side-panel-entry-wide">{{(Language(context) == "de" ? "Seitenleiste ein/aus" : "Toggle side panel")}}</span><span class="side-panel-entry-narrow">{{(Language(context) == "de" ? "Verbindungen" : "Connections")}}</span></button>"""
-            : "";
-        var adminClass = adminActive ? " active" : "";
-        var toolsClass = toolsActive ? " active" : "";
-        var accountClass = accountActive ? " active" : "";
-        var adminMenu = canManageAdminArea ? $$"""
-                <a class="shell-tab{{adminClass}}" href="/admin" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Administration"))}}">{{Icon("shield")}}<span>{{T(context, "Administration")}}</span></a>
-                """ : "";
-        var shellTabs = user is null ? "" : $$"""
-            <div class="shell-nav-row">
-                <div class="shell-tabs-scroll">
-                    <nav class="shell-tabs" aria-label="Primary">
-                        {{FilesEntry("shell-tab")}}
-                        <a class="shell-tab{{toolsClass}}" href="/tools" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Tools"))}}">{{Icon("wrench")}}<span>{{T(context, "Tools")}}</span></a>
-                    </nav>
-                </div>
-                {{adminMenu}}
-                <details class="shell-menu account-menu{{accountClass}}">
-                    <summary class="shell-tab shell-menu-trigger account-trigger{{accountClass}}" aria-label="{{A(T(context, "Account"))}}">
-                        {{Icon("user")}}<span class="account-name">{{E(displayName)}}</span><span class="menu-caret">{{Icon("chevron-down")}}</span>
-                    </summary>
-                    <div class="menu-panel shell-menu-panel account-menu-panel">
-                        <div class="account-menu-head">
-                            <span class="account-menu-avatar">{{Icon("user")}}</span>
-                            <span class="account-menu-id"><strong>{{E(displayName)}}</strong><small>{{E(user!.UserName)}}</small></span>
-                        </div>
-                        <a class="shell-menu-item{{accountClass}}" href="/account" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Account"))}}">{{Icon("settings")}}<span>{{T(context, "Account")}}</span></a>
-                        <a class="shell-menu-item" href="/credentials" data-shell-open-tab="1" data-shell-title="{{A(Language(context) == "de" ? "Zugangsdaten" : "Credentials")}}">{{Icon("key")}}<span>{{(Language(context) == "de" ? "Zugangsdaten" : "Credentials")}}</span></a>
-                        <form method="post" action="/logout" class="account-menu-logout">
-                            {{Csrf(context)}}
-                            <button type="submit" class="shell-menu-item shell-menu-logout">{{Icon("logout")}}<span>{{T(context, "Logout")}}</span></button>
-                        </form>
-                    </div>
-                </details>
-            </div>
-            """;
-        // Compact single-bar layout: the global nav collapses into this burger menu.
-        var burgerMenu = user is null ? "" : $$"""
-            <details class="shell-menu shell-burger">
-                <summary class="shell-tab shell-menu-trigger shell-burger-trigger" aria-label="{{A(T(context, "Menu"))}}" title="{{A(T(context, "Menu"))}}">{{Icon("menu")}}</summary>
-                <div class="menu-panel shell-menu-panel shell-burger-panel">
-                    <div class="shell-burger-sheet-head">
-                        <span class="shell-burger-brand">{{Logo()}}</span>
-                        <button type="button" class="shell-burger-sheet-close" aria-label="{{A(T(context, "Close"))}}" data-burger-close>&times;</button>
-                    </div>
-                    <div class="shell-burger-user">
-                        <span class="account-menu-avatar">{{Icon("user")}}</span>
-                        <span class="account-menu-id"><strong>{{E(displayName)}}</strong><small>{{E(user!.UserName)}}</small></span>
-                    </div>
-                    {{FilesEntry("shell-menu-item")}}
-                    <a class="shell-menu-item{{toolsClass}}" href="/tools" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Tools"))}}">{{Icon("wrench")}}<span>{{T(context, "Tools")}}</span></a>
-                    {{(canManageAdminArea ? $"""<a class="shell-menu-item{(adminActive ? " active" : "")}" href="/admin" data-shell-open-tab="1" data-shell-title="{A(T(context, "Administration"))}">{Icon("shield")}<span>{T(context, "Administration")}</span></a>""" : "")}}
-                    <a class="shell-menu-item account-trigger{{accountClass}}" href="/account" data-shell-open-tab="1" data-shell-title="{{A(T(context, "Account"))}}">{{Icon("settings")}}<span class="account-name">{{E(displayName)}}</span><span class="shell-burger-settings-word">{{(Language(context) == "de" ? "Einstellungen" : "Settings")}}</span></a>
-                    <a class="shell-menu-item" href="/credentials" data-shell-open-tab="1" data-shell-title="{{A(Language(context) == "de" ? "Zugangsdaten" : "Credentials")}}">{{Icon("key")}}<span>{{(Language(context) == "de" ? "Zugangsdaten" : "Credentials")}}</span></a>
-                    {{sidePanelEntry}}
-                    <button type="button" class="shell-menu-item" data-view-mode-toggle>{{Icon("chevrons-down-up")}}<span>{{(Language(context) == "de" ? "Ansicht ..." : "View ...")}}</span></button>
-                    <form method="post" action="/logout" class="account-menu-logout">
-                        {{Csrf(context)}}
-                        <button type="submit" class="shell-menu-item shell-menu-logout">{{Icon("logout")}}<span>{{T(context, "Logout")}}</span></button>
-                    </form>
-                    <div class="shell-burger-foot">Matgate {{E(ApplicationVersion())}}</div>
-                </div>
-            </details>
-            """;
+        // The header's entries and both menus (HtmlViews.Header.cs): which entries there are and who sees them is
+        // decided there once, for the bar, the account menu and the main menu behind the burger alike.
+        var headerEntries = user is null ? Array.Empty<HeaderEntry>() : HeaderMenuEntries(context, user, mainClass);
+        var shellTabs = user is null ? "" : HeaderNavRow(context, user, headerEntries, requestPath);
+        // Compact single-bar layout: the global nav collapses into this burger menu (a sheet on a phone).
+        var burgerMenu = user is null ? "" : HeaderBurger(context, user, headerEntries, requestPath);
         // The view: a choice, not a switch. "Normal", "Normal with side panel" (only where the panel fits beside
         // the page) and "Compact". The button opens the choice; the template carries the entries, so the
         // script does not need its own icons and words.
@@ -18328,15 +17639,20 @@ public sealed partial class HtmlViews
             </template>
             """;
         // Phones, compact view: the tab strip is hidden and this header button lists the open tabs
-        // instead (tap = switch, x = close, + = new tab). Hidden everywhere else via CSS.
+        // instead (tap = switch, x = close, + = new tab). Hidden everywhere else via CSS. "Open tabs", not
+        // "Connections": that is the side panel's entry in the main menu, a different list.
+        var openTabsLabel = Language(context) == "de" ? "Offene Tabs" : "Open tabs";
         var mobileTabMenu = user is null || !string.Equals(mainClass, "session-main", StringComparison.OrdinalIgnoreCase)
             ? ""
             : $$"""
-                <div id="mobile-tab-menu" class="mobile-tab-menu" data-label-new="{{A(T(context, "New connection"))}}" data-label-tabs="{{A(Language(context) == "de" ? "Verbindungen" : "Connections")}}" data-label-close="{{A(T(context, "Close"))}}">
-                    <button type="button" class="tab-action-button icon-only mobile-tab-menu-trigger" aria-haspopup="true" aria-expanded="false" title="{{A(Language(context) == "de" ? "Verbindungen" : "Connections")}}" aria-label="{{A(Language(context) == "de" ? "Verbindungen" : "Connections")}}"><span class="mobile-tab-count" data-mobile-tab-count>0</span><span class="mobile-tab-plus" data-mobile-tab-plus aria-hidden="true">{{Icon("plus")}}</span></button>
+                <div id="mobile-tab-menu" class="mobile-tab-menu" data-label-new="{{A(T(context, "New connection"))}}" data-label-tabs="{{A(openTabsLabel)}}" data-label-close="{{A(T(context, "Close"))}}">
+                    <button type="button" class="tab-action-button icon-only mobile-tab-menu-trigger" aria-haspopup="true" aria-expanded="false" title="{{A(openTabsLabel)}}" aria-label="{{A(openTabsLabel)}}"><span class="mobile-tab-count" data-mobile-tab-count>0</span><span class="mobile-tab-plus" data-mobile-tab-plus aria-hidden="true">{{Icon("plus")}}</span></button>
                     <div class="tab-action-more-panel mobile-tab-menu-panel tab-action-overflow-panel" data-mobile-tab-panel></div>
                 </div>
                 """;
+        // The rule in front of that button separates it from the actions; without the button (every page but the
+        // shell) it would dangle at the end of the bar.
+        var headerSeparator = mobileTabMenu.Length == 0 ? "" : """<span class="shell-header-sep" aria-hidden="true"></span>""";
         var navigation = user is null ? "" : shellTabs;
         var pwaEnabled = !string.Equals(context.Request.Query["embed"].ToString(), "1", StringComparison.OrdinalIgnoreCase);
         var cacheControlMarkup = """<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0"><meta http-equiv="Pragma" content="no-cache"><meta http-equiv="Expires" content="0">""";
@@ -18397,6 +17713,120 @@ public sealed partial class HtmlViews
                         // Ignore storage failures.
                     }
                 </script>
+                <!-- Light, dark or system without a reload. In the head, so it exists before any script of the
+                     page runs and in a frame that is still loading. -->
+                <script>
+                    (() => {
+                        // window.MatgateApplyTheme({ mode, light, dark }), every part optional:
+                        //   mode         'light' | 'dark' | 'system'; anything else, or none, keeps the current one.
+                        //   light, dark  a palette as { '--bg': '#...', ... }, the shape /api/theme/preview answers.
+                        //                The sets are kept, and the one that applies is written inline on <html>:
+                        //                dark for 'dark', and for 'system' while the device is set to dark - again
+                        //                each time the device switches. null forgets a kept set; left out, it stays.
+                        // A mode alone leaves the palette alone: the server's stays, and so does a set given before
+                        // (then the other set of the pair is written). Inline properties that other code wrote on
+                        // <html> are never removed. The same goes to every Matgate page in a same-origin frame below
+                        // this one (each with its own function, so it keeps the sets for its own device switches),
+                        // never to a frame with somebody else's page in it (a website under the proxy path). Every
+                        // [data-theme-choice] gets the matching aria-checked. Returns the mode now in force and
+                        // fires 'matgate:theme' on window with { mode, dark }.
+                        const modes = ['light', 'dark', 'system'];
+                        const kept = { light: null, dark: null };
+                        let written = [];
+                        const darkQuery = window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)') : null;
+                        const asSet = value => value && typeof value === 'object' && !Array.isArray(value) ? Object.assign({}, value) : null;
+                        const currentMode = () => {
+                            const mode = document.documentElement.getAttribute('data-theme');
+                            return modes.indexOf(mode) >= 0 ? mode : 'system';
+                        };
+                        const isDark = mode => mode === 'dark' || (mode === 'system' && !!darkQuery && darkQuery.matches);
+                        const writeSet = mode => {
+                            if (!kept.light && !kept.dark && written.length === 0) {
+                                return;
+                            }
+
+                            const set = kept[isDark(mode) ? 'dark' : 'light'];
+                            const root = document.documentElement;
+                            const names = [];
+                            if (set) {
+                                Object.keys(set).forEach(name => {
+                                    const value = set[name];
+                                    if (/^--[A-Za-z0-9-]+$/.test(name) && (typeof value === 'string' || typeof value === 'number')) {
+                                        root.style.setProperty(name, String(value));
+                                        names.push(name);
+                                    }
+                                });
+                            }
+                            written.forEach(name => {
+                                if (names.indexOf(name) < 0) {
+                                    root.style.removeProperty(name);
+                                }
+                            });
+                            written = names;
+                        };
+                        const announce = mode => {
+                            try {
+                                window.dispatchEvent(new CustomEvent('matgate:theme', { detail: { mode: mode, dark: isDark(mode) } }));
+                            }
+                            catch (e) {
+                                // An old browser without CustomEvent: nobody to tell.
+                            }
+                        };
+                        const apply = options => {
+                            const given = options && typeof options === 'object' ? options : {};
+                            const has = key => Object.prototype.hasOwnProperty.call(given, key);
+                            if (has('light')) {
+                                kept.light = asSet(given.light);
+                            }
+                            if (has('dark')) {
+                                kept.dark = asSet(given.dark);
+                            }
+
+                            const mode = modes.indexOf(given.mode) >= 0 ? given.mode : currentMode();
+                            document.documentElement.setAttribute('data-theme', mode);
+                            writeSet(mode);
+                            document.querySelectorAll('[data-theme-choice]').forEach(choice => {
+                                choice.setAttribute('aria-checked', choice.getAttribute('data-theme-choice') === mode ? 'true' : 'false');
+                            });
+
+                            const onward = { mode: mode };
+                            if (has('light')) {
+                                onward.light = given.light;
+                            }
+                            if (has('dark')) {
+                                onward.dark = given.dark;
+                            }
+                            document.querySelectorAll('iframe').forEach(frame => {
+                                try {
+                                    const view = frame.contentWindow;
+                                    if (view && view !== window && typeof view.MatgateApplyTheme === 'function') {
+                                        view.MatgateApplyTheme(onward);
+                                    }
+                                }
+                                catch (e) {
+                                    // A frame of another origin is not ours to colour.
+                                }
+                            });
+                            announce(mode);
+                            return mode;
+                        };
+                        if (darkQuery) {
+                            const follow = () => {
+                                if (currentMode() === 'system') {
+                                    writeSet('system');
+                                    announce('system');
+                                }
+                            };
+                            if (typeof darkQuery.addEventListener === 'function') {
+                                darkQuery.addEventListener('change', follow);
+                            }
+                            else if (typeof darkQuery.addListener === 'function') {
+                                darkQuery.addListener(follow);
+                            }
+                        }
+                        window.MatgateApplyTheme = apply;
+                    })();
+                </script>
                 {{pwaHeadMarkup}}
                 <link rel="icon" type="image/svg+xml" href="/favicon.svg">
                 <link rel="shortcut icon" href="/favicon.ico">
@@ -18416,6 +17846,267 @@ public sealed partial class HtmlViews
                         :root:not([data-theme="light"]):not([data-theme="dark"]) {
                             color-scheme: dark;
                             {{darkVarsDeep}}
+                        }
+                    }
+                    /* ==== Part 0 – shared tokens and ui- components (prefix ui-) ==== */
+                    /* Fixed tokens beside the themed ones above. Radii, tints and the off colour of a switch are
+                       worked out from the palette's own values (--radius, --radius-lg, --accent, --muted ...), so
+                       they follow the chosen palette, the user's own colours and the live preview on the settings
+                       page, which writes the palette inline on <html>. */
+                    :root {
+                        --space-1: 4px;
+                        --space-2: 8px;
+                        --space-3: 12px;
+                        --space-4: 16px;
+                        --space-5: 20px;
+                        --space-6: 24px;
+                        --space-8: 32px;
+                        --space-10: 40px;
+                        --space-12: 48px;
+                        /* Matgate 8/12 gives 6, 10, 12, 14, 16, 20 - Graphit 6/8 gives 4, 8, 10, 10, 12, 16 -
+                           Bernstein 12/18 gives 10, 14, 16, 20, 22, 26. */
+                        --radius-sm: max(4px, calc(var(--radius, 8px) - 2px));
+                        --radius-md: calc(var(--radius, 8px) + 2px);
+                        --radius-row: calc(var(--radius, 8px) + 4px);
+                        --radius-tile: calc(var(--radius-lg, 12px) + 2px);
+                        --radius-card: calc(var(--radius-lg, 12px) + 4px);
+                        --radius-sheet: calc(var(--radius-lg, 12px) + 8px);
+                        --radius-pill: 999px;
+                        --accent-soft: color-mix(in srgb, var(--accent) 12%, transparent);
+                        --accent-soft-strong: color-mix(in srgb, var(--accent) 20%, transparent);
+                        --danger-soft: color-mix(in srgb, var(--danger) 10%, transparent);
+                        --success: #1f7a4f;
+                        --success-soft: color-mix(in srgb, var(--success) 12%, transparent);
+                        --warning: #9a6200;
+                        --warning-soft: color-mix(in srgb, var(--warning) 14%, transparent);
+                        --line-strong: color-mix(in srgb, var(--text) 24%, transparent);
+                        /* The track of a switch that is off: about 3.4:1 against white (it was about 1.9:1). */
+                        --switch-off: color-mix(in srgb, var(--muted) 75%, var(--surface));
+                        --shadow-card: 0 1px 2px rgb(16 24 20 / 6%), 0 2px 8px rgb(16 24 20 / 4%);
+                        --shadow-pop: 0 4px 10px rgb(16 24 20 / 8%), 0 16px 32px rgb(16 24 20 / 12%);
+                        --focus-ring: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent);
+                        --control-h: 36px;
+                        --row-h: 56px;
+                        --touch: 44px;
+                        --dur-fast: 120ms;
+                        --dur: 180ms;
+                        --ease: cubic-bezier(.2, .8, .2, 1);
+                        /* The chosen item of a .ui-seg. */
+                        --ui-seg-selected: var(--surface);
+                    }
+                    @media (pointer: coarse) {
+                        :root {
+                            --control-h: 44px;
+                            --row-h: 60px;
+                        }
+                    }
+                    :root[data-theme="dark"] {
+                        --accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);
+                        --accent-soft-strong: color-mix(in srgb, var(--accent) 26%, transparent);
+                        --danger-soft: color-mix(in srgb, var(--danger) 16%, transparent);
+                        --success: #5cc18a;
+                        --warning: #f0b74a;
+                        --switch-off: color-mix(in srgb, var(--muted) 60%, var(--surface));
+                        --shadow-card: 0 1px 2px rgb(0 0 0 / 40%);
+                        --shadow-pop: 0 4px 10px rgb(0 0 0 / 35%), 0 16px 32px rgb(0 0 0 / 45%);
+                        --ui-seg-selected: var(--surface-3);
+                    }
+                    /* The same dark values for "system" on a device set to dark - the selectors of the palette's own
+                       dark block above. */
+                    @media (prefers-color-scheme: dark) {
+                        :root[data-theme="system"],
+                        :root:not([data-theme="light"]):not([data-theme="dark"]) {
+                            --accent-soft: color-mix(in srgb, var(--accent) 16%, transparent);
+                            --accent-soft-strong: color-mix(in srgb, var(--accent) 26%, transparent);
+                            --danger-soft: color-mix(in srgb, var(--danger) 16%, transparent);
+                            --success: #5cc18a;
+                            --warning: #f0b74a;
+                            --switch-off: color-mix(in srgb, var(--muted) 60%, var(--surface));
+                            --shadow-card: 0 1px 2px rgb(0 0 0 / 40%);
+                            --shadow-pop: 0 4px 10px rgb(0 0 0 / 35%), 0 16px 32px rgb(0 0 0 / 45%);
+                            --ui-seg-selected: var(--surface-3);
+                        }
+                    }
+                    /* Hidden from the eye, still read out: live texts and hints for screen readers. */
+                    .ui-sr {
+                        border: 0 !important;
+                        clip: rect(0 0 0 0) !important;
+                        clip-path: inset(50%) !important;
+                        height: 1px !important;
+                        margin: -1px !important;
+                        overflow: hidden !important;
+                        padding: 0 !important;
+                        position: absolute !important;
+                        white-space: nowrap !important;
+                        width: 1px !important;
+                    }
+                    /* A person: the initials in a circle in the accent gradient. Its size comes from
+                       --ui-avatar-size (inline, or from the user card around it). Never .brand-mark: the first
+                       .brand-mark of a page is the logo, and the tests read it as such. */
+                    .ui-avatar {
+                        align-items: center;
+                        background: linear-gradient(135deg, var(--accent), var(--accent-2));
+                        border-radius: 50%;
+                        color: var(--bg);
+                        display: inline-flex;
+                        flex: 0 0 auto;
+                        font-size: calc(var(--ui-avatar-size, 40px) * .4);
+                        font-weight: 700;
+                        height: var(--ui-avatar-size, 40px);
+                        justify-content: center;
+                        letter-spacing: .02em;
+                        line-height: 1;
+                        overflow: hidden;
+                        -webkit-user-select: none;
+                        user-select: none;
+                        white-space: nowrap;
+                        width: var(--ui-avatar-size, 40px);
+                    }
+                    /* Who is signed in: avatar, name, login and role, plus what the caller puts under it (the
+                       theme switch in the phone menu) below a hairline. Not interactive. Variants: menu (account
+                       menu), sheet (phone menu), settings (head of the settings; a card of its own on a phone). */
+                    .ui-user-card {
+                        --ui-avatar-size: 40px;
+                        align-items: center;
+                        column-gap: 12px;
+                        display: grid;
+                        grid-template-columns: auto minmax(0, 1fr);
+                        min-width: 0;
+                        text-align: left;
+                    }
+                    .ui-user-card-text { display: grid; gap: 1px; line-height: 1.3; min-width: 0; }
+                    .ui-user-card-text > strong,
+                    .ui-user-card-text > small {
+                        min-width: 0;
+                        overflow: hidden;
+                        text-overflow: ellipsis;
+                        white-space: nowrap;
+                    }
+                    .ui-user-card-text > strong { color: var(--text); font-size: 15px; font-weight: 650; }
+                    .ui-user-card-text > small { color: var(--muted); font-size: 13px; font-weight: 400; }
+                    .ui-user-card-extra {
+                        border-top: 1px solid var(--line);
+                        grid-column: 1 / -1;
+                        margin-top: 12px;
+                        min-width: 0;
+                        padding-top: 12px;
+                    }
+                    .ui-user-card--menu { border-bottom: 1px solid var(--line); padding: 8px 10px 10px; }
+                    .ui-user-card--sheet {
+                        --ui-avatar-size: 44px;
+                        background: var(--surface);
+                        border: 1px solid var(--line);
+                        border-radius: var(--radius-row);
+                        padding: 12px 14px;
+                    }
+                    .ui-user-card--sheet .ui-user-card-text > strong { font-size: 17px; font-weight: 700; }
+                    /* A choice under the sheet's hairline (the theme) spans the card, with items a thumb can hit. */
+                    .ui-user-card--sheet .ui-user-card-extra .ui-seg { display: grid; width: 100%; }
+                    .ui-user-card--sheet .ui-user-card-extra .ui-seg > button,
+                    .ui-user-card--sheet .ui-user-card-extra .ui-seg > label { min-height: var(--touch); }
+                    .ui-user-card--settings { border-bottom: 1px solid var(--line); padding: 8px 10px 14px; }
+                    @media (max-width: 720px) {
+                        .ui-user-card--settings {
+                            --ui-avatar-size: 48px;
+                            background: var(--surface);
+                            border: 1px solid var(--line);
+                            border-radius: var(--radius-row);
+                            padding: 12px 14px;
+                        }
+                        .ui-user-card--settings .ui-user-card-text > strong { font-size: 17px; font-weight: 700; }
+                        .ui-user-card--settings .ui-user-card-text > small { font-size: 13.5px; }
+                    }
+                    /* One out of a few, side by side on a track: labels each holding a hidden radio (saved with a
+                       form) or buttons with aria-checked (applied at once). The items undo the global button and
+                       label look. --icons: icon-only items, 32 x 28 with a mouse. */
+                    .ui-seg {
+                        background: var(--surface-2);
+                        border: 1px solid var(--line);
+                        border-radius: var(--radius-row);
+                        display: inline-grid;
+                        gap: 3px;
+                        grid-auto-columns: minmax(0, 1fr);
+                        grid-auto-flow: column;
+                        max-width: 100%;
+                        padding: 3px;
+                        vertical-align: middle;
+                    }
+                    .ui-seg > button,
+                    .ui-seg > label {
+                        align-items: center;
+                        background: transparent;
+                        border: 0;
+                        border-radius: calc(var(--radius-row) - 3px);
+                        box-shadow: none;
+                        color: var(--muted);
+                        cursor: pointer;
+                        display: inline-flex;
+                        font-size: 14px;
+                        font-weight: 600;
+                        gap: 6px;
+                        justify-content: center;
+                        line-height: 1.2;
+                        margin: 0;
+                        min-height: var(--control-h);
+                        min-width: 0;
+                        padding: 4px 12px;
+                        position: relative;
+                        text-align: center;
+                        transition: background-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+                        white-space: nowrap;
+                    }
+                    .ui-seg > label > input[type="radio"],
+                    .ui-seg > label > input[type="checkbox"] {
+                        border: 0;
+                        clip-path: inset(50%);
+                        height: 1px;
+                        margin: -1px;
+                        opacity: 0;
+                        overflow: hidden;
+                        padding: 0;
+                        position: absolute;
+                        white-space: nowrap;
+                        width: 1px;
+                    }
+                    .ui-seg .icon { height: 16px; width: 16px; }
+                    .ui-seg > button:hover,
+                    .ui-seg > label:hover {
+                        background: color-mix(in srgb, var(--ui-seg-selected) 50%, transparent);
+                        border-color: transparent;
+                        color: var(--text);
+                    }
+                    .ui-seg > button:disabled,
+                    .ui-seg > label:has(> input:disabled) {
+                        background: transparent;
+                        color: var(--muted);
+                        cursor: not-allowed;
+                        opacity: .55;
+                    }
+                    .ui-seg > button[aria-checked="true"],
+                    .ui-seg > label:has(> input:checked) {
+                        background: var(--ui-seg-selected);
+                        box-shadow: 0 1px 2px rgb(0 0 0 / 14%), 0 0 0 1px var(--line);
+                        color: var(--accent);
+                    }
+                    .ui-seg > button:focus-visible,
+                    .ui-seg > label:has(> input:focus-visible) {
+                        box-shadow: var(--focus-ring);
+                        outline: none;
+                    }
+                    .ui-seg--icons { grid-auto-columns: auto; }
+                    .ui-seg--icons > button,
+                    .ui-seg--icons > label {
+                        min-height: 28px;
+                        min-width: 32px;
+                        padding: 0;
+                        width: 32px;
+                    }
+                    @media (pointer: coarse) {
+                        .ui-seg--icons > button,
+                        .ui-seg--icons > label {
+                            min-height: var(--touch);
+                            min-width: var(--touch);
+                            width: var(--touch);
                         }
                     }
                     * { box-sizing: border-box; }
@@ -18833,12 +18524,6 @@ public sealed partial class HtmlViews
                         position: relative;
                         z-index: 40;
                     }
-                    .shell-menu > summary {
-                        list-style: none;
-                    }
-                    .shell-menu > summary::-webkit-details-marker {
-                        display: none;
-                    }
                     .shell-menu-trigger {
                         align-items: center;
                         display: inline-flex;
@@ -18847,7 +18532,9 @@ public sealed partial class HtmlViews
                         display: inline-flex;
                         margin-left: 2px;
                     }
-                    .shell-burger-sheet-head, .shell-burger-user, .shell-burger-foot, .shell-burger-settings-word { display: none; }
+                    /* The main menu's head (the logo and the way back) belongs to the sheet on a phone; as a dropdown
+                       (the compact view on a wide screen) the menu shows its user card, entries and foot without it. */
+                    .shell-burger-sheet-head { display: none; }
                     .shell-menu-item {
                         align-items: center;
                         color: var(--text);
@@ -18861,57 +18548,241 @@ public sealed partial class HtmlViews
                         height: 15px;
                         width: 15px;
                     }
-                    .shell-menu[open] > .shell-menu-trigger,
-                    .shell-menu[open] > .shell-menu-trigger:hover,
-                    .shell-menu[open] > .shell-menu-trigger:focus,
-                    .shell-menu[open] > .shell-menu-trigger:focus-visible {
+                    .shell-menu.is-open > .shell-menu-trigger,
+                    .shell-menu.is-open > .shell-menu-trigger:hover,
+                    .shell-menu.is-open > .shell-menu-trigger:focus,
+                    .shell-menu.is-open > .shell-menu-trigger:focus-visible {
                         color: var(--accent);
                     }
-                    /* Dropdown items render as full-width rows with a hover state. */
-                    .shell-menu-panel .shell-menu-item {
-                        border-radius: var(--radius);
-                        width: 100%;
-                    }
-                    .shell-menu-panel .shell-menu-item:hover,
-                    .shell-menu-panel .shell-menu-item:focus-visible {
-                        background: var(--hover-bg);
-                    }
-                    .account-menu-head {
-                        align-items: center;
-                        border-bottom: 1px solid var(--line);
-                        display: flex;
-                        gap: 10px;
-                        margin-bottom: 4px;
-                        padding: 2px 6px 8px;
-                    }
-                    .account-menu-avatar {
-                        align-items: center;
-                        background: var(--surface-2);
-                        border: 1px solid var(--line);
-                        border-radius: 50%;
-                        color: var(--accent);
-                        display: inline-flex;
-                        flex: 0 0 auto;
-                        height: 34px;
-                        justify-content: center;
-                        width: 34px;
-                    }
-                    .account-menu-avatar .icon { height: 17px; width: 17px; }
-                    .account-menu-id { display: grid; min-width: 0; }
-                    .account-menu-id strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-                    .account-menu-id small { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-                    .account-menu-logout { display: block; margin: 4px 0 0; }
+                    .account-menu-logout { display: block; margin: 0; }
                     .shell-menu-logout {
-                        background: transparent;
-                        border: 0;
-                        border-top: 1px solid var(--line);
                         cursor: pointer;
                         font: inherit;
                         justify-content: flex-start;
-                        margin-top: 4px;
-                        padding-top: 9px;
                         text-align: left;
                         width: 100%;
+                    }
+                    /* ==== Part 2 – header account menu and main menu (prefix hm-) ==== */
+                    /* The bar's links on a wide screen (Files, Tools, Administration): pills, the open page's tinted
+                       instead of underlined. The account menu's button is no link of the bar (no .shell-tabs, no
+                       child of the row). */
+                    .shell-nav-row,
+                    .shell-tabs { gap: 4px; }
+                    .shell-tabs .shell-tab,
+                    .shell-nav-row > .shell-tab {
+                        border-radius: var(--radius-md);
+                        min-height: 32px;
+                        padding: 4px 10px;
+                    }
+                    .shell-nav-row > .shell-tab.active,
+                    .shell-nav-row > .shell-tab.active:hover,
+                    .shell-nav-row > .shell-tab.active:focus,
+                    .shell-nav-row > .shell-tab.active:focus-visible,
+                    .shell-nav-row .shell-tabs .shell-tab.active,
+                    .shell-nav-row .shell-tabs .shell-tab.active:hover,
+                    .shell-nav-row .shell-tabs .shell-tab.active:focus,
+                    .shell-nav-row .shell-tabs .shell-tab.active:focus-visible {
+                        background: var(--accent-soft-strong);
+                        box-shadow: none;
+                        color: var(--text);
+                    }
+                    .shell-nav-row > .account-menu { margin-left: 6px; }
+                    /* Both menus are a button and a panel (HtmlViews.Header.cs, the menu machinery of the layout
+                       script). The account menu: who is signed in, the settings, light/dark/system, the way out. */
+                    .hm-trigger {
+                        border-radius: var(--radius-pill);
+                        color: var(--text);
+                        font-size: 15px;
+                        font-weight: 500;
+                        gap: 8px;
+                        max-width: 260px;
+                        min-height: 36px;
+                        padding: 2px 10px 2px 4px;
+                    }
+                    .hm-trigger .account-name { max-width: 180px; }
+                    .hm-trigger .menu-caret {
+                        color: var(--muted);
+                        margin-left: -2px;
+                        transition: rotate var(--dur-fast) var(--ease);
+                    }
+                    .hm-trigger .menu-caret .icon { height: 14px; width: 14px; }
+                    .account-menu.is-open > .hm-trigger .menu-caret { color: inherit; rotate: 180deg; }
+                    .hm-trigger:hover,
+                    .hm-trigger:focus-visible {
+                        background: var(--hover-bg);
+                        color: var(--text);
+                    }
+                    /* Open, or on the settings' own page: a tint instead of the bar's underline. */
+                    .account-menu.is-open > .hm-trigger,
+                    .hm-trigger.active,
+                    .hm-trigger.active:hover,
+                    .hm-trigger.active:focus,
+                    .hm-trigger.active:focus-visible {
+                        background: var(--accent-soft);
+                        box-shadow: none;
+                    }
+                    /* The panels drop down right-aligned under their button: the account menu, and the main menu in
+                       the compact view on a wide screen. On a phone the main menu is a sheet (the phone block). */
+                    .toolbar-menu > .hm-panel {
+                        border-radius: var(--radius-card);
+                        box-shadow: var(--shadow-pop);
+                        gap: 2px;
+                        left: auto;
+                        max-height: calc(100vh - 72px);
+                        max-width: calc(100vw - 16px);
+                        overflow-y: auto;
+                        overscroll-behavior: contain;
+                        padding: 8px;
+                        right: 0;
+                        top: calc(100% + 8px);
+                        width: 300px;
+                        z-index: 40;
+                    }
+                    .toolbar-menu > .hm-panel:not([hidden]) {
+                        transition: opacity var(--dur-fast) var(--ease), translate var(--dur-fast) var(--ease);
+                    }
+                    @starting-style {
+                        .toolbar-menu > .hm-panel:not([hidden]) {
+                            opacity: 0;
+                            translate: 0 -4px;
+                        }
+                    }
+                    .hm-panel.menu-sheet:not([hidden]) { transition: opacity var(--dur-fast) var(--ease); }
+                    @starting-style {
+                        .hm-panel.menu-sheet:not([hidden]) {
+                            opacity: 0;
+                        }
+                    }
+                    .hm-panel .ui-user-card--menu { margin-bottom: 4px; }
+                    .hm-panel .toolbar-menu-separator { margin: 4px 2px; }
+                    /* (.hm-groups is a <nav>: the bar's nav rule would centre its rows.) */
+                    .hm-items,
+                    .hm-groups,
+                    .hm-group {
+                        align-items: stretch;
+                        display: grid;
+                        gap: 2px;
+                        min-width: 0;
+                    }
+                    .hm-item {
+                        align-items: center;
+                        background: transparent;
+                        border: 0;
+                        border-radius: var(--radius-md);
+                        color: var(--text);
+                        display: flex;
+                        font-size: 15px;
+                        font-weight: 500;
+                        gap: 12px;
+                        justify-content: flex-start;
+                        line-height: 1.25;
+                        min-height: 40px;
+                        min-width: 0;
+                        padding: 0 10px;
+                        text-align: left;
+                        text-decoration: none;
+                        width: 100%;
+                    }
+                    .hm-item > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                    .hm-item > .icon { color: var(--muted); flex: 0 0 auto; height: 18px; width: 18px; }
+                    .hm-panel .hm-item:hover,
+                    .hm-panel .hm-item:focus-visible {
+                        background: var(--hover-bg);
+                        color: var(--text);
+                    }
+                    .hm-panel .hm-item:hover > .icon,
+                    .hm-panel .hm-item:focus-visible > .icon { color: var(--text); }
+                    .hm-panel .hm-item.active { background: var(--accent-soft); color: var(--accent); }
+                    .hm-panel .hm-item.active > .icon { color: var(--accent); }
+                    .hm-panel .hm-item--danger,
+                    .hm-panel .hm-item--danger > .icon,
+                    .hm-panel .hm-item--danger:hover > .icon,
+                    .hm-panel .hm-item--danger:focus-visible > .icon { color: var(--danger); }
+                    .hm-panel .hm-item--danger:hover,
+                    .hm-panel .hm-item--danger:focus-visible {
+                        background: var(--danger-soft);
+                        color: var(--danger);
+                    }
+                    /* Light, dark or system: applied at once, saved in the background; the menu stays open. */
+                    .hm-theme {
+                        align-items: center;
+                        display: flex;
+                        flex-wrap: wrap;
+                        gap: 6px 10px;
+                        justify-content: space-between;
+                        padding: 6px 10px;
+                    }
+                    .hm-theme-label { color: var(--muted); font-size: 14px; }
+                    .hm-theme-error {
+                        color: var(--danger);
+                        flex: 1 1 100%;
+                        font-size: 13px;
+                        line-height: 1.35;
+                        margin: 0;
+                    }
+                    .hm-theme-error[hidden] { display: none; }
+                    /* The main menu's version (inside its user card): icons and words, the full width of the card. */
+                    .hm-theme--text { display: block; padding: 0; }
+                    .hm-theme--text .hm-theme-label { display: none; }
+                    .hm-theme--text .hm-theme-error { margin-top: 8px; }
+                    .hm-foot {
+                        align-items: center;
+                        color: var(--muted);
+                        display: flex;
+                        flex-wrap: wrap;
+                        font-size: 12px;
+                        gap: 6px;
+                        padding: 8px 10px 4px;
+                    }
+                    .hm-foot a { color: var(--accent); font-weight: 600; text-decoration: none; }
+                    .hm-foot a:hover,
+                    .hm-foot a:focus-visible { text-decoration: underline; }
+                    .toolbar-menu > .hm-panel .hm-foot { border-top: 1px solid var(--line); margin-top: 4px; }
+                    /* The main menu as a dropdown (the compact view on a wide screen) looks like the account menu: the
+                       card without its frame, the theme as icons, the groups and the way out apart by hairlines. */
+                    .hm-panel--burger:not(.menu-sheet) .ui-user-card--sheet {
+                        --ui-avatar-size: 40px;
+                        background: none;
+                        border: 0;
+                        border-bottom: 1px solid var(--line);
+                        border-radius: 0;
+                        margin-bottom: 4px;
+                        padding: 8px 10px 10px;
+                    }
+                    .hm-panel--burger:not(.menu-sheet) .ui-user-card--sheet .ui-user-card-text > strong { font-size: 15px; font-weight: 650; }
+                    .hm-panel--burger:not(.menu-sheet) .ui-user-card-extra { margin-top: 10px; padding-top: 8px; }
+                    .hm-panel--burger:not(.menu-sheet) .hm-theme--text {
+                        align-items: center;
+                        display: flex;
+                        flex-wrap: wrap;
+                        gap: 6px 10px;
+                        justify-content: space-between;
+                    }
+                    .hm-panel--burger:not(.menu-sheet) .hm-theme--text .hm-theme-label { display: inline; }
+                    .hm-panel--burger:not(.menu-sheet) .hm-theme-text { display: none; }
+                    .hm-panel--burger:not(.menu-sheet) .ui-user-card-extra .ui-seg {
+                        display: inline-grid;
+                        grid-auto-columns: auto;
+                        width: auto;
+                    }
+                    .hm-panel--burger:not(.menu-sheet) .ui-user-card-extra .ui-seg > button {
+                        min-height: 28px;
+                        min-width: 32px;
+                        padding: 0;
+                        width: 32px;
+                    }
+                    @media (pointer: coarse) {
+                        .hm-panel--burger:not(.menu-sheet) .ui-user-card-extra .ui-seg > button {
+                            min-height: var(--touch);
+                            min-width: var(--touch);
+                            width: var(--touch);
+                        }
+                    }
+                    .hm-panel--burger:not(.menu-sheet) .hm-group + .hm-group,
+                    .hm-panel--burger:not(.menu-sheet) .account-menu-logout {
+                        border-top: 1px solid var(--line);
+                        margin-top: 4px;
+                        padding-top: 4px;
                     }
                     /* Generic in-page tabs (data-tabs + data-tab-target/data-tab-panel). Segmented control. */
                     .tabs { display: flex; flex-direction: column; min-width: 0; }
@@ -19101,9 +18972,7 @@ public sealed partial class HtmlViews
                         border-color: var(--surface-3);
                         color: var(--text);
                     }
-                    .account-trigger {
-                        max-width: 260px;
-                    }
+                    /* The name on the account menu's button (its pill: .hm-trigger). */
                     .account-name {
                         overflow: hidden;
                         text-overflow: ellipsis;
@@ -19336,6 +19205,628 @@ public sealed partial class HtmlViews
                         height: 12px;
                         width: 12px;
                     }
+                    /* ==== Part 1 – Settings (prefix set-) ==== */
+                    /* The settings (/account): from 721 px a sticky rail with the sections on the left and one section on the
+                       right; up to 720 px the list of sections is a page of its own and every section opens as a view of its own
+                       (data-settings-view on the root). Everything sits on the shared tokens, so dark mode and the palette follow. */
+                    .set-layout {
+                        align-items: start;
+                        column-gap: 28px;
+                        display: grid;
+                        grid-template-columns: 216px minmax(0, 1fr);
+                        margin: 0 auto;
+                        max-width: 1000px;
+                    }
+                    @media (min-width: 1024px) {
+                        .set-layout { column-gap: 40px; grid-template-columns: 240px minmax(0, 720px); }
+                    }
+                    .set-aside { display: grid; gap: 10px; min-width: 0; position: sticky; top: 16px; }
+                    html:not([data-embedded="1"]) .set-aside { top: 72px; }
+                    .set-title { font-size: 20px; font-weight: 700; letter-spacing: -.01em; line-height: 1.25; margin: 0 10px 4px; }
+                    .set-nav { display: grid; min-width: 0; }
+                    .set-nav-group { display: grid; gap: 2px; }
+                    .set-nav-group + .set-nav-group { border-top: 1px solid var(--line); margin-top: 8px; padding-top: 8px; }
+                    /* The global pill of .tab-button is undone here: a row of a list, no side bar, the chosen one tinted. */
+                    .set-layout .set-nav-item.tab-button {
+                        align-items: center;
+                        background: transparent;
+                        border: 0;
+                        border-radius: var(--radius-md);
+                        color: var(--text);
+                        column-gap: 12px;
+                        display: grid;
+                        font-size: 15px;
+                        font-weight: 500;
+                        grid-template-columns: 28px minmax(0, 1fr) auto;
+                        justify-content: stretch;
+                        line-height: 1.3;
+                        min-height: 40px;
+                        padding: 6px 10px;
+                        position: relative;
+                        text-align: left;
+                        text-decoration: none;
+                        transition: background-color var(--dur-fast) var(--ease);
+                        white-space: normal;
+                    }
+                    .set-layout .set-nav-item.tab-button:hover { background: var(--hover-bg); color: var(--text); }
+                    .set-layout .set-nav-item.tab-button.active,
+                    .set-layout .set-nav-item.tab-button.active:hover { background: var(--accent-soft-strong); color: var(--text); font-weight: 600; }
+                    .set-nav-tile {
+                        align-items: center;
+                        background: var(--accent-soft);
+                        border-radius: 8px;
+                        color: var(--accent);
+                        display: inline-flex;
+                        height: 28px;
+                        justify-content: center;
+                        transition: background-color var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+                        width: 28px;
+                    }
+                    .set-layout .set-nav-tile .icon { height: 16px; width: 16px; }
+                    .set-layout .set-nav-item.active .set-nav-tile { background: var(--accent); color: var(--bg); }
+                    .set-nav-text { display: grid; min-width: 0; }
+                    .set-nav-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                    .set-nav-summary,
+                    .set-nav-chevron { display: none; }
+                    /* Unsaved changes in that section. */
+                    .set-nav-item.is-dirty::after {
+                        background: var(--warning);
+                        border-radius: 50%;
+                        content: "";
+                        height: 8px;
+                        position: absolute;
+                        right: 12px;
+                        top: calc(50% - 4px);
+                        width: 8px;
+                    }
+                    .set-main { min-width: 0; }
+                    .set-panel { display: grid; gap: 16px; min-width: 0; }
+                    .set-head { display: grid; gap: 6px; margin-bottom: 4px; }
+                    .set-section-title { font-size: 26px; font-weight: 700; letter-spacing: -.01em; line-height: 1.2; margin: 0; }
+                    /* It takes the focus when a section opens; it is no control, so it draws no ring. */
+                    .set-section-title:focus { outline: none; }
+                    .set-lead { color: var(--muted); font-size: 15px; line-height: 1.5; margin: 0; max-width: 64ch; }
+                    .set-form { display: grid; gap: 16px; margin: 0; min-width: 0; }
+                    .set-hint { color: var(--muted); font-size: 13px; line-height: 1.45; margin: 10px 0 0; max-width: 64ch; }
+                    .set-empty { color: var(--muted); font-size: 14px; margin: 6px 0 2px; }
+                    /* Deep-link targets stay clear of the top edge (and of the header of a page that has one). */
+                    .set-layout .set-card[id],
+                    .set-layout .action-order-list[id] { scroll-margin-top: 24px; }
+                    html:not([data-embedded="1"]) .set-layout .set-card[id],
+                    html:not([data-embedded="1"]) .set-layout .action-order-list[id] { scroll-margin-top: 80px; }
+                    .set-card {
+                        background: var(--panel);
+                        border: 1px solid var(--line);
+                        border-radius: var(--radius-card);
+                        box-shadow: var(--shadow-card);
+                        min-width: 0;
+                        padding: 18px 20px;
+                    }
+                    .set-card-head { align-items: center; display: flex; flex-wrap: wrap; gap: 6px 10px; }
+                    .set-card-title { font-size: 17px; font-weight: 650; letter-spacing: -.005em; line-height: 1.3; margin: 0; }
+                    .set-card-lead { color: var(--muted); font-size: 13px; line-height: 1.45; margin: 4px 0 0; max-width: 72ch; }
+                    .set-card-body { margin-top: 6px; min-width: 0; }
+                    .set-card-foot { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+                    .set-card-foot form { display: contents; }
+                    .set-card .button,
+                    .set-actions .button { justify-content: center; min-height: var(--control-h); padding: 6px 14px; }
+                    /* Rows: what it is on the left, the control on the right; a hairline between rows, no boxes inside the card. */
+                    .set-row {
+                        align-items: center;
+                        column-gap: 16px;
+                        display: grid;
+                        font-weight: 400;
+                        grid-template-columns: minmax(0, 1fr) auto;
+                        min-height: var(--row-h);
+                        padding: 12px 0;
+                        row-gap: 8px;
+                    }
+                    .set-row + .set-row { border-top: 1px solid var(--line); }
+                    .set-row > .set-notice { grid-column: 1 / -1; }
+                    .set-copy { display: grid; font-weight: 400; gap: 2px; min-width: 0; }
+                    .set-copy > strong { color: var(--text); font-size: 15px; font-weight: 600; line-height: 1.35; }
+                    .set-copy > small { color: var(--muted); font-size: 13px; line-height: 1.45; max-width: 60ch; }
+                    .set-row--switch { cursor: pointer; position: relative; }
+                    .set-row--switch > input[type="checkbox"],
+                    .set-inline-switch > input[type="checkbox"] {
+                        border: 0;
+                        clip-path: inset(50%);
+                        height: 1px;
+                        margin: -1px;
+                        overflow: hidden;
+                        padding: 0;
+                        position: absolute;
+                        white-space: nowrap;
+                        width: 1px;
+                    }
+                    .set-row--switch > .set-copy { grid-column: 1; grid-row: 1; }
+                    .set-row--switch > .set-switch { grid-column: 2; grid-row: 1; }
+                    .set-switch {
+                        background: var(--switch-off);
+                        border-radius: 999px;
+                        display: inline-block;
+                        flex: 0 0 auto;
+                        height: 24px;
+                        position: relative;
+                        transition: background-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+                        width: 42px;
+                    }
+                    .set-switch::after {
+                        background: #fff;
+                        border-radius: 50%;
+                        box-shadow: 0 1px 2px rgb(0 0 0 / 30%);
+                        content: "";
+                        height: 18px;
+                        left: 3px;
+                        position: absolute;
+                        top: 3px;
+                        transition: transform var(--dur) var(--ease);
+                        width: 18px;
+                    }
+                    input:checked ~ .set-switch { background: var(--accent); }
+                    input:checked ~ .set-switch::after { transform: translateX(18px); }
+                    input:focus-visible ~ .set-switch { box-shadow: var(--focus-ring); }
+                    input:disabled ~ .set-switch { opacity: .5; }
+                    .set-row--select > select { max-width: 320px; min-height: var(--control-h); min-width: 220px; width: auto; }
+                    .set-row--field { grid-template-columns: minmax(0, 1fr) minmax(220px, 320px); }
+                    .set-control { display: grid; gap: 8px; min-width: 0; }
+                    .set-control input:not([type="checkbox"]):not([type="radio"]) { min-height: var(--control-h); }
+                    .set-row--static { min-height: 0; }
+                    .set-value { color: var(--muted); font-size: 15px; min-width: 0; overflow-wrap: anywhere; text-align: right; }
+                    .set-mono { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace; font-size: 14px; }
+                    .set-card .set-row--check {
+                        align-items: start;
+                        column-gap: 12px;
+                        cursor: pointer;
+                        display: grid;
+                        grid-template-columns: auto minmax(0, 1fr);
+                        min-height: 0;
+                        padding: 10px 0 2px;
+                    }
+                    .set-card .set-row--check > input[type="checkbox"] { height: 18px; margin: 2px 0 0; width: 18px; }
+                    /* A password and its eye. */
+                    .set-field-eye { display: flex; min-width: 0; position: relative; }
+                    .set-field-eye > input { padding-right: 46px; }
+                    .set-eye {
+                        align-items: center;
+                        background: transparent;
+                        border: 0;
+                        border-radius: var(--radius-sm);
+                        color: var(--muted);
+                        display: inline-flex;
+                        height: 100%;
+                        justify-content: center;
+                        min-height: 0;
+                        padding: 0;
+                        position: absolute;
+                        right: 2px;
+                        top: 0;
+                        width: 40px;
+                    }
+                    .set-eye:not(:disabled):hover { background: transparent; color: var(--text); }
+                    .set-eye .icon { height: 18px; width: 18px; }
+                    .set-eye-hide,
+                    .set-eye[aria-pressed="true"] .set-eye-show { display: none; }
+                    .set-eye[aria-pressed="true"] .set-eye-hide { display: inline-flex; }
+                    .set-eye-show { display: inline-flex; }
+                    /* The save bar ends each form: always "Save", "Discard" once something changed, and what is unsaved. */
+                    .set-savebar {
+                        align-items: center;
+                        background: var(--surface);
+                        border: 1px solid var(--line);
+                        border-radius: var(--radius-card);
+                        bottom: 12px;
+                        box-shadow: var(--shadow-pop);
+                        display: flex;
+                        flex-wrap: wrap;
+                        gap: 8px;
+                        padding: 10px 12px;
+                        position: sticky;
+                        transition: border-color var(--dur) var(--ease);
+                        z-index: 3;
+                    }
+                    form[data-dirty] > .set-savebar { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+                    .set-savebar > .button { justify-content: center; min-height: var(--control-h); padding: 6px 14px; }
+                    .set-savebar-status { align-items: center; color: var(--muted); display: inline-flex; font-size: 14px; gap: 8px; margin-left: auto; }
+                    .set-savebar-status::before { background: var(--warning); border-radius: 50%; content: ""; flex: 0 0 auto; height: 8px; width: 8px; }
+                    .set-savebar-status:empty { display: none; }
+                    @media (pointer: coarse) {
+                        .set-savebar.is-typing { position: static; }
+                    }
+                    .set-actions { margin-top: 4px; }
+                    .set-actions .form-actions { margin: 0; }
+                    .set-actions form { display: inline-flex; margin: 0; }
+                    .set-back { display: none; }
+                    .set-back.set-back--always {
+                        align-items: center;
+                        color: var(--accent);
+                        display: inline-flex;
+                        font-weight: 600;
+                        gap: 8px;
+                        justify-self: start;
+                        min-height: 40px;
+                        text-decoration: none;
+                    }
+                    .set-back .icon { height: 18px; width: 18px; }
+                    /* Notices: saved, a hint, take care, went wrong. */
+                    .set-notice {
+                        align-items: start;
+                        border: 1px solid transparent;
+                        border-radius: 12px;
+                        color: var(--text);
+                        column-gap: 10px;
+                        display: grid;
+                        grid-template-columns: auto minmax(0, 1fr);
+                        line-height: 1.45;
+                        padding: 12px 14px;
+                        transition: height var(--dur) var(--ease), opacity var(--dur) var(--ease), padding var(--dur) var(--ease), margin var(--dur) var(--ease);
+                    }
+                    .set-notice > .icon { height: 18px; margin-top: 2px; width: 18px; }
+                    .set-notice-body { display: grid; gap: 6px; min-width: 0; }
+                    .set-notice-body > * { margin: 0; }
+                    .set-notice--success { background: var(--success-soft); border-color: color-mix(in srgb, var(--success) 26%, transparent); }
+                    .set-notice--success > .icon { color: var(--success); }
+                    .set-notice--info { background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 24%, transparent); }
+                    .set-notice--info > .icon { color: var(--accent); }
+                    .set-notice--warning { background: var(--warning-soft); border-color: color-mix(in srgb, var(--warning) 30%, transparent); }
+                    .set-notice--warning > .icon { color: var(--warning); }
+                    .set-notice--error { background: var(--danger-soft); border-color: color-mix(in srgb, var(--danger) 30%, transparent); }
+                    .set-notice--error > .icon { color: var(--danger); }
+                    .set-notice.is-leaving { border-width: 0; margin-bottom: -16px; opacity: 0; overflow: hidden; padding-bottom: 0; padding-top: 0; }
+                    .set-notice-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+                    .set-pill {
+                        align-items: center;
+                        border-radius: var(--radius-pill);
+                        display: inline-flex;
+                        font-size: 12px;
+                        font-weight: 650;
+                        height: 22px;
+                        line-height: 1;
+                        padding: 0 8px;
+                        white-space: nowrap;
+                    }
+                    .set-pill--neutral { background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--line); color: var(--muted); }
+                    .set-pill--accent { background: var(--accent-soft); color: var(--accent); }
+                    .set-pill--success { background: var(--success-soft); color: color-mix(in srgb, var(--success) 80%, var(--text)); }
+                    .set-pill--warning { background: var(--warning-soft); color: color-mix(in srgb, var(--warning) 80%, var(--text)); }
+                    /* A destructive action that is not the main one: outlined, not filled. */
+                    .button.set-danger-outline,
+                    button.set-danger-outline {
+                        background: transparent;
+                        border-color: color-mix(in srgb, var(--danger) 55%, var(--line));
+                        color: var(--danger);
+                    }
+                    .button.set-danger-outline:not(:disabled):hover,
+                    button.set-danger-outline:not(:disabled):hover,
+                    button.set-danger-outline:focus-visible {
+                        background: var(--danger-soft);
+                        border-color: var(--danger);
+                        color: var(--danger);
+                    }
+                    .set-icon-button {
+                        align-items: center;
+                        background: transparent;
+                        border: 1px solid transparent;
+                        border-radius: var(--radius-md);
+                        color: var(--muted);
+                        display: inline-flex;
+                        height: 44px;
+                        justify-content: center;
+                        min-height: 44px;
+                        padding: 0;
+                        width: 44px;
+                    }
+                    .set-icon-button:not(:disabled):hover { background: var(--hover-bg); border-color: transparent; color: var(--text); }
+                    .set-icon-button .icon { height: 19px; width: 19px; }
+                    .set-icon-button.is-on { color: var(--accent); }
+                    .set-icon-button.is-on .icon { fill: currentColor; }
+                    .set-icon-button.is-on:not(:disabled):hover { color: var(--accent); }
+                    /* Lists to sort, inside a card: rows on hairlines, the grip the only handle (and the only part that keeps a
+                       finger from scrolling), a small switch per row whose box covers a 44 px square. */
+                    .set-card .toggle-row,
+                    .set-card .action-order-item { background: transparent; border: 0; border-radius: 0; }
+                    .set-card .toggle-row { padding-left: 0; padding-right: 0; }
+                    .set-card .toggle-row:hover { background: transparent; }
+                    .set-card .action-order-list { gap: 0; margin: 2px 0 0; }
+                    .set-card .action-order-item {
+                        cursor: default;
+                        gap: 8px;
+                        min-height: 48px;
+                        padding: 2px 0;
+                        touch-action: auto;
+                        transition: background-color var(--dur-fast) var(--ease), box-shadow var(--dur-fast) var(--ease);
+                    }
+                    .set-card .action-order-item + .action-order-item { border-top: 1px solid var(--line); }
+                    .set-card .action-order-item.dragging {
+                        background: var(--surface);
+                        border-radius: var(--radius-md);
+                        box-shadow: var(--shadow-pop);
+                        opacity: 1;
+                        position: relative;
+                        z-index: 2;
+                    }
+                    .action-order-grip { cursor: grab; touch-action: none; }
+                    .set-card .action-order-grip {
+                        align-items: center;
+                        background: transparent;
+                        border: 0;
+                        border-radius: var(--radius-sm);
+                        color: var(--muted);
+                        display: inline-flex;
+                        flex: 0 0 auto;
+                        height: 40px;
+                        justify-content: center;
+                        min-height: 0;
+                        padding: 0;
+                        width: 32px;
+                    }
+                    .set-card .action-order-grip:not(:disabled):hover { background: var(--hover-bg); color: var(--text); }
+                    .set-card .action-order-grip:active { cursor: grabbing; }
+                    .set-card .action-order-icon { color: var(--muted); }
+                    .set-card .action-order-name { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                    .set-card .action-order-item:has(.action-order-show > input:not(:checked)) .action-order-icon,
+                    .set-card .action-order-item:has(.action-order-show > input:not(:checked)) .action-order-name { opacity: .55; }
+                    .set-card .action-order-show {
+                        align-items: center;
+                        cursor: pointer;
+                        display: inline-flex;
+                        flex: 0 0 auto;
+                        gap: 0;
+                        height: 44px;
+                        justify-content: center;
+                        margin: 0;
+                        position: relative;
+                        width: 44px;
+                    }
+                    .set-card .action-order-show > input[type="checkbox"] {
+                        cursor: pointer;
+                        height: 100%;
+                        inset: 0;
+                        margin: 0;
+                        opacity: 0;
+                        position: absolute;
+                        width: 100%;
+                        z-index: 1;
+                    }
+                    .set-mini-switch {
+                        background: var(--switch-off);
+                        border-radius: 999px;
+                        display: block;
+                        height: 20px;
+                        position: relative;
+                        transition: background-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+                        width: 34px;
+                    }
+                    .set-mini-switch::after {
+                        background: #fff;
+                        border-radius: 50%;
+                        box-shadow: 0 1px 2px rgb(0 0 0 / 30%);
+                        content: "";
+                        height: 14px;
+                        left: 3px;
+                        position: absolute;
+                        top: 3px;
+                        transition: transform var(--dur) var(--ease);
+                        width: 14px;
+                    }
+                    .action-order-show > input:checked + .set-mini-switch { background: var(--accent); }
+                    .action-order-show > input:checked + .set-mini-switch::after { transform: translateX(14px); }
+                    .action-order-show > input:focus-visible + .set-mini-switch { box-shadow: var(--focus-ring); }
+                    .set-card .order-reset { margin-top: 12px; }
+                    @media (pointer: coarse) {
+                        .set-card .action-order-grip { height: 44px; width: 44px; }
+                    }
+                    /* Favorites: protocol tile, name, where it is, and the star that takes it out. */
+                    .set-fav-list { display: grid; list-style: none; margin: 2px 0 0; padding: 0; }
+                    .set-fav {
+                        align-items: center;
+                        column-gap: 12px;
+                        display: grid;
+                        grid-template-columns: 36px minmax(0, 1fr) auto;
+                        min-height: 56px;
+                        padding: 4px 0;
+                    }
+                    .set-fav + .set-fav { border-top: 1px solid var(--line); }
+                    .set-fav-tile {
+                        align-items: center;
+                        background: color-mix(in srgb, var(--proto, var(--accent)) 14%, var(--surface));
+                        border-radius: 10px;
+                        color: var(--proto, var(--accent));
+                        display: inline-flex;
+                        height: 36px;
+                        justify-content: center;
+                        width: 36px;
+                    }
+                    .set-fav-tile .icon { height: 18px; width: 18px; }
+                    .set-fav-text { display: grid; gap: 1px; min-width: 0; }
+                    .set-fav-text > strong,
+                    .set-fav-text > small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                    .set-fav-text > strong { font-size: 15px; font-weight: 600; }
+                    .set-fav-text > small { color: var(--muted); font-size: 13px; }
+                    .set-fav form { display: inline-flex; margin: 0; }
+                    /* Appearance: the segmented light/dark/system, the scheme cards with a check, the colour rows. */
+                    .set-mode-seg { display: grid; max-width: 480px; width: 100%; }
+                    .set-card .theme-cards { margin-top: 4px; }
+                    .set-card .theme-card { border-radius: var(--radius-tile); position: relative; }
+                    .set-card .theme-card:has(input:checked) { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft-strong); }
+                    .set-card .theme-card:has(input:focus-visible) { outline: none; box-shadow: 0 0 0 3px var(--accent-soft-strong), var(--focus-ring); }
+                    .set-theme-check {
+                        align-items: center;
+                        background: var(--accent);
+                        border-radius: 50%;
+                        box-shadow: 0 0 0 2px var(--panel);
+                        color: var(--bg);
+                        display: none;
+                        height: 22px;
+                        justify-content: center;
+                        position: absolute;
+                        right: -7px;
+                        top: -7px;
+                        width: 22px;
+                        z-index: 1;
+                    }
+                    .set-theme-check .icon { height: 13px; stroke-width: 3; width: 13px; }
+                    .theme-card:has(input:checked) .set-theme-check { display: inline-flex; }
+                    .set-colour-row {
+                        border: 0;
+                        column-gap: 16px;
+                        display: grid;
+                        grid-template-columns: minmax(0, 1fr) auto;
+                        margin: 0;
+                        min-width: 0;
+                        padding: 14px 0;
+                        row-gap: 6px;
+                    }
+                    .set-colour-row + .set-colour-row { border-top: 1px solid var(--line); }
+                    .set-card .set-colour-row > legend {
+                        align-self: center;
+                        color: var(--text);
+                        float: left;
+                        font-size: 15px;
+                        font-weight: 600;
+                        grid-column: 1;
+                        grid-row: 1;
+                        letter-spacing: 0;
+                        margin: 0;
+                        padding: 0;
+                        text-transform: none;
+                    }
+                    .set-colour-row > .set-colour-field { display: contents; }
+                    .set-colour-field > .set-inline-switch { grid-column: 2; grid-row: 1; }
+                    .set-colour-hint { color: var(--muted); font-size: 13px; grid-column: 1 / -1; line-height: 1.45; margin: 0; max-width: 64ch; }
+                    .set-colour-pick { align-items: center; display: flex; flex-wrap: wrap; gap: 10px 16px; grid-column: 1 / -1; margin-top: 6px; min-width: 0; }
+                    .set-inline-switch {
+                        align-items: center;
+                        color: var(--muted);
+                        cursor: pointer;
+                        display: inline-flex;
+                        font-size: 14px;
+                        font-weight: 500;
+                        gap: 8px;
+                        position: relative;
+                        white-space: nowrap;
+                    }
+                    .set-inline-switch:has(input:checked) { color: var(--text); }
+                    /* Security: numbered steps of setting up the second factor. */
+                    .set-steps { display: grid; gap: 20px; list-style: none; margin: 12px 0 0; padding: 0; }
+                    .set-step { display: grid; gap: 12px; grid-template-columns: 24px minmax(0, 1fr); }
+                    .set-step-badge {
+                        align-items: center;
+                        background: var(--accent-soft);
+                        border-radius: 50%;
+                        color: var(--accent);
+                        display: inline-flex;
+                        font-size: 13px;
+                        font-weight: 700;
+                        height: 24px;
+                        justify-content: center;
+                        width: 24px;
+                    }
+                    .set-step-body { display: grid; gap: 10px; min-width: 0; }
+                    .set-step-title { font-size: 15px; font-weight: 600; line-height: 1.35; margin: 2px 0 0; }
+                    .set-card .totp-setup { gap: 16px 20px; margin: 0; }
+                    .set-card .totp-qr { background: #fff; border: 1px solid var(--line); border-radius: 12px; height: 168px; padding: 8px; width: 168px; }
+                    .set-totp-manual { display: grid; gap: 8px; min-width: 0; }
+                    .set-totp-manual .set-hint { margin: 0; }
+                    .set-totp-secret { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; }
+                    .set-totp-secret .totp-secret { margin: 0; }
+                    .set-totp-form { display: grid; gap: 6px; }
+                    .set-totp-label { font-size: 14px; font-weight: 600; }
+                    .set-totp-code { font-variant-numeric: tabular-nums; letter-spacing: .12em; max-width: 180px; }
+                    .set-card .totp-state { flex-wrap: wrap; font-size: 15px; font-weight: 600; margin: 4px 0 0; }
+                    .totp-since { color: var(--muted); font-size: 13px; margin: 4px 0 0; }
+                    .set-totp-off { margin-top: 8px; }
+                    .set-card .totp-codes { margin: 4px 0 0; }
+                    /* The key bar's table in its card; on the page of one button the form's own parts. */
+                    .set-card .data-table { margin-top: 10px; }
+                    .set-card .form-grid { margin-top: 12px; }
+                    .set-card .quick-protocol-grid { margin-top: 10px; }
+                    @media (max-width: 820px) {
+                        .set-row--select,
+                        .set-row--field { grid-template-columns: minmax(0, 1fr); }
+                        .set-row--select > select { max-width: none; min-width: 0; width: 100%; }
+                    }
+                    @media (max-width: 720px) {
+                        .set-layout { display: block; }
+                        .set-layout[data-settings-view="index"] .set-main { display: none; }
+                        .set-layout[data-settings-view="section"] .set-aside { display: none; }
+                        /* The index: the list of sections as the cards of the phone menu. */
+                        .set-aside { gap: 0; position: static; }
+                        .set-title { font-size: 28px; margin: 8px 4px 16px; }
+                        .set-aside > .ui-user-card { margin-bottom: 16px; }
+                        .set-nav-group { gap: 8px; }
+                        .set-nav-group + .set-nav-group { border-top: 0; margin-top: 16px; padding-top: 0; }
+                        .set-layout .set-nav-item.tab-button {
+                            background: var(--surface);
+                            border: 1px solid var(--line);
+                            border-radius: var(--radius-row);
+                            column-gap: 14px;
+                            grid-template-columns: 36px minmax(0, 1fr) 18px;
+                            min-height: 64px;
+                            padding: 10px 14px;
+                        }
+                        .set-layout .set-nav-item.tab-button.active,
+                        .set-layout .set-nav-item.tab-button.active:hover { background: var(--surface); font-weight: 500; }
+                        .set-layout .set-nav-item.active .set-nav-tile { background: var(--accent-soft); color: var(--accent); }
+                        .set-nav-tile { border-radius: 10px; height: 36px; width: 36px; }
+                        .set-layout .set-nav-tile .icon { height: 20px; width: 20px; }
+                        .set-nav-label { font-size: 16px; font-weight: 600; }
+                        .set-nav-summary {
+                            color: var(--muted);
+                            display: block;
+                            font-size: 13.5px;
+                            font-weight: 400;
+                            overflow: hidden;
+                            text-overflow: ellipsis;
+                            white-space: nowrap;
+                        }
+                        .set-nav-chevron { color: var(--muted); display: inline-flex; justify-content: flex-end; }
+                        .set-nav-chevron .icon { height: 18px; width: 18px; }
+                        .set-nav-item.is-dirty::after { right: 40px; }
+                        /* A section: the way back at the top and at the end, the save bar across the full width. */
+                        .set-back {
+                            align-items: center;
+                            color: var(--accent);
+                            display: inline-flex;
+                            font-size: 16px;
+                            font-weight: 600;
+                            gap: 8px;
+                            justify-self: start;
+                            min-height: 44px;
+                            text-decoration: none;
+                        }
+                        .set-back.set-back--always { min-height: 44px; }
+                        .set-panel { gap: 14px; }
+                        .set-head { margin-bottom: 2px; }
+                        .set-section-title { font-size: 24px; }
+                        .set-card { border-radius: 16px; padding: 14px 16px; }
+                        .set-copy > strong { font-size: 16px; }
+                        .set-copy > small { font-size: 14px; }
+                        .set-card-lead { font-size: 14px; }
+                        .set-colour-hint { font-size: 14px; }
+                        .set-mode-seg { max-width: none; }
+                        .set-savebar {
+                            border-radius: 16px 16px 0 0;
+                            bottom: 0;
+                            margin-inline: -12px;
+                            padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+                        }
+                        .set-savebar > .button { flex: 1 1 0; min-height: 44px; }
+                        .set-savebar-status { flex: 1 0 100%; margin-left: 0; order: -1; }
+                        .set-card .button,
+                        .set-actions .button { min-height: 44px; }
+                        .set-value { text-align: left; }
+                        .set-row--static { grid-template-columns: minmax(0, 1fr); }
+                        .set-card .totp-qr { height: 168px; width: 168px; }
+                    }
+                    /* The place an address named, ringed for a moment; the filter above a long list; the password match. */
+                    .set-card { transition: box-shadow var(--dur) var(--ease); }
+                    .set-card.is-targeted { box-shadow: var(--shadow-card), 0 0 0 3px var(--accent-soft-strong); }
+                    .set-filter { margin: 8px 0 4px; max-width: 320px; min-height: var(--control-h); }
+                    .set-card .action-order-item[hidden] { display: none; }
+                    .set-match { color: var(--muted); font-size: 13px; margin: 0; }
+                    .set-match:empty { display: none; }
+                    .set-match.is-ok { color: var(--success); }
                     /* Accent colour: a switch, a button that opens the application's own colour sheet, and ten
                        swatches for a quick grab. The sheet replaces the operating system's picker - one that looks the
                        same on every machine, fills the screen on a phone, and still offers the eyedropper where the
@@ -19700,7 +20191,7 @@ public sealed partial class HtmlViews
                         box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 35%, transparent);
                     }
                     .toggle-switch {
-                        background: color-mix(in srgb, var(--muted) 45%, transparent);
+                        background: var(--switch-off);
                         border-radius: 999px;
                         flex: 0 0 auto;
                         height: 24px;
@@ -20300,6 +20791,44 @@ public sealed partial class HtmlViews
                         color: var(--accent);
                     }
                     .resolution-fixed-list > .resolution-option.active { background: color-mix(in srgb, var(--accent) 10%, var(--surface)); }
+                    /* ==== Part 4 – picture quality as cards (prefix resolution-) ==== */
+                    /* The picture qualities: cards of two lines, the name and what it means; four of them two by
+                       two. Under them a note where the choice is kept, with the way to the settings. */
+                    .resolution-seg--cards > button {
+                        align-items: flex-start;
+                        flex-direction: column;
+                        gap: 2px;
+                        justify-content: center;
+                        min-height: 56px;
+                        padding: 8px 12px;
+                        text-align: left;
+                    }
+                    .resolution-option-title { font-size: 13.5px; font-weight: 600; }
+                    .resolution-option-hint {
+                        align-items: center;
+                        color: var(--muted);
+                        display: inline-flex;
+                        font-size: 12px;
+                        font-weight: 500;
+                        gap: 4px;
+                    }
+                    .resolution-option-hint .icon { flex: 0 0 auto; height: 12px; width: 12px; }
+                    .resolution-seg--cards > button.active .resolution-option-hint { color: color-mix(in srgb, var(--accent) 70%, var(--muted)); }
+                    .resolution-note { color: var(--muted); font-size: 12.5px; margin: -2px 0 0; }
+                    .resolution-note-link {
+                        background: none;
+                        border: 0;
+                        box-shadow: none;
+                        color: var(--accent);
+                        cursor: pointer;
+                        font: inherit;
+                        font-weight: 600;
+                        min-height: 0;
+                        padding: 0;
+                    }
+                    @media (pointer: coarse) {
+                        .resolution-note-link { min-height: 44px; }
+                    }
                     /* On or off: the row is the button, the switch says which. */
                     .resolution-switches { border: 1px solid var(--line); border-radius: 12px; display: grid; overflow: hidden; }
                     .resolution-toggle {
@@ -20323,7 +20852,7 @@ public sealed partial class HtmlViews
                     .resolution-toggle-text strong { font-weight: 600; }
                     .resolution-toggle-text small { color: var(--muted); font-size: 12px; font-weight: 400; line-height: 1.35; }
                     .switch-track {
-                        background: color-mix(in srgb, var(--muted) 45%, transparent);
+                        background: var(--switch-off);
                         border-radius: 999px;
                         flex: 0 0 auto;
                         height: 24px;
@@ -20910,16 +21439,14 @@ public sealed partial class HtmlViews
                        entry appears exactly where the icon is missing; the counter-rule is in the
                        phone block. */
                     [data-view-mode-toggle] { display: none; }
-                    html[data-view-mode="minimal"] .shell-burger-panel {
-                        right: 0;
-                        width: max-content;
-                    }
+                    /* Its panel drops down right-aligned under it, 300 wide (.toolbar-menu > .hm-panel). */
                     html[data-view-mode="minimal"] .shell-burger-trigger {
                         align-items: center;
                         color: var(--muted);
                         display: inline-flex;
                     }
-                    html[data-view-mode="minimal"] .shell-burger[open] > .shell-burger-trigger {
+                    html[data-view-mode="minimal"] .shell-burger.is-open > .shell-burger-trigger {
+                        background: var(--accent-soft);
                         color: var(--accent);
                     }
                     html[data-view-mode="minimal"] #connection-tab-actions {
@@ -21126,20 +21653,28 @@ public sealed partial class HtmlViews
                         max-width: 1200px;
                         width: 100%;
                     }
+                    /* The title and what to do here on one row: the button stands beside the title, not under
+                       the line of text below it. */
                     .home2-head {
                         align-items: flex-start;
                         display: flex;
-                        flex-wrap: wrap;
+                        flex-wrap: nowrap;
                         gap: 16px;
                         justify-content: space-between;
                     }
-                    .home2-head-copy h1 { margin: 0 0 6px; }
+                    /* Two buttons (quick connect switched off as a section) go under the title where they do
+                       not fit beside it. */
+                    .home2-head--two { flex-wrap: wrap; }
+                    .home2-head-copy { flex: 1 1 320px; min-width: 0; }
+                    .home2-head-copy h1 { font-size: clamp(26px, 2.2vw, 30px); margin: 0; }
                     .home2-head-copy .muted { margin: 0; }
                     .home2-head-actions {
                         display: flex;
-                        flex-wrap: wrap;
+                        flex: 0 0 auto;
+                        flex-wrap: nowrap;
                         gap: 8px;
                     }
+                    .home2-label-short { display: none; }
                     .home2-search {
                         align-items: center;
                         background: var(--surface);
@@ -21184,24 +21719,62 @@ public sealed partial class HtmlViews
                         flex-direction: column;
                         gap: 12px;
                     }
+                    /* A section's head: its sign, its name in plain case, how many there are beside it, and at
+                       its end the way to where it is set up. */
                     .home2-section-head {
                         align-items: center;
                         display: flex;
-                        gap: 10px;
-                        justify-content: space-between;
+                        gap: 8px;
+                        justify-content: flex-start;
+                        min-height: 28px;
                     }
                     .home2-section-head h2 {
                         align-items: center;
-                        color: var(--muted);
+                        color: var(--text);
                         display: flex;
-                        font-size: 13px;
-                        font-weight: 800;
+                        font-size: 15px;
+                        font-weight: 650;
                         gap: 8px;
-                        letter-spacing: .04em;
+                        letter-spacing: 0;
                         margin: 0;
-                        text-transform: uppercase;
+                        min-width: 0;
+                        text-transform: none;
                     }
-                    .home2-section-head h2 .icon { color: var(--accent); height: 15px; width: 15px; }
+                    .home2-section-head h2 .icon { color: var(--muted); flex: 0 0 auto; height: 16px; width: 16px; }
+                    .home2-section-head > .badge {
+                        background: var(--surface-2);
+                        border-radius: var(--radius-pill);
+                        color: var(--muted);
+                        font-size: 12px;
+                        font-weight: 700;
+                        line-height: 1.4;
+                        padding: 1px 8px;
+                    }
+                    /* The hit area is a finger's (44px); the negative margins keep the head as low as its text. */
+                    .home2-section-link,
+                    .home2-section-head .home2-manage-link {
+                        align-items: center;
+                        border-radius: var(--radius-md);
+                        color: var(--accent);
+                        display: inline-flex;
+                        flex: 0 0 auto;
+                        font-size: 13px;
+                        font-weight: 600;
+                        gap: 6px;
+                        margin: -8px -10px -8px auto;
+                        min-height: 44px;
+                        padding: 0 10px;
+                        text-decoration: none;
+                        transition: background var(--dur-fast) var(--ease);
+                    }
+                    .home2-section-link .icon,
+                    .home2-section-head .home2-manage-link .icon { height: 15px; width: 15px; }
+                    .home2-section-link:focus-visible,
+                    .home2-section-head .home2-manage-link:focus-visible { box-shadow: var(--focus-ring); outline: none; }
+                    @media (hover: hover) {
+                        .home2-section-link:hover,
+                        .home2-section-head .home2-manage-link:hover { background: var(--accent-soft); color: var(--accent); }
+                    }
                     .home2-farm {
                         align-items: center;
                         color: var(--muted);
@@ -21221,69 +21794,138 @@ public sealed partial class HtmlViews
                     .home2-farm-dot[data-state="free"] { background: var(--accent); }
                     .home2-farm-dot[data-state="busy"] { background: #e0863a; }
                     .home2-farm-dot[data-state="down"] { background: var(--danger, #b3261e); }
-                    /* Every chip is in sight: the row wraps. It used to scroll sideways with its scrollbar hidden,
-                       and on a phone whatever stood behind the fourth chip was simply not there for anyone who did
-                       not think of swiping - the browser among them. */
+                    /* Quick connect: an even grid of tiles, icon above name - all of them in one row where there
+                       is room, otherwise two rows of the same length instead of a full row and a ragged rest. The
+                       server sets --qc-n (the number of tiles, "More" included) and --qc-cols (half of them). */
                     .home2-quick-row {
-                        display: flex;
-                        flex-wrap: wrap;
+                        display: grid;
                         gap: 10px;
+                        grid-template-columns: repeat(var(--qc-cols, 6), minmax(0, 168px));
+                    }
+                    @media (min-width: 1240px) {
+                        html:not([data-server-manager]) .home2-quick-row { grid-template-columns: repeat(var(--qc-n, 12), minmax(0, 168px)); }
                     }
                     .home2-proto-chip {
                         align-items: center;
                         background: var(--surface);
                         border: 1px solid var(--line);
-                        border-radius: 12px;
+                        border-radius: var(--radius-tile);
+                        box-shadow: none;
                         color: var(--text);
                         cursor: pointer;
-                        display: inline-flex;
-                        flex: 0 0 auto;
+                        display: flex;
+                        flex-direction: column;
                         font: inherit;
-                        gap: 10px;
-                        padding: 10px 14px;
+                        gap: 8px;
+                        justify-content: center;
+                        min-height: 88px;
+                        min-width: 0;
+                        padding: 12px 8px 10px;
                         text-decoration: none;
-                        transition: border-color .16s ease, box-shadow .16s ease, transform .16s ease;
+                        transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease), transform var(--dur) var(--ease);
                     }
-                    .home2-proto-chip:hover {
-                        border-color: var(--proto, var(--accent));
-                        box-shadow: var(--shadow-strong);
-                        transform: translateY(-2px);
+                    .home2-proto-chip:focus-visible { box-shadow: var(--focus-ring); outline: none; }
+                    /* Only where there is a pointer that hovers: a finger leaves the lift stuck after a tap. */
+                    @media (hover: hover) {
+                        .home2-proto-chip:hover {
+                            border-color: var(--proto, var(--accent));
+                            box-shadow: var(--shadow-pop);
+                            transform: translateY(-2px);
+                        }
                     }
                     .home2-proto-chip-icon {
                         align-items: center;
                         background: color-mix(in srgb, var(--proto, var(--accent)) 16%, transparent);
-                        border-radius: 9px;
+                        border-radius: 12px;
                         color: var(--proto, var(--accent));
                         display: inline-flex;
                         flex: 0 0 auto;
-                        height: 34px;
+                        height: 40px;
                         justify-content: center;
-                        width: 34px;
+                        width: 40px;
                     }
-                    .home2-proto-chip-icon .icon { height: 18px; width: 18px; }
-                    .home2-proto-chip-name { font-weight: 700; white-space: nowrap; }
+                    .home2-proto-chip-icon .icon { height: 20px; width: 20px; }
+                    .home2-proto-chip-name { font-size: 14px; font-weight: 700; line-height: 16px; white-space: nowrap; }
                     .home2-proto-more { --proto: var(--accent); }
                     .home2-proto-more .home2-proto-chip-icon { background: var(--surface-2); color: var(--muted); }
-                    /* On a phone the chips are small tiles - icon above name, five in a row -, so that all of them
-                       fit into two rows instead of filling half the screen. */
+                    /* The page's padding as a value of its own: the row of tiles on a phone reaches out to the
+                       edges of the screen by exactly that much. */
+                    .connection-picker-panel { --home-pad: clamp(14px, 3vw, 28px); padding: var(--home-pad); }
+                    /* On a phone the tiles are ONE row to swipe through, out to the edges of the screen. That
+                       there is more must show at a glance - the owner once did not find the browser behind the
+                       edge of a row like this: the tile at the edge is cut, "More" stays pinned at the right end
+                       with a fade before it, and once the row is scrolled its start fades as well. None of the
+                       four goes without the others. */
                     @media (max-width: 720px) {
                         .home2-quick-row {
-                            display: grid;
+                            --qc-tile: clamp(68px, calc((100vw - 2 * var(--home-pad) - 32px) / 4.5), 84px);
+                            display: flex;
+                            flex-wrap: nowrap;
                             gap: 8px;
-                            grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
+                            /* "More" lies above the other tiles, and above nothing else on the page. */
+                            isolation: isolate;
+                            margin-inline: calc(-1 * var(--home-pad));
+                            overflow-x: auto;
+                            overflow-y: hidden;
+                            overscroll-behavior-x: contain;
+                            padding: 4px var(--home-pad) 8px;
+                            scroll-padding-inline: var(--home-pad) calc(var(--home-pad) + var(--qc-tile) + 8px);
+                            scrollbar-width: none;
+                            -webkit-overflow-scrolling: touch;
+                        }
+                        .home2-quick-row::-webkit-scrollbar { display: none; }
+                        .home2-quick-row.is-scrolled {
+                            -webkit-mask-image: linear-gradient(to right, transparent 0, #000 24px);
+                            mask-image: linear-gradient(to right, transparent 0, #000 24px);
                         }
                         .home2-proto-chip {
-                            flex-direction: column;
+                            flex: 0 0 var(--qc-tile);
                             gap: 6px;
-                            min-width: 0;
-                            padding: 10px 2px 8px;
+                            min-height: 80px;
+                            padding: 10px 4px 8px;
+                            scroll-snap-align: start;
                         }
+                        .home2-proto-chip-icon { border-radius: 10px; height: 36px; width: 36px; }
+                        /* Never cut: the names are short enough for the narrowest tile. */
                         .home2-proto-chip-name {
-                            font-size: 12px;
-                            max-width: 100%;
-                            overflow: hidden;
-                            text-overflow: ellipsis;
+                            font-size: 12.5px;
+                            max-width: none;
+                            overflow: visible;
+                            text-overflow: clip;
+                            white-space: nowrap;
                         }
+                        /* "More" pinned at the right end: a fade before it, and the strip of page to its right
+                           covered, so that no tile shows behind it. right: 0 and not the padding: a sticky box
+                           already stops at the row's padding, so the page's edge is where it stands. The cover
+                           is a plain block rather than a second shadow: a shadow has the tile's round corners,
+                           and the tile behind showed through them at the edge of the screen. */
+                        .home2-quick-row > .home2-proto-more {
+                            background: var(--surface);
+                            box-shadow: -18px 0 14px -8px var(--bg);
+                            position: sticky;
+                            right: 0;
+                            scroll-snap-align: end;
+                            z-index: 1;
+                        }
+                        .home2-quick-row > .home2-proto-more::after {
+                            background: var(--bg);
+                            bottom: -1px;
+                            content: "";
+                            left: calc(100% + 1px);
+                            pointer-events: none;
+                            position: absolute;
+                            top: -1px;
+                            width: var(--home-pad);
+                        }
+                        .home2-quick-row > .home2-proto-more:focus-visible { box-shadow: var(--focus-ring), -18px 0 14px -8px var(--bg); }
+                        /* Pinned, it does not lift under the mouse either: its cover would leave the edge free. */
+                        .home2-quick-row > .home2-proto-more:hover { transform: none; }
+                    }
+                    /* A swipe comes to rest at the start of a tile - only under a finger. A snapping row also moves
+                       a tile that the keyboard brings into view to the nearest such rest, and that can be under
+                       "More"; without it the tile stops just before "More" (the row's scroll padding). */
+                    @media (max-width: 720px) and (pointer: coarse) {
+                        .home2-quick-row { scroll-snap-type: x proximity; }
                     }
                     .home2-proto-dialog {
                         background: var(--panel);
@@ -21549,6 +22191,24 @@ public sealed partial class HtmlViews
                         -webkit-overflow-scrolling: touch;
                     }
                     .home2-folder-grid::-webkit-scrollbar { display: none; }
+                    /* The row says itself that it goes on: where it is scrolled its start fades, and where there
+                       is more to the right its end fades (the script sets is-scrolled and has-more). */
+                    .home2-folder-grid { --fade-end: 0px; --fade-start: 0px; overscroll-behavior-x: contain; }
+                    .home2-folder-grid.is-scrolled { --fade-start: 24px; }
+                    .home2-folder-grid.has-more { --fade-end: 40px; }
+                    .home2-folder-grid.is-scrolled,
+                    .home2-folder-grid.has-more {
+                        -webkit-mask-image: linear-gradient(to right, transparent 0, #000 var(--fade-start), #000 calc(100% - var(--fade-end)), transparent 100%);
+                        mask-image: linear-gradient(to right, transparent 0, #000 var(--fade-start), #000 calc(100% - var(--fade-end)), transparent 100%);
+                    }
+                    /* On a phone out to the edges of the screen, as the tiles of quick connect. */
+                    @media (max-width: 720px) {
+                        .home2-folder-grid {
+                            margin-inline: calc(-1 * var(--home-pad));
+                            padding-inline: var(--home-pad);
+                            scroll-padding-inline: var(--home-pad);
+                        }
+                    }
                     .home2-folder-tile {
                         align-items: center;
                         background: var(--surface);
@@ -21650,7 +22310,9 @@ public sealed partial class HtmlViews
                         background: color-mix(in srgb, var(--proto, var(--accent)) 16%, transparent);
                         color: var(--proto, var(--accent));
                     }
-                    .home2 .connection-choice:hover { border-color: var(--proto, var(--accent)); }
+                    @media (hover: hover) {
+                        .home2 .connection-choice:hover { border-color: var(--proto, var(--accent)); }
+                    }
                     .home2 .connection-choice::before { background: var(--proto, var(--accent)); }
                     .connection-choice-time {
                         align-items: center;
@@ -21664,8 +22326,8 @@ public sealed partial class HtmlViews
                     .home2-empty {
                         align-items: center;
                         background: var(--surface);
-                        border: 1px dashed var(--line);
-                        border-radius: var(--radius);
+                        border: 1px dashed var(--line-strong);
+                        border-radius: var(--radius-card);
                         display: flex;
                         flex-wrap: wrap;
                         gap: 16px;
@@ -21673,13 +22335,22 @@ public sealed partial class HtmlViews
                         padding: 24px;
                     }
                     .home2-empty h2 { margin: 0 0 4px; }
+                    .home2-empty h3 { font-size: 17px; margin: 0 0 4px; }
+                    .home2-empty .muted { margin: 0; }
                     .home2-noresults { padding: 24px; text-align: center; }
                     .home2-section[hidden],
                     .connection-choice[hidden] { display: none !important; }
                     @media (max-width: 720px) {
                         .home2 { gap: 20px; }
-                        .home2-head-actions { width: 100%; }
-                        .home2-head-actions .button { flex: 1 1 auto; justify-content: center; }
+                        /* The title and its button on one row: "New" beside "Connections", a finger high. Two
+                           buttons go under the title, side by side and equally wide. */
+                        .home2-head { align-items: center; }
+                        .home2-head-copy h1 { font-size: 26px; }
+                        .home2-head-actions .button { justify-content: center; min-height: 44px; }
+                        .home2-label-long { display: none; }
+                        .home2-label-short { display: inline; }
+                        .home2-head--two .home2-head-actions { flex: 1 1 100%; }
+                        .home2-head--two .home2-head-actions .button { flex: 1 1 0; }
                         .home2-proto-dialog {
                             border: 0;
                             border-radius: 0;
@@ -21707,6 +22378,67 @@ public sealed partial class HtmlViews
                         .home2-qc-proto { flex-direction: column; gap: 4px; justify-content: center; min-width: 0; padding: 8px 2px 6px; border-radius: 12px; }
                         .home2-qc-proto > span:last-child { font-size: 12.5px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
                         .home2-qc-actions .button { width: 100%; justify-content: center; }
+                    }
+                    /* ==== Part 3 – start page (prefix home2-) ==== */
+                    /* The cards of the start page on a phone: one compact block each - the sign, the name with
+                       the address and when it was used on one line under it, and on the right the star and the
+                       gear (a phone has no long press on a card for its menu) above "Connect". About 114px high
+                       instead of 175. A share's card keeps its own shape. The notes, where there are any, take
+                       a row of their own under it all; a third row in the template would leave a gap of its own
+                       in every card without notes. */
+                    @media (max-width: 720px) {
+                        .home2 .connection-choice[data-home2-card][data-fav] {
+                            align-items: center;
+                            border-radius: 16px;
+                            column-gap: 12px;
+                            display: grid;
+                            grid-template-areas: "icon copy corner" "icon copy actions";
+                            grid-template-columns: 40px minmax(0, 1fr) auto;
+                            min-height: 0;
+                            padding: 12px 12px 12px 14px;
+                            row-gap: 6px;
+                        }
+                        .home2 .connection-choice[data-fav] > .connection-choice-body,
+                        .home2 .connection-choice[data-fav] .connection-choice-title { display: contents; }
+                        .home2 .connection-choice[data-fav] .server-icon { grid-area: icon; height: 40px; width: 40px; }
+                        .home2 .connection-choice[data-fav] .connection-choice-copy {
+                            align-content: center;
+                            align-items: baseline;
+                            column-gap: 6px;
+                            display: flex;
+                            flex-wrap: wrap;
+                            grid-area: copy;
+                            row-gap: 3px;
+                        }
+                        /* The protocol and the folder are told by the sign and the side panel's groups. */
+                        .home2 .connection-choice[data-fav] .connection-choice-badges { display: none; }
+                        .home2 .connection-choice[data-fav] .connection-choice-copy h3 {
+                            flex: 1 1 100%;
+                            font-size: 16px;
+                            font-weight: 650;
+                            line-height: 1.25;
+                            min-width: 0;
+                            overflow: hidden;
+                            text-overflow: ellipsis;
+                            white-space: nowrap;
+                        }
+                        .home2 .connection-choice[data-fav] .connection-choice-copy .target {
+                            color: var(--muted);
+                            flex: 0 1 auto;
+                            font-size: 13px;
+                            min-width: 0;
+                            overflow: hidden;
+                            text-overflow: ellipsis;
+                            white-space: nowrap;
+                        }
+                        .home2 .connection-choice[data-fav] .connection-choice-time { flex: 0 0 auto; font-size: 13px; margin: 0; }
+                        .home2 .connection-choice[data-fav] .connection-choice-time .icon { display: none; }
+                        .home2 .connection-choice[data-fav] .target + .connection-choice-time::before { content: "·"; }
+                        .home2 .connection-choice[data-fav] .connection-choice-corner { align-self: start; grid-area: corner; justify-self: end; margin: 0; }
+                        .home2 .connection-choice[data-fav] .connection-choice-actions { align-self: end; flex-direction: row; grid-area: actions; justify-self: end; margin: 0; }
+                        .home2 .connection-choice[data-fav] .connection-choice-notes { font-size: 13px; grid-column: 1 / -1; }
+                        .home2 .connection-choice[data-fav] .favorite-toggle { height: 44px; min-height: 44px; min-width: 44px; width: 44px; }
+                        .home2 .connection-choice[data-fav] .connection-choice-mark { bottom: -16px; height: 72px; opacity: .07; right: -12px; width: 72px; }
                     }
                     .connection-browser-empty {
                         align-items: flex-start;
@@ -22294,16 +23026,27 @@ public sealed partial class HtmlViews
                     }
                     .connection-choice-settings .icon { height: 16px; width: 16px; }
                     /* The cards with a watermark: the connection's sign large in its corner, in its colour,
-                       faint; the protocol as a pill of that colour; "Connect" a compact button. */
-                    .connection-choice { border-radius: 16px; isolation: isolate; min-height: 150px; overflow: hidden; transition: border-color .16s ease, transform .16s ease; }
-                    .connection-choice:hover { border-color: color-mix(in srgb, var(--proto, var(--accent)) 55%, var(--line)); }
-                    .connection-choice-mark { bottom: -34px; color: var(--proto, var(--accent)); height: 150px; opacity: .11; pointer-events: none; position: absolute; right: -26px; transition: opacity .2s ease, transform .2s ease; width: 150px; z-index: -1; }
+                       faint; the protocol as a pill of that colour; "Connect" a compact button. A light shadow
+                       at rest; the lift, the stronger shadow and the turning sign only where a pointer hovers -
+                       a finger left them stuck after a tap. A card with keyboard focus in it shows the ring. */
+                    .connection-choice { border-radius: 16px; box-shadow: var(--shadow-card); isolation: isolate; min-height: 136px; overflow: hidden; transition: border-color var(--dur) var(--ease), box-shadow var(--dur) var(--ease), transform var(--dur) var(--ease); }
+                    .connection-choice-mark { bottom: -34px; color: var(--proto, var(--accent)); height: 150px; opacity: .08; pointer-events: none; position: absolute; right: -26px; transition: opacity .2s ease, transform .2s ease; width: 150px; z-index: -1; }
                     .connection-choice-mark svg, .connection-choice-mark .icon { display: block; height: 100%; width: 100%; }
                     .connection-choice-mark .icon { stroke-width: 1.5; }
-                    .connection-choice:hover .connection-choice-mark { opacity: .18; transform: rotate(-6deg) scale(1.05); }
+                    @media (hover: hover) {
+                        .connection-choice:hover { border-color: color-mix(in srgb, var(--proto, var(--accent)) 55%, var(--line)); box-shadow: var(--shadow-pop); }
+                        .connection-choice:hover .connection-choice-mark { opacity: .16; transform: rotate(-6deg) scale(1.05); }
+                    }
+                    @media (hover: none) {
+                        .connection-choice:hover { border-color: var(--line); box-shadow: var(--shadow-card); transform: none; }
+                        .connection-choice:hover::before { opacity: 0; }
+                    }
+                    .connection-choice:has(:focus-visible) { box-shadow: var(--focus-ring), var(--shadow-card); }
                     .connection-choice .server-icon { background: color-mix(in srgb, var(--proto, var(--accent)) 14%, var(--surface)); border-color: transparent; color: var(--proto, var(--accent)); }
                     .connection-choice-badges .badge:first-child:not(.server-folder-badge) { background: color-mix(in srgb, var(--proto, var(--accent)) 14%, var(--surface)); border-color: transparent; color: color-mix(in srgb, var(--proto, var(--accent)) 75%, var(--text)); font-weight: 700; }
-                    .connection-choice-copy h3 { font-size: 17px; }
+                    /* A long name without a space (a place's "Connection/Datenbank") wraps instead of running
+                       under the star. */
+                    .connection-choice-copy h3 { font-size: 17px; overflow-wrap: anywhere; }
                     .connection-choice-copy .target { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
                     .connection-choice-actions { justify-content: flex-start; }
                     .connection-choice-actions .connection-choice-open { border-radius: 999px; flex: 0 0 auto; min-height: 36px; padding: 6px 18px; }
@@ -24003,8 +24746,8 @@ public sealed partial class HtmlViews
                         }
                         .shell-nav-row { display: none; }
                         .shell-burger { align-items: center; display: inline-flex; flex: 0 0 auto; width: auto; }
-                        .shell-burger-trigger { color: var(--muted); }
-                        .shell-burger-panel { min-width: 220px; right: 0; width: max-content; }
+                        /* A thumb's width; the panel is a sheet here (see below). */
+                        .shell-burger-trigger { color: var(--muted); justify-content: center; min-height: 44px; min-width: 44px; }
                         .shell-tabs-scroll { width: 100%; }
                         .shell-tabs { align-items: center; flex: 1 1 auto; flex-direction: row; overflow: visible; width: max-content; min-width: 100%; }
                         .shell-tabs > * { width: auto; }
@@ -24302,12 +25045,8 @@ public sealed partial class HtmlViews
                         .connection-browser-empty-state {
                             flex-direction: column;
                         }
-                        .connection-choice-actions {
-                            flex-direction: column;
-                        }
-                        .connection-choice-actions > * {
-                            width: 100%;
-                        }
+                        /* "Connect" stays a pill of its own width on a phone as well: the cards of the start
+                           page put it beside their name (Part 3, home2-). */
                         .favorite-toggle-form {
                             right: 8px;
                             top: 8px;
@@ -24756,23 +25495,27 @@ public sealed partial class HtmlViews
                             padding: 8px;
                             width: 20px;
                         }
-                        /* The burger hangs off the LEFT edge of the compact bar, so its dropdown sat
-                           as a narrow box in that corner - half a screen wide, the rest unused. On a
-                           phone it takes the whole surface like the connection list, and brings its
-                           own way back, because tapping beside it is none once it covers everything. */
-                        .shell-burger[open] > .shell-burger-panel {
+                        /* The main menu on a phone: the burger hangs off the LEFT edge of the compact bar, so a dropdown
+                           would be a narrow box in that corner. It takes the whole surface instead, modal while it is
+                           open, and brings its own way back, because tapping beside it is none once it covers
+                           everything. While open it sits under <body> (the menu machinery of the layout script), hence
+                           no ancestor in these selectors; 0,3,0 and more beats the general .toolbar-menu-panel.menu-sheet. */
+                        .toolbar-menu-panel.shell-burger-panel.menu-sheet:not([hidden]) {
                             align-content: start;
                             background: var(--bg);
                             border: 0;
                             border-radius: 0;
                             bottom: 0;
+                            box-shadow: none;
                             display: flex;
                             flex-direction: column;
                             gap: 6px;
                             left: 0;
+                            max-height: none;
                             max-width: none;
                             min-width: 0;
                             overflow-y: auto;
+                            overscroll-behavior: contain;
                             padding: env(safe-area-inset-top) calc(12px + env(safe-area-inset-right)) calc(12px + env(safe-area-inset-bottom)) calc(12px + env(safe-area-inset-left));
                             position: fixed;
                             right: 0;
@@ -24781,7 +25524,7 @@ public sealed partial class HtmlViews
                             z-index: 60;
                         }
                         /* The head says where one is: the logo and the name, and the way back. */
-                        .shell-burger[open] > .shell-burger-panel .shell-burger-sheet-head {
+                        .shell-burger-panel.menu-sheet .shell-burger-sheet-head {
                             align-items: center;
                             display: flex;
                             flex: 0 0 auto;
@@ -24790,12 +25533,12 @@ public sealed partial class HtmlViews
                             padding: 0 0 0 4px;
                         }
                         .shell-burger-brand { align-items: center; display: inline-flex; gap: 10px; }
-                        .shell-burger-brand .brand-word { color: var(--text); display: inline; font-size: 20px; font-weight: 800; letter-spacing: .04em; }
+                        /* The name beside the logo in every view - the compact view's bar hides it, not the sheet. */
+                        .shell-burger-panel.menu-sheet .shell-burger-brand .brand-word { color: var(--text); display: inline; font-size: 20px; font-weight: 800; letter-spacing: .04em; }
                         .shell-burger-brand .brand-word span { color: var(--accent); }
-                        /* Every button in a menu panel is stretched to the full width - which would
-                           turn this one into a 326px target sitting next to the logo, closing the
-                           sheet wherever the thumb lands to its right. */
-                        .shell-burger[open] > .shell-burger-panel .shell-burger-sheet-close {
+                        /* Not stretched like the entries: a 326px target beside the logo would close the sheet
+                           wherever the thumb lands to its right. */
+                        .shell-burger-panel.menu-sheet .shell-burger-sheet-close {
                             align-items: center;
                             background: var(--surface);
                             border: 1px solid var(--line);
@@ -24812,40 +25555,33 @@ public sealed partial class HtmlViews
                             padding: 0 0 2px;
                             width: 44px;
                         }
-                        /* Who is signed in. */
-                        .shell-burger[open] > .shell-burger-panel .shell-burger-user {
-                            align-items: center;
-                            background: var(--surface);
-                            border: 1px solid var(--line);
-                            border-radius: var(--radius);
+                        /* Who is signed in, and light/dark/system under the card's hairline (.ui-user-card--sheet). */
+                        .shell-burger-panel.menu-sheet .ui-user-card--sheet { flex: 0 0 auto; margin-bottom: 8px; }
+                        /* The entries: a row each, the icon in a tile of its own; a little air between the groups. */
+                        .shell-burger-panel.menu-sheet .hm-groups {
                             display: flex;
                             flex: 0 0 auto;
-                            gap: 12px;
-                            margin-bottom: 8px;
-                            padding: 12px 14px;
+                            flex-direction: column;
+                            gap: 14px;
                         }
-                        .shell-burger-user .account-menu-avatar { background: color-mix(in srgb, var(--accent) 12%, var(--surface)); border-color: transparent; height: 42px; width: 42px; }
-                        .shell-burger-user .account-menu-avatar .icon { height: 20px; width: 20px; }
-                        .shell-burger-user .account-menu-id strong { font-size: 16px; }
-                        .shell-burger-user .account-menu-id small { font-size: 13px; }
-                        /* The entries: a row each, the icon in a tile of its own. */
-                        .shell-burger[open] > .shell-burger-panel .shell-menu-item {
+                        .shell-burger-panel.menu-sheet .hm-group { display: flex; flex-direction: column; gap: 6px; }
+                        .shell-burger-panel.menu-sheet .shell-menu-item {
                             background: var(--surface);
                             border: 1px solid var(--line);
-                            border-radius: var(--radius);
+                            border-radius: var(--radius-row);
+                            color: var(--text);
                             flex: 0 0 auto;
                             font-size: 16px;
                             font-weight: 600;
                             gap: 14px;
-                            /* The account entry is capped at 260px in a dropdown; here that cap cut
-                               it off two thirds across. */
                             max-width: none;
                             min-height: 56px;
                             padding: 8px 14px;
                         }
-                        .shell-burger[open] > .shell-burger-panel .shell-menu-item.active { border-color: var(--accent); color: var(--accent); }
-                        .shell-burger[open] > .shell-burger-panel .shell-menu-item > .icon {
-                            background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+                        .shell-burger-panel.menu-sheet .shell-menu-item:active { background: var(--hover-strong-bg); }
+                        .shell-burger-panel.menu-sheet .shell-menu-item.active { border-color: var(--accent); color: var(--accent); }
+                        .shell-burger-panel.menu-sheet .shell-menu-item > .icon {
+                            background: var(--accent-soft);
                             border-radius: 10px;
                             box-sizing: content-box;
                             color: var(--accent);
@@ -24854,21 +25590,22 @@ public sealed partial class HtmlViews
                             padding: 8px;
                             width: 20px;
                         }
-                        /* The account entry carries the user's name in a dropdown; here the user stands above. */
-                        .shell-burger[open] > .shell-burger-panel .account-trigger .account-name { display: none; }
-                        .shell-burger[open] > .shell-burger-panel .shell-burger-settings-word { display: inline; }
                         /* Leaving stands apart, at the end. */
-                        .shell-burger[open] > .shell-burger-panel .account-menu-logout { margin: auto 0 0; padding-top: 14px; }
-                        .shell-burger[open] > .shell-burger-panel .shell-menu-logout { color: var(--danger); }
-                        .shell-burger[open] > .shell-burger-panel .shell-menu-logout > .icon { background: color-mix(in srgb, var(--danger) 10%, var(--surface)); color: var(--danger); }
-                        .shell-burger[open] > .shell-burger-panel .shell-burger-foot {
-                            color: var(--muted);
-                            display: block;
+                        .shell-burger-panel.menu-sheet .account-menu-logout { flex: 0 0 auto; margin: auto 0 0; padding-top: 14px; }
+                        .shell-burger-panel.menu-sheet .shell-menu-logout,
+                        .shell-burger-panel.menu-sheet .shell-menu-logout > .icon { color: var(--danger); }
+                        .shell-burger-panel.menu-sheet .shell-menu-logout > .icon { background: var(--danger-soft); }
+                        /* The version and the way to "About", a row a thumb can hit. */
+                        .shell-burger-panel.menu-sheet .hm-foot {
+                            border: 0;
                             flex: 0 0 auto;
-                            font-size: 12px;
-                            padding: 10px 0 2px;
-                            text-align: center;
+                            font-size: 12.5px;
+                            justify-content: center;
+                            margin: 0;
+                            min-height: 44px;
+                            padding: 0;
                         }
+                        .shell-burger-panel.menu-sheet .hm-foot a { align-items: center; display: inline-flex; min-height: 44px; }
                         /* Compact view on phones is one row, read left to right: logo, menu, a rule,
                            the connection, then its actions taking whatever is left. Ordered with
                            `order` rather than by moving the markup, so the wide layout is untouched.
@@ -24977,7 +25714,7 @@ public sealed partial class HtmlViews
             <body data-shell-layout="{{(shellLayout ? "1" : "0")}}">
                 <header>
                     <a class="brand" href="/sessions" title="{{A(T(context, "New connection"))}}" aria-label="{{A(T(context, "New connection"))}}">{{Logo()}}</a>
-                    <span class="shell-header-sep" aria-hidden="true"></span>
+                    {{headerSeparator}}
                     {{mobileTabMenu}}
                     <div id="shell-merge-slot" class="shell-merge-slot"></div>
                     {{navigation}}
@@ -25077,8 +25814,9 @@ public sealed partial class HtmlViews
                             }
                         });
 
+                        // What is left of menus made of <details> (the header's are a button and a panel now).
                         const closeOpenMenus = (keepMenu) => {
-                            document.querySelectorAll('details.toolbar-menu[open], details.file-menu[open], details.shell-menu[open], details.tab-action-more[open]').forEach((menu) => {
+                            document.querySelectorAll('details.toolbar-menu[open], details.file-menu[open], details.tab-action-more[open]').forEach((menu) => {
                                 if (menu !== keepMenu) {
                                     menu.removeAttribute('open');
                                 }
@@ -25098,14 +25836,46 @@ public sealed partial class HtmlViews
                         // manager's two menus dead there.
                         const menuSheetMode = () => window.matchMedia('(max-width: 720px)').matches;
                         let activeMenu = null;
+                        // The entries of an open panel that the arrow keys move over: its links and buttons that show.
+                        const menuEntries = (panel) => Array.from(panel.querySelectorAll('a[href], button:not(:disabled)'))
+                            .filter((entry) => entry.getClientRects().length > 0);
+                        // A sheet with a head of its own (data-menu-own-head: the main menu on a phone) is a dialog
+                        // while it is open. Everything else under <body> is inert - neither a press nor Tab nor a
+                        // screen reader gets behind it - and is given back as it was when the sheet goes.
+                        const holdModal = (panel) => {
+                            const madeInert = [];
+                            Array.from(document.body.children).forEach((child) => {
+                                if (child !== panel && !child.hasAttribute('inert')) {
+                                    child.setAttribute('inert', '');
+                                    madeInert.push(child);
+                                }
+                            });
+                            const role = panel.getAttribute('role');
+                            panel.setAttribute('role', 'dialog');
+                            panel.setAttribute('aria-modal', 'true');
+                            return { madeInert, role };
+                        };
+                        const releaseModal = (panel, modal) => {
+                            modal.madeInert.forEach((element) => element.removeAttribute('inert'));
+                            if (modal.role === null) {
+                                panel.removeAttribute('role');
+                            }
+                            else {
+                                panel.setAttribute('role', modal.role);
+                            }
+                            panel.removeAttribute('aria-modal');
+                        };
 
                         const closeToolbarMenu = () => {
                             if (!activeMenu) {
                                 return;
                             }
 
-                            const { home, trigger, panel } = activeMenu;
+                            const { home, trigger, panel, modal } = activeMenu;
                             activeMenu = null;
+                            if (modal) {
+                                releaseModal(panel, modal);
+                            }
                             panel.querySelectorAll(':scope > .menu-sheet-head').forEach((head) => head.remove());
                             panel.classList.remove('menu-sheet', 'file-display--readonly');
                             panel.style.left = '';
@@ -25142,22 +25912,31 @@ public sealed partial class HtmlViews
                                 panel.classList.add('file-display--readonly');
                             }
 
+                            let modal = null;
                             if (menuSheetMode()) {
-                                const head = document.createElement('div');
-                                head.className = 'menu-sheet-head';
-                                const heading = document.createElement('strong');
-                                heading.textContent = title || '';
-                                const close = document.createElement('button');
-                                close.type = 'button';
-                                close.className = 'menu-sheet-close';
-                                close.setAttribute('aria-label', panel.getAttribute('data-menu-close') || (document.documentElement.lang === 'de' ? 'Schließen' : 'Close'));
-                                close.textContent = '\u00d7';
-                                close.addEventListener('click', closeToolbarMenu);
-                                head.append(heading, close);
-                                panel.insertBefore(head, panel.firstChild);
+                                // A panel with a head of its own (the logo and its own way back) gets none made for it.
+                                const ownHead = panel.hasAttribute('data-menu-own-head');
+                                if (!ownHead) {
+                                    const head = document.createElement('div');
+                                    head.className = 'menu-sheet-head';
+                                    const heading = document.createElement('strong');
+                                    heading.textContent = title || '';
+                                    const close = document.createElement('button');
+                                    close.type = 'button';
+                                    close.className = 'menu-sheet-close';
+                                    close.setAttribute('aria-label', panel.getAttribute('data-menu-close') || (document.documentElement.lang === 'de' ? 'Schließen' : 'Close'));
+                                    close.textContent = '×';
+                                    close.addEventListener('click', closeToolbarMenu);
+                                    head.append(heading, close);
+                                    panel.insertBefore(head, panel.firstChild);
+                                }
                                 panel.classList.add('menu-sheet');
                                 // In an open dialog the sheet stays in it: under <body> it would lie beneath the dialog.
-                                (trigger.closest('dialog[open]') || document.body).appendChild(panel);
+                                const host = trigger.closest('dialog[open]') || document.body;
+                                host.appendChild(panel);
+                                if (ownHead && host === document.body) {
+                                    modal = holdModal(panel);
+                                }
                             }
                             else if (panel.getBoundingClientRect().right > window.innerWidth - 8) {
                                 // Beside its button, but never off the right edge of the screen.
@@ -25165,10 +25944,181 @@ public sealed partial class HtmlViews
                                 panel.style.right = '0';
                             }
 
-                            activeMenu = { home, trigger, panel };
+                            activeMenu = { home, trigger, panel, modal };
+                            if (modal) {
+                                // Into the dialog: on its way back, else on its first entry.
+                                const start = panel.querySelector('[data-burger-close]') || menuEntries(panel)[0];
+                                if (start) {
+                                    start.focus({ preventScroll: true });
+                                }
+                            }
                         };
 
                         window.MatgateCloseMenus = closeToolbarMenu;
+
+                        // Keys in an open menu. Tab stays inside a sheet that is a dialog; the arrows, Home and End
+                        // go from entry to entry - from the menu's button as well, so a menu opened with the mouse
+                        // can be gone on with the keys - but not in a field, where they move the cursor. Escape is
+                        // handled further down.
+                        document.addEventListener('keydown', (event) => {
+                            if (!activeMenu || event.altKey || event.ctrlKey || event.metaKey) {
+                                return;
+                            }
+
+                            const { panel, trigger, modal, context } = activeMenu;
+                            const focused = document.activeElement;
+                            if (event.key === 'Tab' && modal) {
+                                const reachable = Array.from(panel.querySelectorAll('a[href], button:not(:disabled), input:not([type="hidden"]):not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])'))
+                                    .filter((element) => element.getClientRects().length > 0);
+                                if (!reachable.length) {
+                                    event.preventDefault();
+                                    return;
+                                }
+
+                                const first = reachable[0];
+                                const last = reachable[reachable.length - 1];
+                                const inside = focused instanceof Node && panel.contains(focused);
+                                if (event.shiftKey && (!inside || focused === first)) {
+                                    event.preventDefault();
+                                    last.focus();
+                                }
+                                else if (!event.shiftKey && (!inside || focused === last)) {
+                                    event.preventDefault();
+                                    first.focus();
+                                }
+                                return;
+                            }
+
+                            if (['ArrowDown', 'ArrowUp', 'Home', 'End'].indexOf(event.key) < 0) {
+                                return;
+                            }
+
+                            const typing = focused instanceof Element && !!focused.closest('input, select, textarea, [contenteditable="true"]');
+                            const inPanel = focused instanceof Node && panel.contains(focused);
+                            if (typing || !(inPanel || (!context && focused === trigger))) {
+                                return;
+                            }
+
+                            const entries = menuEntries(panel);
+                            if (!entries.length) {
+                                return;
+                            }
+
+                            const at = entries.indexOf(focused);
+                            let next = entries[0];
+                            if (event.key === 'End') {
+                                next = entries[entries.length - 1];
+                            }
+                            else if (event.key === 'ArrowDown') {
+                                next = entries[at < 0 ? 0 : (at + 1) % entries.length];
+                            }
+                            else if (event.key === 'ArrowUp') {
+                                next = entries[at < 0 ? entries.length - 1 : (at - 1 + entries.length) % entries.length];
+                            }
+                            event.preventDefault();
+                            next.focus();
+                        }, true);
+
+                        // Tab out of a dropdown closes it - once the focus has gone somewhere else that can hold it (a
+                        // press on the panel's own background moves it nowhere). A sheet keeps the focus itself.
+                        document.addEventListener('focusout', (event) => {
+                            if (!activeMenu || activeMenu.context || activeMenu.panel.classList.contains('menu-sheet')) {
+                                return;
+                            }
+
+                            const next = event.relatedTarget;
+                            if (next instanceof Node && !activeMenu.panel.contains(next) && !activeMenu.trigger.contains(next)) {
+                                closeToolbarMenu();
+                            }
+                        });
+
+                        // A click into a page tab or a remote screen goes into a frame: the page never hears that press,
+                        // but the window loses the focus to the frame. Switching to another program leaves the active
+                        // element as it was - then the menu stays for when one comes back.
+                        window.addEventListener('blur', () => {
+                            window.setTimeout(() => {
+                                const focused = document.activeElement;
+                                if (activeMenu && !activeMenu.context && focused && focused.tagName === 'IFRAME') {
+                                    closeToolbarMenu();
+                                }
+                            }, 0);
+                        });
+
+                        // ---- Light, dark or system from the header's menus (HtmlViews.Header.cs, ThemeSwitch) -------
+                        // Applied at once, here and in every page tab (MatgateApplyTheme), and saved in the background
+                        // with the field alone. Saved means the answer 204: a page instead (the form had expired) or a
+                        // redirect (the sign-in had) is no success, and the choice goes back to what it was.
+                        let themeSaving = 0;
+                        document.addEventListener('click', async (event) => {
+                            const choice = event.target instanceof Element ? event.target.closest('[data-theme-switch] [data-theme-choice]') : null;
+                            if (!choice || typeof window.MatgateApplyTheme !== 'function') {
+                                return;
+                            }
+
+                            event.preventDefault();
+                            const mode = choice.getAttribute('data-theme-choice');
+                            const problem = choice.closest('[data-theme-switch]').querySelector('.hm-theme-error');
+                            const before = document.documentElement.getAttribute('data-theme');
+                            if (problem) {
+                                problem.hidden = true;
+                            }
+
+                            window.MatgateApplyTheme({ mode: mode });
+                            const attempt = ++themeSaving;
+                            let saved = false;
+                            try {
+                                const body = new FormData();
+                                const token = document.querySelector('input[name="_csrf"]');
+                                body.append('_csrf', token ? token.value : '');
+                                body.append('preferredTheme', mode);
+                                const response = await fetch('/account', {
+                                    method: 'POST',
+                                    body: body,
+                                    credentials: 'same-origin',
+                                    redirect: 'manual',
+                                    headers: { 'X-Matgate-Inline': '1' }
+                                });
+                                saved = response.status === 204;
+                            }
+                            catch (e) {
+                                saved = false;
+                            }
+
+                            // A later choice has been made meanwhile: that one counts.
+                            if (saved || attempt !== themeSaving) {
+                                return;
+                            }
+
+                            window.MatgateApplyTheme({ mode: before });
+                            if (problem) {
+                                problem.hidden = false;
+                                window.clearTimeout(problem.matgateHide);
+                                problem.matgateHide = window.setTimeout(() => {
+                                    problem.hidden = true;
+                                }, 4000);
+                            }
+                        });
+
+                        // The colour of the system bar follows the theme in force, not only the device: the two tags
+                        // in the head hold the light and the dark bar for (prefers-color-scheme); light or dark chosen
+                        // here pins the one that belongs to it, system gives the device back its say.
+                        const themeBars = Array.from(document.querySelectorAll('meta[name="theme-color"][media]'));
+                        themeBars.forEach((bar) => {
+                            bar.dataset.media = bar.getAttribute('media') || '';
+                        });
+                        const followThemeBar = (mode) => {
+                            themeBars.forEach((bar) => {
+                                const forDark = /dark/.test(bar.dataset.media);
+                                if (mode === 'light' || mode === 'dark') {
+                                    bar.setAttribute('media', (mode === 'dark') === forDark ? 'all' : 'not all');
+                                }
+                                else {
+                                    bar.setAttribute('media', bar.dataset.media);
+                                }
+                            });
+                        };
+                        followThemeBar(document.documentElement.getAttribute('data-theme'));
+                        window.addEventListener('matgate:theme', (event) => followThemeBar(event.detail ? event.detail.mode : ''));
 
                         // A menu made on the spot - the actions of one row in the file list, say. Items are
                         // { label, iconHtml, danger, disabled, onSelect } or { separator: true }. The sheet is
@@ -25398,6 +26348,14 @@ public sealed partial class HtmlViews
                                 const panel = home ? home.querySelector(':scope > .toolbar-menu-panel') : null;
                                 if (panel) {
                                     showToolbarMenu(toggle, panel, home, panel.getAttribute('data-menu-title') || toggle.getAttribute('title') || (toggle.textContent || '').trim());
+                                    // Opened with Enter or Space (a click without a press of the mouse): the focus goes
+                                    // to the first entry, so the arrows go on from there. A dialog sheet has its own.
+                                    if (event.detail === 0 && activeMenu && activeMenu.panel === panel && !activeMenu.modal) {
+                                        const first = menuEntries(panel)[0];
+                                        if (first) {
+                                            first.focus();
+                                        }
+                                    }
                                 }
 
                                 return;
@@ -25405,10 +26363,11 @@ public sealed partial class HtmlViews
 
                             // Choosing something closes the menu - after the choice has been handled, because
                             // this listener runs last. A field or a submit button inside a panel is no choice: a
-                            // form that is being sent must stay as it is until the browser has read it.
+                            // form that is being sent must stay as it is until the browser has read it. Nor is
+                            // what stands in [data-menu-keep]: light or dark there is tried, and the menu stays.
                             if (activeMenu && activeMenu.panel.contains(target)) {
                                 const chosen = target.closest('button, a[href]');
-                                if (chosen && !chosen.disabled && !chosen.closest('form') && !chosen.classList.contains('menu-sheet-close')) {
+                                if (chosen && !chosen.disabled && !chosen.closest('form') && !chosen.classList.contains('menu-sheet-close') && !chosen.closest('[data-menu-keep]')) {
                                     closeToolbarMenu();
                                 }
                             }
@@ -25445,22 +26404,31 @@ public sealed partial class HtmlViews
 
                         // Generic in-page tabs: [data-tabs] with [data-tab-target] buttons + [data-tab-panel]
                         // panels. Server-render sets the initial active tab; this adds client-side switching.
+                        // The address becomes the link's own (in an embedded page it carries embed=1, and the
+                        // settings link absolutely, so a page served at another path stays loadable);
+                        // root.tabsActivate(key) switches without touching the address.
                         document.querySelectorAll('[data-tabs]').forEach((root) => {
                             const buttons = Array.from(root.querySelectorAll('[data-tab-target]'));
                             const panels = Array.from(root.querySelectorAll('[data-tab-panel]'));
-                            const activate = (key) => {
+                            const activate = (key, href) => {
                                 if (!panels.some((p) => p.dataset.tabPanel === key)) {
                                     return;
                                 }
                                 buttons.forEach((b) => {
                                     const on = b.dataset.tabTarget === key;
                                     b.classList.toggle('active', on);
-                                    b.setAttribute('aria-selected', on ? 'true' : 'false');
+                                    // Only a real tab is "selected"; a link in a list of sections is not one.
+                                    if (b.getAttribute('role') === 'tab') {
+                                        b.setAttribute('aria-selected', on ? 'true' : 'false');
+                                    }
                                 });
                                 panels.forEach((p) => p.classList.toggle('hidden', p.dataset.tabPanel !== key));
-                                try { history.replaceState(null, '', '?tab=' + encodeURIComponent(key)); } catch (e) { /* ignore */ }
+                                if (href !== null) {
+                                    try { history.replaceState(null, '', href || ('?tab=' + encodeURIComponent(key))); } catch (e) { /* ignore */ }
+                                }
                                 reveal();
                             };
+                            root.tabsActivate = (key) => activate(key, null);
                             // On a narrow screen the strip scrolls: the chosen tab is brought into view.
                             const reveal = () => {
                                 const chosen = buttons.find((b) => b.classList.contains('active'));
@@ -25471,7 +26439,7 @@ public sealed partial class HtmlViews
                             };
                             buttons.forEach((b) => b.addEventListener('click', (event) => {
                                 event.preventDefault();
-                                activate(b.dataset.tabTarget);
+                                activate(b.dataset.tabTarget, b.getAttribute('href') || '');
                             }));
                             reveal();
                         });
@@ -25753,25 +26721,24 @@ public sealed partial class HtmlViews
                         document.querySelectorAll('[data-view-mode-toggle]').forEach(item => {
                             item.addEventListener('click', event => {
                                 event.stopPropagation();
-                                const openMenu = item.closest('details[open]');
-                                if (openMenu) {
-                                    openMenu.removeAttribute('open');
-                                }
-
-                                const anchor = openMenu ? openMenu.querySelector('summary') : item;
-                                const box = (anchor || item).getBoundingClientRect();
-                                window.setTimeout(() => openViewChoice(anchor || item, { x: Math.max(8, box.right - 240), y: box.bottom }), 0);
+                                window.MatgateCloseMenus();
+                                // The choice hangs from the burger it came from (with the menu closed, it is there again).
+                                const anchor = document.querySelector('.shell-burger-trigger') || item;
+                                const box = anchor.getBoundingClientRect();
+                                window.setTimeout(() => openViewChoice(anchor, { x: Math.max(8, box.right - 240), y: box.bottom }), 0);
                             });
                         });
 
                         // The burger menu covers the screen on a phone (see CSS), so it needs a way
-                        // back of its own - beside it there is nothing left to tap.
+                        // back of its own - beside it there is nothing left to tap. The focus goes back to
+                        // the burger, where it came from.
                         document.querySelectorAll('[data-burger-close]').forEach(button => {
                             button.addEventListener('click', event => {
                                 event.preventDefault();
-                                const openMenu = button.closest('details[open]');
-                                if (openMenu) {
-                                    openMenu.removeAttribute('open');
+                                window.MatgateCloseMenus();
+                                const trigger = document.querySelector('.shell-burger-trigger');
+                                if (trigger && trigger.getClientRects().length > 0) {
+                                    trigger.focus({ preventScroll: true });
                                 }
                             });
                         });
@@ -26145,7 +27112,7 @@ public sealed partial class HtmlViews
                             // handle itself, on a heading, on a switch or field operated inside the
                             // menu. Whoever hits an entry - a link or a button - has chosen, and then
                             // it closes.
-                            const inMenu = target.closest('details.toolbar-menu, details.file-menu, details.shell-menu, details.tab-action-more');
+                            const inMenu = target.closest('details.toolbar-menu, details.file-menu, details.tab-action-more');
                             const chosen = target.closest('a[href], button, [role="menuitem"]');
                             closeOpenMenus(inMenu && !chosen ? inMenu : null);
                         });
@@ -26991,8 +27958,9 @@ public sealed partial class HtmlViews
             """;
     }
 
-    // Light / dark / system as three fields side by side instead of a select: three things you
-    // compare are shown next to each other - and you see at a glance which one applies.
+    // Light / dark / system as the items of a segmented control (.ui-seg) instead of a select: three things you
+    // compare are shown next to each other - and you see at a glance which one applies. The chosen one is marked
+    // by its checked radio (:has), so it follows a click before anything is saved.
     private static string ThemeModeChooser(HttpContext context, string selected)
     {
         var normalized = NormalizeThemeCode(selected);
@@ -27005,10 +27973,7 @@ public sealed partial class HtmlViews
         ];
 
         return string.Join("", modes.Select(mode => $$"""
-            <label class="mode-option{{(normalized == mode.Value ? " is-selected" : "")}}">
-                <input type="radio" name="preferredTheme" value="{{A(mode.Value)}}"{{(normalized == mode.Value ? " checked" : "")}}>
-                {{Icon(mode.Icon)}}<span>{{E(mode.Label)}}</span>
-            </label>
+            <label><input type="radio" name="preferredTheme" value="{{A(mode.Value)}}"{{(normalized == mode.Value ? " checked" : "")}}>{{Icon(mode.Icon)}}<span>{{E(mode.Label)}}</span></label>
             """));
     }
 
@@ -27032,6 +27997,7 @@ public sealed partial class HtmlViews
             return $$"""
                 <label class="theme-card{{(isChosen ? " is-selected" : "")}}">
                     <input type="radio" name="preferredThemeName" value="{{A(theme.Key)}}"{{(isChosen ? " checked" : "")}}>
+                    <span class="set-theme-check" aria-hidden="true">{{Icon("check")}}</span>
                     <span class="theme-card-previews">
                         {{ThemePreview(light)}}
                         {{ThemePreview(dark)}}
@@ -27075,24 +28041,30 @@ public sealed partial class HtmlViews
             ? themes.Values(palette, dark: false)
             : ThemeService.FallbackValues(dark: false);
 
+        // One row of the card "your own colours": the legend is its title (the colour sheet takes its heading from
+        // it), the switch "own colour" stands to the right of it, the hint and the colour itself below. The field
+        // wrapper only groups the parts for the script; it takes no box of its own.
         string ColourGroup(string legend, string notice, string toggle, string field, string value, string themeValue, string swatches)
             => $$"""
-                <fieldset class="settings-group">
+                <fieldset class="settings-group set-colour-row">
                     <legend>{{E(legend)}}</legend>
-                    <p class="muted settings-hint">{{E(notice)}}</p>
-                    <div class="accent-choice" data-colour-field>
-                        <label class="accent-switch">
+                    <div class="accent-choice set-colour-field" data-colour-field>
+                        <label class="set-inline-switch">
                             <input type="checkbox" name="{{A(toggle)}}" data-colour-own{{(ThemeService.IsColour(value) ? " checked" : "")}}>
+                            <span class="set-switch" aria-hidden="true"></span>
                             <span>{{(de ? "Eigene Farbe" : "Own colour")}}</span>
                         </label>
-                        <div class="accent-wheel">
-                            <button type="button" class="colour-chip" data-colour-open aria-haspopup="dialog" title="{{A(de ? "Farbe wählen" : "Choose colour")}}">
-                                <span class="colour-chip-dot" style="--dot: {{A(ThemeService.IsColour(value) ? value : themeValue)}}"></span>
-                                <span>{{(de ? "Farbe wählen" : "Choose colour")}}</span>
-                            </button>
-                            <input type="hidden" name="{{A(field)}}" data-colour-value value="{{A(ThemeService.IsColour(value) ? value : themeValue)}}">
+                        <p class="set-colour-hint">{{E(notice)}}</p>
+                        <div class="set-colour-pick">
+                            <div class="accent-wheel">
+                                <button type="button" class="colour-chip" data-colour-open aria-haspopup="dialog" title="{{A(de ? "Farbe wählen" : "Choose colour")}}">
+                                    <span class="colour-chip-dot" style="--dot: {{A(ThemeService.IsColour(value) ? value : themeValue)}}"></span>
+                                    <span>{{(de ? "Farbe wählen" : "Choose colour")}}</span>
+                                </button>
+                                <input type="hidden" name="{{A(field)}}" data-colour-value value="{{A(ThemeService.IsColour(value) ? value : themeValue)}}">
+                            </div>
+                            <div class="accent-presets" data-colour-presets>{{swatches}}</div>
                         </div>
-                        <div class="accent-presets" data-colour-presets>{{swatches}}</div>
                     </div>
                 </fieldset>
                 """;
@@ -27164,108 +28136,112 @@ public sealed partial class HtmlViews
             <button type="button" class="accent-preset" data-colour-preset="{{A(colour)}}" style="--dot: {{A(colour)}}" title="{{A(colour)}}" aria-label="{{A(colour)}}"></button>
             """));
     }
-    // The second factor in the security settings. Three states that exclude each other: nothing set
-    // up yet, set up but not confirmed, and in service.
+    // The second factor in the security settings, as a card of its own. Three states that exclude each other:
+    // nothing set up yet, set up but not confirmed, and in service - the pill beside the title says which. The
+    // recovery codes shown once after switching it on stand above it (TotpRecoveryNotice).
     private static string TotpPanel(HttpContext context, MatgateUser user, IReadOnlyList<string>? recoveryCodes)
     {
         var de = Language(context) == "de";
+        var title = de ? "Zwei-Faktor-Anmeldung" : "Two-factor sign-in";
         var failure = context.Request.Query["totp"].ToString();
         var notice = failure switch
         {
-            "falsch" => $"""<div class="notice error">{E(de ? "Der Code stimmt nicht. Prüf die Uhrzeit auf dem Telefon und versuch es noch einmal." : "That code is not right. Check the clock on your phone and try again.")}</div>""",
-            "passwort" => $"""<div class="notice error">{E(de ? "Das Passwort stimmt nicht." : "That password is not right.")}</div>""",
+            "falsch" => SetNotice("error", E(de ? "Der Code stimmt nicht. Prüf die Uhrzeit auf dem Telefon und versuch es noch einmal." : "That code is not right. Check the clock on your phone and try again."), "set-totp-error"),
+            "passwort" => SetNotice("error", E(de ? "Das Passwort stimmt nicht." : "That password is not right."), "set-totp-error"),
             _ => "",
         };
 
-        // The recovery codes can be seen exactly once - only their hashes are stored. That is why they
-        // are here in large type, with the request to put them away.
-        var codesHtml = recoveryCodes is null || recoveryCodes.Count == 0
-            ? ""
-            : $$"""
-                <div class="notice">
-                    <strong>{{E(de ? "Wiederherstellungs-Codes" : "Recovery codes")}}</strong>
-                    <p>{{E(de
-                        ? "Schreib sie auf und leg sie weg. Jeder gilt einmal und ersetzt den Code aus der App, wenn das Telefon weg ist. Ein zweites Mal kann sie niemand anzeigen - gespeichert sind nur ihre Abdrücke."
-                        : "Write them down and put them away. Each works once and stands in for the app's code when the phone is gone. Nobody can show them a second time - only their fingerprints are stored.")}}</p>
-                    <ul class="totp-codes">{{string.Join("", recoveryCodes.Select(code => $"<li>{E(code)}</li>"))}}</ul>
-                </div>
-                """;
-
         if (user.TotpEnabled)
         {
+            var left = user.TotpRecoveryHashes.Count;
+            var low = left <= 3 ? " " + SetPill(de ? "Bald aufgebraucht" : "Running low", "warning") : "";
             var since = user.TotpConfirmedAt is null
                 ? ""
-                : $"""<p class="muted settings-hint">{E((de ? "Eingeschaltet since " : "On since ") + user.TotpConfirmedAt.Value.ToLocalTime().ToString("dd.MM.yyyy HH:mm"))}</p>""";
-            return $$"""
-                <section class="panel">
-                    <h2>{{(de ? "Zwei-Faktor-Anmeldung" : "Two-factor sign-in")}}</h2>
-                    <p class="muted settings-lead">{{(de
-                        ? "Beim Anmelden fragt Matgate nach dem Passwort und danach nach einem Code aus deiner Authenticator-App."
-                        : "When signing in, Matgate asks for the password and then for a code from your authenticator app.")}}</p>
-                    {{notice}}
-                    {{codesHtml}}
-                    <p class="totp-state"><span class="badge">{{(de ? "eingeschaltet" : "on")}}</span> {{E(de ? $"{user.TotpRecoveryHashes.Count} Wiederherstellungs-Codes übrig" : $"{user.TotpRecoveryHashes.Count} recovery codes left")}}</p>
-                    {{since}}
-                    <form method="post" action="/account/totp/disable" class="settings-form form-grid">
-                        {{Csrf(context)}}
-                        <label>{{(de ? "Zum Abschalten: dein Passwort" : "To switch it off: your password")}}
-                            <input type="password" name="currentPassword" autocomplete="current-password" required>
-                        </label>
-                        <div class="actions"><button type="submit" class="danger">{{Icon("x")}}{{(de ? "Zwei-Faktor abschalten" : "Turn two-factor off")}}</button></div>
-                    </form>
-                </section>
+                : $"""<p class="totp-since">{E(de
+                    ? "Eingeschaltet seit " + user.TotpConfirmedAt.Value.ToLocalTime().ToString("dd.MM.yyyy", CultureInfo.InvariantCulture)
+                    : "On since " + user.TotpConfirmedAt.Value.ToLocalTime().ToString("d MMM yyyy", CultureInfo.InvariantCulture))}</p>""";
+            var off = FieldRow("set-totp-password", de ? "Zum Abschalten: dein Passwort" : "To switch it off: your password", "",
+                PasswordField(de, "set-totp-password", "currentPassword", "current-password", failure == "passwort"));
+            var body = $$"""
+                {{notice}}
+                <p class="totp-state">{{E(de ? $"{left} Wiederherstellungs-Codes übrig" : $"{left} recovery codes left")}}{{low}}</p>
+                {{since}}
+                <form method="post" action="/account/totp/disable" class="set-totp-off">
+                    {{Csrf(context)}}
+                    {{off}}
+                    <div class="set-card-foot"><button type="submit" class="button set-danger-outline">{{Icon("x")}}<span>{{E(de ? "Zwei-Faktor ausschalten" : "Turn two-factor off")}}</span></button></div>
+                </form>
                 """;
+            return SettingsCard(title, body,
+                de
+                    ? "Beim Anmelden fragt Matgate nach dem Passwort und danach nach einem Code aus deiner Authenticator-App."
+                    : "When signing in, Matgate asks for the password and then for a code from your authenticator app.",
+                id: "set-totp",
+                pillHtml: SetPill(de ? "An" : "On", "success"));
         }
 
         if (!string.IsNullOrWhiteSpace(user.TotpSecret))
         {
             var name = string.IsNullOrWhiteSpace(user.Email) ? user.UserName : user.Email;
             var uri = TotpService.Uri("Matgate", name, user.TotpSecret);
-            return $$"""
-                <section class="panel">
-                    <h2>{{(de ? "Zwei-Faktor-Anmeldung einrichten" : "Set up two-factor sign-in")}}</h2>
-                    <p class="muted settings-lead">{{(de
-                        ? "Scann den Code mit deiner Authenticator-App und tipp dann die sechs Ziffern ein, die sie anzeigt. Erst danach ist der zweite Faktor eingeschaltet - wer hier abbricht, sperrt sich nicht aus."
-                        : "Scan the code with your authenticator app, then type the six digits it shows. Only then is the second factor on - stopping here does not lock you out.")}}</p>
-                    {{notice}}
-                    <div class="totp-setup">
-                        <img class="totp-qr" alt="{{A(de ? "QR-Code für die Authenticator-App" : "QR code for the authenticator app")}}" src="{{A(QrDataUri(uri))}}">
-                        <div>
-                            <p class="muted settings-hint">{{(de ? "Keine Kamera zur Hand? Dann von Hand eintragen:" : "No camera at hand? Then type it in:")}}</p>
-                            <p class="totp-secret"><code>{{E(user.TotpSecret)}}</code></p>
+            // Two steps, numbered. "Cancel" sends the empty form below, the only way to switch off in this state -
+            // whoever stops here must be able to, and nothing is protected yet, so no password is asked for.
+            var body = $$"""
+                {{notice}}
+                <ol class="set-steps">
+                    <li class="set-step">
+                        <span class="set-step-badge" aria-hidden="true">1</span>
+                        <div class="set-step-body">
+                            <p class="set-step-title">{{E(de ? "Code mit der App scannen" : "Scan the code with the app")}}</p>
+                            <div class="totp-setup">
+                                <img class="totp-qr" alt="{{A(de ? "QR-Code für die Authenticator-App" : "QR code for the authenticator app")}}" src="{{A(QrDataUri(uri))}}">
+                                <div class="set-totp-manual">
+                                    <p class="set-hint">{{E(de ? "Keine Kamera zur Hand? Dann von Hand eintragen:" : "No camera at hand? Then type it in:")}}</p>
+                                    <div class="set-totp-secret">
+                                        <p class="totp-secret"><code id="set-totp-secret">{{E(user.TotpSecret)}}</code></p>
+                                        <button type="button" class="button" data-copy-from="#set-totp-secret">{{Icon("copy")}}<span>{{E(de ? "Kopieren" : "Copy")}}</span></button>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
-                    </div>
-                    <form method="post" action="/account/totp/confirm" class="settings-form form-grid">
-                        {{Csrf(context)}}
-                        <label>{{(de ? "Code aus der App" : "Code from the app")}}
-                            <input name="code" inputmode="numeric" autocomplete="one-time-code" required spellcheck="false">
-                        </label>
-                        <div class="actions"><button type="submit" class="primary">{{Icon("check")}}{{(de ? "Einschalten" : "Turn on")}}</button></div>
-                    </form>
-                    <!-- Whoever wants to stop here has to be able to. Without this way out one stayed stuck on this
-                         page: nothing was switched on, but the "Set up" button did not come back either, because the
-                         secret was already there. No password is needed for it - nothing is protected yet. -->
-                    <form method="post" action="/account/totp/disable">
-                        {{Csrf(context)}}
-                        <div class="actions"><button type="submit">{{Icon("x")}}{{(de ? "Abbrechen" : "Cancel")}}</button></div>
-                    </form>
-                </section>
+                    </li>
+                    <li class="set-step">
+                        <span class="set-step-badge" aria-hidden="true">2</span>
+                        <div class="set-step-body">
+                            <p class="set-step-title">{{E(de ? "Die sechs Ziffern eingeben" : "Enter the six digits")}}</p>
+                            <form id="set-totp-confirm" method="post" action="/account/totp/confirm" class="set-totp-form">
+                                {{Csrf(context)}}
+                                <label class="set-totp-label" for="set-totp-code">{{E(de ? "Code aus der App" : "Code from the app")}}</label>
+                                <input id="set-totp-code" class="set-totp-code" name="code" inputmode="numeric" autocomplete="one-time-code" required spellcheck="false"{{(failure == "falsch" ? " aria-invalid=\"true\" aria-describedby=\"set-totp-error\"" : "")}}>
+                            </form>
+                        </div>
+                    </li>
+                </ol>
+                <form id="totp-cancel" method="post" action="/account/totp/disable">{{Csrf(context)}}</form>
                 """;
+            var foot = $"""<button type="submit" form="set-totp-confirm" class="button primary">{Icon("check")}<span>{E(de ? "Einschalten" : "Turn on")}</span></button><button type="submit" form="totp-cancel" class="button">{Icon("x")}<span>{E(de ? "Abbrechen" : "Cancel")}</span></button>""";
+            return SettingsCard(title, body,
+                de
+                    ? "Scann den Code mit deiner Authenticator-App und tipp dann die sechs Ziffern ein, die sie anzeigt. Erst danach ist der zweite Faktor eingeschaltet - wer hier abbricht, sperrt sich nicht aus."
+                    : "Scan the code with your authenticator app, then type the six digits it shows. Only then is the second factor on - stopping here does not lock you out.",
+                id: "set-totp",
+                pillHtml: SetPill(de ? "Wird eingerichtet" : "Being set up", "warning"),
+                footHtml: foot);
         }
 
-        return $$"""
-            <section class="panel">
-                <h2>{{(de ? "Zwei-Faktor-Anmeldung" : "Two-factor sign-in")}}</h2>
-                <p class="muted settings-lead">{{(de
-                    ? "Ein Passwort allein kann abhandenkommen. Mit dem zweiten Faktor fragt Matgate beim Anmelden zusätzlich nach einem Code, den deine Authenticator-App alle 30 Sekunden neu ausrechnet - übertragen wird dabei nichts."
-                    : "A password alone can go astray. With the second factor Matgate also asks for a code that your authenticator app works out anew every 30 seconds - nothing is transmitted in the process.")}}</p>
-                {{notice}}
-                <form method="post" action="/account/totp/start">
-                    {{Csrf(context)}}
-                    <div class="actions"><button type="submit" class="primary">{{Icon("key")}}{{(de ? "Einrichten" : "Set up")}}</button></div>
-                </form>
-            </section>
+        var start = $$"""
+            <form method="post" action="/account/totp/start">
+                {{Csrf(context)}}
+                <button type="submit" class="button primary">{{Icon("key")}}<span>{{E(de ? "Einrichten" : "Set up")}}</span></button>
+            </form>
             """;
+        return SettingsCard(title, notice,
+            de
+                ? "Ein Passwort allein kann abhandenkommen. Mit dem zweiten Faktor fragt Matgate beim Anmelden zusätzlich nach einem Code, den deine Authenticator-App alle 30 Sekunden neu ausrechnet - übertragen wird dabei nichts."
+                : "A password alone can go astray. With the second factor Matgate also asks for a code that your authenticator app works out anew every 30 seconds - nothing is transmitted in the process.",
+            id: "set-totp",
+            pillHtml: SetPill(de ? "Aus" : "Off", "neutral"),
+            footHtml: start);
     }
 
     // The QR code as an image in the page itself - no separate request in which the secret would
@@ -27279,43 +28255,35 @@ public sealed partial class HtmlViews
     }
 
     // Which connections sit in the action bar as a button. The same drag list as for the sections -
-    // the chosen ones first and in their order, then the rest to tick. Places and folders are not
-    // among them: a button that only opens a folder does not belong in a bar that otherwise starts
-    // connections.
-    private static string ActionBarItems(HttpContext context, MatgateUser user, IReadOnlyList<ServerEndpoint> servers)
+    // the chosen ones first and in their order, then the rest to switch on. Places, folders and tunnels
+    // are not among them: a button that only opens a folder, or a tunnel that is never opened itself,
+    // does not belong in a bar that otherwise starts connections.
+    private static List<OrderItem> ActionBarItems(MatgateUser user, IReadOnlyList<ServerEndpoint> servers)
     {
-        var de = Language(context) == "de";
         var selectable = servers
-            .Where(server => server.Protocol != ServerProtocol.Local)
+            .Where(server => server.Protocol is not (ServerProtocol.Local or ServerProtocol.WireGuard))
             .ToList();
         var chosen = (user.ActionBarServerIds ?? [])
             .Select(id => selectable.FirstOrDefault(server => server.Id == id))
             .Where(server => server is not null)
             .Select(server => server!)
+            .Distinct()
             .ToList();
         var rest = selectable
             .Where(server => !chosen.Any(match => match.Id == server.Id))
             .OrderBy(server => server.Name, StringComparer.CurrentCultureIgnoreCase)
             .ToList();
 
-        if (selectable.Count == 0)
-        {
-            return $$"""<li class="action-order-item"><span class="action-order-name muted">{{E(de ? "Noch keine Verbindungen." : "No connections yet.")}}</span></li>""";
-        }
+        OrderItem Entry(ServerEndpoint server, bool isOn) =>
+            new(server.Id.ToString(), ServerEndpoint.EffectiveIconKey(server.Protocol, server.IconKey), server.Name, isOn);
 
-        string ActionEntry(ServerEndpoint server, bool isOn) => $$"""
-            <li class="action-order-item" data-order-key="{{A(server.Id.ToString())}}"><span class="action-order-grip" aria-hidden="true">{{Icon("menu")}}</span><span class="action-order-icon" aria-hidden="true">{{Icon(ServerEndpoint.EffectiveIconKey(server.Protocol, server.IconKey))}}</span><span class="action-order-name">{{E(server.Name)}}</span><label class="action-order-show"><input type="checkbox" data-order-visible{{(isOn ? " checked" : "")}}> {{E(de ? "zeigen" : "show")}}</label></li>
-            """;
-
-        return string.Join("", chosen.Select(server => ActionEntry(server, true)))
-            + string.Join("", rest.Select(server => ActionEntry(server, false)));
+        return [.. chosen.Select(server => Entry(server, true)), .. rest.Select(server => Entry(server, false))];
     }
 
     // The sections of the home page as a drag list - the same shape as the actions of the session
-    // toolbar, so there is no need to learn it twice.
-    private static string HomeSectionItems(HttpContext context, MatgateUser user)
+    // toolbar, so there is no need to learn it twice. The names are the start page's own.
+    private static List<OrderItem> HomeSectionItems(bool de, MatgateUser user)
     {
-        var de = Language(context) == "de";
         var names = new Dictionary<string, (string Label, string Icon)>(StringComparer.Ordinal)
         {
             ["search"] = (de ? "Suche" : "Search", "search"),
@@ -27324,18 +28292,16 @@ public sealed partial class HtmlViews
             ["recent"] = (de ? "Zuletzt verwendet" : "Recently used", "clock"),
             ["connections"] = (de ? "Alle Verbindungen" : "All connections", "server"),
             ["places"] = (de ? "Ablagen" : "Places", "archive"),
-            ["workspaces"] = ("Workspaces", "briefcase"),
+            ["workspaces"] = (de ? "Freigaben" : "Shares", "briefcase"),
             ["farm"] = (de ? "Browser-Farm" : "Browser farm", "globe"),
         };
         var hidden = (user.HiddenHomeSections ?? []).ToHashSet(StringComparer.Ordinal);
 
-        return string.Join("", HomeLayout.Order(user.HomeSections).Select(key =>
+        return [.. HomeLayout.Order(user.HomeSections).Select(key =>
         {
             var (label, icon) = names.TryGetValue(key, out var entry) ? entry : (key, "square");
-            return $$"""
-                <li class="action-order-item" data-order-key="{{A(key)}}"><span class="action-order-grip" aria-hidden="true">{{Icon("menu")}}</span><span class="action-order-icon" aria-hidden="true">{{Icon(icon)}}</span><span class="action-order-name">{{E(label)}}</span><label class="action-order-show"><input type="checkbox" data-order-visible{{(hidden.Contains(key) ? "" : " checked")}}> {{E(de ? "zeigen" : "show")}}</label></li>
-                """;
-        }));
+            return new OrderItem(key, icon, label, !hidden.Contains(key));
+        })];
     }
     // A set of suggestions right across the colour wheel - anyone who just wants something else
     // quickly does not have to open a colour picker for it. The values are chosen mid-dark so they
@@ -27523,6 +28489,12 @@ public sealed partial class HtmlViews
             "chevrons-up-down" => """<path d="m7 15 5 5 5-5"/><path d="m7 9 5-5 5 5"/>""",
             "refresh" => """<path d="M21 12a9 9 0 0 1-15.5 6.2"/><path d="M3 12A9 9 0 0 1 18.5 5.8"/><path d="M18 2v4h4"/><path d="M6 22v-4H2"/>""",
             "eye" => """<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/>""",
+            // The eye above, struck through (Lucide "eye-off", its curves matched to that eye).
+            "eye-off" => """<path d="M9.88 9.88a3 3 0 1 0 4.24 4.24"/><path d="M10.73 5.08A10.43 10.43 0 0 1 12 5c6.5 0 10 7 10 7a13.16 13.16 0 0 1-1.67 2.68"/><path d="M6.61 6.61A13.53 13.53 0 0 0 2 12s3.5 7 10 7a9.74 9.74 0 0 0 5.39-1.61"/><path d="m2 2 20 20"/>""",
+            "palette" => """<path d="M12 22a1 1 0 0 1 0-20 10 9 0 0 1 10 9 5 5 0 0 1-5 5h-2.25a1.75 1.75 0 0 0-1.4 2.8l.3.4a1.75 1.75 0 0 1-1.4 2.8z"/><circle cx="13.5" cy="6.5" r=".5"/><circle cx="17.5" cy="10.5" r=".5"/><circle cx="6.5" cy="12.5" r=".5"/><circle cx="8.5" cy="7.5" r=".5"/>""",
+            "zap" => """<path d="M13 2 3 14h9l-1 8 10-12h-9l1-8z"/>""",
+            // Lucide "sliders-horizontal".
+            "sliders" => """<path d="M21 4h-7"/><path d="M10 4H3"/><path d="M21 12h-9"/><path d="M8 12H3"/><path d="M21 20h-5"/><path d="M12 20H3"/><path d="M14 2v4"/><path d="M8 10v4"/><path d="M16 18v4"/>""",
             "edit" => """<path d="M4 20h4l10-10-4-4L4 16z"/><path d="m14 6 4 4"/>""",
             "copy" => """<rect x="8" y="8" width="12" height="12" rx="2"/><rect x="4" y="4" width="12" height="12" rx="2"/>""",
             "move" => """<path d="M12 2v20"/><path d="m8 6 4-4 4 4"/><path d="m8 18 4 4 4-4"/><path d="M2 12h20"/><path d="m6 8-4 4 4 4"/><path d="m18 8 4 4-4 4"/>""",

@@ -15,7 +15,9 @@ const MARKER = "__create-place__";
 
 (async () => {
   let b = await chromium.launch({ headless: true });
-  const page = await (await b.newContext({ viewport: { width: 1400, height: 950 } })).newPage();
+  const ctx = await b.newContext({ viewport: { width: 1400, height: 950 } });
+  await require("./list-on-start-page")(ctx);
+  const page = await ctx.newPage();
   page.on("pageerror", e => { console.log("JS ERROR: " + e.message); failures.push("JS error"); });
   // The app asks in a dialog of its own now, so there is nothing to accept - it gets typed.
   const nameIt = async () => {
@@ -100,7 +102,13 @@ const MARKER = "__create-place__";
 
   await page.goto(BASE + "/", { waitUntil: "networkidle" });
   await sleep(1200);
-  const connect = page.locator("a,button").filter({ hasText: /^ *(Connect|Verbinden) *$/ }).first();
+  // The tab from above comes back in front; the start page is where the cards are.
+  await page.click("#new-connection-tab");
+  await sleep(600);
+  // The SSH test host of the stack: a connection that has a file area (the first card on the page may be one
+  // without, such as a website or a database).
+  const card = page.locator("[data-home2-card]:visible", { has: page.locator("h3", { hasText: /^Linux-Testhost$/ }) }).first();
+  const connect = card.locator("a,button").filter({ hasText: /^ *(Connect|Verbinden) *$/ }).first();
   if (await connect.count()) { await connect.click(); await sleep(5000); }
   // The action is icon-only - its label lives in the title, not in the text.
   const filesButton = page.locator('#connection-tab-actions [title*="Files for this" i], #connection-tab-actions [title*="Dateien dieser" i]').first();

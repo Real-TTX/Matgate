@@ -34,6 +34,8 @@ public static class AgentScreenPage
             .notice p { font-size: 15px; margin: 0; max-width: 460px; }
             .notice-actions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
             .notice-actions .secondary { background: transparent; border: 1px solid #5b6b63; color: inherit; }
+            /* A finger needs more than a mouse. */
+            @media (pointer: coarse) { .notice-actions button { min-height: 44px; padding: 4px 16px; } }
             .toast { background: #18211d; border: 1px solid #33413a; border-radius: 10px; bottom: 16px; box-shadow: 0 8px 24px rgba(0,0,0,.5); max-width: min(420px, calc(100% - 32px)); padding: 12px 14px; position: absolute; right: 16px; }
             /* The session's numbers in a corner of the picture: there to be read, never in the way of a click. */
             .perf { background: rgba(11, 15, 13, .62); border-radius: 6px; color: #e6efe9; font: 11px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; left: 8px; padding: 4px 7px; pointer-events: none; position: absolute; text-shadow: 0 1px 1px rgba(0, 0, 0, .6); top: 8px; white-space: pre; z-index: 3; }
@@ -99,7 +101,7 @@ public static class AgentScreenPage
             body.fs .keys { display: none !important; }
         </style>
         </head>
-        <body data-server="__SERVER__" data-text="__TEXT__" data-kind="__KIND__" data-base="__BASE__" data-keys="__KEYS__">
+        <body data-server="__SERVER__" data-text="__TEXT__" data-kind="__KIND__" data-base="__BASE__" data-keys="__KEYS__" data-quality-default="__QUALITY__" data-csrf="__CSRF__">
         <div class="bar">
             <button id="home" type="button" class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></button>
             <strong>__TITLE__</strong>
@@ -376,6 +378,31 @@ public static class AgentScreenPage
                 },
                 error: () => resetVideo(),
             });
+            // A software decoder hands a picture over as soon as it is decoded, where a hardware one often
+            // holds one or two back. So the fastest response decodes in software - where the browser says it
+            // can: that is asked once for every codec, before it is needed, and the next key frame takes it.
+            const softwareDecoding = new Map();
+            const preferSoftware = codec => {
+                if (!fastResponse() || typeof VideoDecoder.isConfigSupported !== 'function') {
+                    return false;
+                }
+                if (!softwareDecoding.has(codec)) {
+                    softwareDecoding.set(codec, false);
+                    VideoDecoder.isConfigSupported({ codec, hardwareAcceleration: 'prefer-software', optimizeForLatency: true })
+                        .then(answer => {
+                            const supported = !!(answer && answer.supported);
+                            softwareDecoding.set(codec, supported);
+                            if (supported && fastResponse()) {
+                                // Asked for now, not held back like a key frame asked for again and again.
+                                lastKeyRequest = performance.now();
+                                send('screen.key', {});
+                            }
+                        })
+                        .catch(() => {
+                        });
+                }
+                return softwareDecoding.get(codec) === true;
+            };
             const onVideo = (data, bytes) => {
                 if (!video || video.state === 'closed') {
                     video = createVideo();
@@ -383,9 +410,14 @@ public static class AgentScreenPage
                 }
                 if (data.key) {
                     const codec = codecOf(bytes);
-                    const wanted = codec + ':' + data.width + 'x' + data.height;
+                    const software = preferSoftware(codec);
+                    const wanted = codec + ':' + data.width + 'x' + data.height + (software ? ':software' : '');
                     if (wanted !== configured) {
-                        video.configure({ codec, codedWidth: data.width, codedHeight: data.height, optimizeForLatency: true });
+                        const config = { codec, codedWidth: data.width, codedHeight: data.height, optimizeForLatency: true };
+                        if (software) {
+                            config.hardwareAcceleration = 'prefer-software';
+                        }
+                        video.configure(config);
                         configured = wanted;
                     }
                 }
@@ -508,12 +540,43 @@ public static class AgentScreenPage
             const monitorSelect = $('monitor');
             const resolutionSelect = $('resolution');
             const qualitySelect = $('quality');
-            const quality = localStorage.getItem('matgate.screen.quality') || 'auto';
-            [['auto', text.qualityHigh], ['medium', text.qualityMedium], ['low', text.qualityLow]].forEach(([value, label]) => qualitySelect.add(new Option(label, value, false, value === quality)));
+            // The picture quality. This device remembers it for every connection of its own - a computer on
+            // the office network and a phone on the road want different ones -, and a connection opened for
+            // the first time starts with the last one chosen. Unless the settings fix one for every new
+            // session on every device: then a choice here is for the running session only. The fastest
+            // response is one of Matgate's own engine (RDP, VNC); an agent does not know it.
+            const qualityKey = 'matgate.screen.quality.' + server;
+            const qualityFixed = document.body.dataset.qualityDefault || '';
+            const qualityOptions = [
+                ['auto', text.qualityHigh, text.qualityHighTitle, text.qualityHighHint],
+                ['medium', text.qualityMedium, text.qualityMediumTitle, text.qualityMediumHint],
+                ['low', text.qualityLow, text.qualityLowTitle, text.qualityLowHint],
+                ...(kind === 'display' ? [['fast', text.qualityFast, text.qualityFastTitle, text.qualityFastHint]] : []),
+            ];
+            const qualityOffered = value => qualityOptions.some(([option]) => option === value);
+            const storedQuality = localStorage.getItem(qualityKey) || localStorage.getItem('matgate.screen.quality') || 'auto';
+            const quality = qualityFixed
+                ? (qualityOffered(qualityFixed) ? qualityFixed : 'auto')
+                : (qualityOffered(storedQuality) ? storedQuality : 'auto');
+            qualityOptions.forEach(([value, label, title, hint]) => {
+                const option = new Option(label, value, false, value === quality);
+                // The two lines of its card in the shell's display dialog.
+                option.dataset.title = title || '';
+                option.dataset.hint = hint || '';
+                qualitySelect.add(option);
+            });
             qualitySelect.title = text.quality;
+            // Every picture as soon as it can be had, in fewer colours. What this page does for it - sound,
+            // the mouse, the decoder - follows a change at once, the colours come with the next connection.
+            const fastResponse = () => qualitySelect.value === 'fast';
             qualitySelect.addEventListener('change', () => {
-                localStorage.setItem('matgate.screen.quality', qualitySelect.value);
+                if (!qualityFixed) {
+                    localStorage.setItem(qualityKey, qualitySelect.value);
+                    localStorage.setItem('matgate.screen.quality', qualitySelect.value);
+                }
                 send('screen.config', { quality: qualitySelect.value });
+                followSound();
+                offerColours();
             });
             // The machine's resolution: adapted to this window (as RDP does), as the machine has it, or a mode of its own.
             const resolutionKey = 'matgate.screen.resolution.' + server;
@@ -643,6 +706,58 @@ public static class AgentScreenPage
                 });
             };
 
+            // RDP asks for its colours (and for a desktop without wallpaper and animations in the fastest
+            // response) when it connects. Switching into the fastest response or out of it on a running session
+            // changes the pictures at once and the colours with the next connection: the page says so and offers
+            // that connection now. VNC and agents keep their colours.
+            let qualityColours = false;
+            let fewerColours = false;
+            const offerColours = () => {
+                const ours = !notice.classList.contains('hidden') && noticeText.textContent === text.qualityReconnect;
+                if (qualityColours && !ended && socket && socket.readyState === WebSocket.OPEN && fastResponse() !== fewerColours) {
+                    showNotice(text.qualityReconnect, text.reconnectNow, reconnectForColours, text.later, hideNotice);
+                }
+                else if (ours) {
+                    hideNotice();
+                }
+            };
+            // The session ends now, not when its time to wait for a viewer runs out, and a new one is made with
+            // the quality chosen now. Ended through the address a closed tab ends its session with.
+            const reconnectForColours = async () => {
+                hideNotice();
+                const before = session;
+                const old = socket;
+                socket = null;
+                window.clearTimeout(retryTimer);
+                if (old) {
+                    // Its end is no connection lost: the next one is made right here.
+                    old.onclose = null;
+                    old.onmessage = null;
+                    try {
+                        old.close();
+                    }
+                    catch {
+                    }
+                }
+                statsLine.textContent = '';
+                releaseAll();
+                stopSound(false);
+                try {
+                    await fetch('/api/kept-sessions/end?session=' + encodeURIComponent(before), {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: { 'X-Matgate-Csrf': document.body.dataset.csrf || '' },
+                    });
+                }
+                catch {
+                    // Then it ends when its time runs out.
+                }
+                sessionOver = true;
+                // A new session on purpose: no question whether to take one that runs already.
+                params.set('fresh', '1');
+                connect();
+            };
+
             const connect = async () => {
                 window.clearTimeout(retryTimer);
                 hideAuth();
@@ -731,6 +846,9 @@ public static class AgentScreenPage
                         clipImage = data.clipImage || 'png';
                         clipFiles = data.clipFiles !== false;
                         canSound = data.audio !== false;
+                        // Whether the colours of this connection follow the quality (RDP), and which it got.
+                        qualityColours = !!data.qualityColours;
+                        fewerColours = !!data.fewerColours;
                         // What the machine can take from this browser besides mouse and keyboard, and why not.
                         micAvailability = kind === 'agent' && typeof data.microphone === 'string' ? data.microphone : '';
                         padAvailability = kind === 'agent' && typeof data.gamepad === 'string' ? data.gamepad : '';
@@ -802,7 +920,12 @@ public static class AgentScreenPage
                         window.__screen.stats = data;
                         window.setTimeout(notifyStats, 0);
                         paintPerf(data);
-                        statsLine.textContent = [data.fps != null ? Math.round(data.fps) + ' ' + text.fps : '', data.rtt != null ? Math.round(data.rtt) + ' ms' : ''].filter(Boolean).join(' · ');
+                        // Fewer colours show as bands in gradients - said here, they are not taken for a fault.
+                        statsLine.textContent = [
+                            data.fps != null ? Math.round(data.fps) + ' ' + text.fps : '',
+                            data.rtt != null ? Math.round(data.rtt) + ' ms' : '',
+                            data.colours > 0 && data.colours < 24 ? text.fewerColours : '',
+                        ].filter(Boolean).join(' · ');
                         statsLine.title = text.statsTitle
                             .replace('{fps}', data.fps ?? '-').replace('{limit}', data.fpsLimit ?? '-').replace('{rtt}', data.rtt ?? '-')
                             .replace('{kbps}', data.kbps ?? '-').replace('{agent}', data.agentMs ?? '-').replace('{encoder}', data.encoder || '-');
@@ -889,20 +1012,29 @@ public static class AgentScreenPage
                 };
             };
             let moveQueued = null;
+            let moveSentAt = 0;
+            const sendMove = () => {
+                if (moveQueued) {
+                    send('screen.input', { t: 'm', x: moveQueued.x, y: moveQueued.y });
+                    if (touchMode) {
+                        pointerAt = { ...pointerAt, x: moveQueued.x, y: moveQueued.y, visible: true };
+                        placePointer();
+                    }
+                    moveQueued = null;
+                    moveSentAt = performance.now();
+                }
+            };
+            // One move a frame is enough for the eye. The fastest response sends it at once instead - a few
+            // milliseconds apart at the least: a mouse that reports a thousand times a second would only
+            // fill the line.
             const queueMove = (clientX, clientY) => {
                 const first = !moveQueued;
                 moveQueued = toRemote(clientX, clientY);
-                if (first) {
-                    requestAnimationFrame(() => {
-                        if (moveQueued) {
-                            send('screen.input', { t: 'm', x: moveQueued.x, y: moveQueued.y });
-                            if (touchMode) {
-                                pointerAt = { ...pointerAt, x: moveQueued.x, y: moveQueued.y, visible: true };
-                                placePointer();
-                            }
-                            moveQueued = null;
-                        }
-                    });
+                if (fastResponse() && performance.now() - moveSentAt >= 4) {
+                    sendMove();
+                }
+                else if (first) {
+                    requestAnimationFrame(sendMove);
                 }
             };
             const flushMove = () => {
@@ -2290,7 +2422,13 @@ public static class AgentScreenPage
 
             // ---- sound ----------------------------------------------------------------------------------
             const soundButton = $('sound');
-            let soundWanted = localStorage.getItem('matgate.screen.sound') !== 'off';
+            // Sound is on unless it was switched off - except in the fastest response: there it is off unless it
+            // was switched on there. Plain sound takes a megabit and a half of the same line as the pictures.
+            const soundKey = () => fastResponse() ? 'matgate.screen.sound.fast' : 'matgate.screen.sound';
+            const soundPreferred = () => fastResponse()
+                ? localStorage.getItem(soundKey()) === 'on'
+                : localStorage.getItem(soundKey()) !== 'off';
+            let soundWanted = soundPreferred();
             let soundUnlocked = false;
             let audioContext = null;
             let audioDecoder = null;
@@ -2409,9 +2547,24 @@ public static class AgentScreenPage
                     soundWanted = true;
                     startSound();
                 }
-                localStorage.setItem('matgate.screen.sound', soundWanted ? 'on' : 'off');
+                localStorage.setItem(soundKey(), soundWanted ? 'on' : 'off');
                 paintSound();
             });
+            // Into the fastest response or out of it: the sound that is wanted there.
+            const followSound = () => {
+                const wanted = soundPreferred();
+                if (wanted === soundWanted) {
+                    return;
+                }
+                soundWanted = wanted;
+                if (!wanted && audioContext) {
+                    stopSound(true);
+                }
+                else if (wanted && soundUnlocked) {
+                    startSound();
+                }
+                paintSound();
+            };
             paintSound();
 
             // ---- the machine's windows: a list to switch by, and one window as the whole picture ----------
@@ -2552,6 +2705,7 @@ public static class AgentScreenPage
                 const second = [
                     canvas.width + '×' + canvas.height,
                     resolution === 'auto' ? scale + ' %' : '',
+                    data.colours > 0 && data.colours < 24 ? text.colourBits.replace('{bits}', data.colours) : '',
                     data.encoder || '',
                     data.agentMs != null ? data.agentMs + ' ms' : '',
                 ].filter(Boolean).join('  ');
@@ -2573,7 +2727,13 @@ public static class AgentScreenPage
             };
             perfBox.classList.toggle('hidden', !perfOn);
 
-            const optionList = select => [...select.options].map(option => ({ value: option.value, label: option.textContent, active: option.selected }));
+            const optionList = select => [...select.options].map(option => ({
+                value: option.value,
+                label: option.textContent,
+                active: option.selected,
+                title: option.dataset.title || '',
+                hint: option.dataset.hint || '',
+            }));
             window.MatgateScreen = {
                 state: () => ({
                     status: statusLine.textContent,
@@ -2584,6 +2744,8 @@ public static class AgentScreenPage
                     resolutionOptions: optionList(resolutionSelect),
                     monitors: optionList(monitorSelect),
                     qualities: optionList(qualitySelect),
+                    // What the settings fix for every new session ('' where each device remembers its own).
+                    qualityDefault: qualityFixed ? quality : '',
                     sound: !!audioContext,
                     canSound,
                     mic: micOn,
@@ -2605,7 +2767,22 @@ public static class AgentScreenPage
                     windows: windowList,
                     pointerMode,
                     kind,
-                    texts: { monitor: text.monitor, quality: text.quality, target: kind === 'agent' ? text.target : 'Matgate', scale: text.scale, remoteSize: text.resolution, keyboardResize: text.keyboardResize, keyboardResizeHint: text.keyboardResizeHint, fixedSizes: text.fixedSizes, perf: text.perf, perfHint: text.perfHint },
+                    texts: {
+                        monitor: text.monitor,
+                        quality: text.quality,
+                        qualityNoteDevice: text.qualityNoteDevice,
+                        qualityNoteFixed: text.qualityNoteFixed,
+                        qualityForAll: text.qualityForAll,
+                        qualityChange: text.qualityChange,
+                        target: kind === 'agent' ? text.target : 'Matgate',
+                        scale: text.scale,
+                        remoteSize: text.resolution,
+                        keyboardResize: text.keyboardResize,
+                        keyboardResizeHint: text.keyboardResizeHint,
+                        fixedSizes: text.fixedSizes,
+                        perf: text.perf,
+                        perfHint: text.perfHint,
+                    },
                 }),
                 setResolution: value => {
                     resolutionSelect.value = value;

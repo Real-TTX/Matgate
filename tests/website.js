@@ -26,6 +26,7 @@ const SITE = /^http:\/\/[a-z2-7]{20}\.mg\.localhost:18091/;
 (async () => {
   let b = await chromium.launch({ headless: true });
   const context = await b.newContext({ viewport: { width: 1300, height: 860 } });
+  await require("./fresh-workspace")(context);
   const page = await context.newPage();
   const signIn = async (target, base) => {
     await target.goto(base + "/login", { waitUntil: "networkidle" });
@@ -325,6 +326,7 @@ const SITE = /^http:\/\/[a-z2-7]{20}\.mg\.localhost:18091/;
   // Matgate reached under an address that is no site with the websites' hosts: the browser keeps no
   // cookie for them inside a frame, the shell notices and falls back by itself.
   const foreign = await b.newContext({ viewport: { width: 1300, height: 860 } });
+  await require("./fresh-workspace")(foreign);
   const foreignPage = await foreign.newPage();
   await signIn(foreignPage, "http://127.0.0.1:18091");
   other = await open(web, "http://127.0.0.1:18091", foreign);

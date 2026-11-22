@@ -41,6 +41,12 @@ internal sealed class VncBackend : IScreenBackend, IVncHandler
 
     public bool Sound => false;
 
+    // True colour, 8 bits for each of red, green and blue, whatever the quality: fewer colours would need every
+    // decoder to read other pixel formats.
+    public int ColorDepth => 24;
+
+    public bool QualityColours => false;
+
     public async Task ConnectAsync(CancellationToken cancellationToken)
     {
         var client = new VncClient(

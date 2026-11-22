@@ -220,7 +220,9 @@ public static partial class EndpointMapping
     }
 
     // The screen page for an agent's machine and for RDP/VNC through Matgate's own engine: the same page, only
-    // where its socket and its downloads are differs.
+    // where its socket and its downloads are differs. It gets the picture quality the settings fix for every
+    // new session ("" where each device remembers its own), and the token that lets it end its own session -
+    // to connect again with other colours.
     private static string ScreenPageHtml(HttpContext context, MatgateUser user, string title, Guid serverId, string kind, string basePath)
     {
         var de = HtmlViews.Language(context) == "de";
@@ -230,6 +232,8 @@ public static partial class EndpointMapping
             .Replace("__SERVER__", serverId.ToString())
             .Replace("__KIND__", kind)
             .Replace("__BASE__", basePath)
+            .Replace("__QUALITY__", SessionPreferences.NormalizeScreenQuality(user.Session?.ScreenQuality))
+            .Replace("__CSRF__", System.Net.WebUtility.HtmlEncode(context.User.FindFirst("csrf")?.Value ?? ""))
             .Replace("__KEYS__", System.Net.WebUtility.HtmlEncode(KeyBar.ScreenJson(user, de)))
             .Replace("__TEXT__", System.Net.WebUtility.HtmlEncode(JsonSerializer.Serialize(new
             {
@@ -265,7 +269,26 @@ public static partial class EndpointMapping
                 quality = de ? "Bildqualität" : "Picture quality",
                 qualityHigh = de ? "Flüssig (60 Bilder/s)" : "Smooth (60 fps)",
                 qualityMedium = de ? "Mittel (30 Bilder/s)" : "Medium (30 fps)",
-                qualityLow = de ? "Wenig Daten" : "Low data",
+                qualityLow = de ? "Wenig Daten (20 Bilder/s)" : "Low data (20 fps)",
+                qualityFast = de ? "Schnellste Reaktion (weniger Farben)" : "Fastest response (fewer colours)",
+                // The two lines of each choice in the display dialog.
+                qualityHighTitle = de ? "Flüssig" : "Smooth",
+                qualityHighHint = de ? "60 Bilder/s" : "60 fps",
+                qualityMediumTitle = de ? "Mittel" : "Medium",
+                qualityMediumHint = de ? "30 Bilder/s" : "30 fps",
+                qualityLowTitle = de ? "Wenig Daten" : "Low data",
+                qualityLowHint = de ? "20 Bilder/s" : "20 fps",
+                qualityFastTitle = de ? "Schnellste Reaktion" : "Fastest response",
+                qualityFastHint = de ? "weniger Farben" : "fewer colours",
+                qualityNoteDevice = de ? "Dieses Gerät merkt sich die Wahl für diese Verbindung." : "This device remembers the choice for this connection.",
+                qualityForAll = de ? "Für alle Geräte festlegen ›" : "Set for all devices ›",
+                qualityNoteFixed = de ? "Neue Sitzungen starten mit „{title}“ – festgelegt in den Einstellungen." : "New sessions start with “{title}” – set in Settings.",
+                qualityChange = de ? "Ändern ›" : "Change ›",
+                qualityReconnect = de ? "Die Farben ändern sich beim nächsten Verbinden." : "The colours change with the next connection.",
+                reconnectNow = de ? "Jetzt neu verbinden" : "Reconnect now",
+                later = de ? "Später" : "Later",
+                fewerColours = de ? "weniger Farben" : "fewer colours",
+                colourBits = de ? "{bits} Bit" : "{bits} bit",
                 soundOn = de ? "Ton einschalten" : "Turn sound on",
                 soundOff = de ? "Ton ausschalten" : "Turn sound off",
                 soundBlocked = de ? "Ton: einmal ins Bild klicken" : "Sound: click into the picture once",

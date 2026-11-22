@@ -9,6 +9,9 @@ public static partial class EndpointMapping
 {
     private const string KeyBarList = "/account?tab=keys";
 
+    // After a change that was saved: the list again, with the notice that it was.
+    private const string KeyBarSaved = "/account?tab=keys&saved=keys";
+
     private static void MapKeyBarEndpoints(WebApplication app)
     {
         app.MapGet("/account/keys/new", KeyBarNewAsync).RequireAuthorization();
@@ -145,7 +148,7 @@ public static partial class EndpointMapping
                 de ? $"Mehr als {KeyBar.MaxButtons} Knöpfe fasst die Leiste nicht." : $"The bar does not hold more than {KeyBar.MaxButtons} buttons."), "text/html");
         }
 
-        return Results.Redirect(EmbedAwareRedirect(context, KeyBarList));
+        return Results.Redirect(EmbedAwareRedirect(context, KeyBarSaved));
     }
 
     private static async Task<IResult> KeyBarUpdateAsync(string id, HttpContext context, JsonDataStore store, HtmlViews views)
@@ -194,7 +197,7 @@ public static partial class EndpointMapping
             current.UpdatedAt = DateTimeOffset.UtcNow;
         }, context.RequestAborted);
 
-        return Results.Redirect(EmbedAwareRedirect(context, KeyBarList));
+        return Results.Redirect(EmbedAwareRedirect(context, KeyBarSaved));
     }
 
     // One place forward or back in the bar.
@@ -269,7 +272,7 @@ public static partial class EndpointMapping
             current.UpdatedAt = DateTimeOffset.UtcNow;
         }, context.RequestAborted);
 
-        return Results.Redirect(EmbedAwareRedirect(context, KeyBarList));
+        return Results.Redirect(EmbedAwareRedirect(context, KeyBarSaved));
     }
 
     // Back to the default: the user's own list goes, and with it everything they added or changed.
@@ -299,6 +302,6 @@ public static partial class EndpointMapping
             current.UpdatedAt = DateTimeOffset.UtcNow;
         }, context.RequestAborted);
 
-        return Results.Redirect(EmbedAwareRedirect(context, KeyBarList));
+        return Results.Redirect(EmbedAwareRedirect(context, KeyBarSaved));
     }
 }

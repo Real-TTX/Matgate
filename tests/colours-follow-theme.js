@@ -31,7 +31,9 @@ const contrast = (a, b) => {
 
 (async () => {
   let b = await chromium.launch({ headless: true });
-  const page = await (await b.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: "light" })).newPage();
+  const ctx = await b.newContext({ viewport: { width: 1280, height: 900 }, colorScheme: "light" });
+  await require("./list-on-start-page")(ctx);
+  const page = await ctx.newPage();
   page.on("pageerror", e => { console.log("JS ERROR: " + e.message); failures.push("JS error"); });
   await page.goto(BASE + "/login", { waitUntil: "networkidle" });
   await page.fill("input[name=\"username\"]", "admin");
@@ -47,7 +49,7 @@ const contrast = (a, b) => {
   });
 
   // --- Starting point
-  await page.goto(BASE + "/account?tab=profile", { waitUntil: "networkidle" });
+  await page.goto(BASE + "/account?tab=appearance", { waitUntil: "networkidle" });
   await sleep(800);
   await Promise.all([
     page.waitForNavigation({ waitUntil: "load", timeout: 20000 }),
@@ -62,7 +64,7 @@ const contrast = (a, b) => {
   check("the logo has a gradient", /linear-gradient/.test(before.background), true);
 
   // --- Set colours of our own
-  await page.goto(BASE + "/account?tab=profile", { waitUntil: "networkidle" });
+  await page.goto(BASE + "/account?tab=appearance", { waitUntil: "networkidle" });
   await sleep(800);
   await Promise.all([
     page.waitForNavigation({ waitUntil: "load", timeout: 20000 }),
@@ -118,7 +120,7 @@ const contrast = (a, b) => {
   await page.screenshot({ path: "farbfest-1.png", clip: { x: 0, y: 0, width: 400, height: 60 } });
 
   // --- Reset
-  await page.goto(BASE + "/account?tab=profile", { waitUntil: "networkidle" });
+  await page.goto(BASE + "/account?tab=appearance", { waitUntil: "networkidle" });
   await sleep(800);
   await Promise.all([
     page.waitForNavigation({ waitUntil: "load", timeout: 20000 }),

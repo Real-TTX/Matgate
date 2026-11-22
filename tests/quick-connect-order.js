@@ -1,6 +1,6 @@
-// The chips of quick connect are the user's to arrange: Account -> Session has them as a list to drag and
-// to tick, and the start page and the quick-connect dialog show them in that order. Before, the order was
-// fixed and only the ticks were the user's.
+// The chips of quick connect are the user's to arrange: Settings -> Start page has them as a list to drag and
+// to switch on and off, and the start page and the quick-connect dialog show them in that order. Before, the
+// order was fixed and only the ticks were the user's.
 const { chromium } = require("playwright-core");
 const BASE = "http://127.0.0.1:18091";
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -27,7 +27,7 @@ const grouped = keys => { const first = []; keys.forEach(k => { if (!first.inclu
   await sleep(1000);
 
   const settings = async () => {
-    await page.goto(BASE + "/account?tab=session", { waitUntil: "networkidle" });
+    await page.goto(BASE + "/account?tab=home", { waitUntil: "networkidle" });
     await sleep(400);
   };
   const listed = () => page.evaluate(() => [...document.querySelectorAll("#quick-order-list .action-order-item")].map(item => item.dataset.orderKey + (item.querySelector("[data-order-visible]").checked ? "" : "-")));
@@ -91,9 +91,15 @@ const grouped = keys => { const first = []; keys.forEach(k => { if (!first.inclu
   await page.waitForSelector("[data-home2-proto-dialog][open]", { timeout: 10000 });
   check("the dialog opens on the first chip", await page.evaluate(() => [document.querySelector("[data-home2-qc-proto].active").dataset.home2QcProto, document.querySelector("[data-home2-qc-hostlabel]").textContent]), ["website", "Start URL"]);
 
-  // What the server takes: only chips it knows, each once.
+  // What the server takes: only chips it knows, each once. The form is posted as the server renders it - without
+  // any script - so the start page's other lists in it travel with their real values and stay as they are.
+  const homeLists = () => page.evaluate(async () => {
+    const page = new DOMParser().parseFromString(await (await fetch("/account?tab=home", { credentials: "same-origin" })).text(), "text/html");
+    return ["homeSections", "hiddenHomeSections", "actionBarServers", "hiddenActionBarServers"].map(name => page.querySelector("[name='" + name + "']").value);
+  });
+  const listsBefore = await homeLists();
   check("a made-up order cannot bring in what is not a chip", await page.evaluate(async () => {
-    const page = new DOMParser().parseFromString(await (await fetch("/account?tab=session", { credentials: "same-origin" })).text(), "text/html");
+    const page = new DOMParser().parseFromString(await (await fetch("/account?tab=home", { credentials: "same-origin" })).text(), "text/html");
     const form = page.querySelector("#quick-order-list").closest("form");
     const body = new FormData(form);
     body.set("quickProtocols", "ssh,nonsense,ssh,local,rdp");
@@ -102,6 +108,7 @@ const grouped = keys => { const first = []; keys.forEach(k => { if (!first.inclu
     const home = new DOMParser().parseFromString(await (await fetch("/", { credentials: "same-origin" })).text(), "text/html");
     return [...home.querySelectorAll(".home2-quick-row [data-home2-qc]")].map(chip => chip.dataset.home2Qc);
   }), ["ssh", "rdp", "vnc", "sftp", "smb", "website", "ftp", "webdav", "mssql", "mysql", "postgres"]);
+  check("and the start page's sections and action bar in the same form stay as they were", await homeLists(), listsBefore);
 
   await reset();
   check("and back to the built-in order for whoever comes next", (await onHome()).chips, BUILT_IN);

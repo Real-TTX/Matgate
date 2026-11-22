@@ -332,8 +332,9 @@ public sealed partial class RdpClient
         return message.ToArray();
     }
 
-    // What this client is: the screen it wants, its keyboard, and the virtual channels it brings.
-    private byte[] ClientData()
+    // What this client is: the screen it wants, its keyboard, and the virtual channels it brings. (Internal for
+    // the tests, which read the bytes.)
+    internal byte[] ClientData()
     {
         var data = new WireWriter(512);
 
@@ -349,10 +350,9 @@ public sealed partial class RdpClient
         data.U32(4).U32(0).U32(12);
         data.Zero(64);
         data.U16(0xCA01).U16(1).U32(0);
-        // 24 bits here and "32 bits wanted" in the flags: that is how a client asks for full colour.
-        data.U16(24).U16(0x000F);
-        // Error details, 32 bits, status messages, strong keys, a connection type that counts, monitor layouts.
-        data.U16(0x006F);
+        var (depth, depths, flags) = ColourFields(_options.ColorDepth);
+        data.U16(depth).U16(depths);
+        data.U16(flags);
         data.Zero(64);
         // The connection type "LAN": the server spends bandwidth on quality.
         data.U8(6).U8(0);
@@ -375,6 +375,15 @@ public sealed partial class RdpClient
 
         return data.ToArray();
     }
+
+    // The colour fields of the core data: the depth asked for, the depths this client takes, and the early
+    // capability flags. 24 bits and "32 bits wanted" in the flags: that is how a client asks for full colour.
+    // Fewer colours are asked for as that many bits, with 24, 16 and 15 as what this client takes as well,
+    // should the server not want to; the flags are the same without "32 bits wanted". The flags: error
+    // details, 32 bits, status messages, strong keys, a connection type that counts, monitor layouts.
+    internal static (int Depth, int Depths, int Flags) ColourFields(int colorDepth) => colorDepth >= 32
+        ? (24, 0x000F, 0x006F)
+        : (colorDepth is 15 or 24 ? colorDepth : 16, 0x0007, 0x006D);
 
     private void ConnectResponse(ReadOnlySpan<byte> response)
     {
@@ -453,8 +462,11 @@ public sealed partial class RdpClient
         }
     }
 
-    // The Client Info message: who signs in, and how the session should look and behave.
-    private void SendClientInfo()
+    private void SendClientInfo() => Send(McsData(_ioChannel, ClientInfo()));
+
+    // The Client Info message: who signs in, and how the session should look and behave. (Internal for the
+    // tests, which read the bytes.)
+    internal byte[] ClientInfo()
     {
         var (domain, user) = Account();
         var password = _options.Password;
@@ -487,9 +499,10 @@ public sealed partial class RdpClient
         // The time zone: UTC, no daylight saving time.
         info.I32(0).Utf16Field("UTC", 64).Zero(16).I32(0).Utf16Field("UTC", 64).Zero(16).I32(0);
         info.U32(0);
-        // Smooth fonts and desktop composition: the network between Matgate and the server can take it.
-        info.U32(0x00000180);
+        // What the desktop may spend on looks: smooth fonts and desktop composition, as the network between
+        // Matgate and the server can take it - or, for the fastest response, nothing that only costs pictures.
+        info.U32(_options.PerformanceFlags);
         info.U16(0);
-        Send(McsData(_ioChannel, info.Span));
+        return info.ToArray();
     }
 }

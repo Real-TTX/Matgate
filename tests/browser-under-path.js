@@ -31,15 +31,52 @@ const check = (name, got, want) => {
   const chips = await page.evaluate(() => [...document.querySelectorAll(".home2-quick-row [data-home2-qc]")].map(chip => chip.dataset.home2Qc + ":" + chip.textContent.trim()));
   check("the browser is one of the chips - where the website was, not in front", [chips.indexOf("website:Browser"), chips.some(chip => /^browser:/.test(chip)), chips[0]], [5, false, "rdp:RDP"]);
 
-  // On a phone every chip is in sight: the row used to scroll sideways with no sign of it, and the browser
-  // stood behind the edge of the screen.
+  // On a phone the chips are one row to swipe through. It once scrolled sideways with no sign of it, and the
+  // browser stood behind the edge of the screen for anyone who did not think of swiping: now the tile at the
+  // edge is cut, "More" stays in sight at the right end, and "Anpassen" leads to the order.
   await page.setViewportSize({ width: 390, height: 844 });
   await sleep(300);
-  check("on a phone all chips are on the screen, the browser among them", await page.evaluate(() => {
-    const boxes = [...document.querySelectorAll(".home2-quick-row .home2-proto-chip")].map(chip => chip.getBoundingClientRect());
+  check("on a phone the chips are one row that scrolls sideways - the page itself does not", await page.evaluate(() => {
     const row = document.querySelector(".home2-quick-row");
-    return [boxes.length, boxes.every(box => box.left >= 0 && box.right <= window.innerWidth && box.width > 40), row.scrollWidth <= row.clientWidth + 1];
-  }), [12, true, true]);
+    const boxes = [...row.querySelectorAll(".home2-proto-chip")].map(c => c.getBoundingClientRect());
+    return [boxes.length, new Set(boxes.map(b => Math.round(b.top))).size, row.scrollWidth > row.clientWidth + 1,
+      document.documentElement.scrollWidth <= innerWidth + 1, boxes.every(b => b.width > 40)];
+  }), [12, 1, true, true, true]);
+  check("'More' stays in sight at the right edge, and the tile before it is cut", await page.evaluate(() => {
+    const row = document.querySelector(".home2-quick-row"); row.scrollLeft = 0;
+    const more = row.querySelector("[data-home2-more]").getBoundingClientRect();
+    const cut = [...row.querySelectorAll("[data-home2-qc]")].some(c => { const b = c.getBoundingClientRect(); return b.left < more.left && b.right > more.left; });
+    return [more.left >= 0 && more.right <= innerWidth, cut];
+  }), [true, true]);
+  check("the browser chip scrolls into sight and is not under 'More'", await page.evaluate(async () => {
+    const chip = document.querySelector(".home2-quick-row [data-home2-qc='website']");
+    chip.scrollIntoView({ inline: "nearest", block: "nearest" }); await new Promise(r => setTimeout(r, 400));
+    const b = chip.getBoundingClientRect(), more = document.querySelector(".home2-quick-row [data-home2-more]").getBoundingClientRect();
+    const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
+    return [b.left >= 0 && b.right <= more.left + 1, !!hit && chip.contains(hit)];
+  }), [true, true]);
+  check("'Anpassen' is there for a phone without a long press", await page.evaluate(() => !!document.querySelector(".home2-quick-section .home2-section-link")?.offsetParent), true);
+  // The start page is built anew after a favourite, an edit or a change in the settings: the row stays where it
+  // was left. A star clicked and clicked again builds it anew twice and leaves the favourites as they were.
+  check("the row stays where it was left when the start page is built anew", await page.evaluate(async () => {
+    const wait = ms => new Promise(r => setTimeout(r, ms));
+    const star = () => document.querySelector("[data-home2-card] .favorite-toggle-form button");
+    if (!star()) { return "no card with a star"; }
+    const rebuilt = async () => {
+      const row = document.querySelector(".home2-quick-row");
+      star().click();
+      for (let i = 0; i < 100 && document.querySelector(".home2-quick-row") === row; i++) { await wait(100); }
+    };
+    const before = document.querySelector(".home2-quick-row");
+    before.scrollLeft = 120;
+    await wait(300);
+    const left = before.scrollLeft;
+    await rebuilt();
+    const after = document.querySelector(".home2-quick-row");
+    const kept = [left > 60, after !== before, Math.abs(after.scrollLeft - left) <= 1, after.classList.contains("is-scrolled")];
+    await rebuilt();
+    return kept;
+  }), [true, true, true, true]);
   check("and their names are not cut off", await page.evaluate(() => [...document.querySelectorAll(".home2-quick-row .home2-proto-chip-name")].filter(name => name.scrollWidth > name.clientWidth + 1).map(name => name.textContent + ":" + name.scrollWidth + "/" + name.clientWidth)), []);
   await page.setViewportSize({ width: 1300, height: 860 });
   await sleep(300);

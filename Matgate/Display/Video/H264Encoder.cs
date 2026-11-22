@@ -18,6 +18,12 @@ internal sealed record H264EncoderOptions
 
     public int MaxQp { get; init; } = 51;
 
+    // Matgate's rate controller: how many seconds of the bit rate a burst may take, and what a still picture
+    // may borrow beyond that (see RateController).
+    public double BucketSeconds { get; init; } = RateController.DefaultBucketSeconds;
+
+    public double OverdraftSeconds { get; init; } = RateController.DefaultOverdraftSeconds;
+
     // More than one: the picture is cut into that many slices, coded on that many threads. 0: one thread up
     // to the size of 1920 x 1080, four above it.
     public int Threads { get; init; }
@@ -135,7 +141,7 @@ public sealed unsafe class H264Encoder : IDisposable
         _quantiser = options.MinQp;
         if (options.LibraryRateControl == RateControlMode.Off)
         {
-            _rate = new RateController(width, height, framesPerSecond, maxKilobitsPerSecond, options.MinQp);
+            _rate = new RateController(width, height, framesPerSecond, maxKilobitsPerSecond, options.MinQp, options.BucketSeconds, options.OverdraftSeconds);
         }
 
         _encoder = OpenH264.CreateEncoder();

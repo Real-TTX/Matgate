@@ -44,6 +44,10 @@ const FOLDER = "Rechtsklick";
     return found ? found.dataset.fav : null;
   }, name);
   const rightClick = async (locator, position = { x: 60, y: 30 }, options = {}) => {
+    // Into sight first, and a moment for it: scrolling as part of the click ends in a scroll event, and that
+    // closes the menu the click has just opened.
+    await locator.scrollIntoViewIfNeeded();
+    await sleep(150);
     await locator.click({ button: "right", position, ...options });
     await sleep(250);
   };
@@ -56,6 +60,9 @@ const FOLDER = "Rechtsklick";
     await sleep(1500);
   }
 
+  // In the middle of the window, so the menu has room below the pointer and need not move up to fit.
+  await card("Linux-Testhost").evaluate(entry => entry.scrollIntoView({ block: "center" }));
+  await sleep(300);
   const box = await card("Linux-Testhost").boundingBox();
   await rightClick(card("Linux-Testhost"));
   check("a right click on a card opens its menu: what the card's buttons do, and two things more", await menu(page),

@@ -272,6 +272,22 @@ public sealed class SessionPreferences
     // clipboard channel. Required for SSH/terminal sessions (and a useful fallback elsewhere), where
     // the remote never pastes the clipboard we give it.
     public bool PasteAsKeystrokes { get; set; }
+
+    // --- Picture ---
+    // The picture quality a new screen session starts with (RDP, VNC and agent screens through Matgate's own
+    // engine). Empty means "as last used on this device": every device keeps the choice made in a session's
+    // Display dialog, which is how it worked before this setting existed. A string and not an enum, because
+    // the data file has no enum converter and would store a number.
+    public string ScreenQuality { get; set; } = "";
+
+    public static readonly string[] ScreenQualityChoices = ["", "auto", "medium", "low", "fast"];
+
+    // Trimmed and in lower case; anything unknown means "as last used on this device".
+    public static string NormalizeScreenQuality(string? value)
+    {
+        var normalized = (value ?? "").Trim().ToLowerInvariant();
+        return Array.IndexOf(ScreenQualityChoices, normalized) >= 0 ? normalized : "";
+    }
 }
 
 // Which of the gateway's own file areas a user may use. They show up as folders on the redirected

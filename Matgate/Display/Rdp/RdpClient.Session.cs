@@ -246,11 +246,14 @@ public sealed partial class RdpClient
         }
     }
 
-    // What this client can take. Deliberately little: bitmaps in full colour, pointers, virtual channels, and the
-    // few drawing orders with their bitmap caches that the order decoder draws completely (servers like xrdp paint
-    // with orders only) - no glyphs, brushes or offscreen caches, no codecs, so the rest comes as plain compressed
-    // bitmaps.
-    private void ConfirmActive()
+    private void ConfirmActive() => SendControl(0x13, ConfirmActiveBody(ColorDepth));
+
+    // What this client can take. Deliberately little: bitmaps in full colour (or in the colours asked for),
+    // pointers, virtual channels, and the few drawing orders with their bitmap caches that the order decoder
+    // draws completely (servers like xrdp paint with orders only) - no glyphs, brushes or offscreen caches, no
+    // codecs, so the rest comes as plain compressed bitmaps. serverDepth is the colour depth the server settled
+    // on. (Internal for the tests, which read the bytes.)
+    internal byte[] ConfirmActiveBody(int serverDepth)
     {
         var sets = new WireWriter(512);
         var count = 0;
@@ -266,10 +269,10 @@ public sealed partial class RdpClient
         Begin(0x0001, 24);
         sets.U16(1).U16(3).U16(0x0200).U16(0).U16(0).U16(0x0415).U16(0).U16(0).U16(0).U8(0).U8(0);
 
-        // Bitmap: 32 bits a pixel, this desktop size, resizing allowed, compression on; the alpha plane may
-        // be left out.
+        // Bitmap: 32 bits a pixel (or the depth the server settled on, where fewer colours were asked for), this
+        // desktop size, resizing allowed, compression on; the alpha plane may be left out.
         Begin(0x0002, 28);
-        sets.U16(32).U16(1).U16(1).U16(1).U16(Width).U16(Height).U16(0).U16(1).U16(1).U8(0).U8(0x08).U16(1).U16(0);
+        sets.U16(BitmapDepth(serverDepth)).U16(1).U16(1).U16(1).U16(Width).U16(Height).U16(0).U16(1).U16(1).U8(0).U8(0x08).U16(1).U16(0);
 
         // Order: the primary orders the decoder draws completely, by their negotiation index (DstBlt, PatBlt with
         // OpaqueRect, ScrBlt, MemBlt, Mem3Blt, MultiOpaqueRect); orders by negotiation, zero bounds deltas, colour
@@ -341,8 +344,14 @@ public sealed partial class RdpClient
         body.U32(_shareId).U16(0x03EA).U16(Source.Length + 1).U16(sets.Length + 4);
         body.Bytes(System.Text.Encoding.ASCII.GetBytes(Source)).U8(0);
         body.U16(count).U16(0).Bytes(sets.Span);
-        SendControl(0x13, body.Span);
+        return body.ToArray();
     }
+
+    // The colour depth the bitmap capability names. Full colour stays 32, as it always was - also where a server
+    // limited by policy settled on fewer. Where fewer colours were asked for, the depth the server settled on,
+    // as the specification wants it (and other clients send it).
+    private int BitmapDepth(int serverDepth) =>
+        _options.ColorDepth >= 32 ? 32 : serverDepth is 8 or 15 or 16 or 24 or 32 ? serverDepth : _options.ColorDepth;
 
     // The messages that finish the exchange: synchronise, take control, and the font list that makes the
     // server start drawing.

@@ -31,6 +31,17 @@ public sealed class RdpOptions
 
     // Whether the remote desktop should send its sound at all (the sound channel has to be added as well).
     public bool Sound { get; init; }
+
+    // Bits a pixel asked for: 32 is full colour, as every session had it; 16 (or 15, 24) asks for fewer
+    // colours - less for the server to draw and to send. The server decides; RdpClient.ColorDepth says what
+    // it became.
+    public int ColorDepth { get; init; } = 32;
+
+    // What the desktop may spend on looks (the Client Info's performanceFlags): 0x180 has smoothed fonts and
+    // desktop composition, and leaves wallpaper, animations and visual styles on. 0x01 no wallpaper, 0x02 no
+    // window contents while dragging, 0x04 no menu animations, 0x08 no visual styles, 0x20 no cursor shadow,
+    // 0x40 no blinking cursor, 0x80 smoothed fonts, 0x100 desktop composition.
+    public uint PerformanceFlags { get; init; } = 0x180;
 }
 
 // What the session tells whoever shows it. All of these are called on the session's read loop: they must

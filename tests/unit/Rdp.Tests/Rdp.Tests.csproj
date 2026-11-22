@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Tests for what Matgate's own RDP client tells a server about itself: the bytes of the connection's core
+       data, the Client Info and the Confirm Active, for full colour (as every session had it) and for the
+       fewer colours of the fastest response. The client has no project of its own: its sources are compiled
+       into this project, as into Rdp.Probe, so the tests see the internal parts. Nothing here needs a network.
+
+         dotnet test tests/unit/Rdp.Tests -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>Matgate.Display.Rdp.Tests</RootNamespace>
+    <AssemblyName>Matgate.Rdp.Tests</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\..\..\Matgate\Display\Rdp\*.cs" LinkBase="Rdp" />
+    <Compile Include="..\..\..\Matgate\Display\Rdp\Orders\**\*.cs" LinkBase="Rdp\Orders" />
+    <Compile Include="..\..\..\Matgate\Display\Rdp\Channels\**\*.cs" LinkBase="Rdp\Channels" />
+    <Compile Include="..\..\..\Matgate\Display\Rdp\Security\**\*.cs" LinkBase="Rdp\Security" />
+    <Compile Include="..\..\..\Matgate\Display\Rdp\Graphics\**\*.cs" LinkBase="Rdp\Graphics" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageReference Include="xunit" Version="2.9.3" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="3.1.4" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+</Project>

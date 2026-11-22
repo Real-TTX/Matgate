@@ -70,7 +70,7 @@ async function purgeLeftovers(page) {
 // the next run starts with colours of its own on the account, "did it change?" has no answer, and
 // the failure looks like one in the application. Sent as the form itself, the way a person would.
 async function resetColours(page) {
-  await page.goto(BASE + "/account?tab=profile", { waitUntil: "networkidle" });
+  await page.goto(BASE + "/account?tab=appearance", { waitUntil: "networkidle" });
   const result = await page.evaluate(async () => {
     const boxes = ["accentOwn", "accent2Own", "backgroundOwn"].map(name => document.querySelector("[name='" + name + "']"));
     if (boxes.some(box => !box)) { return "form not found"; }

@@ -22,6 +22,7 @@ const LETTER_A = 97;
 (async () => {
   let b = await chromium.launch({ headless: true });
   const ctx = await b.newContext({ viewport: { width: 1400, height: 950 } });
+  await require("./list-on-start-page")(ctx);
   const page = await ctx.newPage();
   page.on("pageerror", e => { console.log("JS ERROR: " + e.message); failures.push("JS error"); });
 

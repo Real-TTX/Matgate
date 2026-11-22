@@ -55,16 +55,16 @@ const GROUPS = [
     scripts: ["kept-sessions.js", "context-menu.js", "quick-connect-order.js", "browser-under-path.js"],
   },
   {
-    name: "Group 11 - websites: an address of their own, the path under Matgate's, a browser tab",
-    scripts: ["website.js"],
+    name: "Group 11 - websites: an address of their own, the path under Matgate's, a browser tab; the settings page and what saving it keeps",
+    scripts: ["website.js", "settings-page.js", "settings-safety.js"],
   },
   {
     name: "Group 12 - the agent on Linux",
     scripts: ["agent-linux.js"],
   },
   {
-    name: "Group 13 - one press on a toolbar button, the frame of the dialogs, the server manager",
-    scripts: ["action-press.js", "server-manager.js"],
+    name: "Group 13 - one press on a toolbar button, the frame of the dialogs, the server manager, the account menu",
+    scripts: ["action-press.js", "server-manager.js", "account-menu.js"],
   },
   {
     name: "Group 14 - folders in the side panel, sessions in windows of their own, the database browser",

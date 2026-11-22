@@ -105,6 +105,11 @@ let agent;
       const firstChoices = await page.evaluate(() => [...document.querySelectorAll(".resolution-option")].filter(b => b.offsetParent).map(b => b.textContent));
       check("its resolution button opens the resolution dialog: fit to window with a scale first, no list of sizes in the way",
         [/An Fenster anpassen|Fit to window/.test(firstChoices[0] || ""), firstChoices.includes("1920 × 1080"), await page.evaluate(() => [...document.querySelectorAll(".resolution-scale-preset")].filter(b => b.offsetParent).length)], [true, false, 6]);
+      // The fastest response (fewer colours) is one of Matgate's own engine for RDP and VNC - not an agent's.
+      check("its picture quality: three cards in one row, without the fastest response", await page.evaluate(() => {
+        const row = document.querySelector("#resolution-extra .resolution-seg--cards");
+        return row ? [row.children.length, new Set([...row.children].map(i => Math.round(i.getBoundingClientRect().top))).size, /Fastest|Schnellste/.test(row.textContent)] : null;
+      }), [3, 1, false]);
       // The machine's modes are behind a button.
       await page.evaluate(() => document.querySelector("[data-fixed-sizes]").click());
       await sleep(200);

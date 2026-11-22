@@ -33,7 +33,7 @@ const check = (name, got, want) => {
   });
   const sideFolders = page => page.evaluate(async () => {
     const text = await (await fetch("/", { credentials: "same-origin" })).text();
-    return JSON.parse(text.match(/let sidebarData = (\{.*?\});\n/s)[1]).folders;
+    return JSON.parse(text.match(/let sidebarData = (\{.*?\});\r?\n/s)[1]).folders;
   });
   const csrf = () => admin.evaluate(async () => {
     const text = await (await fetch("/", { credentials: "same-origin" })).text();

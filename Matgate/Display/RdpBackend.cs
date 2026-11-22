@@ -3,6 +3,7 @@ using System.Text;
 using System.Text.Json.Nodes;
 using Matgate.Display.Rdp;
 using Matgate.Display.Rdp.Channels;
+using Matgate.Display.Video;
 
 namespace Matgate.Display;
 
@@ -89,12 +90,19 @@ internal sealed class RdpBackend : IScreenBackend, IRdpHandler
 
     public bool Sound => true;
 
+    public int ColorDepth => _client?.ColorDepth ?? 0;
+
+    public bool QualityColours => true;
+
     public async Task ConnectAsync(CancellationToken cancellationToken)
     {
         var userName = _target.UserName;
         var password = _target.Password;
         var domain = _target.Domain;
         var (width, height) = _host.WantedSize();
+        // Colours and looks are asked for once, here: the fastest response wants 16 bits and no wallpaper,
+        // animations or smoothed fonts - less for the server to draw and to send.
+        var quality = ScreenQuality.From(_target.Quality);
         var refused = false;
         if (password.Length == 0)
         {
@@ -127,6 +135,8 @@ internal sealed class RdpBackend : IScreenBackend, IRdpHandler
                     KeyboardLayout = _target.KeyboardLayout,
                     IgnoreCertificate = _target.IgnoreCertificate,
                     Sound = true,
+                    ColorDepth = quality.RdpColorDepth,
+                    PerformanceFlags = quality.RdpPerformanceFlags,
                 },
                 this,
                 _host.Log);

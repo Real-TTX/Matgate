@@ -4204,14 +4204,20 @@ public static partial class EndpointMapping
             return BadRequest(context, user, views);
         }
 
+        // The settings section the form belongs to: after saving, the page opens there again and says it was
+        // saved. Profile and appearance both post here.
+        var returnTab = string.Equals(form["returnTab"].ToString().Trim(), "appearance", StringComparison.OrdinalIgnoreCase)
+            ? "appearance"
+            : "profile";
+        // A choice that applies at once (the theme in the account menu) is posted by fetch with this header. It
+        // wants no page back, only to know that it was saved: 204 means saved, anything else means not.
+        var inline = string.Equals(context.Request.Headers["X-Matgate-Inline"].ToString().Trim(), "1", StringComparison.Ordinal);
+
         var accountEmail = form["email"].ToString().Trim();
         if (form.ContainsKey("email") && accountEmail.Length > 0 && !IsValidEmail(accountEmail))
         {
-            return Results.Content(views.Message(
-                context,
-                user,
-                HtmlViews.Translate(context, "Invalid data"),
-                HtmlViews.Translate(context, "Please enter a valid email address.")), "text/html");
+            // Back into the profile, where the field says what is wrong - not onto a page of its own.
+            return Results.Redirect(EmbedAwareRedirect(context, "/account?tab=profile&email=invalid"));
         }
 
         var accountEmailTaken = false;
@@ -4287,11 +4293,7 @@ public static partial class EndpointMapping
 
         if (accountEmailTaken)
         {
-            return Results.Content(views.Message(
-                context,
-                user,
-                HtmlViews.Translate(context, "Not saved"),
-                HtmlViews.Translate(context, "This email address is already in use.")), "text/html");
+            return Results.Redirect(EmbedAwareRedirect(context, "/account?tab=profile&email=taken"));
         }
 
         if (updatedUser is not null)
@@ -4316,9 +4318,14 @@ public static partial class EndpointMapping
                     SameSite = SameSiteMode.Lax,
                     Secure = context.Request.IsHttps
                 });
+
+            if (inline)
+            {
+                return Results.NoContent();
+            }
         }
 
-        return Results.Redirect(EmbedAwareRedirect(context, "/account"));
+        return Results.Redirect(EmbedAwareRedirect(context, $"/account?tab={returnTab}&saved={returnTab}"));
     }
 
     // Which sections the home page shows and in what order. Both arrive as one list from the
@@ -4355,24 +4362,40 @@ public static partial class EndpointMapping
                 return;
             }
 
-            current.HomeSections = ListField(form, "homeSections");
-            current.HiddenHomeSections = ListField(form, "hiddenHomeSections");
+            // Each list is written only when it was sent: a form that does not carry it (an old page, a
+            // user without quick connect) leaves it as it is instead of resetting it.
+            if (form.ContainsKey("homeSections"))
+            {
+                current.HomeSections = ListField(form, "homeSections");
+                current.HiddenHomeSections = ListField(form, "hiddenHomeSections");
+            }
 
             // The buttons in the action bar: selected and in the order they were dragged into. Whatever does
             // not pass as an id here drops out - which connections someone may see is decided by the usual
             // check when they are displayed anyway.
-            var hiddenIds = form["hiddenActionBarServers"].ToString()
-                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-            current.ActionBarServerIds =
-            [
-                .. form["actionBarServers"].ToString()
+            if (form.ContainsKey("actionBarServers"))
+            {
+                var hiddenIds = form["hiddenActionBarServers"].ToString()
                     .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                    .Where(entry => !hiddenIds.Contains(entry))
-                    .Select(entry => Guid.TryParse(entry, out var id) ? id : Guid.Empty)
-                    .Where(id => id != Guid.Empty)
-                    .Distinct(),
-            ];
+                    .ToHashSet(StringComparer.OrdinalIgnoreCase);
+                current.ActionBarServerIds =
+                [
+                    .. form["actionBarServers"].ToString()
+                        .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                        .Where(entry => !hiddenIds.Contains(entry))
+                        .Select(entry => Guid.TryParse(entry, out var id) ? id : Guid.Empty)
+                        .Where(id => id != Guid.Empty)
+                        .Distinct(),
+                ];
+            }
+
+            // The quick-connect chips belong to the start page now; the session form may still send them
+            // from a page that was open before the move.
+            if (form.ContainsKey("quickProtocols"))
+            {
+                ApplyQuickProtocols(form, current.Session);
+            }
+
             current.UpdatedAt = DateTimeOffset.UtcNow;
         }, context.RequestAborted);
 
@@ -4388,7 +4411,23 @@ public static partial class EndpointMapping
             }, context.RequestAborted);
         }
 
-        return Results.Redirect("/account?tab=home");
+        return Results.Redirect(EmbedAwareRedirect(context, "/account?tab=home&saved=home"));
+    }
+
+    // The quick-connect chips: their order and the ones left out. Only chips the start page knows are kept,
+    // each once - a stale or hand-made value cannot bring anything else in.
+    private static void ApplyQuickProtocols(IFormCollection form, SessionPreferences session)
+    {
+        session.QuickProtocolOrder = form["quickProtocols"].ToString()
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(SessionPreferences.IsKnownQuickProtocol)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+        session.HiddenQuickProtocols = form["hiddenQuickProtocols"].ToString()
+            .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(SessionPreferences.IsKnownQuickProtocol)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
     }
 
     // Setting up: create a new secret, but switch nothing on yet. Only the first valid code proves
@@ -4422,7 +4461,7 @@ public static partial class EndpointMapping
             current.UpdatedAt = DateTimeOffset.UtcNow;
         }, context.RequestAborted);
 
-        return Results.Redirect("/account?tab=security");
+        return Results.Redirect(EmbedAwareRedirect(context, "/account?tab=security"));
     }
 
     private static async Task<IResult> TotpConfirmAsync(HttpContext context, JsonDataStore store, HtmlViews views)
@@ -4467,7 +4506,7 @@ public static partial class EndpointMapping
 
         if (!ok)
         {
-            return Results.Redirect("/account?tab=security&totp=falsch");
+            return Results.Redirect(EmbedAwareRedirect(context, "/account?tab=security&totp=falsch"));
         }
 
         // The codes are shown exactly once - only their hashes are stored, nobody can display them a
@@ -4503,7 +4542,7 @@ public static partial class EndpointMapping
         // cancelling. Without that distinction one got stuck on the confirmation page.
         if (user.TotpEnabled && !hasher.Verify(form["currentPassword"].ToString(), user.PasswordHash))
         {
-            return Results.Redirect("/account?tab=security&totp=passwort");
+            return Results.Redirect(EmbedAwareRedirect(context, "/account?tab=security&totp=passwort"));
         }
 
         await store.UpdateUsersAsync(users =>
@@ -4522,7 +4561,11 @@ public static partial class EndpointMapping
             current.UpdatedAt = DateTimeOffset.UtcNow;
         }, context.RequestAborted);
 
-        return Results.Redirect("/account?tab=security");
+        // Switched off, the page says so. A setup that was only started and is cancelled was never on: that
+        // needs no notice.
+        return Results.Redirect(EmbedAwareRedirect(context, user.TotpEnabled
+            ? "/account?tab=security&saved=totp-off"
+            : "/account?tab=security"));
     }
 
     private static async Task<IResult> UpdateSessionPreferencesAsync(
@@ -4573,34 +4616,39 @@ public static partial class EndpointMapping
             // The toolbar order arrives as one comma-separated field, written by the drag list. Only
             // keys the session UI actually knows are kept, so a stale or hand-crafted value cannot
             // push junk into the toolbar; duplicates are dropped and anything missing simply keeps
-            // its built-in place.
-            current.Session.ActionOrder = form["actionOrder"].ToString()
-                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .Where(SessionPreferences.IsKnownAction)
-                .Distinct(StringComparer.Ordinal)
-                .ToList();
+            // its built-in place. Only when the list was sent at all: a post without it keeps the order.
+            if (form.ContainsKey("actionOrder"))
+            {
+                current.Session.ActionOrder = form["actionOrder"].ToString()
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Where(SessionPreferences.IsKnownAction)
+                    .Distinct(StringComparer.Ordinal)
+                    .ToList();
 
-            current.Session.HiddenActions = form["hiddenActions"].ToString()
-                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .Where(SessionPreferences.IsKnownAction)
-                .Distinct(StringComparer.Ordinal)
-                .ToList();
+                current.Session.HiddenActions = form["hiddenActions"].ToString()
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+                    .Where(SessionPreferences.IsKnownAction)
+                    .Distinct(StringComparer.Ordinal)
+                    .ToList();
+            }
 
-            // Quick-connect chips: the same kind of list - their order, and the ones left out.
-            current.Session.QuickProtocolOrder = form["quickProtocols"].ToString()
-                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .Where(SessionPreferences.IsKnownQuickProtocol)
-                .Distinct(StringComparer.Ordinal)
-                .ToList();
-            current.Session.HiddenQuickProtocols = form["hiddenQuickProtocols"].ToString()
-                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-                .Where(SessionPreferences.IsKnownQuickProtocol)
-                .Distinct(StringComparer.Ordinal)
-                .ToList();
+            // Quick-connect chips: they live on the start page's form now. A session page that was open before
+            // that move still sends them, and is still heard.
+            if (form.ContainsKey("quickProtocols"))
+            {
+                ApplyQuickProtocols(form, current.Session);
+            }
+
+            // The picture quality a new session starts with; empty: as last used on each device.
+            if (form.ContainsKey("screenQuality"))
+            {
+                current.Session.ScreenQuality = SessionPreferences.NormalizeScreenQuality(form["screenQuality"].ToString());
+            }
+
             current.UpdatedAt = DateTimeOffset.UtcNow;
         }, context.RequestAborted);
 
-        return Results.Redirect(EmbedAwareRedirect(context, "/account?tab=session"));
+        return Results.Redirect(EmbedAwareRedirect(context, "/account?tab=session&saved=session"));
     }
 
     private static async Task<IResult> ChangeOwnPasswordAsync(
@@ -4621,30 +4669,28 @@ public static partial class EndpointMapping
             return BadRequest(context, user, views);
         }
 
-        var de = HtmlViews.Language(context) == "de";
         var current = form["currentPassword"].ToString();
         var next = form["newPassword"].ToString();
         var confirm = form["confirmPassword"].ToString();
 
+        // What went wrong goes back to the security settings as a code; the page says it beside the field.
         string? error = null;
         if (!hasher.Verify(current, user.PasswordHash))
         {
-            error = de ? "Das aktuelle Passwort ist falsch." : "Your current password is incorrect.";
+            error = "current";
         }
         else if (next.Length < 8)
         {
-            error = de ? "Das neue Passwort muss mindestens 8 Zeichen haben." : "The new password must be at least 8 characters long.";
+            error = "short";
         }
         else if (!string.Equals(next, confirm, StringComparison.Ordinal))
         {
-            error = de ? "Die neuen Passwoerter stimmen nicht ueberein." : "The new passwords do not match.";
+            error = "mismatch";
         }
 
         if (error is not null)
         {
-            return Results.Content(
-                views.Message(context, user, de ? "Passwort aendern" : "Change password", error),
-                "text/html");
+            return Results.Redirect(EmbedAwareRedirect(context, "/account?tab=security&pw=" + error));
         }
 
         await store.UpdateUsersAsync(users =>
@@ -4657,7 +4703,7 @@ public static partial class EndpointMapping
             }
         }, context.RequestAborted);
 
-        return Results.Redirect(EmbedAwareRedirect(context, "/account?tab=security"));
+        return Results.Redirect(EmbedAwareRedirect(context, "/account?tab=security&saved=password"));
     }
 
     private static async Task<IResult> ToggleFavoriteServerAsync(

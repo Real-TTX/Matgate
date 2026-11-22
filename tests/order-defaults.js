@@ -25,6 +25,8 @@ const check = (name, got, want) => {
 
   const order = id => page.evaluate(i => [...document.querySelectorAll("#" + i + " > li")].map(li => li.dataset.orderKey || li.dataset.action), id);
   const settings = async () => { await page.goto(BASE + "/account?tab=session", { waitUntil: "networkidle" }); await sleep(500); };
+  // The quick-connect chips are arranged with the start page.
+  const home = async () => { await page.goto(BASE + "/account?tab=home", { waitUntil: "networkidle" }); await sleep(500); };
 
   // ---- the session bar's list: sorted by hand, then back to the default
   // The built-in order (SessionPreferences.SortableActions): the keyboards first.
@@ -88,11 +90,11 @@ const check = (name, got, want) => {
   check("quick connect and the start page have the button too", await page.evaluate(() => ["quick-order-list", "home-order-list"].map(id => !!document.querySelector("#" + id + " ~ [data-order-reset]"))), [true, true]);
   await page.evaluate(() => { const list = document.getElementById("quick-order-list"); list.append(list.firstElementChild); list.dispatchEvent(new Event("change", { bubbles: true })); list.closest("form").requestSubmit(); });
   await sleep(1500);
-  await settings();
+  await home();
   const moved = await order("quick-order-list");
   await page.click("#quick-order-list ~ [data-order-reset]");
   await sleep(1500);
-  await settings();
+  await home();
   check("the quick-connect chips go back to their built-in order", [moved[0] !== "rdp", (await order("quick-order-list"))[0]], [true, "rdp"]);
 
   await b.close();

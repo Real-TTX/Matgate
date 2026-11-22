@@ -39,7 +39,7 @@ const contrast = (a, b) => {
   await Promise.all([page.waitForURL(u => !/\/login/.test(u.toString())).catch(() => {}), page.click(".login-submit")]);
   await sleep(1500);
 
-  await page.goto(BASE + "/account?tab=profile", { waitUntil: "networkidle" });
+  await page.goto(BASE + "/account?tab=appearance", { waitUntil: "networkidle" });
   await sleep(800);
   check("three colour groups", await page.locator("[data-colour-field]").count(), 3);
 
@@ -53,7 +53,7 @@ const contrast = (a, b) => {
     }),
   ]);
   await sleep(2000);
-  await page.goto(BASE + "/account?tab=profile", { waitUntil: "networkidle" });
+  await page.goto(BASE + "/account?tab=appearance", { waitUntil: "networkidle" });
   await sleep(700);
   const before = await tokens(page);
   console.log("     before: " + JSON.stringify(before));
@@ -118,7 +118,7 @@ const contrast = (a, b) => {
   await page.screenshot({ path: "farb-3-start.png", fullPage: false });
 
   // --- The checkboxes stay ticked
-  await page.goto(BASE + "/account?tab=profile", { waitUntil: "networkidle" });
+  await page.goto(BASE + "/account?tab=appearance", { waitUntil: "networkidle" });
   await sleep(700);
   const ticks = await page.evaluate(() => ({
     accent: document.querySelector("[name='accentOwn']").checked,

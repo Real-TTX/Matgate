@@ -90,6 +90,14 @@ public interface IScreenBackend : IAsyncDisposable
 
     bool Sound { get; }
 
+    // Bits a pixel of the picture as the remote desktop sends it (RDP: what the server settled on); 0 before
+    // the connection stands.
+    int ColorDepth { get; }
+
+    // Whether the picture quality decides the colours this protocol connects with (RDP: "fast" asks for 16
+    // bits). They are settled when it connects.
+    bool QualityColours { get; }
+
     // Connects and signs in, asking the host for credentials where needed. Throws ScreenException.
     Task ConnectAsync(CancellationToken cancellationToken);
 

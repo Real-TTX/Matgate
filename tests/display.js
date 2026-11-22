@@ -181,6 +181,9 @@ const only = process.argv[2] || "";
     for (let i = 0; i < 20 && !(await picture(view)).content; i++) { await sleep(300); }
     const first = await picture(view);
     check("RDP: with the desktop on them", first.content, true);
+    // Smooth and in full colour unless asked for otherwise - as every session was before the fastest response.
+    for (let i = 0; i < 20 && !(await view.evaluate(() => !!window.__screen.stats)); i++) { await sleep(300); }
+    check("RDP: a session opens smooth, in full colour", await view.evaluate(() => [window.__screen.stats.quality, window.__screen.stats.colours, window.__screen.stats.fpsLimit]), ["auto", 32, 60]);
     // Auto-resize: the remote desktop has the size of the picture area - no reconnect, as mstsc does it.
     const area = await view.evaluate(() => { const r = document.getElementById("stage").getBoundingClientRect(); return [Math.round(r.width) & ~1, Math.round(r.height) & ~1]; });
     check("RDP: the session has the size of the window", [first.width, first.height], area);
@@ -237,6 +240,47 @@ const only = process.argv[2] || "";
     }
 
     await view.close();
+
+    // --- The fastest response: 16 bits a pixel and a desktop without what only costs pictures, asked for when the
+    // session connects - here because this device chose it for this connection last time. "fresh": the session
+    // above still runs (kept for a viewer to come back), and the page would ask whether to take it.
+    // (xrdp keeps one session per user and colour depth: this is another X session than the one above.)
+    const fast = await context.newPage();
+    fast.on("pageerror", e => { console.log("JS ERROR: " + e.message); failures.push("JS error"); });
+    await fast.addInitScript(id => localStorage.setItem("matgate.screen.quality." + id, "fast"), rdp.id);
+    await fast.goto(BASE + "/display/" + rdp.id + "/screen?fresh=1", { waitUntil: "domcontentloaded" });
+    await waitFrames(fast, 2);
+    check("RDP fast: pictures arrive", (await frames(fast)) >= 2, true);
+    for (let i = 0; i < 20 && !(await picture(fast)).content; i++) { await sleep(300); }
+    check("RDP fast: with the desktop on them", (await picture(fast)).content, true);
+    const fastStats = () => fast.evaluate(() => window.__screen.stats ? [window.__screen.stats.quality, window.__screen.stats.colours, window.__screen.stats.fpsLimit] : null);
+    for (let i = 0; i < 20 && !(await fastStats()); i++) { await sleep(300); }
+    check("RDP fast: the session runs with 16-bit colours, sixty pictures a second", await fastStats(), ["fast", 16, 60]);
+    check("RDP fast: the bar says so", /fewer colours|weniger Farben/.test(await fast.evaluate(() => document.getElementById("stats").textContent)), true);
+    // Back to smooth on the running session: the pictures change at once, the colours with a new connection -
+    // which the page offers, and makes when asked: the old session ends, a new one comes in full colour.
+    await fast.evaluate(() => window.MatgateScreen.setQuality("auto"));
+    await sleep(600);
+    check("RDP fast -> smooth: the page offers a new connection for the colours", await fast.evaluate(() => [
+      !document.getElementById("notice").classList.contains("hidden"),
+      /colours|Farben/.test(document.getElementById("notice-text").textContent),
+      !document.getElementById("notice-action").classList.contains("hidden"),
+    ]), [true, true, true]);
+    const fastSession = await fast.evaluate(() => new URLSearchParams(location.search).get("session"));
+    await fast.evaluate(() => document.getElementById("notice-action").click());
+    const reconnected = () => fast.evaluate(() => [new URLSearchParams(location.search).get("session"), window.__screen.stats ? window.__screen.stats.colours : 0]);
+    for (let i = 0; i < 150; i++) {
+      const [now, colours] = await reconnected();
+      if (now !== fastSession && colours === 32) { break; }
+      await sleep(300);
+    }
+    const [smoothSession, smoothColours] = await reconnected();
+    check("RDP fast -> smooth: a new session, in full colour", [smoothSession !== fastSession, smoothColours], [true, 32]);
+    check("RDP fast -> smooth: and the one with fewer colours is over", await fast.evaluate(async ([id, old]) =>
+      (await (await fetch("/api/display/" + id + "/open-sessions", { credentials: "same-origin" })).json()).sessions.some(s => s.session === old), [rdp.id, fastSession]), false);
+    for (let i = 0; i < 20 && !(await picture(fast)).content; i++) { await sleep(300); }
+    check("RDP fast -> smooth: with the desktop on it", (await picture(fast)).content, true);
+    await fast.close();
 
     // --- No stored password: the page asks, a wrong one is asked for again.
     const ask = await connection("Test-RDP-Frage", "Rdp", { host: "desktop", port: "3389", targetUserName: "demo", targetPassword: "", keyboardLayout: "en-us-qwerty", engine: "" });
