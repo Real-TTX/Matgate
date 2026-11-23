@@ -13,9 +13,10 @@ public sealed class UserGroup
 
     public List<Guid> MemberIds { get; set; } = [];
 
+    // Before 0.41.0 a group's connections and folders were kept here. They are moved into entries (grants.json)
+    // once, then cleared; what a group may do is now there, with a level.
     public List<Guid> ServerIds { get; set; } = [];
 
-    // Folder names ("Lab" or "Lab/Linux"): a connection filed in one of them, or below it, is the members'.
     public List<string> Folders { get; set; } = [];
 
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
@@ -35,6 +36,10 @@ public sealed class FolderDefinition
     public string IconKey { get; set; } = "";
 
     public Guid? OwnerUserId { get; set; }
+
+    // Nothing given above this folder (on a parent folder or on all connections) reaches what lies in it - only
+    // what is given on this folder itself and below.
+    public bool InheritanceBroken { get; set; }
 
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 

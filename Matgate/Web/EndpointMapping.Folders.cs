@@ -187,6 +187,7 @@ public static partial class EndpointMapping
             return Results.Content(views.FolderPage(context, user, original, name, iconKey, servers, chosen, error), "text/html");
         }
 
+        var renamed = original.Length > 0 && !ServerFolders.Same(original, name);
         await store.UpdateServersAsync(servers =>
         {
             var now = DateTimeOffset.UtcNow;
@@ -214,15 +215,23 @@ public static partial class EndpointMapping
                     server.FolderIconKey = iconKey;
                     server.UpdatedAt = now;
                 }
+                else if (renamed && Below(server.FolderName, original) is { } rest)
+                {
+                    // Renamed: its subfolders go with it ("Lab/Linux" becomes "Labor/Linux").
+                    server.FolderName = name + "/" + rest;
+                    server.UpdatedAt = now;
+                }
             }
         }, context.RequestAborted);
 
         // The folder itself, so that it stays there also while nothing lies in it - for everyone when an
         // administrator or server manager made it.
+        // The folder keeps its id through a rename - and with it what was given on it.
         await store.UpdateFoldersAsync(folders =>
         {
-            var own = folders.FirstOrDefault(folder => original.Length > 0 && ServerFolders.Same(folder.Name, original))
-                ?? folders.FirstOrDefault(folder => ServerFolders.Same(folder.Name, name));
+            var mine = folders.Where(folder => folder.VisibleTo(user)).ToList();
+            var own = mine.FirstOrDefault(folder => original.Length > 0 && ServerFolders.Same(folder.Name, original))
+                ?? mine.FirstOrDefault(folder => ServerFolders.Same(folder.Name, name));
             if (own is null)
             {
                 own = new FolderDefinition { OwnerUserId = user.IsAdmin || user.CanManageServers ? null : user.Id };
@@ -231,9 +240,27 @@ public static partial class EndpointMapping
 
             own.Name = name;
             own.IconKey = iconKey;
+            if (renamed)
+            {
+                foreach (var below in mine.Where(folder => folder != own && (folder.OwnerUserId == own.OwnerUserId)))
+                {
+                    if (Below(below.Name, original) is { } rest)
+                    {
+                        below.Name = name + "/" + rest;
+                    }
+                }
+            }
         }, context.RequestAborted);
 
         return Results.Redirect(EmbedAwareRedirect(context, FolderList));
+    }
+
+    // The rest of a path below a folder ("Lab/Linux/Web" below "Lab" is "Linux/Web"); null when not below it.
+    private static string? Below(string? path, string folder)
+    {
+        var clean = ServerFolders.CleanPath(path);
+        var prefix = ServerFolders.CleanPath(folder) + "/";
+        return prefix.Length > 1 && clean.StartsWith(prefix, StringComparison.OrdinalIgnoreCase) ? clean[prefix.Length..] : null;
     }
 
     // Dissolves a folder: its connections stay, without a folder.
@@ -263,9 +290,17 @@ public static partial class EndpointMapping
                     server.UpdatedAt = DateTimeOffset.UtcNow;
                 }
             }, context.RequestAborted);
-            await store.UpdateFoldersAsync(
-                folders => folders.RemoveAll(folder => ServerFolders.Same(folder.Name, name) && (folder.OwnerUserId == user.Id || (folder.OwnerUserId is null && (user.IsAdmin || user.CanManageServers)))),
-                context.RequestAborted);
+            var removed = new HashSet<Guid>();
+            await store.UpdateFoldersAsync(folders =>
+            {
+                foreach (var folder in folders.Where(folder => ServerFolders.Same(folder.Name, name) && (folder.OwnerUserId == user.Id || (folder.OwnerUserId is null && (user.IsAdmin || user.CanManageServers)))).ToList())
+                {
+                    removed.Add(folder.Id);
+                    folders.Remove(folder);
+                }
+            }, context.RequestAborted);
+            // What was given on it goes with it.
+            await store.UpdateGrantsAsync(grants => grants.RemoveAll(grant => grant.TargetKind == AccessTargetKind.Folder && removed.Contains(grant.TargetId)), context.RequestAborted);
         }
 
         return Results.Redirect(EmbedAwareRedirect(context, FolderList));

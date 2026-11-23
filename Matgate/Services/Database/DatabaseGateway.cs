@@ -184,10 +184,53 @@ public sealed class DatabaseGateway
 
     // A statement typed into the browser: run as written, with the connection's login - which may do what that
     // login may do. The rows of the first result are read, up to MaxRows.
-    public async Task<DbResult> QueryAsync(ServerEndpoint server, string user, string password, string? database, string sql, CancellationToken cancellationToken)
+    // Read-only (the user may only read this connection): see ReadOnlySql - checked before, and run inside a
+    // read-only transaction that is rolled back after.
+    public async Task<DbResult> QueryAsync(ServerEndpoint server, string user, string password, string? database, string sql, bool readOnly, bool german, CancellationToken cancellationToken)
     {
+        if (!readOnly)
+        {
+            return await RunAsync(server, user, password, database, sql, MaxRows, null, cancellationToken);
+        }
+
+        if (ReadOnlySql.Refusal(sql, server.Protocol, german) is { } refusal)
+        {
+            throw new DatabaseException(refusal);
+        }
+
         var dialect = DialectOf(server.Protocol);
-        return await RunAsync(server, user, password, database, sql, MaxRows, null, cancellationToken);
+        await using var connection = await OpenAsync(dialect, server, user, password, database, cancellationToken);
+        await ExecuteAsync(connection, ReadOnlySql.Begin(server.Protocol), cancellationToken);
+        try
+        {
+            return await ReadAsync(connection, sql, MaxRows, null, cancellationToken);
+        }
+        finally
+        {
+            try
+            {
+                await ExecuteAsync(connection, ReadOnlySql.End(server.Protocol), CancellationToken.None);
+            }
+            catch (DatabaseException)
+            {
+                // The connection closes next, and with it whatever is left of the transaction.
+            }
+        }
+    }
+
+    private static async Task ExecuteAsync(DbConnection connection, string sql, CancellationToken cancellationToken)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        command.CommandTimeout = 15;
+        try
+        {
+            await command.ExecuteNonQueryAsync(cancellationToken);
+        }
+        catch (DbException exception)
+        {
+            throw new DatabaseException(exception.Message, exception);
+        }
     }
 
     private static async Task<DbResult> RunAsync(

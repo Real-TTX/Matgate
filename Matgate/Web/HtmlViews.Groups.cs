@@ -3,37 +3,61 @@ using Matgate.Models;
 namespace Matgate.Web;
 
 // Groups of users, in the administration: a tab with the list, and a page per group with its members and what
-// it is given - folders (with everything filed in them, now and later) and single connections.
+// it may do - on all connections, on folders (with everything filed in them, now and later) and on single
+// connections, each with a level.
 public sealed partial class HtmlViews
 {
-    private static string GroupsPanel(HttpContext context, IReadOnlyList<UserGroup> groups, IReadOnlyList<MatgateUser> users)
+    private static string GroupsPanel(HttpContext context, IReadOnlyList<UserGroup> groups, IReadOnlyList<MatgateUser> users, IReadOnlyList<AccessGrant> grants)
     {
         var de = Language(context) == "de";
         var editLabel = de ? "Bearbeiten" : "Edit";
         var names = users.ToDictionary(user => user.Id, user => string.IsNullOrWhiteSpace(user.DisplayName) ? user.UserName : user.DisplayName);
+        int Count(UserGroup group, AccessTargetKind kind) => grants.Count(grant => grant.PrincipalKind == AccessPrincipalKind.Group && grant.PrincipalId == group.Id && grant.TargetKind == kind);
+        string Given(UserGroup group)
+        {
+            var parts = new List<string>();
+            if (grants.FirstOrDefault(grant => grant.PrincipalKind == AccessPrincipalKind.Group && grant.PrincipalId == group.Id && grant.TargetKind == AccessTargetKind.All) is { } all)
+            {
+                parts.Add((de ? "Alle: " : "All: ") + AccessLevelLabel(all.Level, de));
+            }
+
+            var folders = Count(group, AccessTargetKind.Folder);
+            if (folders > 0)
+            {
+                parts.Add(de ? $"{folders} Ordner" : $"{folders} folder(s)");
+            }
+
+            var servers = Count(group, AccessTargetKind.Server);
+            if (servers > 0)
+            {
+                parts.Add(de ? $"{servers} Verbindung(en)" : $"{servers} connection(s)");
+            }
+
+            return parts.Count == 0 ? (de ? "nichts" : "nothing") : string.Join(" · ", parts);
+        }
+
         var rows = string.Join("", groups.OrderBy(group => group.Name, StringComparer.OrdinalIgnoreCase).Select(group => $$"""
             <tr>
                 <td><a href="/admin/groups/{{group.Id}}"><strong>{{E(group.Name)}}</strong></a>{{(string.IsNullOrWhiteSpace(group.Description) ? "" : $"""<br><small class="muted">{E(group.Description)}</small>""")}}</td>
                 <td data-sort-value="{{group.MemberIds.Count}}" class="muted">{{E(string.Join(", ", group.MemberIds.Where(names.ContainsKey).Take(5).Select(id => names[id])) + (group.MemberIds.Count > 5 ? ", ..." : ""))}}</td>
-                <td class="muted">{{E(string.Join(", ", group.Folders.Take(4)) + (group.Folders.Count > 4 ? ", ..." : ""))}}</td>
-                <td data-sort-value="{{group.ServerIds.Count}}">{{group.ServerIds.Count}}</td>
+                <td class="muted">{{E(Given(group))}}</td>
                 <td class="table-actions"><div class="row-actions"><a class="icon-button" href="/admin/groups/{{group.Id}}" title="{{A(editLabel)}}" aria-label="{{A(editLabel)}}">{{Icon("edit")}}</a></div></td>
             </tr>
             """));
-        var headers = $$"""<th data-sortable>{{T(context, "Name")}}</th><th data-sortable>{{(de ? "Mitglieder" : "Members")}}</th><th>{{(de ? "Ordner" : "Folders")}}</th><th data-sortable>{{(de ? "Einzelne Verbindungen" : "Single connections")}}</th><th class="table-actions">{{T(context, "Actions")}}</th>""";
+        var headers = $$"""<th data-sortable>{{T(context, "Name")}}</th><th data-sortable>{{(de ? "Mitglieder" : "Members")}}</th><th>{{(de ? "Darf" : "May")}}</th><th class="table-actions">{{T(context, "Actions")}}</th>""";
         var table = DataTable(
             de ? "Gruppen suchen..." : "Search groups...",
             headers,
             rows,
             de ? "Noch keine Gruppe." : "No group yet.",
-            5,
+            4,
             15,
             $$"""<a class="button primary" href="/admin/groups/new">{{Icon("plus")}}{{(de ? "Neue Gruppe" : "New group")}}</a>""");
         return $$"""
             <section class="panel" data-groups>
                 <p class="muted settings-lead">{{(de
-                    ? "Gruppen geben ihren Mitgliedern Verbindungen - ganze Ordner (mit Unterordnern und allem, was später hineinkommt) oder einzelne. Was ein Benutzer selbst freigegeben bekommen hat, bleibt daneben bestehen."
-                    : "Groups give their members connections - whole folders (with their subfolders and whatever is filed there later) or single ones. What a user was given on their own stays as well.")}}</p>
+                    ? "Gruppen geben ihren Mitgliedern Rechte - auf alle Verbindungen, auf ganze Ordner (mit Unterordnern und allem, was später hineinkommt) oder auf einzelne, jeweils mit einer Stufe von „Nur lesen“ bis „Verwalten“. Was ein Benutzer selbst bekommen hat, gilt daneben; es zählt das Höchste."
+                    : "Groups give their members rights - on all connections, on whole folders (with their subfolders and whatever is filed there later) or on single ones, each with a level from \"Read only\" to \"Manage\". What a user was given on their own holds as well; the highest counts.")}}</p>
                 {{table}}
             </section>
             """;
@@ -46,23 +70,44 @@ public sealed partial class HtmlViews
         IReadOnlyList<MatgateUser> users,
         IReadOnlyList<ServerEndpoint> servers,
         IReadOnlyList<string> folders,
+        IReadOnlyList<AccessGrant> grants,
+        IReadOnlyDictionary<string, FolderDefinition> folderIndex,
         string? error = null)
     {
         var de = Language(context) == "de";
         var isNew = group is null;
+        var own = group is null ? [] : grants.Where(grant => grant.PrincipalKind == AccessPrincipalKind.Group && grant.PrincipalId == group.Id).ToList();
+        AccessLevel LevelOn(AccessTargetKind kind, Guid id) => own.FirstOrDefault(grant => grant.Targets(kind, id))?.Level ?? AccessLevel.None;
         string Check(string name, string value, string label, string note, bool on) => $$"""
             <label class="group-check"><input type="checkbox" name="{{name}}" value="{{A(value)}}"{{(on ? " checked" : "")}}><span><strong>{{E(label)}}</strong>{{(note.Length == 0 ? "" : $"""<small class="muted">{E(note)}</small>""")}}</span></label>
+            """;
+        string LevelRow(string label, string note, string select, string attributes) => $$"""
+            <div class="group-level"{{attributes}}><span><strong>{{E(label)}}</strong>{{(note.Length == 0 ? "" : $"""<small class="muted">{E(note)}</small>""")}}</span>{{select}}</div>
             """;
         var members = string.Join("", users
             .Where(user => !user.IsAdmin)
             .OrderBy(user => user.UserName, StringComparer.OrdinalIgnoreCase)
             .Select(user => Check("member", user.Id.ToString(), string.IsNullOrWhiteSpace(user.DisplayName) ? user.UserName : user.DisplayName, user.UserName, group?.MemberIds.Contains(user.Id) == true)));
-        var folderChecks = string.Join("", folders.Select(name => Check("folder", name, name, de ? $"{servers.Count(server => server.FolderName.Trim().Equals(name, StringComparison.OrdinalIgnoreCase) || server.FolderName.Trim().StartsWith(name + "/", StringComparison.OrdinalIgnoreCase))} Verbindung(en)" : $"{servers.Count(server => server.FolderName.Trim().Equals(name, StringComparison.OrdinalIgnoreCase) || server.FolderName.Trim().StartsWith(name + "/", StringComparison.OrdinalIgnoreCase))} connection(s)", group?.Folders.Any(chosen => ServerFolders.Same(chosen, name)) == true)));
-        var serverChecks = string.Join("", servers
+        int InFolder(string name) => servers.Count(server => ServerFolders.Same(server.FolderName, name) || server.FolderName.Trim().StartsWith(name + "/", StringComparison.OrdinalIgnoreCase));
+        var folderRows = string.Join("", folders.Select((name, index) =>
+        {
+            var level = folderIndex.TryGetValue(Services.AccessResolver.FolderKey(name), out var definition) ? LevelOn(AccessTargetKind.Folder, definition.Id) : AccessLevel.None;
+            var broken = definition?.InheritanceBroken == true ? (de ? " · erbt nicht" : " · does not inherit") : "";
+            return LevelRow(
+                name,
+                (de ? $"{InFolder(name)} Verbindung(en)" : $"{InFolder(name)} connection(s)") + broken,
+                $"""<input type="hidden" name="folder_{index}" value="{A(name)}">""" + AccessLevelSelect("folderlevel_" + index, level, de, withNone: true),
+                $" data-group-folder=\"{A(name)}\"");
+        }));
+        var serverRows = string.Join("", servers
             .Where(server => server.OwnerUserId is null && server.Protocol != ServerProtocol.Local)
             .OrderBy(server => server.FolderName, StringComparer.OrdinalIgnoreCase)
             .ThenBy(server => server.Name, StringComparer.OrdinalIgnoreCase)
-            .Select(server => Check("server", server.Id.ToString(), server.Name, (string.IsNullOrWhiteSpace(server.FolderName) ? "" : server.FolderName + " · ") + ServerProtocolLabel(server.Protocol), group?.ServerIds.Contains(server.Id) == true)));
+            .Select(server => LevelRow(
+                server.Name,
+                (string.IsNullOrWhiteSpace(server.FolderName) ? "" : server.FolderName + " · ") + ServerProtocolLabel(server.Protocol),
+                AccessLevelSelect("level_" + server.Id.ToString("N"), LevelOn(AccessTargetKind.Server, server.Id), de, withNone: true),
+                $" data-group-server=\"{A(server.Name)}\"")));
         var empty = $"""<p class="muted">{E(de ? "Keine." : "None.")}</p>""";
         var delete = isNew
             ? ""
@@ -93,18 +138,24 @@ public sealed partial class HtmlViews
                     </section>
                     <section class="panel">
                         <h2>{{(de ? "Mitglieder" : "Members")}}</h2>
-                        <p class="muted">{{(de ? "Administratoren sehen ohnehin alles und stehen deshalb nicht in der Liste." : "Administrators see everything anyway and are therefore not listed.")}}</p>
+                        <p class="muted">{{(de ? "Administratoren dürfen ohnehin alles und stehen deshalb nicht in der Liste." : "Administrators may do everything anyway and are therefore not listed.")}}</p>
                         <div class="group-checks">{{(members.Length == 0 ? empty : members)}}</div>
+                    </section>
+                    <section class="panel">
+                        <h2>{{(de ? "Alle Verbindungen" : "All connections")}}</h2>
+                        <p class="muted">{{(de ? "Jede gemeinsame Verbindung, auch künftige - außer in Ordnern, die nicht erben." : "Every shared connection, also future ones - except in folders that do not inherit.")}}</p>
+                        {{LevelRow(de ? "Alle Verbindungen" : "All connections", "", AccessLevelSelect("level_all", LevelOn(AccessTargetKind.All, Guid.Empty), de, withNone: true), " data-group-all")}}
                     </section>
                     <section class="panel">
                         <h2>{{(de ? "Ordner" : "Folders")}}</h2>
                         <p class="muted">{{(de ? "Alles, was in einem dieser Ordner oder darunter liegt - auch was später hinzukommt." : "Everything filed in one of these folders or below - also what is added later.")}}</p>
-                        <div class="group-checks">{{(folderChecks.Length == 0 ? empty : folderChecks)}}</div>
+                        <div class="group-levels">{{(folderRows.Length == 0 ? empty : folderRows)}}</div>
                     </section>
                     <section class="panel">
                         <h2>{{(de ? "Einzelne Verbindungen" : "Single connections")}}</h2>
-                        <div class="group-checks">{{(serverChecks.Length == 0 ? empty : serverChecks)}}</div>
+                        <div class="group-levels">{{(serverRows.Length == 0 ? empty : serverRows)}}</div>
                     </section>
+                    <ul class="access-legend muted panel">{{string.Join("", GrantableLevels.Select(level => $"<li><strong>{E(AccessLevelLabel(level, de))}</strong> - {E(AccessLevelHint(level, de))}</li>"))}}</ul>
                 </form>
                 <section class="panel conn-actions">
                     <div class="form-actions">
@@ -114,6 +165,7 @@ public sealed partial class HtmlViews
                     </div>
                 </section>
             </div>
+            {{AccessStyles}}
             <style>
                 .group-checks { display: grid; gap: 6px; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); margin-top: 8px; }
                 .group-check { align-items: flex-start; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; display: flex; gap: 10px; padding: 8px 10px; }
@@ -121,6 +173,13 @@ public sealed partial class HtmlViews
                 .group-check span { display: grid; min-width: 0; }
                 .group-check strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
                 .group-check small { font-size: 12px; }
+                .group-levels { display: grid; gap: 6px; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); margin-top: 8px; }
+                .group-level { align-items: center; border: 1px solid var(--line); border-radius: 10px; display: flex; gap: 10px; justify-content: space-between; padding: 8px 10px; }
+                .group-level:has(select option[value="none"]:not(:checked)) { background: color-mix(in srgb, var(--accent) 10%, var(--surface)); border-color: var(--accent); }
+                .group-level span { display: grid; flex: 1 1 auto; min-width: 0; }
+                .group-level select { flex: 0 0 150px; min-width: 0; width: 150px; }
+                .group-level strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                .group-level small { font-size: 12px; }
             </style>
             """;
 

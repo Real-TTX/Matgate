@@ -26,6 +26,7 @@ public sealed class MatgateUser
     // saving a connection). Admins are always allowed.
     public bool CanQuickConnect { get; set; }
 
+    // Before 0.41.0: every shared connection. Moved into an entry on "all connections" (grants.json) once, then cleared.
     public bool ServerAccessAll { get; set; }
 
     public string PreferredLanguage { get; set; } = "en";
@@ -100,14 +101,13 @@ public sealed class MatgateUser
     // Drives the "Recently used" section on the home page.
     public List<RecentConnectionEntry> RecentConnections { get; set; } = [];
 
+    // Before 0.41.0: single connections. Moved into entries (grants.json) once, then cleared.
     public List<Guid> ServerAccess { get; set; } = [];
 
     // What the user's groups give them, filled in when the user is read (see JsonDataStore) - never stored.
+    // Every entry of "who may do what" that reaches this user, directly or through a group (see AccessResolver).
     [System.Text.Json.Serialization.JsonIgnore]
-    public HashSet<Guid> GroupServers { get; set; } = [];
-
-    [System.Text.Json.Serialization.JsonIgnore]
-    public List<string> GroupFolders { get; set; } = [];
+    public Matgate.Services.UserAccess Access { get; set; } = Matgate.Services.UserAccess.Empty;
 
     [System.Text.Json.Serialization.JsonIgnore]
     public List<string> GroupNames { get; set; } = [];

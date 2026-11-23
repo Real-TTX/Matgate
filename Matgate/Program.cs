@@ -279,6 +279,7 @@ await store.EnsureGuacamoleSecretsAsync(hasher, app.Lifetime.ApplicationStopping
 await store.MigrateServerSecretsAsync(app.Lifetime.ApplicationStopping);
 await store.EnsureWorkspacePublicAccessDefaultsAsync(TimeSpan.FromHours(24), app.Lifetime.ApplicationStopping);
 await store.RemoveLegacyGatewayServersAsync(app.Lifetime.ApplicationStopping);
+await store.MigrateAccessAsync(app.Lifetime.ApplicationStopping);
 await app.Services.GetRequiredService<GuacamoleConfigWriter>()
     .SynchronizeAsync(app.Lifetime.ApplicationStopping);
 

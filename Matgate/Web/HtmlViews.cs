@@ -586,40 +586,54 @@ public sealed partial class HtmlViews
         HttpContext context,
         MatgateUser currentUser,
         MatgateUser editedUser,
-        IReadOnlyList<ServerEndpoint> servers)
+        IReadOnlyList<ServerEndpoint> servers,
+        IReadOnlyList<UserGroup>? groups = null,
+        IReadOnlyList<AccessGrant>? grants = null)
     {
         var de = Language(context) == "de";
-        var sharedServers = servers.Where(server => server.OwnerUserId is null).OrderBy(server => server.Name).ToList();
-        var allServersChecked = editedUser.IsAdmin || editedUser.ServerAccessAll;
+        groups ??= [];
+        grants ??= [];
+        var mine = grants.Where(grant => grant.PrincipalKind == AccessPrincipalKind.User && grant.PrincipalId == editedUser.Id).ToList();
+        var disabled = editedUser.IsAdmin ? " disabled" : "";
+        var sharedServers = servers.Where(server => server.OwnerUserId is null)
+            .OrderBy(server => server.FolderName, StringComparer.OrdinalIgnoreCase)
+            .ThenBy(server => server.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+        var allLevel = mine.FirstOrDefault(grant => grant.TargetKind == AccessTargetKind.All)?.Level ?? AccessLevel.None;
         var accessRows = sharedServers.Count == 0
             ? $"""<tr><td colspan="6" class="muted">{T(context, "No global servers created yet.")}</td></tr>"""
             : string.Join("", sharedServers.Select(server =>
             {
-                var isChecked = editedUser.IsAdmin || editedUser.ServerAccessAll || editedUser.ServerAccess.Contains(server.Id);
-                var disabled = editedUser.IsAdmin ? " disabled" : "";
+                var direct = mine.FirstOrDefault(grant => grant.Targets(AccessTargetKind.Server, server.Id))?.Level ?? AccessLevel.None;
+                var reasons = Services.AccessResolver.Reasons(editedUser, server);
+                var level = Services.AccessResolver.Highest(reasons);
                 var isFile = ServerEndpoint.IsFileProtocol(server.Protocol);
                 var rule = editedUser.FileAccessRules?.FirstOrDefault(r => r.ServerId == server.Id);
-                var roCell = isFile
-                    ? $$"""<input type="checkbox" name="readonly_{{server.Id:N}}"{{Checked(rule?.ReadOnly ?? false)}}{{disabled}}>"""
-                    : """<span class="muted">-</span>""";
-                var subCell = isFile
-                    ? $$"""<input type="text" name="subpath_{{server.Id:N}}" value="{{A(rule?.SubPath ?? "")}}" placeholder="{{A(de ? "Unterordner (optional)" : "Subfolder (optional)")}}"{{disabled}}>"""
+                var fileCell = isFile
+                    ? $$"""
+                        <label class="check access-file-check"><input type="checkbox" name="readonly_{{server.Id:N}}"{{Checked(rule?.ReadOnly ?? false)}}{{disabled}}> <span>{{(de ? "Immer nur lesen" : "Always read-only")}}</span></label>
+                        <input type="text" name="subpath_{{server.Id:N}}" value="{{A(rule?.SubPath ?? "")}}" placeholder="{{A(de ? "Unterordner (optional)" : "Subfolder (optional)")}}"{{disabled}}>
+                        """
                     : """<span class="muted">-</span>""";
                 return $$"""
-                    <tr>
-                        <td class="access-select-cell">
-                            <input type="checkbox" name="serverIds" value="{{server.Id}}"{{Checked(isChecked)}}{{disabled}}>
-                        </td>
+                    <tr data-user-access-row="{{A(server.Name)}}" data-effective-level="{{level}}">
                         <td>
                             <span class="server-name-cell">{{ServerIcon(server, "small")}}<a href="/admin/servers/{{server.Id}}">{{E(server.Name)}}</a></span>
+                            {{(string.IsNullOrWhiteSpace(server.FolderName) ? "" : $"""<small class="muted">{E(server.FolderName)}</small>""")}}
                         </td>
                         <td><span class="badge">{{E(ServerProtocolLabel(server.Protocol))}}</span></td>
-                        <td>{{E(ServerTargetValue(server))}}</td>
-                        <td class="access-select-cell">{{roCell}}</td>
-                        <td>{{subCell}}</td>
+                        <td>{{AccessLevelSelect("level_" + server.Id.ToString("N"), direct, de, withNone: true, disabled)}}</td>
+                        <td>{{AccessLevelBadge(level, de)}}</td>
+                        <td><div class="access-reasons">{{AccessReasonsHtml(reasons, de)}}</div></td>
+                        <td>{{fileCell}}</td>
                     </tr>
                     """;
             }));
+        var groupChecks = groups.Count == 0
+            ? $"""<p class="muted">{E(de ? "Es gibt noch keine Gruppe." : "There is no group yet.")}</p>"""
+            : string.Join("", groups.OrderBy(group => group.Name, StringComparer.OrdinalIgnoreCase).Select(group => $$"""
+                <label class="group-check"><input type="checkbox" name="groups" value="{{group.Id}}"{{Checked(group.MemberIds.Contains(editedUser.Id))}}{{disabled}}><span><strong>{{E(group.Name)}}</strong>{{(string.IsNullOrWhiteSpace(group.Description) ? "" : $"""<small class="muted">{E(group.Description)}</small>""")}}</span></label>
+                """));
 
         var deleteButton = currentUser.Id == editedUser.Id
             ? $"""<button type="button" disabled>{Icon("trash")}{T(context, "Cannot delete own user")}</button>"""
@@ -681,36 +695,48 @@ public sealed partial class HtmlViews
                     <div class="actions"><button type="submit" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button></div>
                 </form>
             </section>
-            <section class="panel">
-                <h2>{{T(context, "Server access")}}</h2>
+            <section class="panel" data-user-access>
+                <h2>{{(de ? "Gruppen und Zugriff" : "Groups and access")}}</h2>
                 <p class="muted settings-lead">{{(de
                     ? (editedUser.IsAdmin
-                        ? "Administratoren sehen ohnehin alle Server - hier ist deshalb nichts einzustellen."
-                        : "Nur globale Server. Eigene Server stehen ihrem Besitzer immer zur Verfügung.")
+                        ? "Administratoren dürfen ohnehin alles - hier ist deshalb nichts einzustellen."
+                        : "Was dieser Benutzer darf, kommt aus seinen Gruppen, aus Freigaben auf Ordnern und aus dem, was er hier direkt bekommt. „Darf“ zeigt, was am Ende gilt, und „Warum“ jeden Grund dafür. Eigene Verbindungen gehören immer ihrem Besitzer.")
                     : (editedUser.IsAdmin
-                        ? "Administrators see every server anyway - so there is nothing to set here."
-                        : "Global servers only. Own servers are always available to their owner."))}}</p>
+                        ? "Administrators may do everything anyway - so there is nothing to set here."
+                        : "What this user may do comes from their groups, from entries on folders and from what they are given here directly. \"May\" shows what holds in the end, \"Why\" every reason for it. Own connections always belong to their owner."))}}</p>
                 <form method="post" action="/admin/users/{{editedUser.Id}}/access" class="stack">
                     {{Csrf(context)}}
-                    <label class="check"><input type="checkbox" name="allServers"{{Checked(allServersChecked)}}{{(editedUser.IsAdmin ? " disabled" : "")}}> <span>{{T(context, "All global servers (*)")}}</span></label>
+                    <h3>{{(de ? "Gruppen" : "Groups")}}</h3>
+                    <div class="group-checks">{{groupChecks}}</div>
+                    <label class="access-all">{{(de ? "Direkt auf alle Verbindungen" : "Directly on all connections")}}{{AccessLevelSelect("level_all", allLevel, de, withNone: true, disabled)}}</label>
                     <div class="table-wrap">
-                        <table class="access-table">
+                        <table class="access-table" data-user-access-table>
                             <thead>
                                 <tr>
-                                    <th class="access-select-cell">{{T(context, "Access")}}</th>
                                     <th>{{T(context, "Name")}}</th>
                                     <th>{{T(context, "Type")}}</th>
-                                    <th>{{T(context, "Target")}}</th>
-                                    <th class="access-select-cell">{{(de ? "Nur-Lesen" : "Read-only")}}</th>
-                                    <th>{{(de ? "Unterordner" : "Subfolder")}}</th>
+                                    <th>{{(de ? "Direkt" : "Directly")}}</th>
+                                    <th>{{(de ? "Darf" : "May")}}</th>
+                                    <th>{{(de ? "Warum" : "Why")}}</th>
+                                    <th>{{(de ? "Dateien" : "Files")}}</th>
                                 </tr>
                             </thead>
                             <tbody>{{accessRows}}</tbody>
                         </table>
                     </div>
-                    <div class="actions"><button type="submit" class="primary"{{(editedUser.IsAdmin ? " disabled" : "")}}>{{Icon("save")}}{{T(context, "Save access")}}</button></div>
+                    <div class="actions"><button type="submit" class="primary"{{disabled}} data-user-access-save>{{Icon("save")}}{{T(context, "Save access")}}</button></div>
                 </form>
             </section>
+            {{AccessStyles}}
+            <style>
+                .group-checks { display: grid; gap: 6px; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); margin: 6px 0 12px; }
+                .group-check { align-items: flex-start; border: 1px solid var(--line); border-radius: 10px; cursor: pointer; display: flex; gap: 10px; padding: 8px 10px; }
+                .group-check:has(input:checked) { background: color-mix(in srgb, var(--accent) 10%, var(--surface)); border-color: var(--accent); }
+                .group-check span { display: grid; min-width: 0; }
+                .access-all { align-items: center; display: flex; flex-wrap: wrap; gap: 10px; margin: 4px 0 10px; }
+                .access-file-check { font-size: 13px; margin-bottom: 4px; }
+                [data-user-access-table] td small { display: block; }
+            </style>
             <section class="panel">
                 <h2>{{T(context, "Password")}}</h2>
                 <p class="muted settings-lead">{{(de
@@ -761,7 +787,8 @@ public sealed partial class HtmlViews
         IReadOnlyList<WorkspaceDefinition> workspaces,
         BrowserAdminData? browser = null,
         IReadOnlyList<UserGroup>? groups = null,
-        IReadOnlyList<FolderDefinition>? folderObjects = null)
+        IReadOnlyList<FolderDefinition>? folderObjects = null,
+        IReadOnlyList<AccessGrant>? grants = null)
     {
         var de = Language(context) == "de";
         var openLabel = T(context, "Open");
@@ -923,12 +950,12 @@ public sealed partial class HtmlViews
         var tabs = new List<TabItem>
         {
             new("servers", T(context, "Servers"), Icon("server"), serversPanel),
-            new("folders", de ? "Ordner" : "Folders", Icon("folder"), FoldersPanel(context, servers, folderObjects)),
+            new("folders", de ? "Ordner" : "Folders", Icon("folder"), FoldersPanel(context, currentUser, servers, folderObjects)),
         };
         if (currentUser.IsAdmin)
         {
             tabs.Add(new("users", T(context, "Users"), Icon("users"), $"""<section class="panel">{userTable}</section>"""));
-            tabs.Add(new("groups", de ? "Gruppen" : "Groups", Icon("users"), GroupsPanel(context, groups ?? [], users)));
+            tabs.Add(new("groups", de ? "Gruppen" : "Groups", Icon("users"), GroupsPanel(context, groups ?? [], users, grants ?? [])));
         }
         tabs.Add(new("workspaces", T(context, "Workspaces"), Icon("briefcase"), $"""<section class="panel">{workspaceTable}</section>"""));
 
@@ -1116,6 +1143,7 @@ public sealed partial class HtmlViews
                     <div class="form-actions">
                         <button type="submit" form="server-edit-form" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button>
                         <a class="button" href="{{ServerFormBackUrl(returnTo)}}">{{Icon("arrow-left")}}{{T(context, "Back")}}</a>
+                        {{(server.OwnerUserId is null && Services.AccessResolver.Level(currentUser, server) >= AccessLevel.Manage ? $"""<a class="button" href="{A(EndpointMapping.AccessUrlForServer(server.Id))}" data-server-access>{Icon("shield")}{E(de ? "Zugriff" : "Access")}</a>""" : "")}}
                         <span class="spacer"></span>
                         <form method="post" action="/admin/servers/{{server.Id}}/delete" data-confirm="{{A(de ? $"Verbindung „{server.Name}“ wirklich löschen?" : $"Delete the connection \"{server.Name}\"?")}}">
                             {{Csrf(context)}}
@@ -1210,8 +1238,18 @@ public sealed partial class HtmlViews
     private static string FolderEditUrl(string name) => "/admin/folders/edit?name=" + Uri.EscapeDataString(name);
 
     // The folders in the administration: the list. A folder is created and edited on a page of its own.
-    private static string FoldersPanel(HttpContext context, IReadOnlyList<ServerEndpoint> servers, IReadOnlyList<FolderDefinition>? folderObjects = null)
+    private static string FoldersPanel(HttpContext context, MatgateUser currentUser, IReadOnlyList<ServerEndpoint> servers, IReadOnlyList<FolderDefinition>? folderObjects = null)
     {
+        var accessLabel = Language(context) == "de" ? "Zugriff" : "Access";
+        // A shared folder (not someone's own) whose access this user may decide: a shield beside the pencil.
+        string AccessLink(ServerFolder folder) =>
+            (folder.Servers.Any(server => server.OwnerUserId is null) || (folderObjects ?? []).Any(own => own.OwnerUserId is null && ServerFolders.Same(own.Name, folder.Name)))
+            && Services.AccessResolver.CanManageFolder(currentUser, folder.Name)
+                ? $"""<a class="icon-button" href="{A(EndpointMapping.AccessUrlForFolder(folder.Name))}" title="{A(accessLabel)}" aria-label="{A(accessLabel)}" data-folder-access>{Icon("shield")}</a>"""
+                : "";
+        var allAccess = Services.AccessResolver.CanManageAll(currentUser)
+            ? $"""<a class="button" href="{A(EndpointMapping.AccessUrlForAll)}" data-access-all-link>{Icon("shield")}{E(Language(context) == "de" ? "Zugriff auf alle Verbindungen" : "Access to all connections")}</a>"""
+            : "";
         var de = Language(context) == "de";
         // The folders of the connections, and those that exist on their own - also while empty.
         var folders = ServerFolders.List(servers);
@@ -1231,11 +1269,11 @@ public sealed partial class HtmlViews
                 <td><span class="server-name-cell"><span class="server-icon small">{{FolderIcon(folder.IconKey)}}</span><a href="{{A(FolderEditUrl(folder.Name))}}">{{E(folder.Name)}}</a></span></td>
                 <td data-sort-value="{{folder.Servers.Count}}">{{folder.Servers.Count}}</td>
                 <td class="muted">{{E(string.Join(", ", folder.Servers.Take(6).Select(server => server.Name)) + (folder.Servers.Count > 6 ? ", ..." : ""))}}</td>
-                <td class="table-actions"><div class="row-actions"><a class="icon-button" href="{{A(FolderEditUrl(folder.Name))}}" title="{{A(editLabel)}}" aria-label="{{A(editLabel)}}">{{Icon("edit")}}</a><form method="post" action="/admin/folders/delete" data-confirm="{{A(de ? $"Ordner „{folder.Name}“ auflösen? Seine {folder.Servers.Count} Verbindung(en) bleiben erhalten, nur ohne Ordner." : $"Dissolve the folder \"{folder.Name}\"? Its {folder.Servers.Count} connection(s) stay, only without a folder.")}}">{{Csrf(context)}}<input type="hidden" name="name" value="{{A(folder.Name)}}"><button type="submit" class="icon-button danger-action" title="{{A(dissolveLabel)}}" aria-label="{{A(dissolveLabel)}}">{{Icon("trash")}}</button></form></div></td>
+                <td class="table-actions"><div class="row-actions"><a class="icon-button" href="{{A(FolderEditUrl(folder.Name))}}" title="{{A(editLabel)}}" aria-label="{{A(editLabel)}}">{{Icon("edit")}}</a>{{AccessLink(folder)}}<form method="post" action="/admin/folders/delete" data-confirm="{{A(de ? $"Ordner „{folder.Name}“ auflösen? Seine {folder.Servers.Count} Verbindung(en) bleiben erhalten, nur ohne Ordner." : $"Dissolve the folder \"{folder.Name}\"? Its {folder.Servers.Count} connection(s) stay, only without a folder.")}}">{{Csrf(context)}}<input type="hidden" name="name" value="{{A(folder.Name)}}"><button type="submit" class="icon-button danger-action" title="{{A(dissolveLabel)}}" aria-label="{{A(dissolveLabel)}}">{{Icon("trash")}}</button></form></div></td>
             </tr>
             """));
         var headers = $$"""<th data-sortable>{{(de ? "Ordner" : "Folder")}}</th><th data-sortable>{{(de ? "Verbindungen" : "Connections")}}</th><th>{{(de ? "Darin" : "In it")}}</th><th class="table-actions">{{T(context, "Actions")}}</th>""";
-        var create = $$"""<a class="button primary" href="/admin/folders/new" data-folder-new-link>{{Icon("plus")}}{{(de ? "Neuer Ordner" : "New folder")}}</a>""";
+        var create = $$"""<a class="button primary" href="/admin/folders/new" data-folder-new-link>{{Icon("plus")}}{{(de ? "Neuer Ordner" : "New folder")}}</a>{{allAccess}}""";
         var table = DataTable(
             de ? "Ordner suchen..." : "Search folders...",
             headers,
@@ -1248,8 +1286,8 @@ public sealed partial class HtmlViews
         return $$"""
             <section class="panel" data-folders>
                 <p class="muted settings-lead">{{(de
-                    ? "Ordner fassen Verbindungen zusammen; ein Unterordner ist ein Name mit „/“ (Labor/Linux). Ein Ordner, den ein Admin oder Server-Verwalter anlegt, sehen alle - auch solange er leer ist. Über Gruppen gibt man ganze Ordner frei."
-                    : "Folders group connections; a subfolder is a name with \"/\" (Lab/Linux). A folder an administrator or server manager makes is seen by everyone - also while it is empty. Groups give whole folders to people.")}}</p>
+                    ? "Ordner fassen Verbindungen zusammen; ein Unterordner ist ein Name mit „/“ (Labor/Linux). Ein Ordner, den ein Admin oder Server-Verwalter anlegt, sehen alle - auch solange er leer ist. Über das Schild gibt man einen Ordner frei: was dort gilt, gilt für alles darin und darunter, bis ein Unterordner nicht mehr erbt."
+                    : "Folders group connections; a subfolder is a name with \"/\" (Lab/Linux). A folder an administrator or server manager makes is seen by everyone - also while it is empty. The shield gives a folder to people: what holds there holds for everything in it and below, until a subfolder stops inheriting.")}}</p>
                 {{table}}
             </section>
             """;
@@ -1358,6 +1396,7 @@ public sealed partial class HtmlViews
                     <div class="form-actions">
                         <button type="submit" form="folder-form" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button>
                         <a class="button" href="/admin?tab=folders">{{Icon("arrow-left")}}{{T(context, "Back")}}</a>
+                        {{(!isNew && Services.AccessResolver.CanManageFolder(user, original) ? $"""<a class="button" href="{A(EndpointMapping.AccessUrlForFolder(original))}" data-folder-access>{Icon("shield")}{E(de ? "Zugriff" : "Access")}</a>""" : "")}}
                         {{dissolve}}
                     </div>
                 </section>

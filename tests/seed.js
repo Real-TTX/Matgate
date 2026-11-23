@@ -20,9 +20,9 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 // What the tests create, by exact name. A run that is aborted halfway leaves these behind, and the
 // next run then fails on "name already taken" - a failure that looks real and says nothing about
 // the thing it was meant to test. Removed before a run starts; nothing else is touched.
-const LEFTOVER_USERS = ["UmbauTester", "FreigabeTester", "VorgabeTester", "TestGrossKlein", "DialogTest", "GruppenTester"];
+const LEFTOVER_USERS = ["UmbauTester", "FreigabeTester", "VorgabeTester", "TestGrossKlein", "DialogTest", "GruppenTester", "RechteTester"];
 // The connection to the toy VNC server (toy-vnc.js) that the remote-desktop tests make for themselves.
-const LEFTOVER_CONNECTIONS = ["Toy-VNC"];
+const LEFTOVER_CONNECTIONS = ["Toy-VNC", "Rechte-DB"];
 const LEFTOVER_SHARES = ["Dialogablage", "Dialogablage neu", "DissolvedShare", "Frisch angelegt",
   "Pruefablage", "Zeigerablage", "My place shared", "Shared place shared", "Testablage", "Ansichtssache"];
 

@@ -77,7 +77,7 @@ SQL Server, MySQL/MariaDB and PostgreSQL: tables, rows and your own statements.
 <td valign="top">
 
 **🔐 Users & groups**<br/>
-Admin roles, per-connection access, groups, shared credentials, encryption at rest.
+Levels from read-only to manage, inherited through folders, groups, "who has access and why", encryption at rest.
 
 </td>
 </tr>
@@ -106,7 +106,7 @@ Three ready-made stacks are in this repo, all with prebuilt images:
 
 | Image | Tag |
 |---|---|
-| `ghcr.io/real-ttx/matgate` | `latest`, a version such as `0.40.1`, or `sha-…` |
+| `ghcr.io/real-ttx/matgate` | `latest`, a version such as `0.41.0`, or `sha-…` |
 | `ghcr.io/real-ttx/matgate-browser-farm` | `latest` (optional) |
 
 <details>
@@ -238,8 +238,8 @@ needed). [→ Agent documentation](agent/README.md)
 ### 🔐 Users & operation
 
 - Local users with username, email and password, plus a **first-run setup wizard**.
-- **Admin roles and per-connection access**, global and personal connections.
-- **Groups**: members get whole folders or single connections. Administrators can make folders for everyone.
+- **Permissions with levels and inheritance**: read only, connect, edit or manage - per connection, per folder (and everything below) or on all connections, for users and groups. Every connection and folder shows **who has access and why**.
+- **Groups** with members; **read only** really is read only - screen and terminal only to watch, files and SQL only to read.
 - Credentials **encrypted at rest** (AES-GCM). `/guacamole` sits behind the Matgate login.
 - **One settings page** with sections. A save bar shows what is unsaved. Light, dark or system theme
   with your own colours.
@@ -395,7 +395,10 @@ Everything Matgate keeps lives under the data directory (`./data`, mounted at `/
 
 ```
 /data
-├─ users.json               users, permissions, favorites
+├─ users.json               users, roles, favorites
+├─ groups.json              groups and their members
+├─ grants.json              who may do what: users and groups on connections, folders, everything
+├─ folders.json             folders (also empty ones), and which of them do not inherit
 ├─ servers.json             connections and folders
 ├─ workspaces.json          workspaces and share settings
 ├─ guacamole.properties     generated Guacamole config
@@ -432,11 +435,29 @@ folders are cleaned up on their own.
 
 ### Permissions
 
-- `Admin` manages users and all connections.
-- `CanManageServers` manages global connections; `CanCreateServers` may create personal ones.
-- `ServerAccessAll`, or access granted per global connection.
-- **Global** connections are shared and admin-managed; **personal** ones belong to a user (still visible
-  to admins for support).
+Who may use a shared connection is decided by **entries**: a user or a group gets a **level** on one
+connection, on a **folder** or on **all connections**.
+
+| Level | Allows |
+|---|---|
+| **Read only** | open it, change nothing: screen and terminal only to watch, files and databases only to read |
+| **Connect** | open it and work in it |
+| **Edit** | also change the connection itself (address, login, folder) |
+| **Manage** | also decide who else may, and delete it |
+
+- **Inheritance**: an entry on a folder holds for everything in it and below, also what is filed there
+  later. A folder can **stop inheriting**: then only what is given on it and below holds there.
+- There is no "deny": the **highest** level that reaches someone counts.
+- **Who has access?** Every connection and folder has an access page (the shield) with everyone who may in
+  the end and **every reason**: "Connect, group IT, on folder Servers (inherited)". The user page shows the
+  same per connection, with the groups.
+- **Read only on a database** runs one reading statement at a time inside a read-only transaction that is
+  rolled back. A database login that cannot write is still the safest answer.
+- Roles on the user: `Admin` (everything), `Manage servers` (edits every shared connection, makes shared
+  folders), `Create own servers` (personal connections), `Quick connect`.
+- **Personal** connections belong to their user alone (and the admins, for support).
+- Access kept before 0.41.0 (all connections, single connections, group folders) is moved into entries on
+  the first start, without anyone getting more or less.
 
 ---
 

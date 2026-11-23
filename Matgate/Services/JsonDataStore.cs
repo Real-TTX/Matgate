@@ -79,6 +79,176 @@ public sealed class JsonDataStore
         }
     }
 
+    private string GrantsPath => Path.Combine(DataDirectory, "grants.json");
+
+    public async Task<IReadOnlyList<AccessGrant>> GetGrantsAsync(CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            return await ReadListAsync<AccessGrant>(GrantsPath, cancellationToken);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    public async Task UpdateGrantsAsync(Action<List<AccessGrant>> update, CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var grants = await ReadListAsync<AccessGrant>(GrantsPath, cancellationToken);
+            update(grants);
+            await WriteListAsync(GrantsPath, grants, cancellationToken);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    // The shared folder of each of these paths, made where there is none yet (a folder that so far existed only
+    // as the name its connections carry): something lasting for an entry to point to. By AccessResolver.FolderKey.
+    public async Task<Dictionary<string, FolderDefinition>> EnsureSharedFoldersAsync(IEnumerable<string> paths, CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            var folders = await ReadListAsync<FolderDefinition>(FoldersPath, cancellationToken);
+            var index = SharedFolderIndex(folders);
+            var added = false;
+            foreach (var path in paths.Select(ServerFolders.CleanPath).Where(path => path.Length > 0))
+            {
+                if (!index.ContainsKey(AccessResolver.FolderKey(path)))
+                {
+                    var folder = new FolderDefinition { Name = path };
+                    folders.Add(folder);
+                    index[AccessResolver.FolderKey(path)] = folder;
+                    added = true;
+                }
+            }
+
+            if (added)
+            {
+                await WriteListAsync(FoldersPath, folders, cancellationToken);
+            }
+
+            return index;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    // The shared folders (no owner) by their path, for AccessResolver. Two of the same path: the first one.
+    private static Dictionary<string, FolderDefinition> SharedFolderIndex(IEnumerable<FolderDefinition> folders)
+    {
+        var index = new Dictionary<string, FolderDefinition>();
+        foreach (var folder in folders.Where(folder => folder.OwnerUserId is null))
+        {
+            index.TryAdd(AccessResolver.FolderKey(folder.Name), folder);
+        }
+
+        return index;
+    }
+
+    // Before 0.41.0 access was kept in three places: on the user (all shared connections, single connections,
+    // a read-only tick per file connection) and on the group (single connections, folders by name). All of it
+    // becomes entries in grants.json - once, when that file does not exist yet. Folders a group was given by
+    // name get a folder of their own first (folders.json), so that the entry has something lasting to point to:
+    // renaming the folder later no longer loses it.
+    public async Task MigrateAccessAsync(CancellationToken cancellationToken = default)
+    {
+        await _gate.WaitAsync(cancellationToken);
+        try
+        {
+            if (File.Exists(GrantsPath))
+            {
+                return;
+            }
+
+            var grants = new List<AccessGrant>();
+            var users = await ReadListAsync<MatgateUser>(UsersPath, cancellationToken);
+            var groups = await ReadListAsync<UserGroup>(GroupsPath, cancellationToken);
+            var folders = await ReadListAsync<FolderDefinition>(FoldersPath, cancellationToken);
+            var servers = await ReadListAsync<ServerEndpoint>(ServersPath, cancellationToken);
+            var shared = servers.Where(server => server.OwnerUserId is null).Select(server => server.Id).ToHashSet();
+
+            foreach (var user in users.Where(user => !user.IsAdmin))
+            {
+                var readOnly = (user.FileAccessRules ?? []).Where(rule => rule.ReadOnly).Select(rule => rule.ServerId).ToHashSet();
+                // "All connections" with a read-only tick somewhere cannot be one entry: an entry on all connections
+                // would give Connect to the read-only one as well (the highest level wins). Then it becomes one
+                // entry per connection there is now.
+                var everyOne = user.ServerAccessAll && readOnly.Count == 0;
+                if (everyOne)
+                {
+                    grants.Add(new AccessGrant { TargetKind = AccessTargetKind.All, PrincipalKind = AccessPrincipalKind.User, PrincipalId = user.Id, Level = AccessLevel.Connect });
+                }
+
+                var single = user.ServerAccessAll ? (everyOne ? [] : shared.ToList()) : user.ServerAccess.Where(shared.Contains).Distinct().ToList();
+                foreach (var serverId in single)
+                {
+                    grants.Add(new AccessGrant
+                    {
+                        TargetKind = AccessTargetKind.Server,
+                        TargetId = serverId,
+                        PrincipalKind = AccessPrincipalKind.User,
+                        PrincipalId = user.Id,
+                        Level = readOnly.Contains(serverId) ? AccessLevel.ReadOnly : AccessLevel.Connect,
+                    });
+                }
+            }
+
+            foreach (var group in groups)
+            {
+                foreach (var serverId in group.ServerIds.Where(shared.Contains).Distinct())
+                {
+                    grants.Add(new AccessGrant { TargetKind = AccessTargetKind.Server, TargetId = serverId, PrincipalKind = AccessPrincipalKind.Group, PrincipalId = group.Id, Level = AccessLevel.Connect });
+                }
+
+                foreach (var path in group.Folders.Select(ServerFolders.CleanPath).Where(path => path.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase))
+                {
+                    var folder = folders.FirstOrDefault(candidate => candidate.OwnerUserId is null && ServerFolders.Same(candidate.Name, path));
+                    if (folder is null)
+                    {
+                        folder = new FolderDefinition { Name = path };
+                        folders.Add(folder);
+                    }
+
+                    grants.Add(new AccessGrant { TargetKind = AccessTargetKind.Folder, TargetId = folder.Id, PrincipalKind = AccessPrincipalKind.Group, PrincipalId = group.Id, Level = AccessLevel.Connect });
+                }
+            }
+
+            await WriteListAsync(FoldersPath, folders, cancellationToken);
+            await WriteListAsync(GrantsPath, grants, cancellationToken);
+            foreach (var user in users)
+            {
+                user.ServerAccessAll = false;
+                user.ServerAccess = [];
+                // The file rules (read-only, a subfolder) stay as they are: they hold for this user whatever
+                // their groups give them.
+            }
+
+            foreach (var group in groups)
+            {
+                group.ServerIds = [];
+                group.Folders = [];
+            }
+
+            await WriteListAsync(UsersPath, users, cancellationToken);
+            await WriteListAsync(GroupsPath, groups, cancellationToken);
+            _logger.LogInformation("Moved access into grants.json: {Count} entries.", grants.Count);
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
     public async Task<IReadOnlyList<FolderDefinition>> GetFoldersAsync(CancellationToken cancellationToken = default)
     {
         await _gate.WaitAsync(cancellationToken);
@@ -223,17 +393,29 @@ public sealed class JsonDataStore
                 user.TotpSecret = _protector.Unprotect(user.TotpSecret);
             }
 
-            // What their groups give them, for every check of who may use what. Writing users (UpdateUsersAsync)
-            // reads them on its own and never carries this.
+            // What reaches each of them - given to them, or to a group they are in - for every check of who may
+            // use what (AccessResolver). Writing users (UpdateUsersAsync) reads them on its own and never carries this.
             var groups = await ReadListAsync<UserGroup>(GroupsPath, cancellationToken);
-            foreach (var group in groups)
+            var grants = await ReadListAsync<AccessGrant>(GrantsPath, cancellationToken);
+            var folders = SharedFolderIndex(await ReadListAsync<FolderDefinition>(FoldersPath, cancellationToken));
+            foreach (var user in users)
             {
-                foreach (var user in users.Where(user => group.MemberIds.Contains(user.Id)))
+                var memberOf = groups.Where(group => group.MemberIds.Contains(user.Id)).ToList();
+                user.GroupNames.AddRange(memberOf.Select(group => group.Name));
+                var reaching = new List<ReachingGrant>();
+                foreach (var grant in grants)
                 {
-                    user.GroupServers.UnionWith(group.ServerIds);
-                    user.GroupFolders.AddRange(group.Folders);
-                    user.GroupNames.Add(group.Name);
+                    if (grant.PrincipalKind == AccessPrincipalKind.User && grant.PrincipalId == user.Id)
+                    {
+                        reaching.Add(new ReachingGrant(grant, null));
+                    }
+                    else if (grant.PrincipalKind == AccessPrincipalKind.Group && memberOf.FirstOrDefault(group => group.Id == grant.PrincipalId) is { } group)
+                    {
+                        reaching.Add(new ReachingGrant(grant, group));
+                    }
                 }
+
+                user.Access = new UserAccess(reaching, folders);
             }
 
             return users;

@@ -79,7 +79,7 @@ const check = (name, got, want) => {
       const box = [...doc.querySelectorAll("input[name='member']")].find(i => i.closest("label").textContent.includes(u));
       return box ? box.value : "";
     }, USER)) + "']");
-    await admin.check("input[name='folder'][value='" + FOLDER + "']");
+    await admin.selectOption("[data-group-folder='" + FOLDER + "'] select", "Connect");
     await Promise.all([admin.waitForLoadState("networkidle"), admin.click("button[form='group-form']")]);
     await sleep(800);
     await admin.goto(BASE + "/admin?tab=groups", { waitUntil: "networkidle" });

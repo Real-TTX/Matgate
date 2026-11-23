@@ -22,6 +22,16 @@ public static partial class EndpointMapping
         "screen.pad", "screen.mic",
     ];
 
+    // What a viewer who may only watch still sends: acknowledgements, the wish for a fresh picture, its size and
+    // quality, sound, and the answer to a login question. No keys, no pointer, no clipboard, no controller.
+    private static readonly HashSet<string> ScreenOpsWhenWatching =
+    [
+        "screen.ack", "screen.key", "screen.config", "screen.audio", "screen.auth",
+    ];
+
+    private static bool ScreenOpAllowed(string op, bool watchOnly) =>
+        watchOnly ? ScreenOpsWhenWatching.Contains(op) : ScreenOpsFromBrowser.Contains(op);
+
     private static void MapAgentScreenEndpoints(WebApplication app)
     {
         app.MapGet("/api/agent/{id:guid}/screen-socket", AgentScreenSocketAsync).RequireAuthorization();
@@ -46,9 +56,11 @@ public static partial class EndpointMapping
             return;
         }
 
-        // The screen can do whatever the machine's user can: the same people as for a terminal.
+        // The screen can do whatever the machine's user can: the same people as for a terminal - and whoever
+        // may only watch, with their input dropped.
         var (server, result, user) = await RequireAgentAsync(id, context, store);
-        if (result is not null || !CanUseAgentTerminal(user!, server!))
+        var watchOnly = result is null && IsReadOnlyFor(user!, server!);
+        if (result is not null || !(watchOnly || CanUseAgentTerminal(user!, server!)))
         {
             context.Response.StatusCode = StatusCodes.Status403Forbidden;
             return;
@@ -118,7 +130,7 @@ public static partial class EndpointMapping
 
                 var frame = AgentWire.Decode(message.ToArray());
                 message.SetLength(0);
-                if (frame.Kind != "evt" || !ScreenOpsFromBrowser.Contains(frame.Op))
+                if (frame.Kind != "evt" || !ScreenOpAllowed(frame.Op, watchOnly))
                 {
                     continue;
                 }

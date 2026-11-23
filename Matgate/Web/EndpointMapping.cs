@@ -445,6 +445,7 @@ public static partial class EndpointMapping
         MapDatabaseEndpoints(app);
         MapCredentialEndpoints(app);
         MapGroupEndpoints(app);
+        MapAccessEndpoints(app);
         MapKeyBarEndpoints(app);
         MapFolderEndpoints(app);
         MapKeptSessionEndpoints(app);
@@ -3916,7 +3917,9 @@ public static partial class EndpointMapping
                 context,
                 currentUser,
                 editedUser,
-                (await store.GetServersAsync(context.RequestAborted)).Where(server => server.OwnerUserId is null).ToList()),
+                (await store.GetServersAsync(context.RequestAborted)).Where(server => server.OwnerUserId is null).ToList(),
+                await store.GetGroupsAsync(context.RequestAborted),
+                await store.GetGrantsAsync(context.RequestAborted)),
             "text/html");
     }
 
@@ -4782,22 +4785,20 @@ public static partial class EndpointMapping
             return BadRequest(context, currentUser, views);
         }
 
-        var allServers = IsChecked(form, "allServers");
-        var allManagedServers = (await store.GetServersAsync(context.RequestAborted))
+        var target = await store.FindUserByIdAsync(id, context.RequestAborted);
+        if (target is null || target.IsAdmin)
+        {
+            return Results.Redirect(EmbedAwareRedirect(context, $"/admin/users/{id}"));
+        }
+
+        var sharedServers = (await store.GetServersAsync(context.RequestAborted))
             .Where(server => server.OwnerUserId is null)
             .ToList();
-        var managedServerIds = allManagedServers.Select(server => server.Id).ToHashSet();
+        static AccessLevel Parse(string value) => Enum.TryParse<AccessLevel>(value, out var level) ? level : AccessLevel.None;
 
-        var serverIds = form["serverIds"]
-            .Select(value => Guid.TryParse(value, out var parsed) ? parsed : Guid.Empty)
-            .Where(value => value != Guid.Empty && managedServerIds.Contains(value))
-            .Distinct()
-            .ToList();
-
-        // Per-file-connection restrictions: read-only and/or a subfolder, only for granted file servers.
+        // Per-file-connection restrictions for this user, whatever reaches them: read-only and/or a subfolder.
         var fileRules = new List<FileAccessRule>();
-        foreach (var server in allManagedServers.Where(server =>
-            ServerEndpoint.IsFileProtocol(server.Protocol) && serverIds.Contains(server.Id)))
+        foreach (var server in sharedServers.Where(server => ServerEndpoint.IsFileProtocol(server.Protocol)))
         {
             var key = server.Id.ToString("N");
             var readOnly = IsChecked(form, $"readonly_{key}");
@@ -4808,6 +4809,55 @@ public static partial class EndpointMapping
             }
         }
 
+        // What they get directly: on all connections, and connection by connection.
+        await store.UpdateGrantsAsync(grants =>
+        {
+            void Set(AccessTargetKind kind, Guid targetId, AccessLevel level)
+            {
+                var existing = grants.FirstOrDefault(grant => grant.Targets(kind, targetId) && grant.PrincipalKind == AccessPrincipalKind.User && grant.PrincipalId == id);
+                if (level == AccessLevel.None)
+                {
+                    if (existing is not null)
+                    {
+                        grants.Remove(existing);
+                    }
+                }
+                else if (existing is null)
+                {
+                    grants.Add(new AccessGrant { TargetKind = kind, TargetId = targetId, PrincipalKind = AccessPrincipalKind.User, PrincipalId = id, Level = level });
+                }
+                else
+                {
+                    existing.Level = level;
+                }
+            }
+
+            Set(AccessTargetKind.All, Guid.Empty, Parse(form["level_all"].ToString()));
+            foreach (var server in sharedServers)
+            {
+                Set(AccessTargetKind.Server, server.Id, Parse(form["level_" + server.Id.ToString("N")].ToString()));
+            }
+        }, context.RequestAborted);
+
+        var chosenGroups = form["groups"].Select(value => Guid.TryParse(value, out var parsed) ? parsed : Guid.Empty).ToHashSet();
+        await store.UpdateGroupsAsync(groups =>
+        {
+            foreach (var group in groups)
+            {
+                var member = group.MemberIds.Contains(id);
+                if (chosenGroups.Contains(group.Id) && !member)
+                {
+                    group.MemberIds.Add(id);
+                    group.UpdatedAt = DateTimeOffset.UtcNow;
+                }
+                else if (!chosenGroups.Contains(group.Id) && member)
+                {
+                    group.MemberIds.Remove(id);
+                    group.UpdatedAt = DateTimeOffset.UtcNow;
+                }
+            }
+        }, context.RequestAborted);
+
         await store.UpdateUsersAsync(users =>
         {
             var user = users.FirstOrDefault(candidate => candidate.Id == id);
@@ -4816,8 +4866,6 @@ public static partial class EndpointMapping
                 return;
             }
 
-            user.ServerAccessAll = allServers;
-            user.ServerAccess = serverIds;
             user.FileAccessRules = fileRules;
             user.UpdatedAt = DateTimeOffset.UtcNow;
         }, context.RequestAborted);
@@ -4946,6 +4994,9 @@ public static partial class EndpointMapping
         {
             users.RemoveAll(user => user.Id == id);
         }, context.RequestAborted);
+        // What was given to them, and their place in groups, go with them.
+        await store.UpdateGrantsAsync(grants => grants.RemoveAll(grant => grant.PrincipalKind == AccessPrincipalKind.User && grant.PrincipalId == id), context.RequestAborted);
+        await store.UpdateGroupsAsync(groups => groups.ForEach(group => group.MemberIds.Remove(id)), context.RequestAborted);
 
         await configWriter.SynchronizeAsync(context.RequestAborted);
         return Results.Redirect(EmbedAwareRedirect(context, "/admin/users"));
@@ -4987,7 +5038,8 @@ public static partial class EndpointMapping
 
         var groups = user.IsAdmin ? await store.GetGroupsAsync(context.RequestAborted) : [];
         var folderObjects = (await store.GetFoldersAsync(context.RequestAborted)).Where(folder => folder.VisibleTo(user)).ToList();
-        return Results.Content(views.AdminHome(context, user, servers, users, workspaces, browser, groups, folderObjects), "text/html");
+        var grants = await store.GetGrantsAsync(context.RequestAborted);
+        return Results.Content(views.AdminHome(context, user, servers, users, workspaces, browser, groups, folderObjects, grants), "text/html");
     }
 
     private static async Task<IResult> ServersAsync(HttpContext context, JsonDataStore store, HtmlViews views)
@@ -5100,7 +5152,7 @@ public static partial class EndpointMapping
         JsonDataStore store,
         HtmlViews views)
     {
-        var user = await RequireServerManagerAsync(context, store);
+        var user = await RequireUserAsync(context, store);
         if (user is null)
         {
             return Results.Redirect("/forbidden");
@@ -5132,7 +5184,7 @@ public static partial class EndpointMapping
         GuacamoleConfigWriter configWriter,
         HtmlViews views)
     {
-        var user = await RequireServerManagerAsync(context, store);
+        var user = await RequireUserAsync(context, store);
         if (user is null)
         {
             return Results.Redirect("/forbidden");
@@ -5230,7 +5282,7 @@ public static partial class EndpointMapping
         WebsiteProxyService websiteProxy,
         HtmlViews views)
     {
-        var user = await RequireServerManagerAsync(context, store);
+        var user = await RequireUserAsync(context, store);
         if (user is null)
         {
             return Results.Redirect("/forbidden");
@@ -5248,7 +5300,8 @@ public static partial class EndpointMapping
             return Results.NotFound();
         }
 
-        if (!CanEditServer(user, existing))
+        // Deleting takes more than editing: "Manage" on it - or being a server manager, as before.
+        if (!(AccessResolver.Level(user, existing) >= AccessLevel.Manage || (existing.OwnerUserId is null && user.CanManageServers)))
         {
             return Results.Redirect("/forbidden");
         }
@@ -5263,6 +5316,7 @@ public static partial class EndpointMapping
                 editedUser.FavoriteServerIds.RemoveAll(favoriteId => favoriteId == id);
             }
         }, context.RequestAborted);
+        await store.UpdateGrantsAsync(grants => grants.RemoveAll(grant => grant.Targets(AccessTargetKind.Server, id)), context.RequestAborted);
 
         websiteProxy.ForgetServer(id);
         context.RequestServices.GetRequiredService<WebsiteSiteService>().ForgetServer(id);
@@ -5513,7 +5567,7 @@ public static partial class EndpointMapping
         // itself - a workspace with uploads switched off is read-only for everyone, including its owner.
         // Brought together here so that all eleven write paths give the same answer instead of an
         // exception from somewhere deep down.
-        var readOnlyPlace = (rule?.ReadOnly ?? false) || effectiveServer.IsReadOnly;
+        var readOnlyPlace = (rule?.ReadOnly ?? false) || effectiveServer.IsReadOnly || IsReadOnlyFor(user, server);
         return new FileServerAccess(effectiveServer, null, readOnlyPlace);
     }
 
@@ -5674,55 +5728,16 @@ public static partial class EndpointMapping
         return false;
     }
 
-    private static bool CanAccessServer(MatgateUser user, ServerEndpoint server)
-    {
-        if (user.IsAdmin)
-        {
-            return true;
-        }
+    // May open it - at least to watch or read (AccessResolver says how far beyond that).
+    private static bool CanAccessServer(MatgateUser user, ServerEndpoint server) =>
+        AccessResolver.Level(user, server) >= AccessLevel.ReadOnly;
 
-        if (server.OwnerUserId == user.Id)
-        {
-            return true;
-        }
+    // Opened for watching or reading only: no keys, no pointer, no writing.
+    private static bool IsReadOnlyFor(MatgateUser user, ServerEndpoint server) =>
+        AccessResolver.Level(user, server) == AccessLevel.ReadOnly;
 
-        if (server.OwnerUserId is not null)
-        {
-            return false;
-        }
-
-        return user.CanManageServers || user.ServerAccessAll || user.ServerAccess.Contains(server.Id)
-            || user.GroupServers.Contains(server.Id)
-            || InGrantedFolder(user.GroupFolders, server.FolderName);
-    }
-
-    // A connection filed in a granted folder or below it ("Lab" grants "Lab" and "Lab/Linux").
-    private static bool InGrantedFolder(IReadOnlyList<string> granted, string? folder)
-    {
-        var path = (folder ?? "").Trim();
-        if (path.Length == 0 || granted.Count == 0)
-        {
-            return false;
-        }
-
-        return granted.Any(name => ServerFolders.Same(name, path)
-            || path.StartsWith(name.Trim().TrimEnd('/') + "/", StringComparison.OrdinalIgnoreCase));
-    }
-
-    private static bool CanEditServer(MatgateUser user, ServerEndpoint server)
-    {
-        if (user.IsAdmin)
-        {
-            return true;
-        }
-
-        if (server.OwnerUserId == user.Id)
-        {
-            return true;
-        }
-
-        return server.OwnerUserId is null && user.CanManageServers;
-    }
+    private static bool CanEditServer(MatgateUser user, ServerEndpoint server) =>
+        AccessResolver.Level(user, server) >= AccessLevel.Edit;
 
     private static bool ValidateCsrf(HttpContext context, IFormCollection form)
     {
@@ -5881,6 +5896,13 @@ public static partial class EndpointMapping
         else if (!canManageGlobal && !canCreatePrivate)
         {
             isPrivate = existing?.OwnerUserId is not null;
+        }
+
+        // A shared connection edited by someone who was given "Edit" on it (not a server manager) stays shared -
+        // saving it must not make it theirs.
+        if (existing is { OwnerUserId: null } && !canManageGlobal)
+        {
+            isPrivate = false;
         }
 
         var defaultPort = protocol switch

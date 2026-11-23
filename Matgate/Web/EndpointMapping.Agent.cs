@@ -56,7 +56,7 @@ public static partial class EndpointMapping
     {
         return user.IsAdmin
             || server.OwnerUserId == user.Id
-            || user.FileAccessRules?.Any(rule => rule.ServerId == server.Id) != true;
+            || (user.FileAccessRules?.Any(rule => rule.ServerId == server.Id) != true && !IsReadOnlyFor(user, server));
     }
 
     // An agent that connects to Matgate itself (its configuration has Matgate's address): for a machine Matgate

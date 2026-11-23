@@ -93,6 +93,8 @@ public static partial class EndpointMapping
             return;
         }
 
+        // Read-only for this viewer: the picture comes, nothing they press or copy goes.
+        var watchOnly = IsReadOnlyFor(user!, server!);
         using var socket = await context.WebSockets.AcceptWebSocketAsync();
         await using var browser = new BrowserScreen(socket);
         if (!DisplayBridge.Available)
@@ -129,7 +131,7 @@ public static partial class EndpointMapping
                     ["fitWidth"] = fitWidth,
                     ["fitHeight"] = fitHeight,
                 }, default);
-                var listening = Task.Run(() => ForwardBrowserAsync(socket, running.Screen, context.RequestAborted));
+                var listening = Task.Run(() => ForwardBrowserAsync(socket, running.Screen, watchOnly, context.RequestAborted));
                 await WatchScreenAsync(bridge, session, running, mine, listening, browser, keep);
                 return;
             }
@@ -164,7 +166,7 @@ public static partial class EndpointMapping
         {
             // The viewer's messages go on while the connection is still being made: the session may ask for a
             // password first (screen.auth), and the answer comes from the page.
-            var forwarding = Task.Run(() => ForwardBrowserAsync(socket, screen, context.RequestAborted));
+            var forwarding = Task.Run(() => ForwardBrowserAsync(socket, screen, watchOnly, context.RequestAborted));
             var opening = screen.OpenAsync(context.RequestAborted);
             var first = await Task.WhenAny(opening, forwarding);
             if (first != opening)
@@ -258,7 +260,7 @@ public static partial class EndpointMapping
         new() { Kind = "evt", Op = "screen.error", Data = new System.Text.Json.Nodes.JsonObject { ["message"] = message } };
 
     // The browser's messages, as far as a viewer may send them, to the session.
-    private static async Task ForwardBrowserAsync(WebSocket socket, ScreenSession screen, CancellationToken cancellationToken)
+    private static async Task ForwardBrowserAsync(WebSocket socket, ScreenSession screen, bool watchOnly, CancellationToken cancellationToken)
     {
         var buffer = new byte[64 * 1024];
         using var message = new MemoryStream();
@@ -285,7 +287,7 @@ public static partial class EndpointMapping
 
                 var frame = AgentWire.Decode(message.ToArray());
                 message.SetLength(0);
-                if (frame.Kind == "evt" && ScreenOpsFromBrowser.Contains(frame.Op))
+                if (frame.Kind == "evt" && ScreenOpAllowed(frame.Op, watchOnly))
                 {
                     screen.Post(frame.Op, frame.Data ?? [], frame.Payload);
                 }

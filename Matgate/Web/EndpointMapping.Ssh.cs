@@ -154,7 +154,11 @@ public static partial class EndpointMapping
         using var socket = await context.WebSockets.AcceptWebSocketAsync();
         // How long this user's sessions keep running without a browser (Account -> Session); zero: not at all.
         var keep = SessionPreferences.KeepSessionTime(user!.Session);
-        var terminal = new SshTerminal(socket, cols, rows, context.RequestAborted);
+        var terminal = new SshTerminal(socket, cols, rows, context.RequestAborted)
+        {
+            // Read-only for this user: the terminal shows what happens, nothing typed reaches the shell.
+            WatchOnly = IsReadOnlyFor(user, server!),
+        };
 
         // A shell of this id that is still running - the page was reloaded, the network came back, another
         // device opened the same tab: the page gets that shell, and what it printed last.
@@ -391,6 +395,8 @@ public static partial class EndpointMapping
     // shows a shell - a new one, or one that kept running.
     private sealed class SshTerminal(WebSocket socket, uint columns, uint rows, CancellationToken cancellationToken)
     {
+        public bool WatchOnly { get; init; }
+
         private readonly SemaphoreSlim _send = new(1, 1);
         private readonly Queue<byte> _typed = new();
         private uint _columns = columns;
@@ -577,7 +583,7 @@ public static partial class EndpointMapping
         {
             while (await ReceiveAsync() is { } message)
             {
-                if (message.Bytes is { } bytes)
+                if (message.Bytes is { } bytes && !WatchOnly)
                 {
                     await shell.WriteAsync(bytes, cancellationToken);
                 }

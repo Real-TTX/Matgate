@@ -187,6 +187,16 @@ public sealed class GuacamoleLauncher
             parameters["enable-sftp"] = "true";
         }
 
+        // Read-only for this user: guacd passes no key, no pointer and no clipboard on, and nothing can be put on
+        // the machine through the drive or SFTP.
+        if (AccessResolver.IsReadOnly(user, server))
+        {
+            parameters["read-only"] = "true";
+            parameters["disable-paste"] = "true";
+            parameters.Remove("enable-sftp");
+            parameters["enable-drive"] = "false";
+        }
+
         var payload = new
         {
             username = user.UserName,

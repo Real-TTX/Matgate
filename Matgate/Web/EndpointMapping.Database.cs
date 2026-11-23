@@ -156,6 +156,8 @@ public static partial class EndpointMapping
             }
 
             var database = form["db"].ToString();
-            return await Databases.QueryAsync(access.Server, access.Login, access.Password, database.Length > 0 ? database : null, sql, context.RequestAborted);
+            return await Databases.QueryAsync(
+                access.Server, access.Login, access.Password, database.Length > 0 ? database : null, sql,
+                IsReadOnlyFor(access.User, access.Server), HtmlViews.Language(context) == "de", context.RequestAborted);
         });
 }
