@@ -69,13 +69,11 @@ public static class SingleSignOn
     // cookie of its own, never the session.
     public const string ExternalScheme = "Matgate.External";
 
-    public static AuthenticationBuilder AddMatgateSso(this AuthenticationBuilder builder, SsoSettings settings, bool requireHttps)
+    // Both services are always registered - whether one is on, and with what, is read when it is used (see
+    // SsoSettingsService: set up in the administration, saved in sso.json; without that file the environment). A
+    // service switched off gets a harmless stand-in configuration: ASP.NET checks every remote scheme on every request.
+    public static AuthenticationBuilder AddMatgateSso(this AuthenticationBuilder builder, bool requireHttps)
     {
-        if (settings.Providers.Count == 0)
-        {
-            return builder;
-        }
-
         builder.AddCookie(ExternalScheme, options =>
         {
             options.Cookie.Name = "Matgate.External";
@@ -84,59 +82,77 @@ public static class SingleSignOn
             options.Cookie.SecurePolicy = requireHttps ? CookieSecurePolicy.Always : CookieSecurePolicy.SameAsRequest;
             options.ExpireTimeSpan = TimeSpan.FromMinutes(10);
         });
-
-        foreach (var provider in settings.Providers)
-        {
-            builder.AddOpenIdConnect(provider.Key, provider.Label, options =>
-            {
-                options.SignInScheme = ExternalScheme;
-                options.Authority = provider.Authority;
-                options.ClientId = provider.ClientId;
-                options.ClientSecret = provider.ClientSecret.Length > 0 ? provider.ClientSecret : null;
-                options.ResponseType = OpenIdConnectResponseType.Code;
-                options.UsePkce = true;
-                options.SaveTokens = false;
-                options.MapInboundClaims = false;
-                options.GetClaimsFromUserInfoEndpoint = false;
-                options.CallbackPath = provider.CallbackPath;
-                options.RequireHttpsMetadata = provider.Authority.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
-                options.Scope.Clear();
-                options.Scope.Add("openid");
-                options.Scope.Add("profile");
-                options.Scope.Add("email");
-                if (provider.Key == SsoProvider.MatIdentity)
-                {
-                    // MatIdentity sends the groups (when switched on for this app) with the roles.
-                    options.Scope.Add("roles");
-                }
-
-                options.TokenValidationParameters.NameClaimType = "name";
-                options.TokenValidationParameters.RoleClaimType = "roles";
-                if (!options.RequireHttpsMetadata || !requireHttps)
-                {
-                    // A service on plain http (a test, a LAN): its correlation cookies cannot be "Secure; SameSite=None".
-                    options.CorrelationCookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
-                    options.CorrelationCookie.SameSite = SameSiteMode.Lax;
-                    options.NonceCookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
-                    options.NonceCookie.SameSite = SameSiteMode.Lax;
-                }
-
-                if (provider.InternalUrl is { } internalUrl)
-                {
-                    options.BackchannelHttpHandler = new InternalAddressHandler(new Uri(provider.Authority), new Uri(internalUrl + "/"));
-                }
-
-                options.Events.OnRemoteFailure = context =>
-                {
-                    // Refused or cancelled at the service, or a stale callback: back to the sign-in page with a word.
-                    context.HandleResponse();
-                    context.Response.Redirect("/login?sso=failed");
-                    return Task.CompletedTask;
-                };
-            });
-        }
-
+        builder.AddOpenIdConnect(SsoProvider.MatIdentity, "MatIdentity", _ => { });
+        builder.AddOpenIdConnect(SsoProvider.Entra, "Microsoft", _ => { });
+        builder.Services.AddSingleton<Microsoft.Extensions.Options.IConfigureOptions<OpenIdConnectOptions>>(services =>
+            new SsoOpenIdOptions(services.GetRequiredService<SsoSettingsService>(), requireHttps));
         return builder;
+    }
+
+    private sealed class SsoOpenIdOptions(SsoSettingsService sso, bool requireHttps) : Microsoft.Extensions.Options.IConfigureNamedOptions<OpenIdConnectOptions>
+    {
+        public void Configure(OpenIdConnectOptions options) => Configure(Microsoft.Extensions.Options.Options.DefaultName, options);
+
+        public void Configure(string? name, OpenIdConnectOptions options)
+        {
+            if (name is not (SsoProvider.MatIdentity or SsoProvider.Entra))
+            {
+                return;
+            }
+
+            var provider = sso.Current.Find(name);
+            options.SignInScheme = ExternalScheme;
+            options.CallbackPath = name == SsoProvider.MatIdentity ? "/signin-oidc" : "/signin-entra";
+            if (provider is null)
+            {
+                options.Authority = "https://sso-off.invalid/";
+                options.ClientId = "off";
+                return;
+            }
+
+            options.Authority = provider.Authority;
+            options.ClientId = provider.ClientId;
+            options.ClientSecret = provider.ClientSecret.Length > 0 ? provider.ClientSecret : null;
+            options.ResponseType = OpenIdConnectResponseType.Code;
+            options.UsePkce = true;
+            options.SaveTokens = false;
+            options.MapInboundClaims = false;
+            options.GetClaimsFromUserInfoEndpoint = false;
+            options.RequireHttpsMetadata = provider.Authority.StartsWith("https://", StringComparison.OrdinalIgnoreCase);
+            options.Scope.Clear();
+            options.Scope.Add("openid");
+            options.Scope.Add("profile");
+            options.Scope.Add("email");
+            if (name == SsoProvider.MatIdentity)
+            {
+                // MatIdentity sends the groups (when switched on for this app) with the roles.
+                options.Scope.Add("roles");
+            }
+
+            options.TokenValidationParameters.NameClaimType = "name";
+            options.TokenValidationParameters.RoleClaimType = "roles";
+            if (!options.RequireHttpsMetadata || !requireHttps)
+            {
+                // A service on plain http (a test, a LAN): its correlation cookies cannot be "Secure; SameSite=None".
+                options.CorrelationCookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+                options.CorrelationCookie.SameSite = SameSiteMode.Lax;
+                options.NonceCookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+                options.NonceCookie.SameSite = SameSiteMode.Lax;
+            }
+
+            if (provider.InternalUrl is { } internalUrl)
+            {
+                options.BackchannelHttpHandler = new InternalAddressHandler(new Uri(provider.Authority), new Uri(internalUrl + "/"));
+            }
+
+            options.Events.OnRemoteFailure = context =>
+            {
+                // Refused or cancelled at the service, or a stale callback: back to the sign-in page with a word.
+                context.HandleResponse();
+                context.Response.Redirect("/login?sso=failed");
+                return Task.CompletedTask;
+            };
+        }
     }
 
     // What a service said about the person, in one shape. Null when it did not say who (no subject).

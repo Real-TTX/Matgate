@@ -160,3 +160,68 @@ public sealed partial class DatabaseGateway
         _ => value.ToString() ?? "",
     };
 }
+
+public sealed partial class DatabaseGateway
+{
+    // The designer's statements, one after the other. PostgreSQL and SQL Server change a table's structure inside a
+    // transaction: all of them or none. MySQL ends a transaction with every such statement - there they run one by
+    // one, and a failure says how many had already run.
+    public async Task<int> ApplyAsync(ServerEndpoint server, string user, string password, string? database, IReadOnlyList<string> statements, bool german, CancellationToken cancellationToken)
+    {
+        var dialect = DialectOf(server.Protocol);
+        await using var connection = await OpenAsync(dialect, server, user, password, database, cancellationToken);
+        var transactional = server.Protocol != ServerProtocol.MySql;
+        if (transactional)
+        {
+            await ExecuteAsync(connection, server.Protocol == ServerProtocol.MsSql ? "BEGIN TRANSACTION" : "BEGIN", cancellationToken);
+        }
+
+        var ran = 0;
+        try
+        {
+            foreach (var statement in statements)
+            {
+                await using var command = connection.CreateCommand();
+                command.CommandText = statement;
+                command.CommandTimeout = 120;
+                try
+                {
+                    await command.ExecuteNonQueryAsync(cancellationToken);
+                }
+                catch (System.Data.Common.DbException exception)
+                {
+                    throw new DatabaseException(
+                        (german ? $"Anweisung {ran + 1} von {statements.Count}: " : $"Statement {ran + 1} of {statements.Count}: ") + exception.Message
+                        + (transactional ? (german ? " - nichts wurde geändert." : " - nothing was changed.")
+                            : ran > 0 ? (german ? $" - die {ran} davor sind gelaufen." : $" - the {ran} before it have run.") : ""),
+                        exception);
+                }
+
+                ran++;
+            }
+
+            if (transactional)
+            {
+                await ExecuteAsync(connection, server.Protocol == ServerProtocol.MsSql ? "COMMIT TRANSACTION" : "COMMIT", cancellationToken);
+            }
+
+            return ran;
+        }
+        catch
+        {
+            if (transactional)
+            {
+                try
+                {
+                    await ExecuteAsync(connection, server.Protocol == ServerProtocol.MsSql ? "IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION" : "ROLLBACK", CancellationToken.None);
+                }
+                catch (DatabaseException)
+                {
+                    // The connection closes next, and with it the transaction.
+                }
+            }
+
+            throw;
+        }
+    }
+}

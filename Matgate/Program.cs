@@ -90,7 +90,6 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 
 var requireHttps = string.Equals(
     Environment.GetEnvironmentVariable("MATGATE_REQUIRE_HTTPS"), "true", StringComparison.OrdinalIgnoreCase);
-var ssoSettings = Matgate.Services.SsoSettings.From(builder.Configuration);
 
 builder.Services
     .Configure<FormOptions>(options =>
@@ -112,9 +111,11 @@ builder.Services
         options.LoginPath = "/login";
         options.AccessDeniedPath = "/forbidden";
     })
-    .AddMatgateSso(ssoSettings, requireHttps);
+    .AddMatgateSso(requireHttps);
 
-builder.Services.AddSingleton(ssoSettings);
+builder.Services.AddSingleton<Matgate.Services.SsoSettingsService>();
+// The sign-in services as they are now (set up in the administration): read anew wherever they are asked for.
+builder.Services.AddTransient(services => services.GetRequiredService<Matgate.Services.SsoSettingsService>().Current);
 builder.Services.AddDataProtection()
     .PersistKeysToFileSystem(new DirectoryInfo(keyDirectory))
     .SetApplicationName("Matgate");

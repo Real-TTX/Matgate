@@ -78,8 +78,6 @@ const idp = async (method, url, body) => {
     docker(["run", "-d", "--name", GATE_CONTAINER, "--network", "matgate-tests_default", "-p", "127.0.0.1:18096:8080",
       "-e", "MATGATE_ADMIN_USER=root", "-e", "MATGATE_ADMIN_PASSWORD=sso-test-only-pw", "-e", "MATGATE_ADMIN_EMAIL=root@example.com",
       "-e", "MATGATE_GUACAMOLE=off", "-e", "MATGATE_AGENT_UPDATE_URL=http://127.0.0.1:9/",
-      "-e", "MATIDENTITY_AUTHORITY=" + IDP + "/", "-e", "MATIDENTITY_CLIENT_ID=matgate", "-e", "MATIDENTITY_CLIENT_SECRET=" + app.clientSecret,
-      "-e", "MATIDENTITY_INTERNAL_URL=http://" + IDP_CONTAINER + ":2300",
       "matgate-tests-matgate"]);
     await waitFor(GATE + "/login", "Matgate");
 
@@ -93,6 +91,27 @@ const idp = async (method, url, body) => {
       await sleep(800);
     };
     await signInLocal(root, "root", "sso-test-only-pw");
+
+    // ---- set up in the administration (Administration -> Sign-in), not in the environment
+    await root.goto(GATE + "/admin?tab=sso", { waitUntil: "networkidle" });
+    check("the administration has the sign-in page with both services", await root.evaluate(() => [...document.querySelectorAll("[data-sso-card]")].map(c => c.dataset.ssoCard)), ["matIdentity", "entra"]);
+    check("it shows the address to give MatIdentity", await root.evaluate(() => [...document.querySelectorAll("[data-sso-copy]")].map(b => b.dataset.ssoCopy)[0]), GATE + "/signin-oidc");
+    await root.check("[data-sso-card='matIdentity'] [data-sso-enabled]", { force: true });
+    await root.fill("[name='matIdentityAuthority']", IDP + "/");
+    await root.fill("[name='matIdentityClientId']", "matgate");
+    await root.fill("[name='matIdentityClientSecret']", app.clientSecret);
+    await root.fill("[name='matIdentityInternalUrl']", "http://" + IDP_CONTAINER + ":2300");
+    await root.click("[data-sso-test='matIdentity']");
+    let tested = "";
+    for (let i = 0; i < 30 && !/Erreicht|Reached|Nicht|Not/.test(tested); i++) { await sleep(300); tested = await root.evaluate(() => document.querySelector("[data-sso-card='matIdentity'] [data-sso-test-result]").textContent); }
+    check("\"Check the connection\" reaches MatIdentity", /Erreicht|Reached/.test(tested), true);
+    await Promise.all([root.waitForLoadState("networkidle"), root.click("[data-sso-form] button[type='submit']")]);
+    await sleep(600);
+    await root.goto(GATE + "/admin?tab=sso", { waitUntil: "networkidle" });
+    check("saved, it is on and the secret is not shown again", await root.evaluate(() => [
+      document.querySelector("[data-sso-card='matIdentity']").classList.contains("is-on"),
+      document.querySelector("[name='matIdentityClientSecret']").value,
+      /Gespeichert|Stored/.test(document.querySelector("[name='matIdentityClientSecret']").placeholder)]), [true, "", true]);
     await root.goto(GATE + "/admin/users/new", { waitUntil: "networkidle" });
     await root.fill("input[name='username']", "anna");
     await root.fill("input[name='email']", person.emails ? person.emails[0].value : "admin@example.com");

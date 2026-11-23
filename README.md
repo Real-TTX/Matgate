@@ -106,7 +106,7 @@ Three ready-made stacks are in this repo, all with prebuilt images:
 
 | Image | Tag |
 |---|---|
-| `ghcr.io/real-ttx/matgate` | `latest`, a version such as `0.44.0`, or `sha-…` |
+| `ghcr.io/real-ttx/matgate` | `latest`, a version such as `0.45.0`, or `sha-…` |
 | `ghcr.io/real-ttx/matgate-browser-farm` | `latest` (optional) |
 
 <details>
@@ -232,6 +232,9 @@ needed). [→ Agent documentation](agent/README.md)
   columns, queries in tabs that are there again after a reload, run the **selection** (Ctrl+Enter / F5),
   **several results**, **cancel**, a **history**, and **export** of every row as CSV or JSON.
 - Rows a page at a time, sorted by a column. **Read only** stays read only, in the editor too.
+- A **table designer**: columns (type, NULL, default, primary key, identity), indexes and foreign keys - for a new
+  table or one that is there. It shows the statements first and runs them when asked; on PostgreSQL and SQL Server
+  all of them or none (one transaction).
 - Also through **quick connect**, with nothing saved.
 
 ### 🗂️ Organizing & sharing
@@ -355,7 +358,10 @@ the old RDP encryption or the CredSSP scheme from before 2018.
 
 ### 🪪 Single sign-on
 
-Both are optional and can be on at the same time. The sign-in page then has a button for each.
+Both are optional and can be on at the same time. The sign-in page then has a button for each. Set them up in
+**Administration → Sign-in**: per service a switch, its fields (the client secret is stored encrypted), the
+redirect URI to copy and **Check the connection**. A change applies at once, without a restart. Until saved
+there, these environment variables do the same (a stack set up that way keeps working):
 
 | Variable | Meaning |
 |---|---|

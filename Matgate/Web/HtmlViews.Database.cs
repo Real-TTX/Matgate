@@ -83,6 +83,25 @@ public sealed partial class HtmlViews
             readOnly = de ? "Nur lesen" : "Read only",
             readOnlyHint = de ? "Für dich ist diese Verbindung nur zum Lesen: eine lesende Anweisung auf einmal." : "This connection is read-only for you: one reading statement at a time.",
             asQuery = de ? "Als Abfrage öffnen" : "Open as a query",
+            design = de ? "Entwerfen" : "Design",
+            newTable = de ? "Neue Tabelle" : "New table",
+            designer = de ? "Entwurf" : "Design",
+            tableName = de ? "Tabellenname" : "Table name",
+            schema = "Schema",
+            addColumn = de ? "Spalte" : "Column",
+            addIndex = de ? "Index" : "Index",
+            addForeignKey = de ? "Fremdschlüssel" : "Foreign key",
+            preview = de ? "SQL-Vorschau" : "SQL preview",
+            apply = de ? "Diese Anweisungen ausführen" : "Run these statements",
+            applied = de ? "Ausgeführt: {n} Anweisung(en)." : "Done: {n} statement(s).",
+            nothingToDo = de ? "Nichts geändert - nichts auszuführen." : "Nothing changed - nothing to run.",
+            remove = de ? "Entfernen" : "Remove",
+            refTable = de ? "Tabelle" : "Table",
+            refColumns = de ? "deren Spalten" : "its columns",
+            columnsHint = de ? "Spalten, mit Komma getrennt" : "Columns, separated by commas",
+            autoName = de ? "(automatisch)" : "(automatic)",
+            transactional = de ? "Alles oder nichts: läuft in einer Transaktion." : "All or nothing: runs in a transaction.",
+            notTransactional = de ? "MySQL/MariaDB kann Strukturänderungen nicht zurückrollen: bei einem Fehler bleibt, was davor gelaufen ist." : "MySQL/MariaDB cannot roll back structure changes: on an error what ran before it stays.",
             more = de ? "Mehr" : "More",
         });
         var csrf = JsonSerializer.Serialize(context.User.FindFirstValue("csrf") ?? "");
@@ -226,6 +245,17 @@ public sealed partial class HtmlViews
                 .dbx-structure th, .dbx-structure td { border-bottom: 1px solid var(--line); padding: 5px 8px; text-align: left; }
                 .dbx-structure td code { font-size: 12.5px; }
                 .dbx-pk { color: #c99a1a; font-weight: 700; }
+                .dbx-designer table input:not([type="checkbox"]), .dbx-designer table select { font-size: 13px; min-height: 30px; padding: 3px 8px; width: 100%; }
+                .dbx-designer table input[data-field="name"] { min-width: 120px; }
+                .dbx-designer table input[data-field="type"] { min-width: 150px; }
+                .dbx-designer table td { padding: 3px 4px; }
+                .dbx-designer table td:has(> input[type="checkbox"]) { text-align: center; width: 1%; }
+                .dbx-designer table td:last-child { width: 1%; }
+                .dbx-designer h3 + table { margin-bottom: 4px; }
+                .dbx-design-label { align-items: center; display: inline-flex; font-size: 13px; font-weight: 600; gap: 8px; }
+                .dbx-design-label input { min-height: 32px; min-width: 200px; }
+                .dbx-design-result { margin-top: 14px; }
+                .dbx-design-sql { background: var(--surface-2, var(--surface)); border: 1px solid var(--line); border-radius: 8px; max-height: 320px; overflow: auto; }
                 .dbx-menu { background: var(--panel, var(--surface)); border: 1px solid var(--line); border-radius: 10px; box-shadow: var(--shadow-strong, 0 10px 30px rgba(0,0,0,.2)); display: grid; min-width: 210px; padding: 4px; position: fixed; z-index: 50; }
                 .dbx-menu[hidden] { display: none; }
                 .dbx-menu button { align-items: center; background: transparent; border: 0; border-radius: 7px; box-shadow: none; display: flex; font-size: 13.5px; gap: 8px; justify-content: flex-start; min-height: 32px; padding: 4px 10px; text-align: left; }
@@ -319,7 +349,7 @@ public sealed partial class HtmlViews
             };
             const api = async (path, options = {}) => {
                 for (let attempt = 0; attempt < 4; attempt++) {
-                    const response = await fetch('/api/db/' + setup.id + path, { credentials: 'same-origin', headers: headers(), ...options });
+                    const response = await fetch('/api/db/' + setup.id + path, { credentials: 'same-origin', ...options, headers: { ...headers(), ...(options.headers || {}) } });
                     let data = null;
                     try { data = await response.json(); } catch { data = null; }
                     if (response.status === 401 && data && data.needsLogin) {
@@ -399,7 +429,7 @@ public sealed partial class HtmlViews
                         const key = 'group:' + db + ':' + groupKey;
                         const open = ((groupKey === 'tables' || groupKey === 'views') ? !isOpen('shut:' + key) : isOpen(key)) || !!wanted;
                         const group = node('dbx-node-group', 1, icon('folder'), label, String(items.length), { open });
-                        Object.assign(group.dataset, { key: (groupKey === 'tables' || groupKey === 'views') ? 'shut:' + key : key, kind: 'group' });
+                        Object.assign(group.dataset, { key: (groupKey === 'tables' || groupKey === 'views') ? 'shut:' + key : key, kind: 'group', db, groupKind: groupKey });
                         nodes.push(group);
                         if (!open) {
                             continue;
@@ -838,6 +868,15 @@ public sealed partial class HtmlViews
                 create.addEventListener('click', () => scriptAsCreate(db, 'table', schema, name));
                 const bar = el('div', 'dbx-bar');
                 bar.appendChild(create);
+                if (!setup.readOnly) {
+                    const edit = el('button', 'dbx-icon-button');
+                    edit.type = 'button';
+                    edit.dataset.structureDesign = '1';
+                    edit.innerHTML = icon('list') + '<span></span>';
+                    edit.querySelector('span').textContent = texts.design;
+                    edit.addEventListener('click', () => openDesigner(db, schema, name));
+                    bar.appendChild(edit);
+                }
                 body.replaceChildren(bar, ...parts);
                 return doc;
             };
@@ -1140,6 +1179,246 @@ public sealed partial class HtmlViews
                 return doc;
             };
 
+            // ---- the table designer -----------------------------------------------------------------------------
+            // A table's columns, indexes and foreign keys to change - or a new table. The gateway turns it into
+            // statements (shown first: the preview is the question), and runs them when asked.
+            const typeLists = {
+                postgres: ['integer', 'bigint', 'smallint', 'numeric(10,2)', 'real', 'double precision', 'boolean', 'text', 'character varying(255)', 'character(10)', 'date', 'timestamp', 'timestamp with time zone', 'time', 'uuid', 'jsonb', 'json', 'bytea'],
+                mysql: ['int', 'bigint', 'smallint', 'tinyint(1)', 'decimal(10,2)', 'float', 'double', 'varchar(255)', 'char(10)', 'text', 'longtext', 'date', 'datetime', 'timestamp', 'time', 'json', 'blob', 'boolean'],
+                mssql: ['int', 'bigint', 'smallint', 'tinyint', 'bit', 'decimal(10,2)', 'float', 'money', 'nvarchar(255)', 'nvarchar(max)', 'varchar(255)', 'char(10)', 'date', 'datetime2', 'datetime', 'time', 'uniqueidentifier', 'varbinary(max)'],
+            };
+            const designActions = ['NO ACTION', 'CASCADE', 'SET NULL', 'SET DEFAULT', 'RESTRICT'];
+            let designNumber = 0;
+            const openDesigner = async (db, schema, name) => {
+                const key = 'design:' + db + ':' + schema + '.' + (name || '');
+                const existing = name ? findDocument(key) : null;
+                if (existing) {
+                    showDocument(existing);
+                    return existing;
+                }
+                designNumber += 1;
+                const pane = el('div', 'dbx-pane');
+                pane.dataset.dbPane = 'design';
+                const body = el('div', 'dbx-structure dbx-designer');
+                body.dataset.dbDesigner = '1';
+                body.textContent = texts.loading;
+                pane.appendChild(body);
+                const doc = addDocument({ kind: 'design', key: null, pane, title: (name || texts.newTable) + ' · ' + texts.designer }, 'list');
+                doc.key = key;
+                let detail = { columns: [], indexes: [], foreignKeys: [] };
+                if (name) {
+                    tableInfo.delete(db + ':' + schema + '.' + name);
+                    detail = await loadTable(db, schema, name);
+                    if (detail.error) {
+                        body.replaceChildren(el('p', 'dbx-error', detail.error));
+                        return doc;
+                    }
+                }
+
+                // Small builders for the rows.
+                const field = (value, attrs) => {
+                    const node = document.createElement('input');
+                    node.value = value ?? '';
+                    node.spellcheck = false;
+                    Object.entries(attrs || {}).forEach(([k, v]) => node.setAttribute(k, v));
+                    return node;
+                };
+                const tick = (checked, attrs) => {
+                    const node = document.createElement('input');
+                    node.type = 'checkbox';
+                    node.checked = !!checked;
+                    Object.entries(attrs || {}).forEach(([k, v]) => node.setAttribute(k, v));
+                    return node;
+                };
+                const choice = (value, fieldName) => {
+                    const node = document.createElement('select');
+                    node.dataset.field = fieldName;
+                    designActions.forEach(action => { const option = el('option', '', action); option.value = action; node.appendChild(option); });
+                    node.value = designActions.includes(String(value || '').toUpperCase()) ? String(value).toUpperCase() : 'NO ACTION';
+                    return node;
+                };
+                const removeButton = row => {
+                    const button = el('button', 'dbx-icon-button');
+                    button.type = 'button';
+                    button.title = texts.remove;
+                    button.setAttribute('aria-label', texts.remove);
+                    button.dataset.designRemove = '1';
+                    button.innerHTML = icon('close');
+                    button.addEventListener('click', () => row.remove());
+                    return button;
+                };
+                const listId = 'dbx-types-' + designNumber;
+                const types = document.createElement('datalist');
+                types.id = listId;
+                (typeLists[setup.protocol] || typeLists.postgres).forEach(type => { const option = document.createElement('option'); option.value = type; types.appendChild(option); });
+                const tablesId = listId + '-tables';
+                const tableList = document.createElement('datalist');
+                tableList.id = tablesId;
+                ((databases.get(db) || {}).objects || []).filter(item => item.kind !== 'view').forEach(item => {
+                    const option = document.createElement('option');
+                    option.value = (setup.protocol === 'mysql' ? '' : item.schema + '.') + item.name;
+                    tableList.appendChild(option);
+                });
+
+                // A section: a heading, a table of rows, and "+ ..." for another row.
+                const section = (title, heads, addLabel, makeRow, kind) => {
+                    const table = document.createElement('table');
+                    table.dataset.designSection = kind;
+                    const head = table.createTHead().insertRow();
+                    heads.forEach(text => head.appendChild(el('th', '', text)));
+                    const rows = table.createTBody();
+                    const addRow = item => {
+                        const row = rows.insertRow();
+                        makeRow(row, item);
+                        row.insertCell().appendChild(removeButton(row));
+                        return row;
+                    };
+                    const add = el('button', 'dbx-icon-button', '+ ' + addLabel);
+                    add.type = 'button';
+                    add.dataset.designAdd = kind;
+                    add.addEventListener('click', () => { const input = addRow(null).querySelector('input'); if (input) { input.focus(); } });
+                    return { parts: [el('h3', '', title), table, add], rows, addRow };
+                };
+                const cells = (row, nodes) => nodes.forEach(node => row.insertCell().appendChild(node));
+                const columns = section(texts.columns, [texts.name, texts.type, 'NULL', texts.defaultValue, texts.primary, texts.identity, ''], texts.addColumn, (row, column) => {
+                    row.dataset.original = column && column.original ? column.name : '';
+                    cells(row, [
+                        field(column ? column.name : '', { 'data-field': 'name', placeholder: texts.name }),
+                        field(column ? column.type : '', { 'data-field': 'type', list: listId, placeholder: texts.type }),
+                        tick(column ? column.nullable : true, { 'data-field': 'nullable', 'aria-label': 'NULL' }),
+                        field(column && !column.identity ? (column.default || '') : '', { 'data-field': 'default' }),
+                        tick(column && column.primaryKey, { 'data-field': 'primaryKey', 'aria-label': texts.primary }),
+                        tick(column && column.identity, { 'data-field': 'identity', 'aria-label': texts.identity }),
+                    ]);
+                }, 'columns');
+                const indexes = section(texts.indexes, [texts.name, texts.columns, texts.unique, ''], texts.addIndex, (row, index) => {
+                    row.dataset.original = index ? index.name : '';
+                    cells(row, [
+                        field(index ? index.name : '', { 'data-field': 'name', placeholder: texts.autoName }),
+                        field(index ? index.columns : '', { 'data-field': 'columns', placeholder: texts.columnsHint }),
+                        tick(index && index.unique, { 'data-field': 'unique', 'aria-label': texts.unique }),
+                    ]);
+                }, 'indexes');
+                const keys = section(texts.foreignKeys, [texts.name, texts.columns, texts.refTable, texts.refColumns, texts.onDelete, texts.onUpdate, ''], texts.addForeignKey, (row, fk) => {
+                    row.dataset.original = fk ? fk.name : '';
+                    cells(row, [
+                        field(fk ? fk.name : '', { 'data-field': 'name', placeholder: texts.autoName }),
+                        field(fk ? fk.columns : '', { 'data-field': 'columns', placeholder: texts.columnsHint }),
+                        field(fk ? fk.referencedTable.replace(/["`\[\]]/g, '') : '', { 'data-field': 'referencedTable', list: tablesId }),
+                        field(fk ? fk.referencedColumns : '', { 'data-field': 'referencedColumns' }),
+                        choice(fk ? fk.onDelete : '', 'onDelete'),
+                        choice(fk ? fk.onUpdate : '', 'onUpdate'),
+                    ]);
+                }, 'keys');
+                detail.columns.forEach(column => columns.addRow({ ...column, original: true }));
+                detail.indexes.filter(index => !index.primary).forEach(index => indexes.addRow(index));
+                detail.foreignKeys.forEach(fk => keys.addRow(fk));
+                if (!name) {
+                    columns.addRow({ name: 'id', type: setup.protocol === 'postgres' ? 'integer' : 'int', nullable: false, default: '', primaryKey: true, identity: true, original: false });
+                    columns.addRow(null);
+                }
+
+                // The head: the table's name (and, for a new one, its schema) and the preview.
+                const nameField = field(name || '', { 'data-design-name': '1', placeholder: texts.tableName });
+                const schemaField = field(schema || '', { 'data-design-schema': '1', placeholder: texts.schema });
+                const head = el('div', 'dbx-bar');
+                const nameLabel = el('label', 'dbx-design-label', texts.tableName + ' ');
+                nameLabel.appendChild(nameField);
+                head.appendChild(nameLabel);
+                if (!name && setup.protocol !== 'mysql') {
+                    const schemaLabel = el('label', 'dbx-design-label', texts.schema + ' ');
+                    schemaLabel.appendChild(schemaField);
+                    head.appendChild(schemaLabel);
+                }
+                const previewButton = el('button', 'primary dbx-icon-button');
+                previewButton.type = 'button';
+                previewButton.dataset.designPreview = '1';
+                previewButton.innerHTML = icon('code') + '<span></span>';
+                previewButton.querySelector('span').textContent = texts.preview;
+                head.append(el('span', 'dbx-grow'), previewButton);
+                const result = el('div', 'dbx-design-result');
+                result.dataset.designResult = '1';
+                body.replaceChildren(head, types, tableList, ...columns.parts, ...indexes.parts, ...keys.parts, result);
+
+                // What the page has, as the gateway takes it.
+                const value = (row, name) => { const node = row.querySelector('[data-field="' + name + '"]'); return node ? (node.type === 'checkbox' ? node.checked : node.value.trim()) : ''; };
+                const designOf = () => ({
+                    name: nameField.value.trim(),
+                    columns: Array.from(columns.rows.rows).filter(row => value(row, 'name')).map(row => ({
+                        originalName: row.dataset.original || '', name: value(row, 'name'), type: value(row, 'type'), nullable: value(row, 'nullable'),
+                        default: value(row, 'default') || null, primaryKey: value(row, 'primaryKey'), identity: value(row, 'identity'),
+                    })),
+                    indexes: Array.from(indexes.rows.rows).filter(row => value(row, 'columns')).map(row => ({
+                        originalName: row.dataset.original || '', name: value(row, 'name'), columns: value(row, 'columns'), unique: value(row, 'unique'),
+                    })),
+                    foreignKeys: Array.from(keys.rows.rows).filter(row => value(row, 'columns')).map(row => ({
+                        originalName: row.dataset.original || '', name: value(row, 'name'), columns: value(row, 'columns'), referencedTable: value(row, 'referencedTable'),
+                        referencedColumns: value(row, 'referencedColumns'), onDelete: value(row, 'onDelete'), onUpdate: value(row, 'onUpdate'),
+                    })),
+                });
+                const targetSchema = () => name ? schema : (setup.protocol === 'mysql' ? db : (schemaField.value.trim() || (setup.protocol === 'mssql' ? 'dbo' : 'public')));
+                const send = apply => api('/design', {
+                    method: 'POST',
+                    body: JSON.stringify({ db, schema: targetSchema(), table: name || '', design: designOf(), apply }),
+                    headers: { 'Content-Type': 'application/json' },
+                });
+                const say = (text, bad) => result.replaceChildren(el('p', bad ? 'dbx-error' : 'dbx-muted', text));
+                previewButton.addEventListener('click', async () => {
+                    say(texts.loading);
+                    let data;
+                    try {
+                        data = await send(false);
+                    }
+                    catch (error) {
+                        say(error.message, true);
+                        return;
+                    }
+                    if (!data.statements.length) {
+                        say(texts.nothingToDo);
+                        return;
+                    }
+                    const sql = el('pre', 'dbx-messages dbx-design-sql', data.statements.join('\n\n'));
+                    sql.dataset.designSql = '1';
+                    const note = el('p', 'dbx-muted', setup.protocol === 'mysql' ? texts.notTransactional : texts.transactional);
+                    const apply = el('button', 'primary dbx-icon-button');
+                    apply.type = 'button';
+                    apply.dataset.designApply = '1';
+                    apply.innerHTML = icon('play') + '<span></span>';
+                    apply.querySelector('span').textContent = texts.apply;
+                    const message = el('p', 'dbx-muted');
+                    message.dataset.designMessage = '1';
+                    apply.addEventListener('click', async () => {
+                        apply.disabled = true;
+                        message.className = 'dbx-muted';
+                        message.textContent = texts.running;
+                        try {
+                            const done = await send(true);
+                            message.textContent = texts.applied.replace('{n}', done.ran);
+                            // The tree and the designer show the table as it is now.
+                            const entry = databases.get(db);
+                            if (entry) {
+                                entry.objects = null;
+                                entry.routines = null;
+                                loadObjects(db);
+                            }
+                            const newName = nameField.value.trim();
+                            tableInfo.delete(db + ':' + schema + '.' + name);
+                            tableInfo.delete(db + ':' + targetSchema() + '.' + newName);
+                            const reopen = () => { closeDocument(doc); openDesigner(db, targetSchema(), newName).then(next => next && next.pane && next.pane.querySelector('[data-design-result]') && (next.pane.querySelector('[data-design-result]').replaceChildren(el('p', 'dbx-muted', texts.applied.replace('{n}', done.ran))))); };
+                            window.setTimeout(reopen, 300);
+                        }
+                        catch (error) {
+                            message.className = 'dbx-error';
+                            message.textContent = error.message;
+                            apply.disabled = false;
+                        }
+                    });
+                    result.replaceChildren(el('h3', '', texts.preview), sql, note, apply, message);
+                    apply.focus();
+                });
+                return doc;
+            };
+
             // ---- the tree's clicks and menus -------------------------------------------------------------------
             const menuFor = target => {
                 const { db, schema, name, kind } = target.dataset;
@@ -1148,7 +1427,7 @@ public sealed partial class HtmlViews
                         { icon: 'table', label: texts.showRows, action: 'rows', run: () => openData(db, schema, name, kind) },
                         { icon: 'code', label: texts.scriptSelect, action: 'select', run: async () => { await loadTable(db, schema, name); openQuery({ sql: selectOf(db, schema, name), db }); } },
                         { icon: 'code', label: texts.scriptCreate, action: 'create', run: () => scriptAsCreate(db, kind, schema, name) },
-                        ...(kind === 'table' ? [{ icon: 'list', label: texts.showStructure, action: 'structure', run: () => openStructure(db, schema, name) }] : []),
+                        ...(kind === 'table' ? [{ icon: 'list', label: texts.showStructure, action: 'structure', run: () => openStructure(db, schema, name) }, ...(setup.readOnly ? [] : [{ icon: 'list', label: texts.design, action: 'design', run: () => openDesigner(db, schema, name) }])] : []),
                         '-',
                         { icon: 'copy', label: texts.copyName, action: 'copy', run: () => navigator.clipboard.writeText(qualified(schema, name)).catch(() => { }) },
                     ];
@@ -1160,7 +1439,10 @@ public sealed partial class HtmlViews
                     ];
                 }
                 if (kind === 'database') {
-                    return [{ icon: 'code', label: texts.newQuery, action: 'query', run: () => openQuery({ db }) }];
+                    return [{ icon: 'code', label: texts.newQuery, action: 'query', run: () => openQuery({ db }) }, ...(setup.readOnly ? [] : [{ icon: 'table', label: texts.newTable, action: 'new-table', run: () => openDesigner(db, '', '') }])];
+                }
+                if (kind === 'group' && target.dataset.groupKind === 'tables' && !setup.readOnly) {
+                    return [{ icon: 'table', label: texts.newTable, action: 'new-table', run: () => openDesigner(target.dataset.db, '', '') }];
                 }
                 return null;
             };
@@ -1234,6 +1516,7 @@ public sealed partial class HtmlViews
             window.MatgateDatabase.openQuery = openQuery;
             window.MatgateDatabase.openData = openData;
             window.MatgateDatabase.openStructure = openStructure;
+            window.MatgateDatabase.openDesigner = openDesigner;
             window.MatgateDatabase.active = () => active;
             window.MatgateDatabase.hasEditor = !!CM;
             loadDatabases();

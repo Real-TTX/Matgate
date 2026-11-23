@@ -993,6 +993,7 @@ public sealed partial class HtmlViews
         {
             tabs.Add(new("users", T(context, "Users"), Icon("users"), $"""<section class="panel">{userTable}</section>"""));
             tabs.Add(new("groups", de ? "Gruppen" : "Groups", Icon("users"), GroupsPanel(context, groups ?? [], users, grants ?? [])));
+            tabs.Add(new("sso", de ? "Anmeldung" : "Sign-in", Icon("key"), SsoPanel(context)));
         }
         tabs.Add(new("workspaces", T(context, "Workspaces"), Icon("briefcase"), $"""<section class="panel">{workspaceTable}</section>"""));
 
@@ -2971,6 +2972,8 @@ public sealed partial class HtmlViews
         areaSourceId = server.AreaSourceId?.ToString() ?? "",
         id = server.Id.ToString(),
         name = server.Name,
+        // Shared (no owner) - only those have an access page.
+        shared = server.OwnerUserId is null,
         // The folder it is filed in, for the server manager's tree.
         folder = (server.FolderName ?? "").Trim(),
         protocol = server.Protocol.ToString().ToUpperInvariant(),
@@ -4387,6 +4390,7 @@ public sealed partial class HtmlViews
             copy = Icon("copy"),
             move = Icon("move"),
             sort = Icon("list"),
+            shield = Icon("shield"),
             archive = Icon("archive"),
             check = Icon("check"),
             delete = Icon("trash")
@@ -4628,6 +4632,8 @@ public sealed partial class HtmlViews
             pastedTextName = Language(context) == "de" ? "Text" : "Text",
             dragNoMove = Language(context) == "de" ? "In einen anderen Ordner legen darf sie nur, wer diese Verbindung bearbeiten darf. Die Reihenfolge darfst du immer ändern." : "Only whoever may change this connection can put it into another folder. The order is always yours to change.",
             managerSortByName = Language(context) == "de" ? "Nach Namen sortieren" : "Sort by name",
+            managerAccess = Language(context) == "de" ? "Zugriff ..." : "Access ...",
+            managerAccessTitle = Language(context) == "de" ? "Zugriff" : "Access",
             pasteFoldersOnly = Language(context) == "de" ? "Ordner lassen sich nicht einfügen - nur Dateien" : "Folders cannot be pasted - only files",
             pasteOnServer = Language(context) == "de" ? "Auf dem Server" : "On the server",
             pasteSending = Language(context) == "de" ? "Füge Dateien ein" : "Pasting files",
@@ -7025,6 +7031,10 @@ public sealed partial class HtmlViews
                             if (server.folder) {
                                 items.push({ label: uiText.managerMoveOut || 'Take out of the folder', iconHtml: fileIcon('folder'), onSelect: () => side.move(serverId, '') });
                             }
+                            // Who may use it: its access page (for a shared connection; the page says when one may not).
+                            if (server.shared !== false) {
+                                items.push({ label: uiText.managerAccess || 'Access ...', iconHtml: fileIcon('shield'), onSelect: () => openShellTab('/admin/access?server=' + encodeURIComponent(serverId), (uiText.managerAccessTitle || 'Access') + ': ' + server.name, fileIcon('shield'), '') });
+                            }
                         }
 
                         return { trigger: row, title: ((row.querySelector('strong') || {}).textContent || '').trim(), items };
@@ -7052,6 +7062,12 @@ public sealed partial class HtmlViews
                                     label: uiText.managerEditFolder || 'Edit folder',
                                     iconHtml: fileIcon('edit'),
                                     onSelect: () => openShellTab('/admin/folders/edit?name=' + encodeURIComponent(path), path, fileIcon('folder'), uiText.managerFolder || '')
+                                });
+                                // Who may use what lies in it: the folder's access page.
+                                items.push({
+                                    label: uiText.managerAccess || 'Access ...',
+                                    iconHtml: fileIcon('shield'),
+                                    onSelect: () => openShellTab('/admin/access?folder=' + encodeURIComponent(path), (uiText.managerAccessTitle || 'Access') + ': ' + path, fileIcon('shield'), '')
                                 });
                             }
                         }
@@ -8983,6 +8999,13 @@ public sealed partial class HtmlViews
                     const mayMove = id => (sidebarData.movable || []).indexOf(id) >= 0;
                     let connectionDrag = null;
                     let connectionDragEnded = 0;
+                    // iOS takes a finger that moves for scrolling, whatever the pointer events say: while a connection is
+                    // held by its grip, the page does not move.
+                    document.addEventListener('touchmove', event => {
+                        if (connectionDrag) {
+                            event.preventDefault();
+                        }
+                    }, { passive: false });
                     function makeConnectionsDraggable(spec) {
                         const indicator = document.createElement('div');
                         indicator.className = 'connection-drop-line';
@@ -9100,7 +9123,7 @@ public sealed partial class HtmlViews
                                     // Into the favourites from a folder (or the other way round): nothing to do there.
                                     return;
                                 }
-                                ids = spec.itemsOf(group).filter(node => node !== drag.item).map(spec.idOf);
+                                ids = spec.itemsOf(group, drag.drop.over).filter(node => node !== drag.item).map(spec.idOf);
                                 const at = ids.indexOf(spec.idOf(drag.drop.over));
                                 ids.splice(drag.drop.before ? at : at + 1, 0, drag.id);
                             }
@@ -9172,7 +9195,8 @@ public sealed partial class HtmlViews
                         groupOf: card => card.dataset.fav === '1' ? 'favorites:' : 'folder:' + (card.dataset.folderPath || ''),
                         folderOfItem: card => card.dataset.fav === '1' ? null : (card.dataset.folderPath || ''),
                         folderPathOf: tile => tile.dataset.folderPath,
-                        itemsOf: group => Array.from(homeRoot.querySelectorAll('[data-home2-all] .home2-card-grid .connection-choice[data-card-server]:not([data-card-server=""])')).filter(card => (card.dataset.fav === '1' ? 'favorites:' : 'folder:' + (card.dataset.folderPath || '')) === group),
+                        // The cards of the grid the card was dropped in (favourites and all connections; the grip shows only there).
+                        itemsOf: (group, over) => Array.from((over && over.closest('.home2-card-grid') || homeRoot).querySelectorAll('.connection-choice[data-card-server]:not([data-card-server=""])')).filter(card => (card.dataset.fav === '1' ? 'favorites:' : 'folder:' + (card.dataset.folderPath || '')) === group),
                         say: message => {
                             let note = document.querySelector('.connection-drag-note');
                             if (!note) {
@@ -19236,7 +19260,9 @@ public sealed partial class HtmlViews
                     .server-manager-grip { height: 28px; margin-left: auto; width: 22px; }
                     .server-manager-item:hover .connection-grip, .connection-choice:hover .connection-grip { opacity: .8; }
                     @media (pointer: coarse) { .connection-grip { opacity: .7; } }
-                    .connection-choice .connection-grip { background: var(--surface); border-radius: 8px; height: 26px; left: 6px; position: absolute; top: 6px; width: 22px; z-index: 2; }
+                    .connection-choice .connection-grip { background: var(--surface); border-radius: 8px; display: none; height: 26px; left: 6px; position: absolute; top: 6px; width: 22px; z-index: 2; }
+                    /* Only where the cards can be put in order: the list of all connections (favourites first). */
+                    [data-home2-all] .connection-choice .connection-grip { display: inline-flex; }
                     .connection-dragging { opacity: .35; }
                     .connection-drag-ghost { box-shadow: 0 10px 28px rgba(0,0,0,.22); left: 0; opacity: .92; pointer-events: none; position: fixed; top: 0; z-index: 60; }
                     html.connection-drag-active, html.connection-drag-active * { cursor: grabbing !important; user-select: none; }

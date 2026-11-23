@@ -19,6 +19,99 @@ public static partial class EndpointMapping
     {
         app.MapGet("/login/sso/{provider}", SsoStartAsync);
         app.MapGet("/login/sso/done", SsoDoneAsync);
+        app.MapGet("/admin/sso", () => Results.Redirect("/admin?tab=sso")).RequireAuthorization();
+        app.MapPost("/admin/sso", SsoSaveAsync).RequireAuthorization();
+        app.MapPost("/admin/sso/test", SsoTestAsync).RequireAuthorization();
+    }
+
+    // What the form says, with a secret left empty meaning: keep the one there is.
+    private static SsoConfig SsoFormConfig(IFormCollection form, SsoConfig before) => new()
+    {
+        MatIdentityEnabled = IsChecked(form, "matIdentityEnabled"),
+        MatIdentityAuthority = form["matIdentityAuthority"].ToString().Trim(),
+        MatIdentityClientId = form["matIdentityClientId"].ToString().Trim(),
+        MatIdentityClientSecret = form["matIdentityClientSecret"].ToString() is { Length: > 0 } matSecret ? matSecret : before.MatIdentityClientSecret,
+        MatIdentityInternalUrl = form["matIdentityInternalUrl"].ToString().Trim(),
+        EntraEnabled = IsChecked(form, "entraEnabled"),
+        EntraTenantId = form["entraTenantId"].ToString().Trim(),
+        EntraClientId = form["entraClientId"].ToString().Trim(),
+        EntraClientSecret = form["entraClientSecret"].ToString() is { Length: > 0 } entraSecret ? entraSecret : before.EntraClientSecret,
+        SsoOnly = IsChecked(form, "ssoOnly"),
+    };
+
+    private static async Task<IResult> SsoSaveAsync(HttpContext context, JsonDataStore store, HtmlViews views, SsoSettingsService sso)
+    {
+        var admin = await RequireAdminAsync(context, store);
+        if (admin is null)
+        {
+            return Results.Redirect("/forbidden");
+        }
+
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        if (!ValidateCsrf(context, form))
+        {
+            return BadRequest(context, admin, views);
+        }
+
+        var config = SsoFormConfig(form, sso.Load());
+        // A service switched on without what it needs would only fail at the next sign-in: switched off instead.
+        config.MatIdentityEnabled &= config.MatIdentityAuthority.Length > 0 && config.MatIdentityClientId.Length > 0;
+        config.EntraEnabled &= config.EntraTenantId.Length > 0 && config.EntraClientId.Length > 0;
+        sso.Save(config);
+        return Results.Redirect(EmbedAwareRedirect(context, "/admin?tab=sso"));
+    }
+
+    // "Check the connection": the service's discovery document, read from where Matgate reads it - with the values in
+    // the form (not yet saved). Says what the service calls itself, or why it could not be reached.
+    private static async Task<IResult> SsoTestAsync(HttpContext context, JsonDataStore store, SsoSettingsService sso)
+    {
+        var admin = await RequireAdminAsync(context, store);
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        var german = HtmlViews.Language(context) == "de";
+        if (admin is null || !ValidateCsrf(context, form))
+        {
+            return Results.Json(new { ok = false, message = german ? "Nicht erlaubt." : "Not allowed." });
+        }
+
+        var config = SsoFormConfig(form, sso.Load());
+        string address;
+        if (form["provider"] == "entra")
+        {
+            if (config.EntraTenantId.Length == 0 || config.EntraClientId.Length == 0)
+            {
+                return Results.Json(new { ok = false, message = german ? "Mandanten-ID und Anwendungs-ID fehlen." : "Tenant ID and client ID are missing." });
+            }
+
+            address = $"https://login.microsoftonline.com/{Uri.EscapeDataString(config.EntraTenantId)}/v2.0/.well-known/openid-configuration";
+        }
+        else
+        {
+            if (!Uri.TryCreate(config.MatIdentityAuthority, UriKind.Absolute, out var authority) || config.MatIdentityClientId.Length == 0)
+            {
+                return Results.Json(new { ok = false, message = german ? "Adresse und Client-ID fehlen." : "Address and client ID are missing." });
+            }
+
+            var basis = config.MatIdentityInternalUrl.Length > 0 && Uri.TryCreate(config.MatIdentityInternalUrl, UriKind.Absolute, out var inner) ? inner : authority;
+            address = basis.ToString().TrimEnd('/') + "/.well-known/openid-configuration";
+        }
+
+        try
+        {
+            using var http = new HttpClient { Timeout = TimeSpan.FromSeconds(10) };
+            using var response = await http.GetAsync(address, context.RequestAborted);
+            if (!response.IsSuccessStatusCode)
+            {
+                return Results.Json(new { ok = false, message = $"{(int)response.StatusCode} {response.ReasonPhrase} - {address}" });
+            }
+
+            using var document = System.Text.Json.JsonDocument.Parse(await response.Content.ReadAsStringAsync(context.RequestAborted));
+            var issuer = document.RootElement.TryGetProperty("issuer", out var value) ? value.GetString() : null;
+            return Results.Json(new { ok = issuer is not null, message = issuer is null ? (german ? "Kein Anmeldedienst unter dieser Adresse." : "No sign-in service at this address.") : (german ? "Erreicht: " : "Reached: ") + issuer });
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or System.Text.Json.JsonException)
+        {
+            return Results.Json(new { ok = false, message = (german ? "Nicht erreicht: " : "Not reached: ") + exception.Message });
+        }
     }
 
     private static IResult SsoStartAsync(string provider, HttpContext context, SsoSettings settings)

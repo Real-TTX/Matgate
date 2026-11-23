@@ -26,6 +26,7 @@ public static partial class EndpointMapping
         app.MapGet("/api/db/{id:guid}/routines", DatabaseRoutinesAsync).RequireAuthorization();
         app.MapGet("/api/db/{id:guid}/script", DatabaseScriptAsync).RequireAuthorization();
         app.MapPost("/api/db/{id:guid}/export", DatabaseExportAsync).RequireAuthorization();
+        app.MapPost("/api/db/{id:guid}/design", DatabaseDesignAsync).RequireAuthorization();
     }
 
     private sealed record DatabaseAccess(ServerEndpoint Server, MatgateUser User, string Login, string Password);
@@ -242,6 +243,51 @@ public static partial class EndpointMapping
                 script = await Databases.ScriptAsync(access.Server, access.Login, access.Password, query["db"].ToString(), query["kind"].ToString(), query["schema"].ToString(), query["name"].ToString(), context.RequestAborted),
             };
         });
+
+    public sealed record DesignRequest(string? Db, string? Schema, string? Table, TableDesign? Design, bool Apply);
+
+    // The table designer: from the table as it is and as the page wants it, the statements - shown first, run when
+    // asked to ("apply"). Not for whoever may only read the connection.
+    private static async Task<IResult> DatabaseDesignAsync(Guid id, HttpContext context, JsonDataStore store)
+    {
+        var german = HtmlViews.Language(context) == "de";
+        DesignRequest? request;
+        try
+        {
+            request = await context.Request.ReadFromJsonAsync<DesignRequest>(new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web), context.RequestAborted);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            request = null;
+        }
+
+        if (request?.Design is null)
+        {
+            return Results.BadRequest(new { error = HtmlViews.Translate(context, "Invalid request") });
+        }
+
+        return await DatabaseRunAsync(id, context, store, async access =>
+        {
+            if (IsReadOnlyFor(access.User, access.Server))
+            {
+                throw new DatabaseException(german ? "Diese Verbindung ist für dich nur zum Lesen." : "This connection is read-only for you.");
+            }
+
+            var db = request.Db ?? "";
+            var schema = request.Schema ?? "";
+            var original = string.IsNullOrEmpty(request.Table) ? null : await Databases.TableAsync(access.Server, access.Login, access.Password, db, schema, request.Table, context.RequestAborted);
+            if (original is { Columns.Count: 0 })
+            {
+                throw new DatabaseException(german ? "Die Tabelle gibt es nicht (mehr)." : "The table does not exist (any more).");
+            }
+
+            var statements = TableDesigner.Statements(access.Server.Protocol, schema, request.Table, original, request.Design, german);
+            var ran = request.Apply && statements.Count > 0
+                ? await Databases.ApplyAsync(access.Server, access.Login, access.Password, db.Length > 0 ? db : null, statements, german, context.RequestAborted)
+                : 0;
+            return new { statements, applied = request.Apply, ran };
+        });
+    }
 
     private const long MaxExportRows = 1_000_000;
 

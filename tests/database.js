@@ -217,6 +217,56 @@ const check = (name, got, want) => {
     }, [kind.server.id, kind.ask || ""]);
     check(label + "the export has every row with a header", csv, ["id,name", "1,Anna Berg", "2,Ben Clausen", "3,Cora Dahl"]);
 
+    // ---- the table designer: a new table, then a column renamed and one added
+    const dbName = await inFrame(() => document.querySelector("[data-db-tree] .dbx-node-table").dataset.db);
+    const textType = { Postgres: "character varying(50)", MySql: "varchar(50)", MsSql: "nvarchar(50)" }[kind.protocol];
+    await newQuery("");
+    await runQuery("DROP TABLE IF EXISTS designer_test");
+    await sleep(1500);
+    await inFrame(db => window.MatgateDatabase.openDesigner(db, "", ""), dbName);
+    const D = V + "[data-db-designer] ";
+    await waitFor(d => document.querySelector(d + "[data-design-name]"), D);
+    await frameOf().fill(D + "[data-design-name]", "designer_test");
+    await frameOf().fill(D + "[data-design-section='columns'] tbody tr:nth-child(2) [data-field='name']", "label");
+    await frameOf().fill(D + "[data-design-section='columns'] tbody tr:nth-child(2) [data-field='type']", textType);
+    await frameOf().click(D + "[data-design-add='indexes']");
+    await frameOf().fill(D + "[data-design-section='indexes'] tbody tr:last-child [data-field='columns']", "label");
+    await frameOf().click(D + "[data-design-preview]");
+    const created = await waitFor(d => { const sql = document.querySelector(d + "[data-design-sql]"); return sql ? sql.textContent : null; }, D);
+    check(label + "the designer shows the statements first", !!created && /CREATE TABLE/.test(created) && /CREATE INDEX/.test(created), true);
+    await frameOf().click(D + "[data-design-apply]");
+    const made = await waitFor(() => [...document.querySelectorAll("[data-db-tree] .dbx-node-table")].some(n => n.dataset.name === "designer_test") || null, null, 20000);
+    check(label + "and runs them: the new table is in the tree", !!made, true);
+    const columnsOf = () => inFrame(async ([id, db, password]) => {
+      const headers = { "X-Matgate-Csrf": window.MatgateDatabase.csrf };
+      if (password) { headers["X-Matgate-Db-Password"] = password; }
+      const schema = document.querySelector("[data-db-tree] .dbx-node-table[data-name='designer_test']").dataset.schema;
+      const info = await (await fetch("/api/db/" + id + "/table?" + new URLSearchParams({ db, schema, table: "designer_test" }), { headers, credentials: "same-origin" })).json();
+      return [info.columns.map(c => c.name + (c.primaryKey ? "*" : "")), info.indexes.filter(i => !i.primary).map(i => i.columns)];
+    }, [kind.server.id, dbName, kind.ask || ""]);
+    let fresh = null;
+    for (let i = 0; i < 20; i++) { fresh = await columnsOf().catch(() => null); if (fresh && fresh[0].length) { break; } await sleep(500); }
+    check(label + "with its columns, the key and the index", fresh, [["id*", "label"], ["label"]]);
+
+    await sleep(800);
+    await waitFor(d => document.querySelector(d + "[data-design-name]") && document.querySelector(d + "[data-design-section='columns'] tbody tr") ? true : null, D);
+    await frameOf().fill(D + "[data-design-section='columns'] tbody tr:nth-child(2) [data-field='name']", "title");
+    await frameOf().click(D + "[data-design-add='columns']");
+    await frameOf().fill(D + "[data-design-section='columns'] tbody tr:last-child [data-field='name']", "price");
+    await frameOf().fill(D + "[data-design-section='columns'] tbody tr:last-child [data-field='type']", "decimal(10,2)");
+    await frameOf().click(D + "[data-design-preview]");
+    const altered = await waitFor(d => { const sql = document.querySelector(d + "[data-design-sql]"); return sql ? sql.textContent : null; }, D);
+    check(label + "a rename stays a rename, the new column is added", !!altered && /rename/i.test(altered) && /ADD/.test(altered) && !/DROP COLUMN/.test(altered), true);
+    await frameOf().click(D + "[data-design-apply]");
+    let after = null;
+    for (let i = 0; i < 30; i++) { after = await columnsOf().catch(() => null); if (after && after[0].includes("price")) { break; } await sleep(500); }
+    check(label + "and the table is as designed, the index kept", after, [["id*", "title", "price"], ["title"]]);
+    // The designer opens again with the table as it is now; the next query tab comes after it.
+    await sleep(1500);
+    await newQuery("");
+    await runQuery("DROP TABLE designer_test");
+    await sleep(800);
+
     if (kind.protocol === "Postgres") {
       // A long query can be stopped.
       await newQuery("");
