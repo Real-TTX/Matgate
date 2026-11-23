@@ -61,6 +61,20 @@ node gallery.js phone      # only the phone
 Nothing is compared. The pictures are for looking at - before and after a change to the interface, which is
 what no `ok` line can show. It is not part of `run-all.js`.
 
+`readme-pictures.js` makes the pictures of the README (`docs/images`). The tour's pictures show the tests'
+leftovers, so this one starts a Matgate of its own: the test stack's image with an empty data directory
+(container `matgate-readme`, port 18095). Its connections have tidy names, sit in folders and lead to the
+stack's machines: the remote desktop, the SSH server, the Linux agent, PostgreSQL. It opens real sessions,
+takes the pictures on a desktop and on a phone, and removes the container again.
+
+```bash
+node readme-pictures.js            # every picture
+node readme-pictures.js database   # only one stop
+```
+
+The pictures of the agent's own windows (setup, tray) come from `matgate-agent snapshot`, see the
+[agent's README](../agent/README.md).
+
 ## What the output means
 
 Every check prints one line, `ok` or `FAIL`, with what it got and what it wanted. A script exits

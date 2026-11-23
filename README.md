@@ -1,248 +1,118 @@
 <div align="center">
 
-<img src="docs/images/logo.png" width="96" alt="Matgate" />
+<img src="docs/images/logo.png" width="104" alt="Matgate" />
 
 # Matgate
 
-**One login for your whole home network – in the browser.**
+### One login for your whole network – in the browser.
 
-Remote desktops (RDP/VNC), shell (SSH), file access (SFTP/FTP/SMB) and internal web UIs,
-behind a single self-hosted gateway. One Docker stack, no cloud, no agents on your machines.
+Remote desktops, terminals, files, databases and internal web UIs behind one self-hosted gateway.<br/>
+One Docker stack. No cloud. No client to install.
+
+[![Docker image](https://github.com/Real-TTX/Matgate/actions/workflows/docker-image.yml/badge.svg)](https://github.com/Real-TTX/Matgate/actions/workflows/docker-image.yml)
+[![Agent](https://github.com/Real-TTX/Matgate/actions/workflows/agent.yml/badge.svg)](https://github.com/Real-TTX/Matgate/actions/workflows/agent.yml)
+![.NET 10](https://img.shields.io/badge/.NET-10-512BD4?logo=dotnet&logoColor=white)
+![Docker](https://img.shields.io/badge/runs%20in-Docker-2496ED?logo=docker&logoColor=white)
+![PWA](https://img.shields.io/badge/installable-PWA-5A0FC8?logo=pwa&logoColor=white)
+[![License: MIT](https://img.shields.io/badge/license-MIT-22c55e)](LICENSE)
+
+**[Quick start](#-quick-start)** ·
+**[Features](#-features)** ·
+**[Screenshots](#-screenshots)** ·
+**[Agent](agent/README.md)** ·
+**[Configuration](#%EF%B8%8F-configuration)**
+
+<br/>
+
+<img src="docs/images/session.png" alt="Matgate: a remote desktop in a tab, the connections by folder in the side panel" />
 
 </div>
 
-![The connections home with quick-connect, folders and favorites](docs/images/home.png)
+---
+
+## 💡 Why Matgate
+
+Your network is full of things you sometimes need to reach: a Windows box over RDP, a Linux server over
+SSH, the NAS share, a database, the router's web UI. Usually that means an RDP client here, an SSH client
+there, a VPN, a bookmark and a password list.
+
+Matgate puts all of it behind **one web UI and one login**. Every machine is a tile, every session is a
+tab, and every credential is stored **encrypted** in one place. It runs on a home or office server in
+Docker, works from a laptop or a phone, and can be installed as an app (PWA).
+
+<table>
+<tr>
+<td width="33%" valign="top">
+
+**🖥️ Remote sessions**<br/>
+RDP, VNC and SSH through Matgate's own engine (H.264 in the browser) or Apache Guacamole.
+
+</td>
+<td width="33%" valign="top">
+
+**📁 Files**<br/>
+SFTP, FTP, SMB and agent folders in one file manager: copy between connections, zip, preview.
+
+</td>
+<td width="33%" valign="top">
+
+**🌐 Websites**<br/>
+Internal admin UIs through Matgate's proxy, each under its own address if you like, plus a built-in browser.
+
+</td>
+</tr>
+<tr>
+<td valign="top">
+
+**🛰️ Agent**<br/>
+A small program for Windows, Linux and macOS: screen, terminals (Claude Code), folders, a tunnel, CPU/RAM.
+
+</td>
+<td valign="top">
+
+**🗄️ Databases**<br/>
+SQL Server, MySQL/MariaDB and PostgreSQL: tables, rows and your own statements.
+
+</td>
+<td valign="top">
+
+**🔐 Users & groups**<br/>
+Admin roles, per-connection access, groups, shared credentials, encryption at rest.
+
+</td>
+</tr>
+</table>
 
 ---
 
-## What this is about
+## 🚀 Quick start
 
-Your home network is full of things you occasionally need to reach: a Windows box over RDP,
-a Linux server over SSH, the NAS share, the router's web UI. Normally that means an RDP client
-here, an SSH client there, a VPN, a bookmark, a password sheet. Matgate puts all of it behind
-**one web UI and one login**: every machine as a tile, every session as a tab, every credential
-stored **encrypted** in one place. RDP, VNC and SSH run through Matgate's own engine - its own RDP and VNC
-clients, written in C# and part of Matgate itself, the picture shown as H.264 by the browser -; Apache
-Guacamole is there as a second way to open them, chosen per connection - or left out altogether. Files, the website proxy,
-users, permissions and the UI are Matgate's own.
+```bash
+curl -fsSLO https://raw.githubusercontent.com/Real-TTX/Matgate/main/docker-compose.simple.yml
+docker compose -f docker-compose.simple.yml up -d
+```
 
-It is built to sit on a home server in Docker, optionally behind a reverse proxy, and to be
-usable from a laptop or a phone – installable as a PWA.
+Open **http://localhost:8088**. On the first start a **setup wizard** creates your administrator account.
+Then add your first connection and click it. Matgate **generates and keeps its own keys**, so there is
+nothing to configure.
 
-## At a glance
-
-**Remote sessions**
-- **RDP, VNC and SSH** in the browser, no client install - through **Matgate's own engine** or through
-  **Guacamole**, picked per connection ("Open as"), see [Two engines](#two-engines-for-remote-sessions)
-- RDP with a **clipboard for text, pictures and files** in both directions (Ctrl+V puts files into the
-  Explorer window that is open), **sound**, and a resolution that **follows the window without reconnecting**
-- A password that is not stored is **asked for when connecting**
-- The [agent](agent/README.md) also runs on **Linux and macOS** as the system's service: shared folders
-  and programs in a terminal (Claude Code in the browser), updated by Matgate
-- Through the [agent](agent/README.md): the real desktop of a Windows machine with its **microphone and
-  game controllers** taken from the browser (given a virtual audio cable and the ViGEmBus driver there),
-  single windows, and a start page with the machine's **own logo**
-- Several sessions open at once as **draggable tabs**, with session restore
-- **Sessions that outlive the browser** (an option per user, Account -> Session, 5 minutes to 24 hours):
-  an RDP, VNC or SSH session of Matgate's own engine keeps running when its browser is reloaded, loses its
-  network or is closed, and the page that comes back - on another device too - gets that very session and
-  the same tabs; closing a tab ends its session at once
-- **Already open?** An RDP or VNC connection opened while a session to it runs (another window, another
-  device, an app closed on the phone) asks first - *bring it here* or *new session* - instead of signing the
-  same Windows user in twice; a tab restored after a restart goes back to the session it left without asking.
-  *Always restore everything* (Account -> Session) keeps the tabs on the server for every device and through
-  updates, brings back the tab last in front, and lets sessions run on for at least 30 minutes
-- **Fastest response (fewer colours)**: a picture quality for RDP and VNC over Matgate's own engine that
-  trades colour for latency - RDP at 16 bit, short buffers, fewer pictures in flight; chosen per connection in
-  the session's display dialog or as the default under Settings -> Sessions
-- **Right click with a finger, visible**: while a finger is held still on an RDP, VNC or agent screen a ring
-  fills under it (on the touchpad at the cursor) - full, it is a right click. Settings -> Sessions -> Touch
-  chooses how a finger right-clicks (hold, two-finger tap, or either) and how long holding takes
-- **How busy an agent's machine is**: while a tab of an agent is in front, the status bar shows its CPU and
-  RAM in percent (also on a phone); a click shows memory used, free and total in MB/GB, swap and uptime
-  (agent 0.16.0 or later, Windows and Linux)
-- **Settings, account menu and start page** in one style: a settings page with sections (on a phone a list
-  that opens each one), a save bar that shows what is unsaved, an account menu with light/dark/system right
-  in it, and quick connect on a phone as one row to swipe
-- **Pop a session out into a window of its own** - just that session, no tabs around it - and hand it back
-  with one button; the main window lists the windows that are out beside its tabs (great for multi-monitor)
-- **Real fullscreen / immersive mode** (safe-area aware on iPhone), clipboard sync, a live status bar
-- **A scale instead of a resolution**: "fit to window" at 50 %, 100 %, 150 % ... - a larger desktop shown
-  smaller, or a smaller one shown larger; on a phone the **device keyboard** leaves the picture reachable (it
-  keeps its size and is moved with two fingers, or the resolution follows the keyboard)
-- On phones and tablets a **key bar of your own** under every session: the keys a phone's keyboard does not
-  have (Esc, Tab, Ctrl, Alt, the arrows) and your own shortcuts (Ctrl+C, Ctrl+V, ...), set up under
-  Account -> Key bar - which buttons, in which order, for desktops, terminals or both
-- Per-session **scale** for VNC through Guacamole (Auto / 75% / 50%) so more fits on screen
-
-**Databases**
-- **SQL Server, MySQL / MariaDB and PostgreSQL** as connections, opened in one **database browser**: the
-  databases with their tables and views, a table's rows a page at a time (a click on a column orders by it),
-  and a field for statements of your own. A login that is not stored is asked for
-- Also through **quick connect**, with nothing saved: host, port, sign-in and optionally the database
-
-**Files**
-- File gateway for **SFTP, FTP and SMB** – no extra privileges in the container
-- Upload, download, **zip / unzip**, copy, move, delete, archive extraction
-- **Between file tabs as in Explorer**: Ctrl+C / Ctrl+X in one, Ctrl+V in another - also between two
-  different connections, folders included - or drag rows onto a folder or onto another file tab (Shift moves);
-  the bytes stay on the gateway
-- **Preview** for images, video, audio, PDF and text
-
-**Websites**
-- **Native** mode for internal admin UIs (router, NAS, hypervisor …): Matgate fetches the pages, the
-  browser never talks to the device itself
-- Optionally each website **under an address of its own** (`<label>.web.example.com`): the application
-  runs unchanged - also the ones that read their own address or send the browser to `/login`, which
-  no proxy under a path can show - and stays out of Matgate's origin
-  ([how to set it up](#websites-under-an-address-of-their-own))
-- A website's **name and password** in the connection: sent where a page asks the browser for them
-  (Basic), used to sign in to Proxmox
-- **Quick connect without an address is a browser**: a tab with an address bar, every site reached
-  through Matgate
-- **"via Chromium / Firefox VNC"** fallback: the page opens in a real browser on an optional
-  **browser farm** and is streamed over VNC – for pages the plain proxy can't render. Kiosk by
-  default, auto-sized to your window, with smart-reconnect on resize
-
-**Organizing & sharing**
-- A **side panel** with everything there is to open: favorites, recently used, the connections by folder,
-  places and shares - searchable, each group collapsible. One click connects or jumps to the open session,
-  Ctrl / middle click opens another one, right click brings the connection's menu. On a desktop it is open
-  from the start and the start page beside it is just quick connect; it is shown and hidden from the tab
-  row or the view button (normal, normal with side panel, compact), and on a phone it is a sheet from the menu.
-  Subfolders are names with a "/"; connections are moved by dragging them onto a folder, and a right click on
-  a folder makes a new connection in it
-- **Into other networks without a VPN on the gateway**: a connection goes *through* a Matgate agent standing in
-  that network (its **tunnel**; the agent can also connect to Matgate itself, so no port has to be open there),
-  or *through* a **WireGuard** tunnel - paste the peer configuration; Matgate runs it with wireproxy, as an
-  ordinary program, without any rights on the host. Tunnelled connections open with Matgate's own engine
-- **Credentials** stored once and chosen in as many connections as you like - a new password in one place
-  is the new one for all of them; personal, or shared by an administrator
-- **SSH keys** for SSH and SFTP - pasted or read from a file, in a connection or in stored credentials
-  (OpenSSH, PEM or PuTTY `.ppk`; the password is the key's passphrase), with Matgate's own engine and Guacamole
-- **Quick connect** for ad-hoc sessions without saving anything
-- **Folders** with a page of their own (name, icon, which connections lie in them), per-user **favorites**,
-  search across names, folders and hosts
-- **Workspaces**: shareable bundles with public links, password protection, shared text and file exchange
-- Live **network tools**: ping, DNS lookup, port check, streamed download test
-
-**Users & operation**
-- Local users with **username + email + password**, a **first-run setup wizard**
-- Admin roles and **per-server access control**; global servers and user-owned servers
-- **Groups** for a company: members get whole folders (with subfolders and whatever is filed there later) or
-  single connections; an administrator makes **folders for everyone**, which are there while still empty
-- Credentials **encrypted at rest**; `/guacamole` sits behind the Matgate login
-- **English and German**, light / dark (follows the system), installable **PWA**
-
-## Screenshots
-
-### First run, then one login
-
-| Setup wizard | Sign in |
-|---|---|
-| ![First-run setup wizard that creates the admin account](docs/images/setup.png) | ![The sign-in card](docs/images/login.png) |
-
-On the very first start a **setup wizard** creates your administrator account; after that it is a
-single sign-in.
-
-### Everything to open, on the left
-
-![The side panel with recently used connections, folders and places beside quick connect](docs/images/side-panel.png)
-
-The **side panel** lists favorites, what was used last, the connections by folder, the places of the file
-manager and the shares, with a search across all of them. A dot marks a connection with an open session;
-clicking it goes there instead of opening a second one. Put the panel away and the start page is the full
-list of connection cards again - as it is on a phone, where the panel is a sheet brought by the menu.
-
-### Ad-hoc without saving anything
-
-![Quick-connect dialog for one-off sessions](docs/images/quick-connect.png)
-
-**Quick connect** starts a one-off RDP/VNC/SSH/website session without creating a saved server. On a phone
-the protocols are small tiles and the whole form fits on one screen.
-
-### A live session
-
-![A remote session as a tab, with toolbar and status bar](docs/images/session.png)
-
-Every connection opens as a tab with its own toolbar (fullscreen, clipboard, scale, disconnect)
-and a status bar showing tunnel state and latency. Shown here: a website opened in a real browser
-through the **browser farm** – the fallback for web UIs the native proxy can't display.
-
-### Administration in one place
-
-| Servers | Users |
-|---|---|
-| ![Server gallery with protocol, folder and scope badges](docs/images/admin-servers.png) | ![User management](docs/images/admin-users.png) |
-
-Servers as a **gallery or a list**, each with its protocol, folder and scope. The server editor
-covers every connection type; websites additionally pick their render mode.
-
-![The server editor](docs/images/new-server.png)
-
-### The optional browser farm
-
-![Browser-service admin: pool status, settings and history](docs/images/admin-browser.png)
-
-A pool of isolated Chromium/Firefox sessions (each on its own VNC port) powers the
-"via … VNC" websites. Pool size and resolution are live-configurable, with active sessions and
-a history right in the admin area. It's an **optional** sidecar – without it, only "Native"
-websites are offered.
-
-### Light theme and phones
-
-| Light | Phone |
-|---|---|
-| ![The connections screen in the light theme](docs/images/home-light.png) | ![Matgate on a phone](docs/images/mobile-home.png) |
-
-## Quick start
-
-Prebuilt images are published to the GitHub Container Registry:
-
-| Image | Tag | Use it for |
-|---|---|---|
-| `ghcr.io/real-ttx/matgate` | `latest` | the current release |
-| `ghcr.io/real-ttx/matgate` | `0.9.60`, `sha-…` | pinning an exact build |
-| `ghcr.io/real-ttx/matgate-browser-farm` | `latest` | the optional browser farm |
-
-Remote sessions have two engines: **Matgate's own** (part of Matgate itself - nothing extra to run)
-and **Apache Guacamole** (two containers). A stack can run either or
-both; with both, every connection picks one. A small edge proxy is the single entrance, compresses what
-Matgate sends and keeps `/guacamole` behind the login. Three ready-made stacks live in this repo —
-grab one and run it, no build required:
+Three ready-made stacks are in this repo, all with prebuilt images:
 
 | File | What you get |
 |---|---|
-| [`docker-compose.simple.yml`](docker-compose.simple.yml) | RDP, VNC and SSH through Matgate's own engine, files and **native** websites — **without Guacamole**, nothing to configure |
-| [`docker-compose.yml`](docker-compose.yml) | **both engines** (a choice per connection), plus the options most installs want: own admin, HTTPS, home DNS, pinned keys |
-| [`docker-compose.full.yml`](docker-compose.full.yml) | all of that **plus the browser farm** ("via Chromium / Firefox VNC" websites) |
+| [`docker-compose.simple.yml`](docker-compose.simple.yml) | RDP, VNC and SSH through Matgate's own engine, files, native websites. **Without Guacamole**, nothing to configure |
+| [`docker-compose.yml`](docker-compose.yml) | **Both engines** (a choice per connection), plus the usual options: own admin, HTTPS, home DNS, pinned keys |
+| [`docker-compose.full.yml`](docker-compose.full.yml) | All of that **plus the browser farm** ("via Chromium / Firefox VNC" websites) |
 
-```bash
-docker compose -f docker-compose.simple.yml up -d    # minimal, without Guacamole
-docker compose up -d                                 # both engines, with the usual options
-docker compose -f docker-compose.full.yml up -d      # everything, browser farm included
-```
+| Image | Tag |
+|---|---|
+| `ghcr.io/real-ttx/matgate` | `latest`, a version such as `0.40.1`, or `sha-…` |
+| `ghcr.io/real-ttx/matgate-browser-farm` | `latest` (optional) |
 
-Open **http://localhost:8088** — the first start shows a **setup wizard** that creates your
-administrator account (username, email, password). All three files are self-contained and use the prebuilt
-images. **Matgate generates and persists its own keys** (the at-rest key and the one it shares with
-Guacamole) into the `matgate-secrets` volume — nothing to configure by hand. For
-reference, the whole `docker-compose.simple.yml`:
+<details>
+<summary><b>The whole <code>docker-compose.simple.yml</code></b></summary>
 
 ```yaml
-# Matgate, minimal - without Guacamole: RDP, VNC and SSH through Matgate's own engine, file connections,
-# native websites. Two small containers: Matgate and the proxy in front of it.
-#
-#   docker compose -f docker-compose.simple.yml up -d
-#
-# Open http://localhost:8088 - the first start asks you to create the admin account. Nothing to
-# configure: Matgate generates its own keys.
-#
-# Want Guacamole as well (a choice per connection) and the usual options?  ->  docker-compose.yml
-# Want the browser farm on top?                                           ->  docker-compose.full.yml
-#
-# Coming from an older copy of this file, which ran Guacamole or a separate display engine? Add
-# --remove-orphans once, so those containers go.
 name: matgate
 
 services:
@@ -266,8 +136,7 @@ services:
   matgate:
     image: ghcr.io/real-ttx/matgate:latest
     environment:
-      # This stack has no Guacamole: every connection opens with Matgate's own engine, which is part of
-      # Matgate itself.
+      # No Guacamole in this stack: every connection opens with Matgate's own engine.
       MATGATE_GUACAMOLE: "off"
     volumes:
       - ./data:/data
@@ -278,52 +147,207 @@ services:
     restart: unless-stopped
 
 volumes:
-  # The encryption keys. Back this up - without it, stored device passwords cannot be decrypted.
+  # The encryption keys. Back this up - without it, stored passwords cannot be decrypted.
   matgate-secrets:
   # Files exchanged with sessions. Point it at a path of your own to keep them elsewhere.
   matgate-files:
 ```
 
-After the first admin is created you add your first server and connect.
+</details>
 
-> `docker-compose.yml` can also build Matgate from this repository instead of
-> pulling the published images — that is what `docker compose up --build -d` does. Ignore it unless you
-> work on Matgate.
+> [!TIP]
+> Pin your keys once so they survive any redeploy - see [Pin your keys](#-pin-your-keys).
 
-### Two engines for remote sessions
+---
 
-Every RDP, VNC and SSH connection has an **Open as** setting - its sub type, as a website has its render
-mode:
+## ✨ Features
+
+### 🖥️ Remote sessions
+
+- **RDP, VNC and SSH in the browser.** Use Matgate's own engine or Guacamole, chosen per connection
+  ([compare them](#-two-engines)).
+- **RDP clipboard for text, pictures and files**, both ways. Ctrl+V puts files into the Explorer window that
+  is open on the remote desktop. Sound works, and the resolution **follows the window without reconnecting**.
+- **Tabs** that you can drag, and **sessions that outlive the browser**. A reload, a lost network or a closed
+  app finds the very same session again, on another device too.
+- **Already open?** If you open a connection that already has a session somewhere, Matgate asks whether to
+  *bring it here* or start a *new session*, so the same Windows user is not signed in twice.
+- **Fastest response** quality: fewer colours (16 bit) and short buffers for the lowest latency.
+- **Pop a session out** into a window of its own and hand it back with one click, handy on several monitors.
+- **Real fullscreen** (safe-area aware on iPhone), clipboard sync and a live status bar with latency.
+- **A scale instead of a resolution**: fit to window at 50 %, 100 %, 150 %, …
+- **A password that is not stored** is asked for when connecting.
+
+### 📱 On phones and tablets
+
+- **Touchpad or direct touch**, pinch to zoom, two fingers to scroll.
+- **Right click you can see**: hold a finger still and a ring fills up. When it is full, it is a right
+  click. Choose hold, two-finger tap or both, and how long to hold, under *Settings → Sessions → Touch*.
+- **A key bar of your own** under every session: Esc, Tab, Ctrl, Alt, the arrows and your own shortcuts.
+- The **device keyboard** leaves the picture reachable. Quick connect is one row to swipe.
+
+### 🛰️ The Matgate agent
+
+A small program on a machine that Matgate connects to, or that connects to Matgate (no open port
+needed). [→ Agent documentation](agent/README.md)
+
+- **The real screen** of a Windows or Linux machine (sign-in screen included) and a first version for macOS.
+- **Microphone and game controllers** from the browser on Windows (Xbox 360 controller with rumble).
+- **Programs in a terminal**, for example **Claude Code** or PowerShell, which keep running without a browser.
+- **Shared folders** in the file manager, and a **tunnel** into the agent's network.
+- **How busy the machine is**: CPU and RAM in the status bar, on a phone too. Click it for memory in
+  MB/GB, swap and uptime.
+- **Updates itself** through Matgate. The agent needs no internet access of its own.
+
+### 📁 Files
+
+- **SFTP, FTP and SMB**, with no extra privileges in the container.
+- Upload, download, **zip / unzip**, copy, move, delete.
+- **Between file tabs as in Explorer**: Ctrl+C in one tab, Ctrl+V in another, even between different
+  connections. You can also drag rows onto a folder or a tab.
+- **Preview** for images, video, audio, PDF and text.
+
+### 🌐 Websites
+
+- **Native** mode for internal admin UIs (router, NAS, hypervisor, …). Matgate fetches the pages, so the
+  browser never talks to the device itself.
+- **An address of its own** per website (`<label>.web.example.com`), for apps that no path proxy can show
+  ([setup](#-websites-under-an-address-of-their-own)).
+- **Name and password** in the connection, used for Basic auth and the Proxmox sign-in.
+- **A built-in browser**: quick connect without an address opens a tab with an address bar.
+- **Browser farm** (optional): the page opens in a real Chromium or Firefox and is streamed over VNC.
+
+### 🗄️ Databases
+
+- **SQL Server, MySQL / MariaDB and PostgreSQL** in one database browser: databases, tables and views,
+  rows a page at a time, sorting by column, and your own statements.
+- Also through **quick connect**, with nothing saved.
+
+### 🗂️ Organizing & sharing
+
+- A **side panel** with favorites, recently used, folders, places and shares, all searchable. A dot marks
+  an open session.
+- **Into other networks without a VPN on the gateway**: through an agent's tunnel or through a
+  **WireGuard** peer (run by wireproxy, without any rights on the host).
+- **Credentials** stored once and used in many connections, personal or shared by an administrator.
+- **SSH keys** (OpenSSH, PEM or PuTTY `.ppk`) for SSH and SFTP.
+- **Folders** with icons, per-user **favorites**, search across names, folders and hosts.
+- **Workspaces**: bundles to share, with public links, password protection, shared text and file exchange.
+- Live **network tools**: ping, DNS lookup, port check, download test.
+
+### 🔐 Users & operation
+
+- Local users with username, email and password, plus a **first-run setup wizard**.
+- **Admin roles and per-connection access**, global and personal connections.
+- **Groups**: members get whole folders or single connections. Administrators can make folders for everyone.
+- Credentials **encrypted at rest** (AES-GCM). `/guacamole` sits behind the Matgate login.
+- **One settings page** with sections. A save bar shows what is unsaved. Light, dark or system theme
+  with your own colours.
+- **English and German**, installable **PWA**.
+
+---
+
+## 📸 Screenshots
+
+As in the picture at the top, every connection opens as a tab with its own toolbar (fullscreen, clipboard, display, keyboards, sound,
+disconnect) and a status bar with tunnel state and latency. The side panel on the left lists everything
+there is to open; a dot marks an open session.
+
+<table>
+<tr>
+<td width="50%"><img src="docs/images/ssh.png" alt="An SSH terminal in the browser" /><br/><sub><b>SSH</b> in Matgate's own terminal</sub></td>
+<td width="50%"><img src="docs/images/database.png" alt="The database browser" /><br/><sub><b>Databases</b>: tables, rows and your own SQL</sub></td>
+</tr>
+<tr>
+<td><img src="docs/images/files.png" alt="The file manager" /><br/><sub><b>Files</b> over SFTP, FTP, SMB, WebDAV and the agent</sub></td>
+<td><img src="docs/images/agent-system.png" alt="An agent's start page with CPU and RAM" /><br/><sub>An <b>agent</b>: screen, files, programs, and how busy it is</sub></td>
+</tr>
+<tr>
+<td><img src="docs/images/quick-connect.png" alt="Quick connect" /><br/><sub><b>Quick connect</b>: a one-off session, nothing saved</sub></td>
+<td><img src="docs/images/new-server.png" alt="Connection editor" /><br/><sub>The <b>connection editor</b>, one for every type</sub></td>
+</tr>
+<tr>
+<td><img src="docs/images/settings.png" alt="Settings" /><br/><sub><b>Settings</b> in sections, here the touch right click</sub></td>
+<td><img src="docs/images/login.png" alt="Sign in" /><br/><sub>One <b>sign-in</b> for everything</sub></td>
+</tr>
+</table>
+
+### On a phone
+
+<table>
+<tr>
+<td width="25%"><img src="docs/images/mobile-home.png" alt="Start page on a phone" /></td>
+<td width="25%"><img src="docs/images/mobile-session.png" alt="A remote desktop on a phone" /></td>
+<td width="25%"><img src="docs/images/mobile-side-panel.png" alt="The side panel as a sheet" /></td>
+<td width="25%"><img src="docs/images/mobile-settings.png" alt="Settings on a phone" /></td>
+</tr>
+<tr>
+<td align="center"><sub>Start page</sub></td>
+<td align="center"><sub>Remote desktop</sub></td>
+<td align="center"><sub>Side panel</sub></td>
+<td align="center"><sub>Settings</sub></td>
+</tr>
+</table>
+
+### The agent
+
+<table>
+<tr>
+<td width="50%"><img src="docs/images/agent-overview-desktop.png" alt="An agent's start page in Matgate" /><br/><sub>An agent's <b>start page</b>: screen, terminals, folders</sub></td>
+<td width="50%"><img src="docs/images/agent-setup-connection.png" alt="The agent's setup" /><br/><sub>The <b>setup</b> on Windows, Linux and macOS</sub></td>
+</tr>
+</table>
+
+---
+
+## 🔀 Two engines
+
+Every RDP, VNC and SSH connection has an **Open as** setting:
 
 | | **Matgate** (own engine) | **Guacamole** |
 |---|---|---|
-| RDP | Matgate's own RDP client (TLS and Network Level Authentication with NTLM), the picture as H.264 decoded by the browser (WebCodecs) | guacd and the Guacamole client |
-| RDP clipboard | text, pictures and **files**, both ways: Ctrl+V puts files where the remote desktop has its focus, files copied there are offered for download | text; files through the session's drive |
-| RDP window size | the session follows the window without reconnecting (Display Control) | reconnects at the new size |
+| RDP | Matgate's own RDP client (TLS, NLA with NTLM), the picture as H.264 decoded by the browser (WebCodecs) | guacd and the Guacamole client |
+| RDP clipboard | text, pictures and **files**, both ways | text; files through the session's drive |
+| RDP window size | follows the window without reconnecting (Display Control) | reconnects at the new size |
 | RDP sound, drive | sound; no drive yet | the drive `Files` with the file areas |
-| VNC | Matgate's own VNC client (VNC password, VeNCrypt, Apple Remote Desktop sign-in); text clipboard; the desktop is resized to the window where the server can | guacd; per-session scale |
-| SSH | in Matgate itself (SSH.NET, xterm.js); asks for a missing user or password in the terminal; files pasted or dropped go to the home folder by SFTP | Guacamole's terminal; files through its SFTP dialog |
-| Needs | nothing - it is part of Matgate | the `guacd` and `guacamole` containers |
+| VNC | own client (VNC password, VeNCrypt, Apple Remote Desktop); text clipboard; resizes where the server can | guacd; per-session scale |
+| SSH | in Matgate (SSH.NET, xterm.js); asks for a missing user or password; pasted files go to the home folder | Guacamole's terminal; files through its SFTP dialog |
+| Needs | nothing, it is part of Matgate | the `guacd` and `guacamole` containers |
 
-What a connection asks for is what opens it. Only when that engine is not part of the installation
-does the other one step in - a stack without Guacamole opens everything with Matgate's own - and the
-connection form says so.
-"Via Chromium / Firefox VNC" websites are shown by Guacamole, so they need it (and the browser farm).
-Matgate's own engine needs a browser with WebCodecs: a current Edge, Chrome, Firefox or Safari.
-Guacamole remains the way for what Matgate's RDP client does not do yet: a drive in the session,
-terminal servers that hand out Remote Desktop licences, sign-in through Kerberos only, and servers
-that only know the old RDP encryption or the CredSSP scheme from before 2018.
+The engine a connection asks for is the one that opens it. If that engine is not installed, the other one
+takes over, and the connection form says so. "Via Chromium / Firefox VNC" websites need Guacamole and the
+browser farm. Matgate's own engine needs a browser with WebCodecs: a current Edge, Chrome, Firefox or
+Safari.
 
-### Pin your keys (recommended)
+Guacamole is still the way for what Matgate's RDP client does not do yet: a drive in the session, terminal
+servers that hand out Remote Desktop licences, sign-in through Kerberos only, and servers that only know
+the old RDP encryption or the CredSSP scheme from before 2018.
 
-Matgate generates its secrets on first start into the `matgate-secrets` volume:
+---
 
-- `master.key` – encrypts stored device passwords **at rest**
-- `guac.key` – signs the Guacamole session tokens (**must match** between `matgate` and `guacamole`)
+## ⚙️ Configuration
 
-If that volume is ever lost or recreated, new keys are generated and the **stored passwords can no
-longer be decrypted**. To make the keys survive any redeploy, pin the current values into a `.env`
-next to the compose file – once, non-destructively:
+| Variable | Default | Meaning |
+|---|---|---|
+| `MATGATE_DATA_DIR` | `/data` | Persistent data directory inside the container |
+| `MATGATE_ADMIN_USER` / `_PASSWORD` / `_EMAIL` | – | Create the admin unattended and skip the setup wizard |
+| `MATGATE_GUACAMOLE` | on | `off` for a stack without Guacamole |
+| `MATGATE_GUACAMOLE_JSON_SECRET_KEY` | auto | 32 hex characters for Guacamole JSON auth |
+| `MATGATE_SECRET_KEY` | auto | 64 hex characters for the encryption of stored credentials |
+| `MATGATE_REQUIRE_HTTPS` | `false` | Force HTTPS and secure cookies behind a TLS proxy |
+| `MATGATE_WEBSITE_HOST` | – | Host names for websites, like `*.web.example.com` |
+| `MATGATE_DNS_SERVER` / `MATGATE_DNS_SEARCH` | – | Your home DNS, so names like `nas` or `pc-terminal` resolve |
+| `BrowserFarm__BaseUrl` | `http://browser-farm:8090` | Where the optional browser farm lives |
+
+### 🔑 Pin your keys
+
+On the first start Matgate puts two keys into the `matgate-secrets` volume:
+
+- `master.key` encrypts stored passwords **at rest**.
+- `guac.key` signs the Guacamole session tokens and **must match** between `matgate` and `guacamole`.
+
+If that volume is lost, new keys are made and the **stored passwords can no longer be decrypted**. Pin the
+current keys into a `.env` next to the compose file, once:
 
 ```bash
 docker exec matgate-matgate-1 sh -c \
@@ -333,175 +357,117 @@ docker exec matgate-matgate-1 sh -c \
 docker compose up -d
 ```
 
-From then on the keys come from `.env` and never regenerate. `MATGATE_GUACAMOLE_JSON_SECRET_KEY`
-is 32 hex characters, `MATGATE_SECRET_KEY` is 64.
+From then on the keys come from `.env` and are never made again.
 
-## Configuration
+### 🌍 Websites under an address of their own
 
-| Variable | Default | Meaning |
-|---|---|---|
-| `MATGATE_DATA_DIR` | `/data` | Persistent data directory inside the container |
-| `MATGATE_ADMIN_USER` / `MATGATE_ADMIN_PASSWORD` / `MATGATE_ADMIN_EMAIL` | – | Seed the admin unattended and skip the setup wizard |
-| `MATGATE_GUACAMOLE` | on | `off` for a stack without Guacamole: every connection opens with Matgate's own engine |
-| `MATGATE_GUACAMOLE_JSON_SECRET_KEY` | auto | 32 hex chars for Guacamole JSON auth (see *Pin your keys*) |
-| `MATGATE_SECRET_KEY` | auto | 64 hex chars for at-rest encryption of credentials |
-| `MATGATE_REQUIRE_HTTPS` | `false` | Force HTTPS / secure cookies behind a TLS proxy |
-| `MATGATE_WEBSITE_HOST` | – | Host names for websites, like `*.web.example.com` - see *Websites under an address of their own* |
-| `MATGATE_DNS_SERVER` / `MATGATE_DNS_SEARCH` | – | Point the containers at your home DNS so `nas`, `pc-terminal`, … resolve |
-| `BrowserFarm__BaseUrl` | `http://browser-farm:8090` | Where the optional browser farm lives |
+A native website can be shown in two ways.
 
-## Websites under an address of their own
+**Under a path of Matgate's address** (`https://matgate.example.com/website/<id>/…/proxy/`) works with
+nothing but Matgate's own host name. Matgate rewrites every address in the pages. That is enough for pages
+that only link to themselves. It cannot work for apps that read their own address or send the browser to
+`/login` at the root. UniFi is one of those.
 
-A natively opened website is fetched by Matgate and handed to the browser. There are two ways to do that.
+**Under a host name of its own** (`https://<label>.web.example.com/`) the website keeps its own paths,
+cookies and storage, and nothing has to be rewritten. Its scripts also run outside Matgate's origin. It
+needs three things, once, for all websites:
 
-**Under a path of Matgate's address** (`https://matgate.example.com/website/<id>/…/proxy/`) is what works
-with nothing but the one host name Matgate has. Every address in the pages is rewritten to fit. That is
-enough for pages that only link to themselves. It cannot work for an application that reads its own
-address - one that takes its route from the path, or sends the browser to `/login` at the root: the
-root is Matgate's, and a page cannot be told otherwise. UniFi is one of those.
+1. A **wildcard DNS** record that points where Matgate's own name points: `*.web.example.com`.
+2. A **certificate** for that wildcard and **one route in your reverse proxy** that sends those names to
+   Matgate with the host name unchanged.
+3. `MATGATE_WEBSITE_HOST=*.web.example.com`. Matgate puts a 20-character label where the `*` is.
+   `web-*.example.com` works too, and so does `*.example.com` if your wildcard already catches everything.
 
-**Under a host name of its own** (`https://<label>.web.example.com/`) the website's paths are its own,
-its cookies and storage are the browser's own for that address, and nothing in it has to be rewritten.
-Its scripts also run in an origin that is not Matgate's. It needs three things, once, for all websites:
+The names must belong to the **same site** as Matgate (the same registered domain), because browsers only
+keep cookies for a framed page within one site. If they do not, Matgate falls back to the path. Locally,
+`*.mg.localhost` with Matgate opened as `http://mg.localhost:8088` works without any DNS.
 
-1. A **wildcard DNS** record that points to the same place as Matgate's own name: `*.web.example.com`.
-2. A **certificate** for that wildcard, and a **route in your reverse proxy** that sends those names to
-   Matgate, host name unchanged. One route, not one per website.
-3. `MATGATE_WEBSITE_HOST=*.web.example.com` - the pattern, with the `*` where Matgate puts a label of
-   20 letters and digits. `web-*.example.com` works too, and so does `*.example.com` when the wildcard
-   you already have catches everything that has no route of its own.
+Access is checked per host: the label names the user and the connection, and a cookie for that host name
+(handed out against a one-time ticket) proves the browser is that user's. Signing out, deleting the
+connection or switching the account off closes the address. A connection can also ask for the path
+explicitly ("Open under Matgate's own address").
 
-The names must belong to the **same site** as Matgate's own (the same registered domain: `matgate.example.com`
-and `*.web.example.com`). A browser keeps cookies for a framed page only within one site; where it does
-not, the shell notices and falls back to the path. Locally `*.mg.localhost` with Matgate opened as
-`http://mg.localhost:8088` works without any DNS.
+---
 
-Who gets in: the label says which user and which connection, and a cookie for that one host name -
-handed out against a one-time ticket by the shell - says that the browser is that user's. Signing out,
-deleting the connection or switching the account off closes the address. A connection reaches its own
-machine only (also under another port, as after a redirect from http to https); a quick-connect tab is a
-browser and reaches whatever its user types. With only one host name Matgate keeps working as before; a
-connection can also ask for the path explicitly ("Open under Matgate's own address").
+## 💾 Data & files
 
-## Data & persistence
-
-Everything lives under the data directory (`./data` in the examples, mounted at `/data`):
+Everything Matgate keeps lives under the data directory (`./data`, mounted at `/data`):
 
 ```
 /data
-├─ users.json               local users, permissions, favorites
-├─ servers.json             global + user-owned servers and folders
-├─ workspaces.json          workspace definitions and share settings
+├─ users.json               users, permissions, favorites
+├─ servers.json             connections and folders
+├─ workspaces.json          workspaces and share settings
 ├─ guacamole.properties     generated Guacamole config
 └─ user-mapping.xml         generated Guacamole mapping (no cleartext credentials)
 ```
 
-Files people exchange with their sessions do **not** live here - they have their own tree, see below.
-
-## File areas
-
-Files exchanged with a session live in their own volume (`matgate-files`), apart from the gateway state:
+Files exchanged with sessions have their own volume (`matgate-files`):
 
 ```
 /files
 ├─ global/                  shared by everyone who is allowed in
-├─ connection/<id>/         belongs to one connection, shared by everyone who may open it
+├─ connection/<id>/         one connection, shared by everyone who may open it
 ├─ user/<id>/               private to one user, the same in every session
-└─ session/<id>/            one session - this is what the session sees as its drive
+└─ session/<id>/            one session: what the session sees as its drive
 ```
 
-An RDP session gets a redirected drive named **Matgate**, and inside it the areas the user is allowed
-to use, next to a `Session` folder for this sitting alone:
+An RDP session through Guacamole gets a drive named **Matgate** with the areas the user may use, next to a
+`Session` folder for this sitting alone. An admin hands out each area per user under *Administration →
+Users*. There is no read-only in between on purpose: one system user serves the drive to every session, so
+the filesystem cannot tell two Matgate users apart.
 
-```
-Matgate (drive)
-├─ Global/        ─┐
-├─ Connection/     ├─ only those the user has been given
-├─ User/          ─┘
-└─ Session/        always there, gone when the session is
-```
+- **Changes take effect on the next connect.** A running session keeps what it was given.
+- **Quick connect gets `Session` only**, because its target host is typed in at connect time.
+- The areas are mounted **into the remote machine**. Anyone else with a session on that machine can reach
+  them. That is how drive redirection works on any gateway.
 
-Every area is its own subtree, so you can put the whole thing on a NAS by pointing the volume at a
-path of your own, or move a single area by mounting over `/files/global`. Nothing above cares.
+The shipped compose files give the volume to `matgate` and `guacd` at the same path. If a compose file of
+your own skips that, nothing breaks: Guacamole sessions fall back to the `Session` folder alone. Session
+folders are cleaned up on their own.
 
-### Who gets what
+> [!IMPORTANT]
+> The encryption keys live **outside** `./data`, in the `matgate-secrets` volume, so a stolen backup of
+> `./data` cannot decrypt your passwords. Back up **both**, or pin the keys in `.env`.
 
-An admin decides per user, under *Administration → Users*: each area is either handed over or not
-there at all. There is no read-only in between, and that is deliberate - the drive is served to every
-session by a single system user, so the filesystem cannot tell two Matgate users apart and a
-"read-only" would look like a guarantee without being one.
+### Permissions
 
-Two things worth knowing:
+- `Admin` manages users and all connections.
+- `CanManageServers` manages global connections; `CanCreateServers` may create personal ones.
+- `ServerAccessAll`, or access granted per global connection.
+- **Global** connections are shared and admin-managed; **personal** ones belong to a user (still visible
+  to admins for support).
 
-- **Changes take effect on the next connect.** A running session keeps the folders it was given.
-- **Quick connect gets `Session` only.** Its target host is typed in at connect time, so linking a
-  persistent area into one would let anyone mount the shared store into a machine of their choosing.
-- The areas are mounted **into the remote machine**. Anyone else with a session on that machine can
-  reach them - that is how drive redirection works, on any gateway.
+---
 
-### Setup
+## 🛠️ How it's built
 
-The shipped compose files give the volume to matgate **and** to guacd, which serves the drive of a
-Guacamole session, at the same path. Both halves are needed: guacd serves the drive from its own
-filesystem, and matgate assembles the folder it serves. If you write your own compose file and skip
-this, nothing breaks - Matgate notices that the tree is not shared and a Guacamole session falls back
-to a scratch folder inside guacd, so file transfer keeps working with the `Session` folder alone. A
-session of Matgate's own engine has no drive yet; files go through its clipboard. The gateway log says
-which of the two is in use at startup.
+| Part | Technology |
+|---|---|
+| Server | **ASP.NET Core (.NET 10)**, server-rendered HTML, the client is **plain JavaScript** with no build step |
+| RDP / VNC | Matgate's own clients in C# (`Matgate/Display`), written from Microsoft's and the RFB specification, encoded as H.264 with OpenH264, decoded by the browser with WebCodecs |
+| SSH | in-process with SSH.NET, shown in xterm.js |
+| Guacamole | Matgate mints short-lived, encrypted auth tokens per launch |
+| Files | in-process **SFTP** (SSH.NET), **FTP** (FluentFTP), **SMB** (SMBLibrary) |
+| Agent | one Avalonia program for Windows, Linux and macOS ([details](agent/README.md)) |
+| Browser farm | a small Python control API over a pool of `Xvfb + x11vnc + browser` slots, no Docker socket |
+| Storage | JSON files; passwords encrypted with AES-GCM |
 
-Session folders are cleaned up on their own. A session of Matgate's own engine runs through Matgate,
-which removes the folder when the session ends. For a Guacamole session the browser reports it as open
-while its tab lives, and a folder goes once it stops reporting: Matgate is never told that such a
-session ended - the tunnel runs between the browser and Guacamole - so without that report a folder is
-only removed after it has been untouched for long enough that no tab can still be using it.
-
-The encryption keys live **outside** `./data` in the `matgate-secrets` volume, so a stolen `./data`
-backup can't decrypt your device passwords. Back up **both** the data directory and the secrets
-volume (or pin the keys in `.env`, see above).
-
-## Permission model
-
-- `Admin` manages users and all servers
-- `CanManageServers` manages global servers, `CanCreateServers` may create own servers
-- `ServerAccessAll`, or access granted per individual global server
-- **Global** servers are shared and admin-managed; **Own** servers belong to a user (still visible
-  to admins for support)
-
-## How it's built
-
-- **ASP.NET Core (.NET 10)**, server-rendered HTML; the client is **plain JavaScript**, no build step
-- **RDP / VNC** by Matgate's own clients (`Matgate/Display`, C#, written from Microsoft's and the RFB
-  specification), encoded as H.264 with OpenH264 and speaking the screen protocol of the
-  [Matgate agent](agent/README.md), shown by the browser with WebCodecs; **SSH** in-process (SSH.NET) in an
-  xterm.js terminal
-- …or through **Apache Guacamole + guacd**, for which Matgate mints short-lived, encrypted auth tokens
-  per launch
-- File access through in-process **SFTP (SSH.NET)**, **FTP (FluentFTP)** and **SMB (SMBLibrary)**
-- The **browser farm** is a small stdlib-Python control API over a pool of `Xvfb + x11vnc + browser`
-  slots – no Docker socket, isolated per Linux user
-- Data is stored as JSON files; device passwords are encrypted with AES-GCM
-
-## Status
-
-Matgate is an actively developed self-hosted project. Working today: remote sessions with tabs and
-session restore - through its own engine or Guacamole -, the file gateway, the native + browser-farm website modes, quick connect, folders
-and favorites, workspaces with sharing, network tools, the setup wizard and per-server access
-control, PWA and mobile layout. On the list: TLS polish and further hardening.
-
-## Development
+### Development
 
 ```bash
 docker compose up --build -d                     # build this checkout and run it
-docker compose -f docker-compose.full.yml up -d  # with the browser farm
+dotnet build Matgate/Matgate.csproj              # build without Docker
 ```
 
-```bash
-dotnet build Matgate/Matgate.csproj      # build without Docker
-```
+The end-to-end tests drive a real browser against a separate test stack - see [tests/README.md](tests/README.md).
+GitHub Actions builds and publishes the images on pushes and tags (amd64 and arm64), and the agent for every
+system.
 
-Images are built and published by GitHub Actions on pushes and tags (amd64 + a separate arm64
-image).
+---
 
-## License
+<div align="center">
 
-Matgate is licensed under the MIT License. See [LICENSE](LICENSE).
+Matgate is actively developed and licensed under the [MIT License](LICENSE).
+
+</div>

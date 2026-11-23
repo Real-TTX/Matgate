@@ -6378,6 +6378,7 @@ public sealed partial class HtmlViews
                     recheckKeyboardSoon();
 
                     updateTabActions();
+                    updateStatusBar();
                     saveTabOrder();
                     saveShellTabs();
                 }
@@ -12445,6 +12446,24 @@ public sealed partial class HtmlViews
                         statusMessage.textContent = state.statsDetail || '-';
                         if (statusResolution) {
                             statusResolution.textContent = state.resolutionLabel ? `Screen: ${state.resolutionLabel}` : '';
+                        }
+                        return;
+                    }
+
+                    // A page in a tab (an SSH terminal or a database of Matgate's own, an admin page): its name and
+                    // what its tab says of it, not "New connection".
+                    const pageTab = tab ? null : shellTabs.get(activeShellTabId);
+                    if (pageTab) {
+                        const ownSession = /^\/(ssh|db)\//.test(pageTab.url || '');
+                        statusTitle.textContent = pageTab.title || '';
+                        statusTarget.textContent = shellTabDescription(pageTab) || '-';
+                        statusState.textContent = ui('ready');
+                        statusLatency.textContent = gatewayLatencyMs === null ? 'Gateway: -' : `Gateway: ${gatewayLatencyMs} ms`;
+                        statusTunnel.textContent = ownSession ? 'Tunnel: Matgate' : 'Tunnel: -';
+                        statusSync.textContent = 'Sync: -';
+                        statusMessage.textContent = '-';
+                        if (statusResolution) {
+                            statusResolution.textContent = '';
                         }
                         return;
                     }

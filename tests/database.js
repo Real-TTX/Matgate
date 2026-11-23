@@ -113,6 +113,12 @@ const check = (name, got, want) => {
     const listed = await waitFor(() => { const names = [...document.querySelectorAll("[data-db-tree] .dbx-node-table span")].map(s => s.textContent); return names.includes("customers") ? names : null; }, null, 60000);
     check(label + "its database is open with the tables" + (kind.ask ? "" : " and the view"), [!!listed && listed.includes("customers"), kind.ask ? true : !!listed && listed.includes("customers_in_kiel")], [true, true]);
     if (!listed) { continue; }
+    // A database's name stands beside its arrow, not in it (the arrow of a closed one is turned, and so was the
+    // name: "postgres" stood on end); the filter's text starts after its magnifier.
+    check(label + "each database: arrow, then its name lying flat", await inFrame(() => [...document.querySelectorAll("[data-db-tree] .dbx-node-db")].every(node =>
+      !!node.querySelector(".dbx-caret svg") && !node.querySelector(".dbx-caret").textContent.trim() && !!node.querySelector(".dbx-label").textContent.trim())), true);
+    check(label + "the status bar names the connection, not \"New connection\"", await page.evaluate(() => document.getElementById("status-title").textContent), kind.name);
+    check(label + "the filter's text starts after its magnifier", await inFrame(() => parseFloat(getComputedStyle(document.querySelector("[data-db-filter]")).paddingLeft) >= 28), true);
 
     await frameOf().locator("[data-db-tree] .dbx-node-table").filter({ hasText: /^customers$/ }).first().click();
     const rows = await waitFor(() => { const t = document.querySelector("[data-db-data] table"); return t && t.tBodies[0].rows.length ? true : null; });

@@ -107,7 +107,7 @@ public sealed partial class HtmlViews
                 .dbx-side-icon { color: var(--accent); display: inline-flex; }
                 .dbx-filter { align-items: center; display: flex; margin: 0 10px 8px; position: relative; }
                 .dbx-filter > .icon { color: var(--muted); height: 15px; left: 10px; pointer-events: none; position: absolute; width: 15px; }
-                .dbx-filter input { border-radius: 10px; font-size: 13.5px; min-height: 34px; padding: 5px 10px 5px 32px; width: 100%; }
+                .dbx-filter input[data-db-filter][type="search"] { border-radius: 10px; font-size: 13.5px; min-height: 34px; padding: 5px 10px 5px 32px; width: 100%; }
                 .dbx-tree { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 6px 12px; scrollbar-color: transparent transparent; scrollbar-gutter: stable; scrollbar-width: thin; }
                 .dbx-tree:hover { scrollbar-color: var(--line) transparent; }
                 .dbx-node { align-items: center; background: transparent; border: 0; border-radius: 9px; box-shadow: none; color: var(--text); display: flex; font-size: 13.5px; gap: 7px; justify-content: flex-start; min-height: 32px; padding: 3px 8px; padding-left: calc(8px + var(--depth, 0) * 16px); text-align: left; width: 100%; }
@@ -240,8 +240,8 @@ public sealed partial class HtmlViews
                 button.className = 'dbx-node ' + className;
                 button.style.setProperty('--depth', depth);
                 button.setAttribute('role', 'treeitem');
-                button.innerHTML = iconHtml + '<span></span>' + (extra ? '<small></small>' : '');
-                button.querySelector('span').textContent = label;
+                button.innerHTML = iconHtml + '<span class="dbx-label"></span>' + (extra ? '<small></small>' : '');
+                button.querySelector('.dbx-label').textContent = label;
                 if (extra) { button.querySelector('small').textContent = extra; }
                 return button;
             };

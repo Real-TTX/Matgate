@@ -1,27 +1,57 @@
+<div align="center">
+
+<img src="../docs/images/logo.png" width="88" alt="Matgate" />
+
 # Matgate agent
 
-A small program on a machine that Matgate connects to - like an RDP server: host, port and a
-password (the agent's token). What the machine offers is up to the agent; Matgate asks after
-connecting and shows exactly that.
+**The machine itself, in a Matgate tab: its screen, its programs, its folders.**
 
-Plugins today:
+Windows · Linux · macOS - one self-contained file, updated by Matgate.
 
-- **Files** - the configured folders in Matgate's file manager (browse, upload, download, create,
-  delete, copy between places).
-- **Terminals** - programs in a terminal tab in the browser, e.g. **Claude Code** or PowerShell.
-  A session keeps running when its tab closes or the browser goes away; the agent overview lists it
-  with *Fortsetzen* and *Beenden*. Claude Code also offers "Letzte Unterhaltung fortsetzen"
-  (`--continue`) and "Unterhaltung auswählen" (`--resume`), which survive a restart of the machine.
-- **Screen** - the machine's desktop in the browser, to work on it as if sitting in front of it
-  (see below).
-- **How busy the machine is** - CPU and RAM for Matgate's status bar while one of the machine's tabs is in
-  front; a click there shows memory in MB/GB, swap (Linux) and uptime. Windows and Linux; a Mac says it
-  cannot tell, and nothing is shown.
+**[Install](#-installing-it)** ·
+**[Linux & macOS](#-linux-and-macos)** ·
+**[The screen](#%EF%B8%8F-the-screen)** ·
+**[Configuration](#%EF%B8%8F-configuration)** ·
+**[Security](#-security)** ·
+**[← Matgate](../README.md)**
 
-Windows first. The file plugin runs anywhere .NET runs; terminals use Windows' pseudo console
-(ConPTY) and the screen uses DXGI and Media Foundation, so both are only offered on Windows so far.
+<br/>
 
-## The screen
+<img src="../docs/images/agent-overview-desktop.png" alt="An agent's start page in Matgate" />
+
+</div>
+
+---
+
+A small program on a machine that Matgate connects to, like an RDP server: host, port and a password (the
+agent's token). It can also connect to Matgate itself, so no port has to be open. The agent says what the
+machine offers, and Matgate shows exactly that.
+
+| | What it does |
+|---|---|
+| 🖥️ **Screen** | the machine's real desktop in the browser, as if sitting in front of it ([details](#%EF%B8%8F-the-screen)) |
+| ⌨️ **Terminals** | programs in a browser tab, e.g. **Claude Code** or PowerShell. They keep running when the tab closes; the agent overview lists them with *Fortsetzen* and *Beenden*. Claude Code also offers "Letzte Unterhaltung fortsetzen" (`--continue`) and "Unterhaltung auswählen" (`--resume`) |
+| 📁 **Files** | the configured folders in Matgate's file manager: browse, upload, download, create, delete, copy between places |
+| 🔀 **Tunnel** | Matgate reaches other machines in this machine's network through the agent ([details](#-the-tunnel)) |
+| 📊 **How busy it is** | CPU and RAM in Matgate's status bar while one of the machine's tabs is in front; a click shows memory in MB/GB, swap (Linux) and uptime |
+| 🔄 **Updates** | Matgate brings new versions; the agent needs no internet access ([details](#-updates)) |
+
+### What runs where
+
+| | Windows | Linux | macOS |
+|---|:---:|:---:|:---:|
+| Files, terminals, tunnel, updates | ✅ | ✅ | ✅ |
+| Screen | ✅ | ✅ X11 (not Wayland yet) | 🧪 first version |
+| Sign-in and lock screen | ✅ as a system service | ✅ | – |
+| Sound from the machine | ✅ | – | – |
+| Microphone and game controllers from the browser | ✅ | – | – |
+| Clipboard | text, pictures, files | text out; text, pictures, files in | text |
+| CPU / RAM in the status bar | ✅ | ✅ | – |
+| Setup window and tray icon | ✅ | ✅ | ✅ |
+
+macOS is built by the CI and has been tested on GitHub's macOS runner, not yet on a real Mac.
+
+## 🖥️ The screen
 
 What the monitor shows, in a tab of Matgate - like AnyDesk rather than RDP: it is the real desktop of
 the signed-in user, not a session of its own, so whoever sits at the machine sees the same. In Matgate it
@@ -85,7 +115,9 @@ there (it only shows one when opened on its own, outside Matgate).
   quicker), a tap clicks there, tap and then touch again to drag, two fingers tapped are the right button,
   two fingers moving scroll; zoomed in, the picture follows the cursor. *Direct touch* (a tablet's default):
   a tap clicks where the finger is, a long press is the right button, a moving finger drags. Pinching zooms
-  in both. The keyboard buttons open the device's keyboard or the key bar - the user's own buttons
+  in both. While a finger is held still a ring fills (under the finger, or at the cursor on the touchpad):
+  full, it is a right click. Settings -> Sessions -> Touch chooses hold, two-finger tap or both, and how long
+  holding takes. The keyboard buttons open the device's keyboard or the key bar - the user's own buttons
   (Account -> Key bar; by default Esc, Tab, Ctrl, Alt, Windows, Del, the arrows, Ctrl+C, Ctrl+V and
   Ctrl+Alt+Del). A letter typed while Ctrl, Alt or the Windows key is held is pressed as the key it sits on in
   the machine's keyboard layout, so it is a shortcut there.
@@ -114,7 +146,7 @@ It can be switched off in the setup ("Bildschirm") or with `"Screen": false`.
 milliseconds per picture) - whether and how fast a machine can share its screen. The picture itself is not
 kept.
 
-## Linux and macOS
+## 🐧 Linux and macOS
 
 The same agent, as the system's own service - the way it is a LocalSystem service on Windows: it starts
 with the machine, before and without anyone signing in. It offers the **shared folders**, **programs in a
@@ -185,7 +217,7 @@ setup prints host, port, connection password and the certificate's fingerprint f
 - Tested on Linux (a container of the test stack, `tests/agent-linux.js`). **macOS is built by the CI and
   has not run on a Mac yet.**
 
-## Installing it
+## 📦 Installing it
 
 ![Setup](../docs/images/agent-setup-welcome.png)
 
@@ -239,7 +271,7 @@ matgate-agent.exe setup --mode service --account ".\matgate" --password "..." --
 matgate-agent.exe setup --dry-run      # says what it would do, changes nothing
 ```
 
-## The tray icon
+## 🔔 The tray icon
 
 The Matgate mark in the notification area, started at every logon (it can be switched off in the setup). It
 follows the desktop rules of the Mat family (MatDesign, areas TRAY and AGENT): the colours are MatUi's tokens
@@ -276,7 +308,7 @@ the connection details, the tray menu and the icon in its four states - into PNG
 sample data (the computer ANNA-PC, the user Anna, a sample password): nothing of the machine it runs on, so
 the pictures may be published. The ones in `docs/images` are made that way.
 
-## Updates
+## 🔄 Updates
 
 Matgate brings new versions to its agents itself - the agent needs no internet access of its own. It reads the
 release `agent-latest` (`matgate-agent.json`: version, SHA-256, size), fetches and checks the exe once and sends it
@@ -293,7 +325,7 @@ file, and a running program can be renamed but not overwritten; the icons then r
 
 Only the installed single-file agent updates itself; its account may write its program folder for that.
 
-## Uninstalling it
+## 🗑️ Uninstalling it
 
 ![Uninstall](../docs/images/agent-uninstall-confirm.png)
 
@@ -305,7 +337,7 @@ removes itself afterwards. Unattended: `"%ProgramFiles%\Matgate Agent\matgate-ag
 
 The connection in Matgate stays until it is deleted there.
 
-## Building it
+## 🛠️ Building it
 
 ```bash
 dotnet publish agent/Matgate.Agent -c Release -r win-x64 -o publish/agent     # or linux-x64, linux-arm64, osx-arm64, osx-x64
@@ -322,7 +354,7 @@ Linux and macOS: `Unix/`. `Setup/AgentInstall.cs` is the one door to either inst
 One self-contained file. `matgate-agent.exe run [--config path]` starts the agent by hand (a
 `matgate-agent.json` next to the exe is created if missing).
 
-## The tunnel
+## 🔀 The tunnel
 
 With **Tunnel** switched on (setup, or `"Tunnel": true` in the configuration), Matgate reaches other
 machines in this machine's network through the agent - an RDP server, a share, a database - as if it stood here.
@@ -334,7 +366,7 @@ whoever may use the agent's connection in Matgate.
 connects to Matgate itself and keeps that connection, trying again when it breaks. Matgate then uses it for
 everything - files, terminals, screen, tunnel - also when it cannot reach the agent's host.
 
-## Configuration
+## ⚙️ Configuration
 
 ```json
 {
@@ -377,7 +409,7 @@ everything - files, terminals, screen, tunnel - also when it cannot reach the ag
   loudspeakers (an intercom rather than a microphone); `off` = nowhere.
 - `Gamepads` - `false` keeps a viewer's controllers out, driver or not.
 
-## Security
+## 🔐 Security
 
 A terminal or the screen can do whatever the agent's user can. So:
 
@@ -392,7 +424,7 @@ A terminal or the screen can do whatever the agent's user can. So:
 - In Matgate, a user who is limited to a folder or to reading on this connection gets no terminal and
   no screen.
 
-## Protocol
+## 📡 Protocol
 
 One WebSocket (`wss://host:port/matgate`, `Authorization: Bearer <token>`), opened by Matgate.
 Every message is binary: a 4-byte header length, a JSON header (request, response or event) and an
