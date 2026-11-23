@@ -106,7 +106,7 @@ Three ready-made stacks are in this repo, all with prebuilt images:
 
 | Image | Tag |
 |---|---|
-| `ghcr.io/real-ttx/matgate` | `latest`, a version such as `0.43.0`, or `sha-…` |
+| `ghcr.io/real-ttx/matgate` | `latest`, a version such as `0.43.1`, or `sha-…` |
 | `ghcr.io/real-ttx/matgate-browser-farm` | `latest` (optional) |
 
 <details>

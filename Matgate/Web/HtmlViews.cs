@@ -10093,6 +10093,16 @@ public sealed partial class HtmlViews
                             rows.append(...switches);
                             resolutionExtra.append(resolutionHeading(uiText.optionsHeading || 'Options'), rows);
                         }
+                        // Where the numbers stand in the picture - a corner, kept on this device.
+                        if (state.perf && typeof api.setPerfPosition === 'function') {
+                            const labels = state.texts?.perfPlaces || ['Top left', 'Top right', 'Bottom left', 'Bottom right'];
+                            group(state.texts?.perfPosition || 'Performance numbers stand',
+                                ['top-left', 'top-right', 'bottom-left', 'bottom-right'].map((value, index) => ({ value, label: labels[index], active: state.perfAt === value })),
+                                value => {
+                                    api.setPerfPosition(value);
+                                    openScreenResolutionDialog(screen);
+                                });
+                        }
                     }
 
                     resolutionDialog.classList.remove('hidden');

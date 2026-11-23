@@ -40,6 +40,11 @@ public static class AgentScreenPage
             /* The session's numbers in a corner of the picture: there to be read, never in the way of a click. */
             .perf { background: rgba(11, 15, 13, .62); border-radius: 6px; color: #e6efe9; font: 11px/1.35 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; left: 8px; padding: 4px 7px; pointer-events: none; position: absolute; text-shadow: 0 1px 1px rgba(0, 0, 0, .6); top: 8px; white-space: pre; z-index: 3; }
             body.fs .perf { top: calc(8px + env(safe-area-inset-top, 0px)); }
+            /* Where it stands (the display dialog; kept on this device). */
+            .perf.at-top-right, .perf.at-bottom-right { left: auto; right: 8px; text-align: right; }
+            .perf.at-bottom-left, .perf.at-bottom-right { bottom: 8px; top: auto; }
+            body.fs .perf.at-bottom-left, body.fs .perf.at-bottom-right { bottom: calc(8px + env(safe-area-inset-bottom, 0px)); top: auto; }
+            body.fs .perf.at-top-right, body.fs .perf.at-bottom-right { right: calc(8px + env(safe-area-inset-right, 0px)); }
             .toast ul { list-style: none; margin: 8px 0; max-height: 40vh; overflow: auto; padding: 0; }
             .toast li { align-items: center; display: flex; gap: 8px; justify-content: space-between; padding: 3px 0; }
             .toast li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -2764,6 +2769,19 @@ public static class AgentScreenPage
             // some of this on a computer; a phone has no such bar, and in full screen nobody has.
             const perfBox = $('perf');
             let perfOn = localStorage.getItem('matgate.screen.perf') === '1';
+            const perfPlaces = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
+            let perfCorner = perfPlaces.indexOf(localStorage.getItem('matgate.screen.perfAt')) >= 0 ? localStorage.getItem('matgate.screen.perfAt') : 'top-left';
+            const placePerf = () => perfPlaces.forEach(place => perfBox.classList.toggle('at-' + place, place === perfCorner));
+            placePerf();
+            const setPerfPosition = place => {
+                if (perfPlaces.indexOf(place) < 0) {
+                    return;
+                }
+                perfCorner = place;
+                localStorage.setItem('matgate.screen.perfAt', place);
+                placePerf();
+                notifyShell();
+            };
             let perfFrames = window.__screen.frames;
             let perfAt = performance.now();
             const paintPerf = data => {
@@ -2838,6 +2856,7 @@ public static class AgentScreenPage
                     keyboardResize,
                     keyboardInset,
                     perf: perfOn,
+                    perfAt: perfCorner,
                     touch: coarse,
                     canWindows,
                     windowsOpen: windowsOpen(),
@@ -2860,8 +2879,11 @@ public static class AgentScreenPage
                         fixedSizes: text.fixedSizes,
                         perf: text.perf,
                         perfHint: text.perfHint,
+                        perfPosition: text.perfPosition,
+                        perfPlaces: [text.perfTopLeft, text.perfTopRight, text.perfBottomLeft, text.perfBottomRight],
                     },
                 }),
+                setPerfPosition,
                 setResolution: value => {
                     resolutionSelect.value = value;
                     resolutionSelect.dispatchEvent(new Event('change'));

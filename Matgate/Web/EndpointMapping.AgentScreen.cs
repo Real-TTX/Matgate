@@ -345,8 +345,13 @@ public static partial class EndpointMapping
                 close = de ? "Schließen" : "Close",
                 perf = de ? "Leistungsanzeige im Bild" : "Performance numbers in the picture",
                 perfHint = de
-                    ? "Oben links: Bilder/s gesendet/gezeigt, Laufzeit hin und zurück, Datenrate - darunter Bildgröße, Maßstab, Encoder und Zeit je Bild."
-                    : "Top left: pictures per second sent/shown, round trip, data rate - below it picture size, scale, encoder and time per picture.",
+                    ? "Bilder/s gesendet/gezeigt, Laufzeit hin und zurück, Datenrate - darunter Bildgröße, Maßstab, Encoder und Zeit je Bild."
+                    : "Pictures per second sent/shown, round trip, data rate - below it picture size, scale, encoder and time per picture.",
+                perfPosition = de ? "Leistungsanzeige steht" : "Performance numbers stand",
+                perfTopLeft = de ? "Oben links" : "Top left",
+                perfTopRight = de ? "Oben rechts" : "Top right",
+                perfBottomLeft = de ? "Unten links" : "Bottom left",
+                perfBottomRight = de ? "Unten rechts" : "Bottom right",
                 perfWaiting = "...",
                 scale = de ? "Skalierung" : "Scale",
                 fixedSizes = de ? "Feste Auflösung" : "A fixed resolution",
