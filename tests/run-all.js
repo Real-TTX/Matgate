@@ -48,7 +48,7 @@ const GROUPS = [
   },
   {
     name: "Group 9 - the key bar, the scale and the keyboard of a session, the connection form, fields on a phone",
-    scripts: ["key-bar.js", "screen-scale.js", "connection-form.js", "phone-field-zoom.js"],
+    scripts: ["key-bar.js", "screen-scale.js", "connection-form.js", "phone-field-zoom.js", "connection-order.js"],
   },
   {
     name: "Group 10 - sessions that outlive the browser, right click, the order of the quick-connect chips, the browser under a path",
@@ -60,7 +60,7 @@ const GROUPS = [
   },
   {
     name: "Group 12 - the agent on Linux",
-    scripts: ["agent-linux.js"],
+    scripts: ["agent-linux.js", "clipboard-button.js"],
   },
   {
     name: "Group 13 - one press on a toolbar button, the frame of the dialogs, the server manager, the account menu",

@@ -429,17 +429,40 @@ public static class AgentTerminalPage
                 noteTimer = window.setTimeout(() => note.classList.add('hidden'), bad ? 9000 : 6000);
             };
             window.__uploads = [];
-            const uploadFiles = async files => {
+            // The shell's current folder, when it says so (OSC 7, "file://host/path" - what many shells send with
+            // every prompt). Files pasted in go there; without it, to the home folder.
+            let shellFolder = '';
+            try {
+                term.parser.registerOscHandler(7, data => {
+                    try {
+                        const path = decodeURIComponent(new URL(data).pathname);
+                        if (path.startsWith('/')) {
+                            shellFolder = path;
+                        }
+                    }
+                    catch {
+                    }
+                    return true;
+                });
+            }
+            catch {
+            }
+            window.__shellFolder = () => shellFolder;
+            // A path the shell takes as one word: in single quotes where it needs any.
+            const quoted = path => /^[A-Za-z0-9_\/.,:+@%=-]+$/.test(path) ? path : "'" + path.replace(/'/g, "'\\''") + "'";
+            // typePaths: after the upload, the files' paths go to the command line (as a paste does) - not sent.
+            const uploadFiles = async (files, typePaths) => {
                 if (kind !== 'ssh' || !files.length) {
                     return;
                 }
                 let folder = '';
                 let done = 0;
+                const paths = [];
                 for (const file of files) {
                     showNote(text.uploading.replace('{name}', file.name || '').replace('{n}', String(done + 1)).replace('{count}', String(files.length)));
                     let answer = null;
                     try {
-                        const response = await fetch(base + '/upload?' + new URLSearchParams({ session, name: file.name || 'Datei' }), {
+                        const response = await fetch(base + '/upload?' + new URLSearchParams({ session, name: file.name || 'Datei', folder: shellFolder }), {
                             method: 'POST',
                             credentials: 'same-origin',
                             headers: { 'X-Matgate-Csrf': document.body.dataset.csrf, 'Content-Type': 'application/octet-stream' },
@@ -457,9 +480,13 @@ public static class AgentTerminalPage
                     }
                     folder = answer.folder;
                     window.__uploads.push(answer);
+                    paths.push((folder === '/' ? '' : folder) + '/' + answer.name);
                     done++;
                 }
                 showNote(text.uploaded.replace('{count}', String(done)).replace('{folder}', folder));
+                if (typePaths && paths.length) {
+                    sendBytes(encoder.encode(paths.map(quoted).join(' ') + ' '));
+                }
                 term.focus();
             };
             // What is on the clipboard are files when there is no page content beside them and any text only
@@ -478,7 +505,7 @@ public static class AgentTerminalPage
                 if (files.length) {
                     event.preventDefault();
                     event.stopPropagation();
-                    uploadFiles(files);
+                    uploadFiles(files, true);
                 }
             }, true);
             screenElement.addEventListener('dragover', event => {
@@ -619,7 +646,7 @@ public static class AgentTerminalPage
                     event.preventDefault();
                     const files = kind === 'ssh' ? filesOf(event.clipboardData) : [];
                     if (files.length) {
-                        uploadFiles(files);
+                        uploadFiles(files, true);
                         return;
                     }
                     const plain = event.clipboardData ? event.clipboardData.getData('text/plain') : '';
@@ -664,6 +691,16 @@ public static class AgentTerminalPage
                     term.focus();
                 },
                 pickFiles: () => picker.click(),
+                // Files from the shell (the clipboard button of its status bar): uploaded into the shell's current
+                // folder (or the home), their paths then on the command line.
+                canPasteFiles: () => kind === 'ssh' && !ended,
+                pasteFiles: files => {
+                    if (kind !== 'ssh' || ended || !files || !files.length) {
+                        return false;
+                    }
+                    uploadFiles(Array.from(files), true);
+                    return true;
+                },
                 focus: () => term.focus(),
             };
 

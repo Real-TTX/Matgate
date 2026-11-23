@@ -44,6 +44,11 @@ public static partial class EndpointMapping
         }
 
         var german = HtmlViews.Language(context) == "de";
+        if (IsReadOnlyFor(user!, server!))
+        {
+            return Results.Json(new { error = HtmlViews.Translate(context, "This connection is read-only for you.") }, statusCode: StatusCodes.Status403Forbidden);
+        }
+
         if (!SshSessions.TryGetValue(context.Request.Query["session"].ToString(), out var live) || live.UserId != user!.Id || live.ServerId != server!.Id)
         {
             return Results.NotFound(new { error = german ? "Dieses Terminal ist nicht verbunden." : "This terminal is not connected." });
@@ -66,7 +71,24 @@ public static partial class EndpointMapping
             using var sftp = new SftpClient(SshLogin.For(live.Host, live.Port, live.User, live.Password, live.PrivateKey));
             sftp.HostKeyReceived += (_, e) => e.CanTrust = true;
             await sftp.ConnectAsync(context.RequestAborted);
+            // The shell's current folder when the page knows it (the shell reports it, OSC 7), else the home.
             var folder = sftp.WorkingDirectory.TrimEnd('/');
+            var wanted = context.Request.Query["folder"].ToString();
+            if (wanted.StartsWith('/') && wanted.Length < 4096 && !wanted.Any(char.IsControl))
+            {
+                try
+                {
+                    if (sftp.Exists(wanted) && sftp.Get(wanted).IsDirectory)
+                    {
+                        folder = wanted.TrimEnd('/');
+                    }
+                }
+                catch (SshException)
+                {
+                    // Not readable: the home it is.
+                }
+            }
+
             var target = name;
             for (var n = 2; sftp.Exists(folder + "/" + target); n++)
             {

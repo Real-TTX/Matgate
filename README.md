@@ -106,7 +106,7 @@ Three ready-made stacks are in this repo, all with prebuilt images:
 
 | Image | Tag |
 |---|---|
-| `ghcr.io/real-ttx/matgate` | `latest`, a version such as `0.42.0`, or `sha-…` |
+| `ghcr.io/real-ttx/matgate` | `latest`, a version such as `0.43.0`, or `sha-…` |
 | `ghcr.io/real-ttx/matgate-browser-farm` | `latest` (optional) |
 
 <details>
@@ -168,6 +168,10 @@ volumes:
   ([compare them](#-two-engines)).
 - **RDP clipboard for text, pictures and files**, both ways. Ctrl+V puts files into the Explorer window that
   is open on the remote desktop. Sound works, and the resolution **follows the window without reconnecting**.
+- **A clipboard button in the status bar**: a picture copied on this device (a screenshot) becomes a file
+  ("Bild-…png") at a click and goes into the session in front: RDP and the agent's screen get it as a real
+  file on their clipboard and paste it, SSH gets it in the shell's current folder (when the shell reports it,
+  OSC 7; else the home) with its path typed on the command line, a Guacamole session through its drive.
 - **Tabs** that you can drag, and **sessions that outlive the browser**. A reload, a lost network or a closed
   app finds the very same session again, on another device too.
 - **Already open?** If you open a connection that already has a session somewhere, Matgate asks whether to
@@ -232,6 +236,9 @@ needed). [→ Agent documentation](agent/README.md)
 - **Credentials** stored once and used in many connections, personal or shared by an administrator.
 - **SSH keys** (OpenSSH, PEM or PuTTY `.ppk`) for SSH and SFTP.
 - **Folders** with icons, per-user **favorites**, search across names, folders and hosts.
+- **Drag to sort**: drag a connection in the side panel or on the start page to put it in **your own order**
+  (nobody else's changes), or onto another folder to move it there (for whoever may edit it). Mouse on the
+  whole row, a finger on its grip.
 - **Workspaces**: bundles to share, with public links, password protection, shared text and file exchange.
 - Live **network tools**: ping, DNS lookup, port check, download test.
 

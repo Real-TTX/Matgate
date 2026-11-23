@@ -363,6 +363,12 @@ const only = process.argv[2] || "";
       check("SSH: and lies whole in the login's home folder on the server", onSsh("wc -c < " + remote + "; rm -f " + remote), "5000");
       check("SSH: the page says where it went", await term.evaluate(() => document.getElementById("note").textContent.includes(window.__uploads[0].folder)), true);
     }
+    // Since 0.43.0 a pasted file's path is typed onto the command line (not sent).
+    check("SSH: the pasted file's path is on the command line", await term.evaluate(() => {
+      const last = window.__uploads[window.__uploads.length - 1];
+      return !!last && document.querySelector(".xterm-rows").innerText.includes(last.name);
+    }), true);
+    await term.keyboard.press("Control+U");
     // Pasted text is still text for the terminal.
     await term.evaluate(() => {
       const dt = new DataTransfer();

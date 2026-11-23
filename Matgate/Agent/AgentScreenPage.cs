@@ -2913,6 +2913,16 @@ public static class AgentScreenPage
                     setStatus(text.pasting);
                     send('screen.clip.set', { kind: 'text', paste: true }, encoder.encode(value));
                 },
+                // Files from the shell (the clipboard button of its status bar): onto the machine's clipboard as
+                // real files, and pasted there. False where this session cannot take files (VNC).
+                canPasteFiles: () => clipFiles,
+                pasteFiles: files => {
+                    if (!clipFiles || !files || !files.length) {
+                        return false;
+                    }
+                    uploadFiles(Array.from(files), 'files');
+                    return true;
+                },
                 sas: () => send('screen.sas', {}),
                 toggleWindows,
                 showWindow,

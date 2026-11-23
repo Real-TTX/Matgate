@@ -61,6 +61,10 @@ public sealed class MatgateUser
     // order is the order of the list; what is not in it does not appear.
     public List<Guid> ActionBarServerIds { get; set; } = [];
 
+    // The order this user put their connections in (by dragging them, side panel or start page): within a folder,
+    // these come first in this order, the rest after them by name. Only theirs - nobody else sees it.
+    public List<Guid> ConnectionOrder { get; set; } = [];
+
     // The second factor. The secret is stored encrypted in the file (see JsonDataStore); it is only
     // switched on once a valid code has been entered - otherwise anyone who abandons the setup would
     // lock themselves out.

@@ -159,7 +159,22 @@ function seedBigFile() {
   await sleep(1800);
   await purgeLeftovers(page);
   await resetColours(page);
+  await resetConnectionOrder(page);
   for (const name of CONNECTIONS) { await seedConnection(page, name); }
   await browser.close();
   seedBigFile();
 })().catch(e => { console.error("ABORTED " + e.message); process.exit(1); });
+
+// The administrator's own order of the connections (dragged, since 0.43.0) back to by name: several scripts
+// expect the side panel in the order of the names, and a run that dragged leaves its order behind.
+async function resetConnectionOrder(page) {
+  await page.evaluate(async () => {
+    const text = await (await fetch("/", { credentials: "same-origin" })).text();
+    const token = JSON.parse(text.match(/const csrfToken = ("[^"]*")/)[1]);
+    const ids = JSON.parse(text.match(/const availableServers = (\[.*?\]);/s)[1]).map(server => server.id);
+    const body = new FormData();
+    body.append("ids", ids.join(","));
+    body.append("reset", "1");
+    await fetch("/api/order/connections", { method: "POST", body, credentials: "same-origin", headers: { "X-Matgate-Csrf": token } });
+  });
+}

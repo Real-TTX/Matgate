@@ -3031,6 +3031,9 @@ public sealed partial class HtmlViews
             favorites = (user.FavoriteServerIds ?? [])
                 .Where(known.Contains)
                 .Select(id => id.ToString()),
+            // The user's own order of the connections (dragged), and those they may put into another folder.
+            order = (user.ConnectionOrder ?? []).Where(known.Contains).Select(id => id.ToString()),
+            movable = servers.Where(server => server.Protocol != ServerProtocol.Local && Services.AccessResolver.Level(user, server) >= AccessLevel.Edit).Select(server => server.Id.ToString()),
             recent = (user.RecentConnections ?? [])
                 .Select(entry => entry.ServerId)
                 .Where(known.Contains)
@@ -3452,7 +3455,7 @@ public sealed partial class HtmlViews
             var color = palette[paletteIndex++ % palette.Length];
             var icon = isUnsorted ? Icon("folder") : ServerFolderIcon(group.First);
             tiles.Add($$"""
-                <button type="button" class="home2-folder-tile" data-home2-filter="{{A(FolderFilterKey(group.Key))}}" style="--proto: {{color}}">
+                <button type="button" class="home2-folder-tile" data-home2-filter="{{A(FolderFilterKey(group.Key))}}" data-folder-path="{{A((group.Key ?? "").Trim())}}" style="--proto: {{color}}">
                     <span class="home2-folder-icon">{{icon}}</span>
                     <span class="home2-folder-copy">
                         <span class="home2-folder-name">{{E(name)}}</span>
@@ -3638,9 +3641,13 @@ public sealed partial class HtmlViews
         bool de)
     {
         var favoriteIds = user.FavoriteServerIds?.ToHashSet() ?? new HashSet<Guid>();
+        // Within a folder the user's own order (dragged), then by name.
+        var position = (user.ConnectionOrder ?? []).Select((id, index) => (id, index)).GroupBy(entry => entry.id).ToDictionary(group => group.Key, group => group.First().index);
         var ordered = servers
             .OrderByDescending(server => favoriteIds.Contains(server.Id))
-            .ThenBy(ConnectionChoiceSortGroup)
+            .ThenBy(server => string.IsNullOrWhiteSpace(server.FolderName) ? 1 : 0)
+            .ThenBy(server => (server.FolderName ?? "").Trim().ToLowerInvariant())
+            .ThenBy(server => position.TryGetValue(server.Id, out var index) ? index : int.MaxValue)
             .ThenBy(server => server.Name)
             .ToList();
         var cards = string.Join("", ordered.Select(server => ConnectionChoiceCard(context, user, server, includeEditButtons, returnUrl)));
@@ -4093,9 +4100,7 @@ public sealed partial class HtmlViews
         var isArea = server.Protocol == ServerProtocol.Local;
         var canEdit = includeEditButtons
             && !isArea
-            && (user.IsAdmin
-                || server.OwnerUserId == user.Id
-                || (server.OwnerUserId is null && user.CanManageServers));
+            && Services.AccessResolver.Level(user, server) >= AccessLevel.Edit;
         var actions = new List<string>
         {
             $"""<button type="button" class="{(isArea ? "" : "primary ")}workspace-open-button connection-choice-open" data-server-id="{server.Id}">{Icon(isArea ? "folder" : "play")}{T(context, isArea || server.Protocol == ServerProtocol.Website ? "Open" : "Connect")}</button>"""
@@ -4110,8 +4115,9 @@ public sealed partial class HtmlViews
             : "";
 
         return $$"""
-            <article class="connection-choice" data-home2-card="1" data-fav="{{(IsFavoriteServer(user, server.Id) ? "1" : "0")}}" data-folder="{{A(FolderFilterKey(server.FolderName))}}" data-search="{{A(searchIndex)}}" style="--proto: {{ProtocolAccent(server.Protocol)}}">
+            <article class="connection-choice" data-home2-card="1" data-card-server="{{(isArea ? "" : server.Id.ToString())}}" data-folder-path="{{A((server.FolderName ?? "").Trim())}}" data-fav="{{(IsFavoriteServer(user, server.Id) ? "1" : "0")}}" data-folder="{{A(FolderFilterKey(server.FolderName))}}" data-search="{{A(searchIndex)}}" style="--proto: {{ProtocolAccent(server.Protocol)}}">
                 <span class="connection-choice-mark" aria-hidden="true">{{ConnectionMark(server)}}</span>
+                {{(isArea ? "" : """<span class="connection-grip" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg></span>""")}}
                 <div class="connection-choice-body">
                     <div class="server-title connection-choice-title">
                         {{ServerIcon(server)}}
@@ -4381,6 +4387,7 @@ public sealed partial class HtmlViews
             view = Icon("eye"),
             copy = Icon("copy"),
             move = Icon("move"),
+            sort = Icon("list"),
             archive = Icon("archive"),
             check = Icon("check"),
             delete = Icon("trash")
@@ -4597,6 +4604,15 @@ public sealed partial class HtmlViews
             dropIntoSession = Language(context) == "de" ? "in die Sitzung" : "into the session",
             dropNowhere = Language(context) == "de" ? "Hier nimmt gerade nichts Dateien an" : "Nothing here takes files right now",
             pastedImageName = Language(context) == "de" ? "Bild" : "Image",
+            clipButton = Language(context) == "de" ? "Zwischenablage als Datei einfügen" : "Paste the clipboard as a file",
+            clipHasFile = Language(context) == "de" ? "Bild in der Zwischenablage - als Datei einfügen" : "A picture on the clipboard - paste it as a file",
+            clipOnlyText = Language(context) == "de" ? "In der Zwischenablage ist nur Text - den fügt Strg+V ein." : "The clipboard holds text only - Ctrl+V pastes that.",
+            clipEmpty = Language(context) == "de" ? "Die Zwischenablage ist leer." : "The clipboard is empty.",
+            clipDenied = Language(context) == "de" ? "Der Browser lässt Matgate die Zwischenablage nicht lesen. Erlaube es über das Schloss neben der Adresse - oder füge mit Strg+V ein." : "The browser does not let Matgate read the clipboard. Allow it with the lock next to the address - or paste with Ctrl+V.",
+            clipPasted = Language(context) == "de" ? "Eingefügt" : "Pasted",
+            clipLabel = Language(context) == "de" ? "Bild" : "Picture",
+            dragNoMove = Language(context) == "de" ? "In einen anderen Ordner legen darf sie nur, wer diese Verbindung bearbeiten darf. Die Reihenfolge darfst du immer ändern." : "Only whoever may change this connection can put it into another folder. The order is always yours to change.",
+            managerSortByName = Language(context) == "de" ? "Nach Namen sortieren" : "Sort by name",
             pasteFoldersOnly = Language(context) == "de" ? "Ordner lassen sich nicht einfügen - nur Dateien" : "Folders cannot be pasted - only files",
             pasteOnServer = Language(context) == "de" ? "Auf dem Server" : "On the server",
             pasteSending = Language(context) == "de" ? "Füge Dateien ein" : "Pasting files",
@@ -4882,6 +4898,7 @@ public sealed partial class HtmlViews
                         <span id="status-message">-</span>
                     </div>
                     <div class="status-actions">
+                        <button id="status-clip" type="button" class="status-clip" hidden data-has="unknown">{{Icon("clipboard")}}<span class="status-clip-label"></span></button>
                         <button id="status-system" type="button" class="status-system" hidden aria-haspopup="dialog" aria-expanded="false"><span class="status-system-cpu"></span><span class="status-system-ram"></span></button>
                         <div id="status-system-panel" class="status-system-panel" role="dialog" hidden></div>
                         <button id="status-info-button" type="button" class="status-info-button" title="{{A(aboutTitle)}}" aria-label="{{A(aboutTitle)}}">{{Icon("info")}}</button>
@@ -6961,7 +6978,7 @@ public sealed partial class HtmlViews
                         // Filing: into a folder by name (a subfolder with "/"), or out of the one it is in.
                         const side = window.MatgateSidePanel;
                         const server = availableServers.find(candidate => candidate.id === serverId);
-                        if (side && side.canEdit() && server && row.draggable) {
+                        if (side && server && side.canMove(serverId) && row.dataset.sortable === '1') {
                             items.push({ separator: true });
                             items.push({
                                 label: uiText.managerMoveTo || 'Move to folder ...',
@@ -7005,6 +7022,15 @@ public sealed partial class HtmlViews
                                     onSelect: () => openShellTab('/admin/folders/edit?name=' + encodeURIComponent(path), path, fileIcon('folder'), uiText.managerFolder || '')
                                 });
                             }
+                        }
+
+                        // The user's own order of this folder (dragged) given up: by name again.
+                        const ordered = side && (head.dataset.kind === 'folder' || head.dataset.kind === 'favorites') ? side.orderedIn(head) : [];
+                        if (ordered.length) {
+                            if (items.length) {
+                                items.push({ separator: true });
+                            }
+                            items.push({ label: uiText.managerSortByName || 'Sort by name', iconHtml: fileIcon('sort'), onSelect: () => side.resetOrder(ordered) });
                         }
 
                         if (side) {
@@ -8537,6 +8563,10 @@ public sealed partial class HtmlViews
                     });
                     return found;
                 }
+                // The grip a connection is dragged by (with a finger; the mouse takes the whole row).
+                function dragGrip() {
+                    return '<svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg>';
+                }
                 function renderServerManager(force = false) {
                     if (!serverManager || serverManager.hidden) {
                         return;
@@ -8545,6 +8575,13 @@ public sealed partial class HtmlViews
                     const wanted = (serverManagerFilter.value || '').trim().toLowerCase();
                     const closed = serverManagerStore.read('closed', []);
                     const byName = (a, b) => String(a.name || '').localeCompare(String(b.name || ''), undefined, { sensitivity: 'base' });
+                    // The user's own order (dragged) first, the rest by name.
+                    const orderIndex = new Map((sidebarData.order || []).map((id, index) => [id, index]));
+                    const byOrder = (a, b) => {
+                        const left = orderIndex.has(a.id) ? orderIndex.get(a.id) : Number.MAX_SAFE_INTEGER;
+                        const right = orderIndex.has(b.id) ? orderIndex.get(b.id) : Number.MAX_SAFE_INTEGER;
+                        return left - right || byName(a, b);
+                    };
                     const matches = text => !wanted || String(text).toLowerCase().indexOf(wanted) >= 0;
                     const entryOf = server => {
                         const sessions = sessionsOfServer(server.id);
@@ -8576,7 +8613,7 @@ public sealed partial class HtmlViews
                     // the same connections a second time.
                     if (!wanted) {
                         add('favorites:', 'favorites', uiText.managerFavorites || 'Favorites', fileIcon('star'),
-                            (sidebarData.favorites || []).map(id => byId.get(id)).filter(Boolean).sort(byName).map(entryOf));
+                            (sidebarData.favorites || []).map(id => byId.get(id)).filter(Boolean).sort(byOrder).map(entryOf));
                         add('recent:', 'recent', uiText.managerRecent || 'Recently used', fileIcon('clock'),
                             (sidebarData.recent || []).map(id => byId.get(id)).filter(Boolean).map(entryOf));
                     }
@@ -8627,7 +8664,7 @@ public sealed partial class HtmlViews
                             .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
                             .forEach(child => {
                                 const shut = !wanted && closed.indexOf(child.path) >= 0;
-                                add(child.path, 'folder', child.name, fileIcon('folder'), child.servers.slice().sort(byName).map(entryOf), { keep: true, depth, count: countOf(child), hidden });
+                                add(child.path, 'folder', child.name, fileIcon('folder'), child.servers.slice().sort(byOrder).map(entryOf), { keep: true, depth, count: countOf(child), hidden });
                                 walk(child, depth + 1, hidden || shut);
                             });
                     };
@@ -8635,7 +8672,7 @@ public sealed partial class HtmlViews
                     // Those without a folder come last, under "No folder" - or, where nobody made a folder,
                     // under what they are.
                     add('', 'folder', (root.children.size ? uiText.managerNoFolder : uiText.managerTitle) || 'No folder', fileIcon('folder'),
-                        unfiledServers.slice().sort(byName).map(entryOf));
+                        unfiledServers.slice().sort(byOrder).map(entryOf));
                     // The places of the file manager - without a session's folder, which is reached through
                     // its session, and without a share's, which stands under the shares.
                     add('places:', 'places', uiText.managerPlaces || 'Places', fileIcon('folder'),
@@ -8706,9 +8743,11 @@ public sealed partial class HtmlViews
                                 row.dataset.folderPath = group.key;
                             }
 
-                            // A connection can be dragged onto a folder, by someone who may change connections.
-                            if (entry.id && canEdit && group.kind !== 'places' && group.kind !== 'shares') {
-                                row.draggable = true;
+                            // A connection in a folder (or among the favourites) can be dragged: to another place in
+                            // the user's own order, or - by someone who may change it - into another folder.
+                            const sortable = !!entry.id && (group.kind === 'folder' || group.kind === 'favorites');
+                            if (sortable) {
+                                row.dataset.sortable = '1';
                             }
 
                             if (entry.id) {
@@ -8720,7 +8759,7 @@ public sealed partial class HtmlViews
 
                             row.style.setProperty('--proto', entry.color);
                             row.title = entry.tip;
-                            row.innerHTML = `<span class="server-manager-item-icon" aria-hidden="true">${entry.iconHtml}</span><span class="server-manager-item-text"><strong>${escapeHtml(entry.name)}</strong><small>${escapeHtml(entry.note)}</small></span>${entry.open ? `<span class="server-manager-dot" title="${escapeHtml(uiText.managerOpen || 'Session open')}">${entry.open > 1 ? entry.open : ''}</span>` : ''}`;
+                            row.innerHTML = `<span class="server-manager-item-icon" aria-hidden="true">${entry.iconHtml}</span><span class="server-manager-item-text"><strong>${escapeHtml(entry.name)}</strong><small>${escapeHtml(entry.note)}</small></span>${entry.open ? `<span class="server-manager-dot" title="${escapeHtml(uiText.managerOpen || 'Session open')}">${entry.open > 1 ? entry.open : ''}</span>` : ''}${sortable ? `<span class="connection-grip server-manager-grip" aria-hidden="true">${dragGrip()}</span>` : ''}`;
                             nodes.push(row);
                         });
                     });
@@ -8854,6 +8893,27 @@ public sealed partial class HtmlViews
                         },
                         askFolderName,
                         canEdit: () => serverManager.dataset.canEdit === '1',
+                        // May this user put this connection into another folder (Edit on it)?
+                        canMove: id => (sidebarData.movable || []).indexOf(id) >= 0,
+                        // The connections of a folder (or the favourites) that have a place in the user's own order.
+                        orderedIn: head => {
+                            const order = sidebarData.order || [];
+                            const kind = head.dataset.kind;
+                            const path = head.dataset.folder || '';
+                            return availableServers
+                                .filter(server => kind === 'favorites' ? (sidebarData.favorites || []).indexOf(server.id) >= 0 : (server.folder || '') === path)
+                                .map(server => server.id)
+                                .filter(id => order.indexOf(id) >= 0);
+                        },
+                        // Out of the user's own order: by name again.
+                        resetOrder: async ids => {
+                            sidebarData.order = (sidebarData.order || []).filter(id => ids.indexOf(id) < 0);
+                            const body = new FormData();
+                            body.append('ids', ids.join(','));
+                            body.append('reset', '1');
+                            await fetch('/api/order/connections', { method: 'POST', body, credentials: 'same-origin', headers: { 'X-Matgate-Csrf': csrfToken } }).catch(() => null);
+                            await refreshConnectionsPanel();
+                        },
                         setAllClosed: shut => {
                             const all = Array.from(serverManagerTree.querySelectorAll('.server-manager-folder')).map(head => head.dataset.folder);
                             serverManagerStore.write('closed', shut ? all : []);
@@ -8868,69 +8928,231 @@ public sealed partial class HtmlViews
                         }
                     };
 
-                    // Dragging a connection onto a folder - its heading or a connection in it - moves it there;
-                    // onto "No folder", out of every folder.
-                    let draggedServer = '';
-                    const dropFolderOf = target => {
-                        const element = target instanceof Element ? target : null;
-                        const head = element ? element.closest('.server-manager-folder[data-kind="folder"]') : null;
-                        if (head) {
-                            return head.dataset.folder;
-                        }
-
-                        const row = element ? element.closest('.server-manager-item[data-folder-path]') : null;
-                        return row ? row.dataset.folderPath : null;
+                    // ---- Dragging connections - in the side panel and on the start page. Dropped between two
+                    // connections, it goes there in the user's OWN order (nobody else's changes); dropped into
+                    // another folder (its heading, its tile on the start page, or a connection in it), it moves
+                    // there - for everyone, so only for whoever may change it. Pointer events, not the browser's
+                    // drag and drop: that one never starts on an iPhone or iPad. The mouse takes the whole row or
+                    // card (after a few pixels, so a click stays a click); a finger takes the grip, so the rest
+                    // still scrolls.
+                    const saveConnectionOrder = ids => {
+                        // At once here - the same merge as on the gateway (EndpointMapping.MergeOrder) - then there.
+                        const members = new Set(ids);
+                        const current = (sidebarData.order || []).slice();
+                        const at = current.findIndex(id => members.has(id));
+                        const rest = current.filter(id => !members.has(id));
+                        const insertAt = at < 0 ? rest.length : current.slice(0, at).filter(id => !members.has(id)).length;
+                        rest.splice(insertAt, 0, ...ids);
+                        sidebarData.order = rest;
+                        const body = new FormData();
+                        body.append('ids', ids.join(','));
+                        return fetch('/api/order/connections', { method: 'POST', body, credentials: 'same-origin', headers: { 'X-Matgate-Csrf': csrfToken } }).catch(() => null);
                     };
-                    const clearDrop = () => serverManagerTree.querySelectorAll('.drop-target').forEach(node => node.classList.remove('drop-target'));
-                    serverManagerTree.addEventListener('dragstart', event => {
-                        const row = event.target instanceof Element ? event.target.closest('.server-manager-item[draggable="true"]') : null;
-                        if (!row || !event.dataTransfer) {
-                            return;
+                    const mayMove = id => (sidebarData.movable || []).indexOf(id) >= 0;
+                    let connectionDrag = null;
+                    let connectionDragEnded = 0;
+                    function makeConnectionsDraggable(spec) {
+                        const indicator = document.createElement('div');
+                        indicator.className = 'connection-drop-line';
+                        indicator.hidden = true;
+                        const clearTargets = () => document.querySelectorAll('.connection-drop-target').forEach(node => node.classList.remove('connection-drop-target'));
+                        const finish = () => {
+                            const drag = connectionDrag;
+                            connectionDrag = null;
+                            indicator.hidden = true;
+                            clearTargets();
+                            if (drag) {
+                                drag.item.classList.remove('connection-dragging');
+                                if (drag.ghost) {
+                                    drag.ghost.remove();
+                                }
+                                document.documentElement.classList.remove('connection-drag-active');
+                            }
+                            return drag;
+                        };
+                        spec.root.addEventListener('pointerdown', event => {
+                            if (event.button !== 0 || connectionDrag) {
+                                return;
+                            }
+                            const target = event.target instanceof Element ? event.target : null;
+                            const item = target ? target.closest(spec.item) : null;
+                            if (!item || !spec.root.contains(item) || !spec.idOf(item)) {
+                                return;
+                            }
+                            const grip = target.closest('.connection-grip');
+                            if (!grip && (event.pointerType !== 'mouse' || (spec.ignore && target.closest(spec.ignore)))) {
+                                return;
+                            }
+                            if (grip) {
+                                // The finger is the grip's: no scrolling, no long press (its menu) underneath.
+                                event.preventDefault();
+                                event.stopPropagation();
+                            }
+                            connectionDrag = { spec, item, id: spec.idOf(item), pointerId: event.pointerId, x: event.clientX, y: event.clientY, started: false, drop: null };
+                        });
+                        document.addEventListener('pointermove', event => {
+                            const drag = connectionDrag;
+                            if (!drag || drag.spec !== spec || event.pointerId !== drag.pointerId) {
+                                return;
+                            }
+                            if (!drag.started) {
+                                if (Math.hypot(event.clientX - drag.x, event.clientY - drag.y) < 6) {
+                                    return;
+                                }
+                                drag.started = true;
+                                const box = drag.item.getBoundingClientRect();
+                                drag.dx = drag.x - box.left;
+                                drag.dy = drag.y - box.top;
+                                drag.ghost = drag.item.cloneNode(true);
+                                drag.ghost.classList.add('connection-drag-ghost');
+                                // On the element itself: a card's own rules would otherwise put it back into the flow -
+                                // and under the pointer it must never be what the pointer finds.
+                                Object.assign(drag.ghost.style, { width: box.width + 'px', height: box.height + 'px', position: 'fixed', left: '0', top: '0', margin: '0', pointerEvents: 'none', zIndex: '60' });
+                                document.body.appendChild(drag.ghost);
+                                if (!indicator.isConnected) {
+                                    document.body.appendChild(indicator);
+                                }
+                                drag.item.classList.add('connection-dragging');
+                                document.documentElement.classList.add('connection-drag-active');
+                            }
+                            event.preventDefault();
+                            drag.ghost.style.transform = `translate(${event.clientX - drag.dx}px, ${event.clientY - drag.dy}px)`;
+                            clearTargets();
+                            indicator.hidden = true;
+                            drag.drop = null;
+                            const under = document.elementFromPoint(event.clientX, event.clientY);
+                            const over = under ? under.closest(spec.item) : null;
+                            if (over && over !== drag.item && spec.root.contains(over) && spec.idOf(over)) {
+                                const box = over.getBoundingClientRect();
+                                const horizontal = !!spec.horizontal && spec.horizontal(over);
+                                const before = horizontal ? event.clientX < box.left + box.width / 2 : event.clientY < box.top + box.height / 2;
+                                drag.drop = { kind: 'item', over, before };
+                                indicator.hidden = false;
+                                indicator.classList.toggle('vertical', horizontal);
+                                if (horizontal) {
+                                    Object.assign(indicator.style, { left: ((before ? box.left : box.right) - 2) + 'px', top: box.top + 'px', width: '3px', height: box.height + 'px' });
+                                }
+                                else {
+                                    Object.assign(indicator.style, { left: box.left + 'px', top: ((before ? box.top : box.bottom) - 1) + 'px', width: box.width + 'px', height: '3px' });
+                                }
+                                return;
+                            }
+                            const folder = under ? under.closest(spec.folder) : null;
+                            if (folder && spec.folderPathOf(folder) !== null) {
+                                drag.drop = { kind: 'folder', path: spec.folderPathOf(folder) };
+                                folder.classList.add('connection-drop-target');
+                            }
+                        }, { passive: false });
+                        const release = async event => {
+                            const drag = connectionDrag;
+                            if (!drag || drag.spec !== spec || event.pointerId !== drag.pointerId) {
+                                return;
+                            }
+                            finish();
+                            if (!drag.started) {
+                                return;
+                            }
+                            connectionDragEnded = Date.now();
+                            if (event.type === 'pointercancel' || !drag.drop) {
+                                return;
+                            }
+                            const server = availableServers.find(candidate => candidate.id === drag.id);
+                            const from = server ? (server.folder || '') : '';
+                            let folder = null;
+                            let ids = null;
+                            if (drag.drop.kind === 'item') {
+                                const group = spec.groupOf(drag.drop.over);
+                                const fromGroup = spec.groupOf(drag.item);
+                                folder = group === fromGroup ? null : spec.folderOfItem(drag.drop.over);
+                                if (group !== fromGroup && folder === null) {
+                                    // Into the favourites from a folder (or the other way round): nothing to do there.
+                                    return;
+                                }
+                                ids = spec.itemsOf(group).filter(node => node !== drag.item).map(spec.idOf);
+                                const at = ids.indexOf(spec.idOf(drag.drop.over));
+                                ids.splice(drag.drop.before ? at : at + 1, 0, drag.id);
+                            }
+                            else {
+                                folder = drag.drop.path;
+                            }
+                            if (folder !== null && folder !== from) {
+                                if (!mayMove(drag.id)) {
+                                    spec.say(uiText.dragNoMove || 'Only whoever may change this connection can put it into another folder.');
+                                    return;
+                                }
+                                await moveToFolder(drag.id, folder);
+                            }
+                            if (ids) {
+                                await saveConnectionOrder(ids);
+                            }
+                            await refreshConnectionsPanel();
+                        };
+                        document.addEventListener('pointerup', release);
+                        document.addEventListener('pointercancel', release);
+                        // The click that ends a drag opens nothing; nor does a long press open a menu meanwhile.
+                        spec.root.addEventListener('click', event => {
+                            if (Date.now() - connectionDragEnded < 400) {
+                                event.preventDefault();
+                                event.stopPropagation();
+                            }
+                        }, true);
+                        spec.root.addEventListener('contextmenu', event => {
+                            if (connectionDrag && connectionDrag.started) {
+                                event.preventDefault();
+                                event.stopPropagation();
+                            }
+                        }, true);
+                    }
+                    const sayInPanel = message => {
+                        let note = serverManager.querySelector('.server-manager-note');
+                        if (!note) {
+                            note = document.createElement('p');
+                            note.className = 'server-manager-note';
+                            note.setAttribute('role', 'status');
+                            serverManager.insertBefore(note, serverManagerTree);
                         }
-
-                        draggedServer = row.dataset.managerServer;
-                        event.dataTransfer.effectAllowed = 'move';
-                        event.dataTransfer.setData('text/plain', ((row.querySelector('strong') || {}).textContent || '').trim());
-                        row.classList.add('dragging');
+                        note.textContent = message;
+                        note.hidden = false;
+                        window.clearTimeout(note.timer);
+                        note.timer = window.setTimeout(() => { note.hidden = true; }, 6000);
+                    };
+                    makeConnectionsDraggable({
+                        root: serverManagerTree,
+                        item: '.server-manager-item[data-sortable="1"]',
+                        folder: '.server-manager-folder[data-kind="folder"]',
+                        idOf: row => row.dataset.managerServer || '',
+                        groupOf: row => row.dataset.managerIn + ':' + (row.dataset.folderPath || ''),
+                        folderOfItem: row => row.dataset.managerIn === 'folder' ? (row.dataset.folderPath || '') : null,
+                        folderPathOf: head => head.dataset.folder,
+                        itemsOf: group => Array.from(serverManagerTree.querySelectorAll('.server-manager-item[data-sortable="1"]')).filter(row => row.dataset.managerIn + ':' + (row.dataset.folderPath || '') === group),
+                        say: sayInPanel
                     });
-                    serverManagerTree.addEventListener('dragend', () => {
-                        draggedServer = '';
-                        clearDrop();
-                        serverManagerTree.querySelectorAll('.dragging').forEach(node => node.classList.remove('dragging'));
-                    });
-                    serverManagerTree.addEventListener('dragover', event => {
-                        const folder = draggedServer ? dropFolderOf(event.target) : null;
-                        if (folder === null) {
-                            clearDrop();
-                            return;
-                        }
-
-                        event.preventDefault();
-                        event.dataTransfer.dropEffect = 'move';
-                        clearDrop();
-                        const head = Array.from(serverManagerTree.querySelectorAll('.server-manager-folder[data-kind="folder"]')).find(node => node.dataset.folder === folder);
-                        if (head) {
-                            head.classList.add('drop-target');
-                        }
-                    });
-                    serverManagerTree.addEventListener('dragleave', event => {
-                        if (!(event.relatedTarget instanceof Node) || !serverManagerTree.contains(event.relatedTarget)) {
-                            clearDrop();
-                        }
-                    });
-                    serverManagerTree.addEventListener('drop', event => {
-                        const folder = draggedServer ? dropFolderOf(event.target) : null;
-                        clearDrop();
-                        if (folder === null) {
-                            return;
-                        }
-
-                        event.preventDefault();
-                        const server = availableServers.find(candidate => candidate.id === draggedServer);
-                        const serverId = draggedServer;
-                        draggedServer = '';
-                        if (server && (server.folder || '') !== folder) {
-                            moveToFolder(serverId, folder);
+                    // The start page's connection cards (wherever the start page is shown - it is rebuilt now and
+                    // then, so it is found anew on every drag).
+                    const homeRoot = document.querySelector('.app-view') || document.body;
+                    makeConnectionsDraggable({
+                        root: homeRoot,
+                        item: '[data-home2-all] .home2-card-grid .connection-choice[data-card-server]:not([data-card-server=""])',
+                        folder: '.home2-folder-tile[data-folder-path]',
+                        ignore: 'button, a, input, select, textarea, form, label',
+                        horizontal: () => true,
+                        idOf: card => card.dataset.cardServer || '',
+                        groupOf: card => card.dataset.fav === '1' ? 'favorites:' : 'folder:' + (card.dataset.folderPath || ''),
+                        folderOfItem: card => card.dataset.fav === '1' ? null : (card.dataset.folderPath || ''),
+                        folderPathOf: tile => tile.dataset.folderPath,
+                        itemsOf: group => Array.from(homeRoot.querySelectorAll('[data-home2-all] .home2-card-grid .connection-choice[data-card-server]:not([data-card-server=""])')).filter(card => (card.dataset.fav === '1' ? 'favorites:' : 'folder:' + (card.dataset.folderPath || '')) === group),
+                        say: message => {
+                            let note = document.querySelector('.connection-drag-note');
+                            if (!note) {
+                                note = document.createElement('div');
+                                note.className = 'connection-drag-note';
+                                note.setAttribute('role', 'status');
+                                document.body.appendChild(note);
+                            }
+                            note.textContent = message;
+                            note.hidden = false;
+                            window.clearTimeout(note.timer);
+                            note.timer = window.setTimeout(() => { note.hidden = true; }, 6000);
                         }
                     });
                     serverManagerNarrow.addEventListener('change', () => {
@@ -12507,8 +12729,140 @@ public sealed partial class HtmlViews
                     });
                 }
 
+                // ---- The clipboard in the status bar: a button while the session in front can take files (RDP and
+                // the agent's screen as real files on the machine's clipboard, SSH into the shell's current folder with
+                // the path typed after, a Guacamole session through its drive). A click reads this device's clipboard,
+                // makes a file of a picture in it ("Bild-2026-11-23-141200.png") and hands it over. It lights up when
+                // the browser lets the page look without a click and there is a picture.
+                // var, not const: the status bar is updated before this part of the script has run.
+                var clipButton = document.getElementById('status-clip');
+                var clipNote = null;
+                var clipNoteTimer = 0;
+                function clipTarget() {
+                    const tab = tabs.get(activeTabId);
+                    if (tab) {
+                        return tab.client && tab.filesystem
+                            ? { paste: files => pasteFilesIntoSession(tab, { files, folders: [] }), focus: () => { } }
+                            : null;
+                    }
+                    const shellTab = shellTabs.get(activeShellTabId);
+                    if (!shellTab) {
+                        return null;
+                    }
+                    const screen = agentScreenOf(shellTab);
+                    const api = screen ? screen.api : (sshTerminalOf(shellTab) || {}).api;
+                    if (!api || typeof api.pasteFiles !== 'function' || (typeof api.canPasteFiles === 'function' && !api.canPasteFiles())) {
+                        return null;
+                    }
+                    return { paste: files => api.pasteFiles(files), focus: () => api.focus && api.focus() };
+                }
+                function showClipNote(text) {
+                    if (!clipNote) {
+                        clipNote = document.createElement('div');
+                        clipNote.className = 'status-clip-note';
+                        clipNote.setAttribute('role', 'status');
+                        document.body.appendChild(clipNote);
+                    }
+                    clipNote.textContent = text;
+                    clipNote.hidden = false;
+                    const box = clipButton.getBoundingClientRect();
+                    clipNote.style.right = Math.max(8, window.innerWidth - box.right) + 'px';
+                    clipNote.style.bottom = (window.innerHeight - box.top + 8) + 'px';
+                    window.clearTimeout(clipNoteTimer);
+                    clipNoteTimer = window.setTimeout(() => { clipNote.hidden = true; }, 6000);
+                }
+                // What is on this device's clipboard: the pictures (and other non-text things) as files, with a name
+                // of their own; and whether there is text. Throws when the browser does not allow reading.
+                async function readClipboardFiles() {
+                    const items = await navigator.clipboard.read();
+                    const found = [];
+                    let text = false;
+                    for (const item of items) {
+                        const type = item.types.find(candidate => !candidate.startsWith('text/'));
+                        if (type) {
+                            const blob = await item.getType(type);
+                            const extension = (type.split('/')[1] || 'bin').replace('jpeg', 'jpg').replace(/[^a-z0-9]/gi, '');
+                            found.push(new File([blob], 'image.' + extension, { type }));
+                        }
+                        else if (item.types.length) {
+                            text = true;
+                        }
+                    }
+                    return { files: found.length ? filesFromClipboard({ files: found }) : [], text };
+                }
+                function showClipState(has) {
+                    clipButton.dataset.has = has;
+                    clipButton.classList.toggle('has-file', has === 'file');
+                    const label = has === 'file' ? (uiText.clipHasFile || 'A picture on the clipboard - paste it as a file') : (uiText.clipButton || 'Paste the clipboard as a file');
+                    clipButton.title = label;
+                    clipButton.setAttribute('aria-label', label);
+                    clipButton.querySelector('.status-clip-label').textContent = has === 'file' ? (uiText.clipLabel || 'Picture') : '';
+                }
+                // Without a click only where the browser already allows it (Chromium, once granted) - never a prompt.
+                async function lookAtClipboard() {
+                    if (clipButton.hidden || !navigator.clipboard || !navigator.clipboard.read || !document.hasFocus()) {
+                        return;
+                    }
+                    try {
+                        const permission = await navigator.permissions.query({ name: 'clipboard-read' });
+                        if (permission.state !== 'granted') {
+                            return;
+                        }
+                        const found = await readClipboardFiles();
+                        showClipState(found.files.length ? 'file' : found.text ? 'text' : 'empty');
+                    }
+                    catch {
+                        // Not allowed here or now (another frame has the focus): it stays as it was.
+                    }
+                }
+                function followClipboard() {
+                    if (!clipButton) {
+                        return;
+                    }
+                    const target = clipTarget();
+                    clipButton.hidden = !target;
+                    if (target) {
+                        lookAtClipboard();
+                    }
+                }
+                if (clipButton) {
+                    showClipState('unknown');
+                    clipButton.addEventListener('click', async () => {
+                        const target = clipTarget();
+                        if (!target) {
+                            return;
+                        }
+                        let found;
+                        try {
+                            found = await readClipboardFiles();
+                        }
+                        catch {
+                            showClipNote(uiText.clipDenied || 'The browser does not let Matgate read the clipboard.');
+                            return;
+                        }
+                        if (!found.files.length) {
+                            showClipState(found.text ? 'text' : 'empty');
+                            showClipNote(found.text ? (uiText.clipOnlyText || 'The clipboard holds text only.') : (uiText.clipEmpty || 'The clipboard is empty.'));
+                            target.focus();
+                            return;
+                        }
+                        showClipState('file');
+                        target.paste(found.files);
+                        showClipNote((uiText.clipPasted || 'Pasted') + ': ' + found.files.map(file => file.name).join(', '));
+                        target.focus();
+                    });
+                    window.addEventListener('focus', () => followClipboard());
+                    document.addEventListener('visibilitychange', () => {
+                        if (!document.hidden) {
+                            followClipboard();
+                        }
+                    });
+                    document.addEventListener('copy', () => window.setTimeout(followClipboard, 50));
+                }
+
                 function updateStatusBar() {
                     followSystemStats();
+                    followClipboard();
                     const tab = tabs.get(activeTabId);
                     const screen = tab ? null : activeAgentScreen();
                     if (screen && screen.api) {
@@ -18632,9 +18986,24 @@ public sealed partial class HtmlViews
                     .server-manager-folder { padding-left: calc(8px + var(--depth, 0) * 14px); }
                     .server-manager-item { padding-left: calc(30px + var(--depth, 0) * 14px); }
                     .server-manager-item--flat { padding-left: 8px; }
-                    .server-manager-item[draggable="true"] { cursor: grab; }
-                    .server-manager-item.dragging { opacity: .45; }
-                    .server-manager-folder.drop-target { background: color-mix(in srgb, var(--accent) 18%, var(--surface)); box-shadow: inset 0 0 0 2px var(--accent); }
+                    /* Dragging connections (side panel and start page): the grip, the picture under the pointer,
+                       the line where it will land and the folder it will go into. */
+                    .server-manager-item[data-sortable="1"] { position: relative; }
+                    .connection-grip { align-items: center; color: var(--muted); cursor: grab; display: inline-flex; justify-content: center; opacity: 0; touch-action: none; transition: opacity .12s; }
+                    .server-manager-grip { height: 28px; margin-left: auto; width: 22px; }
+                    .server-manager-item:hover .connection-grip, .connection-choice:hover .connection-grip { opacity: .8; }
+                    @media (pointer: coarse) { .connection-grip { opacity: .7; } }
+                    .connection-choice .connection-grip { background: var(--surface); border-radius: 8px; height: 26px; left: 6px; position: absolute; top: 6px; width: 22px; z-index: 2; }
+                    .connection-dragging { opacity: .35; }
+                    .connection-drag-ghost { box-shadow: 0 10px 28px rgba(0,0,0,.22); left: 0; opacity: .92; pointer-events: none; position: fixed; top: 0; z-index: 60; }
+                    html.connection-drag-active, html.connection-drag-active * { cursor: grabbing !important; user-select: none; }
+                    .connection-drop-line { background: var(--accent); border-radius: 2px; pointer-events: none; position: fixed; z-index: 61; }
+                    .connection-drop-line[hidden] { display: none; }
+                    .connection-drop-target { background: color-mix(in srgb, var(--accent) 18%, var(--surface)) !important; box-shadow: inset 0 0 0 2px var(--accent); }
+                    .server-manager-note { background: color-mix(in srgb, var(--accent) 10%, var(--surface)); border-radius: 8px; font-size: 13px; margin: 6px 8px; padding: 6px 10px; }
+                    .server-manager-note[hidden] { display: none; }
+                    .connection-drag-note { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; bottom: 56px; box-shadow: 0 8px 24px rgba(0,0,0,.18); font-size: 13px; left: 50%; max-width: min(460px, calc(100vw - 24px)); padding: 8px 12px; position: fixed; transform: translateX(-50%); z-index: 62; }
+                    .connection-drag-note[hidden] { display: none; }
                     .server-manager-head .tab-action-button { align-items: center; display: inline-flex; justify-content: center; }
                     .server-manager-item-text small:empty { display: none; }
                     .server-manager-close { display: none; }
@@ -21768,6 +22137,39 @@ public sealed partial class HtmlViews
                         white-space: nowrap;
                     }
                     .status-system[hidden] { display: none; }
+                    .status-clip {
+                        align-items: center;
+                        appearance: none;
+                        background: var(--surface-2, transparent);
+                        border: 1px solid var(--line);
+                        border-radius: var(--radius-pill, 999px);
+                        color: var(--muted);
+                        cursor: pointer;
+                        display: inline-flex;
+                        font: inherit;
+                        font-size: 12px;
+                        gap: 6px;
+                        height: 24px;
+                        padding: 0 8px;
+                        white-space: nowrap;
+                    }
+                    .status-clip[hidden] { display: none; }
+                    .status-clip svg { fill: none; height: 14px; stroke: currentColor; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2; width: 14px; }
+                    .status-clip:hover { border-color: var(--accent); color: var(--text); }
+                    .status-clip.has-file { background: color-mix(in srgb, var(--accent) 16%, var(--surface)); border-color: var(--accent); color: var(--text); }
+                    .status-clip-label:empty { display: none; }
+                    .status-clip-note {
+                        background: var(--surface);
+                        border: 1px solid var(--line);
+                        border-radius: 10px;
+                        box-shadow: var(--shadow, 0 8px 24px rgba(0,0,0,.18));
+                        font-size: 13px;
+                        max-width: min(420px, calc(100vw - 16px));
+                        padding: 8px 12px;
+                        position: fixed;
+                        z-index: 40;
+                    }
+                    .status-clip-note[hidden] { display: none; }
                     .status-system:hover, .status-system[aria-expanded="true"] { border-color: var(--accent); }
                     .status-system.is-high { border-color: var(--danger, #c0392b); color: var(--danger, #c0392b); }
                     .status-system-panel {

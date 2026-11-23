@@ -64,8 +64,9 @@ const remoteClean = () => {
   await sleep(1800);
   await page.goto(BASE + "/", { waitUntil: "networkidle" });
   await sleep(1200);
-  const connect = page.locator("a,button").filter({ hasText: /^ *(Connect|Verbinden) *$/ }).first();
-  await connect.click();
+  // The seeded connection by its name - not "the first Connect": another test's connection may sort before it.
+  const testhost = await page.evaluate(async () => JSON.parse((await (await fetch("/", { credentials: "same-origin" })).text()).match(/const availableServers = (\[.*?\]);/s)[1]).find(s => s.name === "Linux-Testhost").id);
+  await page.goto(BASE + "/?open=" + testhost, { waitUntil: "networkidle" });
   await sleep(6000);
   const surface = page.locator(".connection-panel:not(.hidden)").first();
   await surface.click({ position: { x: 300, y: 200 } });

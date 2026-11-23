@@ -20,6 +20,65 @@ public static partial class EndpointMapping
         app.MapPost("/admin/folders/delete", FolderDeleteAsync).RequireAuthorization();
         app.MapPost("/api/servers/{id:guid}/folder", MoveToFolderAsync).RequireAuthorization();
         app.MapPost("/api/folders", CreateFolderAsync).RequireAuthorization();
+        app.MapPost("/api/order/connections", SaveConnectionOrderAsync).RequireAuthorization();
+    }
+
+    private const int MaxConnectionOrder = 2000;
+
+    // The order of some connections, as one user put them (dragging them in the side panel or on the start page):
+    // "ids" is what lies in one folder now, top to bottom. Their places in the user's order are taken over by this
+    // sequence - where the first of them stood before - and everything else keeps its place. Personal: it changes
+    // nothing for anyone else and needs no right beyond seeing the connections.
+    private static async Task<IResult> SaveConnectionOrderAsync(HttpContext context, JsonDataStore store)
+    {
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        if (!ValidateCsrfHeader(context))
+        {
+            return Results.StatusCode(StatusCodes.Status403Forbidden);
+        }
+
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        var ids = form["ids"].ToString().Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Select(value => Guid.TryParse(value, out var id) ? id : Guid.Empty)
+            .Where(id => id != Guid.Empty)
+            .Distinct()
+            .Take(MaxConnectionOrder)
+            .ToList();
+        if (ids.Count == 0)
+        {
+            return Results.NoContent();
+        }
+
+        await store.UpdateUsersAsync(users =>
+        {
+            if (users.FirstOrDefault(candidate => candidate.Id == user.Id) is not { } stored)
+            {
+                return;
+            }
+
+            // "reset": these out of the order again - by name, as at the start.
+            stored.ConnectionOrder = form["reset"] == "1"
+                ? [.. (stored.ConnectionOrder ?? []).Where(id => !ids.Contains(id))]
+                : MergeOrder(stored.ConnectionOrder ?? [], ids);
+            stored.UpdatedAt = DateTimeOffset.UtcNow;
+        }, context.RequestAborted);
+        return Results.NoContent();
+    }
+
+    // The sequence put where the first of its members stood (at the end when none was there yet), the rest kept.
+    internal static List<Guid> MergeOrder(List<Guid> current, List<Guid> sequence)
+    {
+        var members = sequence.ToHashSet();
+        var at = current.FindIndex(members.Contains);
+        var rest = current.Where(id => !members.Contains(id)).ToList();
+        var insertAt = at < 0 ? rest.Count : current.Take(at).Count(id => !members.Contains(id));
+        rest.InsertRange(insertAt, sequence);
+        return rest.Count > MaxConnectionOrder ? rest[..MaxConnectionOrder] : rest;
     }
 
     // A folder made on its own, before anything is filed in it (the side panel's "New folder"). Whoever manages
@@ -93,6 +152,14 @@ public static partial class EndpointMapping
         {
             var server = servers.FirstOrDefault(candidate => candidate.Id == id);
             if (server is null || !CanEditServer(user, server))
+            {
+                return;
+            }
+
+            // A shared connection carries the rights of its folder: whoever puts it into another folder decides who
+            // may use it. So that takes "Edit" on the folder it goes into as well (server managers and
+            // administrators have it everywhere) - not only on the connection.
+            if (server.OwnerUserId is null && name.Length > 0 && AccessResolver.Highest(AccessResolver.FolderReasons(user, name)) < AccessLevel.Edit)
             {
                 return;
             }
