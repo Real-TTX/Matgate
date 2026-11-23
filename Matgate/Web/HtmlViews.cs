@@ -825,7 +825,8 @@ public sealed partial class HtmlViews
         BrowserAdminData? browser = null,
         IReadOnlyList<UserGroup>? groups = null,
         IReadOnlyList<FolderDefinition>? folderObjects = null,
-        IReadOnlyList<AccessGrant>? grants = null)
+        IReadOnlyList<AccessGrant>? grants = null,
+        string connectionsAccess = "")
     {
         var de = Language(context) == "de";
         var openLabel = T(context, "Open");
@@ -986,8 +987,7 @@ public sealed partial class HtmlViews
 
         var tabs = new List<TabItem>
         {
-            new("servers", T(context, "Servers"), Icon("server"), serversPanel),
-            new("folders", de ? "Ordner" : "Folders", Icon("folder"), FoldersPanel(context, currentUser, servers, folderObjects)),
+            new("connections", de ? "Verbindungen" : "Connections", Icon("server"), ConnectionsAdminPanel(context, currentUser, servers, folderObjects, connectionsAccess, serverTable)),
         };
         if (currentUser.IsAdmin)
         {
@@ -1003,6 +1003,8 @@ public sealed partial class HtmlViews
         }
 
         var tabParam = context.Request.Query["tab"].ToString().ToLowerInvariant();
+        // Servers and folders were tabs of their own before 0.46.0: both are the tree now.
+        tabParam = tabParam is "servers" or "folders" ? "connections" : tabParam;
         var activeKey = tabs.Any(t => t.Key == tabParam) ? tabParam : tabs[0].Key;
 
         var body = $$"""
@@ -1151,7 +1153,7 @@ public sealed partial class HtmlViews
     // Where "Back" and a finished save lead: a connection opened from the home page was opened in a tab of
     // its own, and that tab closes again (the page behind /admin/servers/done does it); from the
     // administration it is the list there.
-    private static string ServerFormBackUrl(string returnTo) => returnTo == "home" ? "/admin/servers/done" : "/admin?tab=servers";
+    private static string ServerFormBackUrl(string returnTo) => returnTo == "home" ? "/admin/servers/done" : "/admin?tab=connections";
 
     public string ServerDetail(
         HttpContext context,
@@ -3470,7 +3472,7 @@ public sealed partial class HtmlViews
 
         // Whoever may create connections may sort them into folders: the way there, where the folders are.
         var manageFolders = hasNamedFolder && (user.IsAdmin || user.CanManageServers || user.CanCreateServers)
-            ? $$"""<a class="home2-manage-link" href="/admin?tab=folders" data-shell-open-tab="1" data-shell-title="{{A(de ? "Ordner" : "Folders")}}">{{Icon("settings")}}<span>{{(de ? "Ordner verwalten" : "Manage folders")}}</span></a>"""
+            ? $$"""<a class="home2-manage-link" href="/admin?tab=connections" data-shell-open-tab="1" data-shell-title="{{A(de ? "Ordner" : "Folders")}}">{{Icon("settings")}}<span>{{(de ? "Ordner verwalten" : "Manage folders")}}</span></a>"""
             : "";
         return $$"""
             <section class="home2-section home2-folders-section">

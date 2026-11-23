@@ -4,6 +4,7 @@
 //     told so, and nothing moves
 // With the mouse (the whole row or card); a finger takes the grip, which is the same pointer handling.
 const { chromium } = require("playwright-core");
+const { folderInTree, dissolveFolders } = require("./admin-helpers");
 const BASE = "http://127.0.0.1:18091";
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const failures = [];
@@ -150,11 +151,7 @@ const check = (name, got, want) => {
       await admin.evaluate(n => { const row = [...document.querySelectorAll("tr")].find(r => r.innerText.includes(n)); const form = row && row.querySelector("form[action*='/delete']"); if (form) { form.removeAttribute("data-confirm"); form.submit(); } }, name);
       await sleep(700);
     }
-    for (const name of [FOLDER, TARGET, EMPTY]) {
-      await admin.goto(BASE + "/admin?tab=folders", { waitUntil: "networkidle" });
-      await admin.evaluate(f => { const row = document.querySelector("[data-folder-row='" + f + "']"); const form = row && row.querySelector("form[action$='/delete']"); if (form) { form.removeAttribute("data-confirm"); form.submit(); } }, name);
-      await sleep(600);
-    }
+    await dissolveFolders(admin, [FOLDER, TARGET, EMPTY]);
     await admin.goto(BASE + "/admin/users", { waitUntil: "networkidle" });
     await admin.evaluate(n => { const row = [...document.querySelectorAll("tr")].find(r => r.innerText.includes(n)); const form = row && row.querySelector("form[action*='/delete']"); if (form) { form.removeAttribute("data-confirm"); form.submit(); } }, USER);
     await sleep(700);

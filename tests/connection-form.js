@@ -6,6 +6,7 @@
 // sits behind one button; a folder is chosen from those there are; a folder has a page of its own (name,
 // icon, which connections); and a connection opened from the home page closes its tab when it is done.
 const { chromium } = require("playwright-core");
+const { dissolveFolders } = require("./admin-helpers");
 const chooseKind = require("./choose-kind");
 const BASE = "http://127.0.0.1:18091";
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -49,13 +50,15 @@ const RENAMED = "Test-Ordner neu";
     }
   }, NAMES);
   await cleanUp();
+  // The folders as the administration's tree shows them (0.46.0): name, how many lie in it, the connections
+  // right in it, its icon.
   const folders = async () => {
-    await page.goto(BASE + "/admin?tab=folders", { waitUntil: "networkidle" });
-    return page.evaluate(() => [...document.querySelectorAll("[data-folder-row]")].map(row => ({
-      name: row.dataset.folderRow,
-      count: Number(row.querySelectorAll("td")[1].textContent.trim()),
-      inside: row.querySelectorAll("td")[2].textContent.trim(),
-      icon: row.querySelector(".server-icon").innerHTML,
+    await page.goto(BASE + "/admin?tab=connections", { waitUntil: "networkidle" });
+    return page.evaluate(() => [...document.querySelectorAll("[data-admtree-folder]")].filter(group => group.dataset.admtreeFolder).map(group => ({
+      name: group.dataset.admtreeFolder,
+      count: Number(group.querySelector(":scope > .admtree-folder .admtree-count").textContent.trim()),
+      inside: [...group.querySelectorAll(":scope > .admtree-children > .admtree-server strong")].map(s => s.textContent.trim()).join(", "),
+      icon: group.querySelector(":scope > .admtree-folder .admtree-folder-icon").innerHTML,
     })));
   };
 
@@ -95,10 +98,10 @@ const RENAMED = "Test-Ordner neu";
   check("a new folder asks for its name", await page.evaluate(() => document.querySelector("[data-folder-new]").hidden), false);
   await page.fill("[data-folder-new-input]", FOLDER);
   check("what is sent is the folder's name", await page.inputValue("[name='folderName']"), FOLDER);
-  await Promise.all([page.waitForURL(u => /\/admin\?tab=servers/.test(u.toString())), page.click("button[form='server-create-form']")]);
+  await Promise.all([page.waitForURL(u => /\/admin\?tab=connections/.test(u.toString())), page.click("button[form='server-create-form']")]);
   let list = await servers();
   const first = list.find(s => s.name === NAMES[0]);
-  check("from the administration, saving leads back to its list", [!!first, new URL(page.url()).pathname + new URL(page.url()).search.replace(/&?embed=1/, "")], [true, "/admin?tab=servers"]);
+  check("from the administration, saving leads back to its list", [!!first, new URL(page.url()).pathname + new URL(page.url()).search.replace(/&?embed=1/, "")], [true, "/admin?tab=connections"]);
 
   // --- The second connection takes the folder from the list.
   await page.goto(BASE + "/admin/servers/new", { waitUntil: "networkidle" });
@@ -107,7 +110,7 @@ const RENAMED = "Test-Ordner neu";
   await page.fill("[name='host']", "ssh");
   check("the folder just made is in the list", await page.evaluate(n => [...document.querySelectorAll("[data-folder-select] option")].some(o => o.value === n), FOLDER), true);
   await page.selectOption("[data-folder-select]", FOLDER);
-  await Promise.all([page.waitForURL(u => /\/admin\?tab=servers/.test(u.toString())), page.click("button[form='server-create-form']")]);
+  await Promise.all([page.waitForURL(u => /\/admin\?tab=connections/.test(u.toString())), page.click("button[form='server-create-form']")]);
   list = await servers();
   const second = list.find(s => s.name === NAMES[1]);
   await page.goto(BASE + "/admin/servers/" + second.id, { waitUntil: "networkidle" });
@@ -123,7 +126,7 @@ const RENAMED = "Test-Ordner neu";
     await page.click("[data-more-toggle]");
     await page.fill("[name='notes']", "eine Notiz");
   });
-  await Promise.all([page.waitForURL(u => /\/admin\?tab=servers/.test(u.toString())), page.click("button[form='server-edit-form']")]);
+  await Promise.all([page.waitForURL(u => /\/admin\?tab=connections/.test(u.toString())), page.click("button[form='server-edit-form']")]);
   await page.goto(BASE + "/admin/servers/" + first.id, { waitUntil: "networkidle" });
   check("a connection with something set under \"more\" shows it right away", await page.evaluate(() => [document.querySelector("[data-more-body]").hidden, document.querySelector("[name='notes']").value]), [false, "eine Notiz"]);
   check("saving kept the folder and the icon", await page.evaluate(() => [document.querySelector("[name='folderName']").value, document.querySelector("[name='iconKey']").value]), [FOLDER, "database"]);
@@ -134,7 +137,7 @@ const RENAMED = "Test-Ordner neu";
   check("the folder is in the administration, with what lies in it", folder && [folder.count, folder.inside], [2, NAMES[0] + ", " + NAMES[1]]);
   const plainIcon = folder.icon;
 
-  await page.click("[data-folder-row='" + FOLDER + "'] a");
+  await page.goto(BASE + "/admin/folders/edit?name=" + encodeURIComponent(FOLDER), { waitUntil: "networkidle" });
   await page.waitForSelector("#folder-form");
   check("a folder's page: its name and its connections", await page.evaluate(names => [
     document.querySelector("[name='name']").value,
@@ -142,7 +145,7 @@ const RENAMED = "Test-Ordner neu";
   [NAMES[0], NAMES[1]]), [FOLDER, [true, true]]);
   await page.fill("[name='name']", RENAMED);
   await page.click("#folder-form [data-icon-option='cloud']");
-  await Promise.all([page.waitForURL(u => /tab=folders/.test(u.toString())), page.click("button[form='folder-form']")]);
+  await Promise.all([page.waitForURL(u => /tab=connections/.test(u.toString())), page.click("button[form='folder-form']")]);
   all = await folders();
   folder = all.find(f => f.name === RENAMED);
   check("renaming renames it for every connection in it", [all.some(f => f.name === FOLDER), folder && folder.count], [false, 2]);
@@ -154,17 +157,17 @@ const RENAMED = "Test-Ordner neu";
   await page.fill("[name='name']", NAMES[2]);
   await page.fill("[name='host']", "desktop");
   await page.selectOption("[data-folder-select]", RENAMED);
-  await Promise.all([page.waitForURL(u => /\/admin\?tab=servers/.test(u.toString())), page.click("button[form='server-create-form']")]);
+  await Promise.all([page.waitForURL(u => /\/admin\?tab=connections/.test(u.toString())), page.click("button[form='server-create-form']")]);
   all = await folders();
   folder = all.find(f => f.name === RENAMED);
   check("a connection that joins a folder is in it", folder && folder.count, 3);
   const cloudIcon = folder.icon;
 
   // --- The folder page moves connections: unticked ones leave.
-  await page.click("[data-folder-row='" + RENAMED + "'] a");
+  await page.goto(BASE + "/admin/folders/edit?name=" + encodeURIComponent(RENAMED), { waitUntil: "networkidle" });
   await page.waitForSelector("#folder-form");
   await page.evaluate(n => { [...document.querySelectorAll(".conn-check-list .check")].find(c => c.textContent.includes(n)).querySelector("input").checked = false; }, NAMES[0]);
-  await Promise.all([page.waitForURL(u => /tab=folders/.test(u.toString())), page.click("button[form='folder-form']")]);
+  await Promise.all([page.waitForURL(u => /tab=connections/.test(u.toString())), page.click("button[form='folder-form']")]);
   all = await folders();
   folder = all.find(f => f.name === RENAMED);
   check("unticked, a connection leaves the folder", folder && [folder.count, folder.inside, folder.icon === cloudIcon], [2, NAMES[1] + ", " + NAMES[2], true]);
@@ -172,19 +175,20 @@ const RENAMED = "Test-Ordner neu";
   // --- A folder may be made empty (0.34.0): it exists on its own, for connections to be filed in later.
   await page.goto(BASE + "/admin/folders/new", { waitUntil: "networkidle" });
   await page.fill("[name='name']", "Leer");
-  await Promise.all([page.waitForURL(u => /tab=folders/.test(u.toString())), page.click("button[form='folder-form']")]);
+  await Promise.all([page.waitForURL(u => /tab=connections/.test(u.toString())), page.click("button[form='folder-form']")]);
   all = await folders();
   check("a new folder without a connection is made, and listed empty", (all.find(f => f.name === "Leer") || {}).count, 0);
   // With a connection that lies elsewhere: it moves.
-  await page.click("[data-folder-row='Leer'] a");
+  await page.goto(BASE + "/admin/folders/edit?name=Leer", { waitUntil: "networkidle" });
   await page.waitForSelector("#folder-form");
   await page.evaluate(n => { [...document.querySelectorAll(".conn-check-list .check")].find(c => c.textContent.includes(n)).querySelector("input").checked = true; }, NAMES[2]);
-  await Promise.all([page.waitForURL(u => /tab=folders/.test(u.toString())), page.click("button[form='folder-form']")]);
+  await Promise.all([page.waitForURL(u => /tab=connections/.test(u.toString())), page.click("button[form='folder-form']")]);
   all = await folders();
   check("a connection ticked in a new folder moves there", [all.find(f => f.name === "Leer").inside, all.find(f => f.name === RENAMED).count], [NAMES[2], 1]);
 
   // --- Dissolving asks first, with a dialog of the application; the connections stay.
-  await page.click("[data-folder-row='Leer'] .danger-action");
+  await page.goto(BASE + "/admin?tab=connections&sel=" + encodeURIComponent("folder:Leer"), { waitUntil: "networkidle" });
+  await page.click(".admdetail-actions form[action='/admin/folders/delete'] button");
   await page.waitForSelector("#confirm-dialog:not(.hidden)", { timeout: 10000 });
   await Promise.all([page.waitForLoadState("networkidle"), page.click("#confirm-dialog [data-confirm-ok]")]);
   await sleep(300);
@@ -222,7 +226,7 @@ const RENAMED = "Test-Ordner neu";
   };
   const tabCount = () => page.evaluate(() => document.querySelectorAll(".shell-page-panel iframe").length);
   const card = name => page.evaluate(n => [...document.querySelectorAll("[data-home2-card] h3")].some(h => h.textContent.trim() === n), name);
-  check("the home page has a way to the folders", await page.evaluate(() => (document.querySelector(".home2-manage-link") || {}).getAttribute?.("href") || ""), "/admin?tab=folders");
+  check("the home page has a way to the folders", await page.evaluate(() => (document.querySelector(".home2-manage-link") || {}).getAttribute?.("href") || ""), "/admin?tab=connections");
 
   // The gear of a card opens the connection in a tab; "Back" closes it again.
   await page.evaluate(n => [...document.querySelectorAll("[data-home2-card]")].find(c => c.querySelector("h3").textContent.trim() === n).querySelector(".connection-choice-settings-corner").click(), NAMES[1]);
@@ -274,7 +278,7 @@ const RENAMED = "Test-Ordner neu";
   // until it is dissolved.
   const left = (await folders()).find(f => f.name === RENAMED);
   check("with its connections gone, the folder stays, empty", left && left.count, 0);
-  await page.evaluate(name => { const row = document.querySelector("[data-folder-row='" + name + "']"); const form = row && row.querySelector("form[action$='/delete']"); if (form) { form.removeAttribute("data-confirm"); form.submit(); } }, RENAMED);
+  await dissolveFolders(page, [RENAMED]);
   await sleep(1000);
   check("and goes when it is dissolved", (await folders()).some(f => f.name === RENAMED), false);
   await b.close();

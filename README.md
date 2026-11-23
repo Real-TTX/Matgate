@@ -106,7 +106,7 @@ Three ready-made stacks are in this repo, all with prebuilt images:
 
 | Image | Tag |
 |---|---|
-| `ghcr.io/real-ttx/matgate` | `latest`, a version such as `0.45.0`, or `sha-…` |
+| `ghcr.io/real-ttx/matgate` | `latest`, a version such as `0.46.0`, or `sha-…` |
 | `ghcr.io/real-ttx/matgate-browser-farm` | `latest` (optional) |
 
 <details>
@@ -493,9 +493,12 @@ connection, on a **folder** or on **all connections**.
 - **Inheritance**: an entry on a folder holds for everything in it and below, also what is filed there
   later. A folder can **stop inheriting**: then only what is given on it and below holds there.
 - There is no "deny": the **highest** level that reaches someone counts.
-- **Who has access?** Every connection and folder has an access page (the shield) with everyone who may in
-  the end and **every reason**: "Connect, group IT, on folder Servers (inherited)". The user page shows the
-  same per connection, with the groups.
+- **Administration → Connections** is a tree like the side panel: all connections, folders and subfolders, the
+  connections in them (or, switched to **List**, one table to search and sort). Beside it what is chosen: a
+  folder (its content, a connection or subfolder in it, edit, dissolve), a connection (overview, connect, edit,
+  delete) or all connections - each with its **access**: the entries (the level changed and saved at once, a row
+  to add one, the switch "inherit from above") and **who has access in the end, with every reason**. "Access
+  ..." in the side panel's right-click menu leads there as well.
 - **Read only on a database** runs one reading statement at a time inside a read-only transaction that is
   rolled back. A database login that cannot write is still the safest answer.
 - Roles on the user: `Admin` (everything), `Manage servers` (edits every shared connection, makes shared

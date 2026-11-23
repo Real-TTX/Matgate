@@ -3,6 +3,7 @@
 // keeps it out; renaming the folder keeps what was given on it. A database the user may only read runs a SELECT
 // and refuses a DELETE - also one hidden behind a second statement - and the table is unchanged afterwards.
 const { chromium } = require("playwright-core");
+const { folderInTree, dissolveFolders } = require("./admin-helpers");
 const BASE = "http://127.0.0.1:18091";
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const failures = [];
@@ -96,32 +97,31 @@ const check = (name, got, want) => {
     check("without anything given the member has no connection", (await servers(member)).length, 0);
 
     // ---- the folder to the group, on its access page
-    await admin.goto(BASE + "/admin?tab=folders", { waitUntil: "networkidle" });
-    check("the folder list has a shield to its access page", await admin.evaluate(f => !!document.querySelector("[data-folder-row='" + f + "'] [data-folder-access]"), FOLDER + "/Linux"), true);
+    check("the folder is in the administration's tree", await folderInTree(admin, FOLDER + "/Linux"), true);
     await admin.goto(BASE + "/admin/access?folder=" + FOLDER, { waitUntil: "networkidle" });
     const groupValue = await admin.evaluate(g => [...document.querySelectorAll("[data-access-new-principal] option")].find(o => o.textContent === g).value, GROUP);
     await admin.selectOption("[data-access-new-principal]", groupValue);
     await admin.selectOption("[data-access-new-level]", "Connect");
     await submit(admin, "[data-access-add]");
-    check("the entry is listed on the folder", await admin.evaluate(() => document.querySelectorAll("[data-access-given] tr[data-grant-row]").length), 1);
+    check("the entry is listed on the folder", await admin.evaluate(() => document.querySelectorAll("[data-access-given] [data-grant-row]").length), 1);
 
     const names = async () => (await servers(member)).map(s => s.name).sort();
     check("the member has what lies in a subfolder of the folder", await names(), ["Linux-Testhost"]);
 
     await admin.goto(BASE + "/admin/access?folder=" + encodeURIComponent(FOLDER + "/Linux"), { waitUntil: "networkidle" });
     const row = await admin.evaluate(u => {
-      const tr = document.querySelector("[data-access-effective] tr[data-effective-user='" + u + "']");
+      const tr = document.querySelector("[data-access-effective] [data-effective-user='" + u + "']");
       return tr ? { level: tr.dataset.effectiveLevel, why: tr.querySelector(".access-reasons").innerText.replace(/\s+/g, " ").trim() } : null;
     }, USER);
     check("the subfolder's page says who may", row && row.level, "Connect");
     check("and why: the group, the folder above, inherited", !!row && row.why.includes(GROUP) && row.why.includes(FOLDER) && /geerbt|inherited/.test(row.why), true);
 
     // ---- the subfolder stops inheriting
-    await admin.evaluate(() => { document.querySelector("[data-access-inherit]").checked = false; });
-    await submit(admin, "[data-access-save]");
+    await Promise.all([admin.waitForNavigation({ waitUntil: "networkidle" }), admin.evaluate(() => { const box = document.querySelector("[data-access-inherit]"); box.checked = false; box.dispatchEvent(new Event("change", { bubbles: true })); })]);
+    await sleep(500);
     check("a subfolder that does not inherit keeps the folder's entry out", await names(), []);
-    await admin.evaluate(() => { document.querySelector("[data-access-inherit]").checked = true; });
-    await submit(admin, "[data-access-save]");
+    await Promise.all([admin.waitForNavigation({ waitUntil: "networkidle" }), admin.evaluate(() => { const box = document.querySelector("[data-access-inherit]"); box.checked = true; box.dispatchEvent(new Event("change", { bubbles: true })); })]);
+    await sleep(500);
     check("inheriting again, it is back", await names(), ["Linux-Testhost"]);
 
     // ---- renaming the folder keeps the entry, and the subfolder moves with it
@@ -182,11 +182,7 @@ const check = (name, got, want) => {
       await admin.evaluate(() => { const form = document.querySelector("form[action$='/delete']"); form.removeAttribute("data-confirm"); form.submit(); });
       await sleep(900);
     }
-    for (const name of [FOLDER, FOLDER + "2", FOLDER + "/Linux", FOLDER + "2/Linux"]) {
-      await admin.goto(BASE + "/admin?tab=folders", { waitUntil: "networkidle" });
-      await admin.evaluate(f => { const row = document.querySelector("[data-folder-row='" + f + "']"); const form = row && row.querySelector("form[action$='/delete']"); if (form) { form.removeAttribute("data-confirm"); form.submit(); } }, name);
-      await sleep(600);
-    }
+    await dissolveFolders(admin, [FOLDER, FOLDER + "2", FOLDER + "/Linux", FOLDER + "2/Linux"]);
     await removeByForm(admin, "/admin/users", USER);
   }
 

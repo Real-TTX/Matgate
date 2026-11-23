@@ -5043,7 +5043,24 @@ public static partial class EndpointMapping
         var groups = user.IsAdmin ? await store.GetGroupsAsync(context.RequestAborted) : [];
         var folderObjects = (await store.GetFoldersAsync(context.RequestAborted)).Where(folder => folder.VisibleTo(user)).ToList();
         var grants = await store.GetGrantsAsync(context.RequestAborted);
-        return Results.Content(views.AdminHome(context, user, servers, users, workspaces, browser, groups, folderObjects, grants), "text/html");
+        // The access of what is chosen in the tree (Administration -> Connections), where this user may decide it.
+        var selection = context.Request.Query["sel"].ToString();
+        var connectionsAccess = "";
+        var returnUrl = HtmlViews.AdminConnectionsUrl(selection.Length == 0 ? "all" : selection);
+        if (selection.StartsWith("server:", StringComparison.Ordinal))
+        {
+            connectionsAccess = await AccessEditorForAsync(context, user, nameof(AccessTargetKind.Server), selection["server:".Length..], "", store, views, returnUrl);
+        }
+        else if (selection.StartsWith("folder:", StringComparison.Ordinal))
+        {
+            connectionsAccess = await AccessEditorForAsync(context, user, nameof(AccessTargetKind.Folder), "", selection["folder:".Length..], store, views, returnUrl);
+        }
+        else if (selection is "" or "all")
+        {
+            connectionsAccess = await AccessEditorForAsync(context, user, nameof(AccessTargetKind.All), "", "", store, views, returnUrl);
+        }
+
+        return Results.Content(views.AdminHome(context, user, servers, users, workspaces, browser, groups, folderObjects, grants, connectionsAccess), "text/html");
     }
 
     private static async Task<IResult> ServersAsync(HttpContext context, JsonDataStore store, HtmlViews views)
@@ -5091,7 +5108,7 @@ public static partial class EndpointMapping
     private static string ServerFormReturn(string? value) => value == "home" ? "home" : "";
 
     private static string ServerFormTarget(HttpContext context, string returnTo) =>
-        EmbedAwareRedirect(context, returnTo == "home" ? "/admin/servers/done" : "/admin/servers");
+        EmbedAwareRedirect(context, returnTo == "home" ? "/admin/servers/done" : "/admin?tab=connections");
 
     // The page a connection opened from the home page ends on; inside the shell it closes its own tab.
     private static async Task<IResult> ServerFormDoneAsync(HttpContext context, JsonDataStore store, HtmlViews views)

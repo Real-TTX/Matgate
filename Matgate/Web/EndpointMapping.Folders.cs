@@ -9,7 +9,7 @@ namespace Matgate.Web;
 // connection does not move it either.
 public static partial class EndpointMapping
 {
-    private const string FolderList = "/admin?tab=folders";
+    private const string FolderList = "/admin?tab=connections";
 
     private static void MapFolderEndpoints(WebApplication app)
     {
@@ -189,7 +189,8 @@ public static partial class EndpointMapping
         }
 
         var servers = await EditableServersAsync(user, store, context.RequestAborted);
-        return Results.Content(views.FolderPage(context, user, "", "", "", servers, new HashSet<Guid>()), "text/html");
+        // "Subfolder" in the administration's tree starts with the folder's path ("Lab/").
+        return Results.Content(views.FolderPage(context, user, "", ServerFolders.CleanName(context.Request.Query["name"]), "", servers, new HashSet<Guid>()), "text/html");
     }
 
     private static async Task<IResult> FolderEditAsync(HttpContext context, JsonDataStore store, HtmlViews views)

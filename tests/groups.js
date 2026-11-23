@@ -2,6 +2,7 @@
 // it, and gives it to a group - whose members then have every connection in that folder and below, also the
 // ones added later, and nothing else. Without the group they have nothing again.
 const { chromium } = require("playwright-core");
+const { folderInTree, dissolveFolders } = require("./admin-helpers");
 const BASE = "http://127.0.0.1:18091";
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 const failures = [];
@@ -61,8 +62,7 @@ const check = (name, got, want) => {
     await admin.fill("input[name='name']", FOLDER);
     await Promise.all([admin.waitForLoadState("networkidle"), admin.evaluate(() => document.querySelector("input[name='name']").form.requestSubmit())]);
     await sleep(800);
-    await admin.goto(BASE + "/admin?tab=folders", { waitUntil: "networkidle" });
-    check("an administrator makes a folder without any connection in it", await admin.evaluate(f => !!document.querySelector("[data-folder-row='" + f + "']"), FOLDER), true);
+    check("an administrator makes a folder without any connection in it", await folderInTree(admin, FOLDER), true);
     check("it is in the side panel while still empty", (await sideFolders(admin)).includes(FOLDER), true);
 
     await signIn(member, USER, PW);
@@ -108,8 +108,7 @@ const check = (name, got, want) => {
       await sleep(800);
     }
     // The folder and the user.
-    await admin.goto(BASE + "/admin?tab=folders", { waitUntil: "networkidle" });
-    await admin.evaluate(f => { const row = document.querySelector("[data-folder-row='" + f + "']"); const form = row && row.querySelector("form[action$='/delete']"); if (form) { form.removeAttribute("data-confirm"); form.submit(); } }, FOLDER);
+    await dissolveFolders(admin, [FOLDER]);
     await sleep(800);
     await admin.goto(BASE + "/admin/users", { waitUntil: "networkidle" });
     await admin.evaluate(n => {

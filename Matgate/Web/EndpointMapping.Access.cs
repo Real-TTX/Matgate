@@ -31,7 +31,7 @@ public static partial class EndpointMapping
                 return null;
             }
 
-            return new(AccessTargetKind.Server, server.Id, server.Name, server.FolderName, false, "/admin/servers/" + server.Id);
+            return new(AccessTargetKind.Server, server.Id, server.Name, server.FolderName, false, HtmlViews.AdminConnectionsUrl("server:" + server.Id));
         }
 
         if (kind == nameof(AccessTargetKind.Folder))
@@ -43,12 +43,12 @@ public static partial class EndpointMapping
             }
 
             user.Access.Folders.TryGetValue(AccessResolver.FolderKey(path), out var definition);
-            return new(AccessTargetKind.Folder, definition?.Id ?? Guid.Empty, definition?.Name ?? path, definition?.Name ?? path, definition?.InheritanceBroken == true, FolderEditUrl(path));
+            return new(AccessTargetKind.Folder, definition?.Id ?? Guid.Empty, definition?.Name ?? path, definition?.Name ?? path, definition?.InheritanceBroken == true, HtmlViews.AdminConnectionsUrl("folder:" + (definition?.Name ?? path)));
         }
 
         if (kind == nameof(AccessTargetKind.All) && AccessResolver.CanManageAll(user))
         {
-            return new(AccessTargetKind.All, Guid.Empty, de ? "Alle Verbindungen" : "All connections", "", false, "/admin?tab=folders");
+            return new(AccessTargetKind.All, Guid.Empty, de ? "Alle Verbindungen" : "All connections", "", false, HtmlViews.AdminConnectionsUrl("all"));
         }
 
         return null;
@@ -75,14 +75,27 @@ public static partial class EndpointMapping
         return Results.Content(await RenderAccessPageAsync(context, user, target, store, views), "text/html");
     }
 
-    private static async Task<string> RenderAccessPageAsync(HttpContext context, MatgateUser user, HtmlViews.AccessPageTarget target, JsonDataStore store, HtmlViews views)
+    // The access editor of a target for the administration's tree; empty when this user may not manage it.
+    internal static async Task<string> AccessEditorForAsync(HttpContext context, MatgateUser user, string kind, string id, string folder, JsonDataStore store, HtmlViews views, string returnUrl)
     {
-        var users = await store.GetUsersAsync(context.RequestAborted);
-        var groups = await store.GetGroupsAsync(context.RequestAborted);
-        var grants = (await store.GetGrantsAsync(context.RequestAborted))
+        var target = await AccessTargetAsync(user, kind, id, folder, store, HtmlViews.Language(context) == "de", context.RequestAborted);
+        if (target is null)
+        {
+            return "";
+        }
+
+        var (grants, users, groups, rows) = await AccessDataAsync(target, store, context.RequestAborted);
+        return views.AccessEditor(context, target, grants, users, groups, rows, returnUrl);
+    }
+
+    private static async Task<(List<AccessGrant> Grants, IReadOnlyList<MatgateUser> Users, IReadOnlyList<UserGroup> Groups, List<HtmlViews.AccessPageRow> Rows)> AccessDataAsync(HtmlViews.AccessPageTarget target, JsonDataStore store, CancellationToken cancellationToken)
+    {
+        var users = await store.GetUsersAsync(cancellationToken);
+        var groups = await store.GetGroupsAsync(cancellationToken);
+        var grants = (await store.GetGrantsAsync(cancellationToken))
             .Where(grant => grant.TargetKind == target.Kind && (target.Kind == AccessTargetKind.All || (target.Id != Guid.Empty && grant.TargetId == target.Id)))
             .ToList();
-        var server = target.Kind == AccessTargetKind.Server ? await store.FindServerByIdAsync(target.Id, context.RequestAborted) : null;
+        var server = target.Kind == AccessTargetKind.Server ? await store.FindServerByIdAsync(target.Id, cancellationToken) : null;
         var rows = new List<HtmlViews.AccessPageRow>();
         foreach (var person in users.Where(person => person.IsEnabled))
         {
@@ -99,7 +112,13 @@ public static partial class EndpointMapping
             }
         }
 
-        return views.AccessPage(context, user, target, grants, users, groups, rows);
+        return (grants, users, groups, rows);
+    }
+
+    private static async Task<string> RenderAccessPageAsync(HttpContext context, MatgateUser user, HtmlViews.AccessPageTarget target, JsonDataStore store, HtmlViews views)
+    {
+        var (grantsHere, usersAll, groupsAll, rowsAll) = await AccessDataAsync(target, store, context.RequestAborted);
+        return views.AccessPage(context, user, target, grantsHere, usersAll, groupsAll, rowsAll);
     }
 
     private static async Task<IResult> AccessSaveAsync(HttpContext context, JsonDataStore store, HtmlViews views)
@@ -191,12 +210,16 @@ public static partial class EndpointMapping
             }
         }, context.RequestAborted);
 
-        var back = target.Kind switch
-        {
-            AccessTargetKind.Server => AccessUrlForServer(target.Id),
-            AccessTargetKind.Folder => AccessUrlForFolder(target.FolderPath),
-            _ => AccessUrlForAll,
-        };
+        // Back to where the editor sat: its own page or the administration's tree (only a page of the administration).
+        var requested = form["return"].ToString();
+        var back = requested.StartsWith("/admin", StringComparison.Ordinal) && !requested.StartsWith("//", StringComparison.Ordinal)
+            ? requested
+            : target.Kind switch
+            {
+                AccessTargetKind.Server => AccessUrlForServer(target.Id),
+                AccessTargetKind.Folder => AccessUrlForFolder(target.FolderPath),
+                _ => AccessUrlForAll,
+            };
         return Results.Redirect(EmbedAwareRedirect(context, back));
     }
 }
