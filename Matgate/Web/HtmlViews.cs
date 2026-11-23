@@ -325,9 +325,36 @@ public sealed partial class HtmlViews
         var returnUrlField = string.IsNullOrWhiteSpace(returnUrl)
             ? ""
             : $"""<input type="hidden" name="returnUrl" value="{A(returnUrl)}">""";
+        var de = Language(context) == "de";
+        var query = context.Request.Query;
+        var sso = context.RequestServices.GetService<Services.SsoSettings>();
+        error ??= query["sso"].ToString() switch
+        {
+            "failed" => de ? "Die Anmeldung über den Dienst hat nicht geklappt. Versuch es noch einmal." : "Signing in through the service did not work. Please try again.",
+            "disabled" => de ? "Dieses Konto ist in Matgate gesperrt." : "This account is disabled in Matgate.",
+            _ => null,
+        };
         var errorHtml = string.IsNullOrWhiteSpace(error)
             ? ""
             : $"""<div class="notice error">{E(error)}</div>""";
+        var linking = query["link"] == "1";
+        if (linking)
+        {
+            errorHtml += $"""<div class="notice" data-sso-link-notice>{E(de
+                ? "Für diese Adresse gibt es in Matgate schon ein Konto. Melde dich einmal mit dessen Passwort an - danach geht es auch über den Dienst."
+                : "There already is a Matgate account for this address. Sign in with its password once - from then on the service works as well.")}</div>""";
+        }
+
+        var ssoButtons = sso is null || sso.Providers.Count == 0 || linking
+            ? ""
+            : $$"""
+                <div class="login-sso" data-login-sso>
+                    {{string.Join("", sso.Providers.Select(provider => $$"""<a class="button login-sso-button" href="/login/sso/{{provider.Key}}{{(string.IsNullOrWhiteSpace(returnUrl) ? "" : "?returnUrl=" + Uri.EscapeDataString(returnUrl))}}" data-sso="{{provider.Key}}">{{Icon(provider.Key == Services.SsoProvider.Entra ? "grid" : "shield")}}{{E(de ? $"Mit {provider.Label} anmelden" : $"Sign in with {provider.Label}")}}</a>"""))}}
+                </div>
+                """;
+        // Only the services, when so configured - the form stays reachable with ?local=1 (and for linking).
+        var showForm = sso is null || !sso.SsoOnly || linking || query["local"] == "1";
+        var divider = ssoButtons.Length > 0 && showForm ? $"""<div class="login-divider"><span>{E(de ? "oder mit Passwort" : "or with a password")}</span></div>""" : "";
 
         var body = $$"""
             <section class="login-shell">
@@ -337,7 +364,16 @@ public sealed partial class HtmlViews
                     <h1 class="login-title">{{T(context, "Sign in")}}</h1>
                     <p class="login-sub">{{(Language(context) == "de" ? "Melde dich an, um deine Verbindungen zu öffnen." : "Sign in to open your connections.")}}</p>
                     {{errorHtml}}
-                    <form method="post" action="/login" class="login-form">
+                    {{ssoButtons}}
+                    {{divider}}
+                    <style>
+                        .login-sso { display: grid; gap: 8px; margin: 4px 0 8px; }
+                        .login-form[hidden] { display: none; }
+                        .login-sso-button { justify-content: center; min-height: 44px; width: 100%; }
+                        .login-divider { align-items: center; color: var(--muted); display: flex; font-size: 13px; gap: 10px; margin: 10px 0; }
+                        .login-divider::before, .login-divider::after { border-top: 1px solid var(--line); content: ""; flex: 1; }
+                    </style>
+                    <form method="post" action="/login" class="login-form"{{(showForm ? "" : " hidden")}}>
                         {{returnUrlField}}
                         <label class="login-field"><span>{{T(context, "Username or email")}}</span>
                             <span class="login-input-wrap">{{Icon("user")}}<input name="username" autocomplete="username" required autofocus></span>
@@ -727,6 +763,7 @@ public sealed partial class HtmlViews
                     <div class="actions"><button type="submit" class="primary"{{disabled}} data-user-access-save>{{Icon("save")}}{{T(context, "Save access")}}</button></div>
                 </form>
             </section>
+            {{ExternalLoginsPanel(context, editedUser)}}
             {{AccessStyles}}
             <style>
                 .group-checks { display: grid; gap: 6px; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); margin: 6px 0 12px; }

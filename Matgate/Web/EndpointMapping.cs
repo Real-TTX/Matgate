@@ -446,6 +446,7 @@ public static partial class EndpointMapping
         MapCredentialEndpoints(app);
         MapGroupEndpoints(app);
         MapAccessEndpoints(app);
+        MapSsoEndpoints(app);
         MapKeyBarEndpoints(app);
         MapFolderEndpoints(app);
         MapKeptSessionEndpoints(app);
@@ -619,6 +620,7 @@ public static partial class EndpointMapping
         app.MapPost("/admin/users/{id:guid}/access", UpdateUserAccessAsync).RequireAuthorization();
         app.MapPost("/admin/users/{id:guid}/password", ResetUserPasswordAsync).RequireAuthorization();
         app.MapPost("/admin/users/{id:guid}/totp-reset", ResetUserTotpAsync).RequireAuthorization();
+        app.MapPost("/admin/users/{id:guid}/unlink", UnlinkExternalLoginAsync).RequireAuthorization();
         app.MapPost("/admin/users/{id:guid}/delete", DeleteUserAsync).RequireAuthorization();
 
         app.MapGet("/admin/servers", () => Results.Redirect("/admin?tab=servers")).RequireAuthorization();
@@ -727,6 +729,8 @@ public static partial class EndpointMapping
         PasswordHasher hasher,
         string returnUrl)
     {
+        // An account of a sign-in service waiting for this user's password (EndpointMapping.Sso): linked now.
+        await LinkPendingSsoAsync(context, user, context.RequestServices.GetRequiredService<JsonDataStore>());
         await context.SignInAsync(
             CookieAuthenticationDefaults.AuthenticationScheme,
             BuildPrincipal(user, hasher.GenerateSecret(24), user.PreferredLanguage, user.PreferredTheme, true),

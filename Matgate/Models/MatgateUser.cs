@@ -115,6 +115,10 @@ public sealed class MatgateUser
     // Optional per-(user, file-server) restrictions. Absence of a rule = full access.
     public List<FileAccessRule> FileAccessRules { get; set; } = [];
 
+    // The accounts of a sign-in service (MatIdentity, Microsoft Entra ID) this user signs in with. A user made by
+    // such a sign-in has no password of its own.
+    public List<ExternalLogin> ExternalLogins { get; set; } = [];
+
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;
@@ -344,4 +348,26 @@ public sealed class FileAccessRule
     public bool ReadOnly { get; set; }
 
     public string SubPath { get; set; } = "";
+}
+
+// One account of a sign-in service, linked to a Matgate user: found again by the service and its subject (the
+// account's id there, which never changes - unlike a name or an address).
+public sealed class ExternalLogin
+{
+    // "matidentity" or "entra".
+    public string Provider { get; set; } = "";
+
+    public string Subject { get; set; } = "";
+
+    public string Issuer { get; set; } = "";
+
+    public string Email { get; set; } = "";
+
+    public DateTimeOffset LinkedAt { get; set; } = DateTimeOffset.UtcNow;
+
+    public DateTimeOffset? LastSignInAt { get; set; }
+
+    // The groups (and app roles) the service named at the last sign-in, as "<provider>:<value>" - what a group
+    // of Matgate can be linked to. Shown on the user's page, so that nobody has to guess the spelling.
+    public List<string> LastGroups { get; set; } = [];
 }

@@ -90,6 +90,7 @@ builder.Services.Configure<ForwardedHeadersOptions>(options =>
 
 var requireHttps = string.Equals(
     Environment.GetEnvironmentVariable("MATGATE_REQUIRE_HTTPS"), "true", StringComparison.OrdinalIgnoreCase);
+var ssoSettings = Matgate.Services.SsoSettings.From(builder.Configuration);
 
 builder.Services
     .Configure<FormOptions>(options =>
@@ -110,8 +111,10 @@ builder.Services
         options.SlidingExpiration = true;
         options.LoginPath = "/login";
         options.AccessDeniedPath = "/forbidden";
-    });
+    })
+    .AddMatgateSso(ssoSettings, requireHttps);
 
+builder.Services.AddSingleton(ssoSettings);
 builder.Services.AddDataProtection()
     .PersistKeysToFileSystem(new DirectoryInfo(keyDirectory))
     .SetApplicationName("Matgate");

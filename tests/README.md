@@ -75,6 +75,28 @@ node readme-pictures.js database   # only one stop
 The pictures of the agent's own windows (setup, tray) come from `matgate-agent snapshot`, see the
 [agent's README](../agent/README.md).
 
+## Single sign-on
+
+`sso.js` signs in through a real MatIdentity. It builds MatIdentity's image from the checkout next to this
+one (`../../MatIdentity`; without it the script is skipped). It then starts that image
+(`matgate-sso-idp`, port 18097) and a Matgate of its own (`matgate-sso`, port 18096) on the test stack's
+network, and registers Matgate as an app with the groups sent.
+
+In the browser it checks four things:
+- an existing address is linked only after its password;
+- a MatIdentity group puts the user into the linked Matgate group;
+- taken out of the MatIdentity group, the user drops out at the next sign-in;
+- someone new gets a user without rights.
+
+Both containers are removed at the end. It is not part of `run-all.js`.
+
+```bash
+node sso.js
+```
+
+Microsoft Entra ID cannot be tested this way, so its claims (object and tenant id, sign-in address, groups and
+app roles) are covered by the unit tests in `unit/Access.Tests`.
+
 ## What the output means
 
 Every check prints one line, `ok` or `FAIL`, with what it got and what it wanted. A script exits

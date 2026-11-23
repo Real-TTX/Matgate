@@ -88,6 +88,7 @@ public static partial class EndpointMapping
             Name = name.Length > 80 ? name[..80] : name,
             Description = Clean(form["description"].ToString(), ""),
             MemberIds = ids("member"),
+            ExternalGroups = [.. form["externalGroups"].ToString().Split('\n').Select(line => line.Trim()).Where(line => line.Contains(':') && line.Length <= 200).Distinct(StringComparer.OrdinalIgnoreCase)],
         };
         var existing = id is null ? null : (await store.GetGroupsAsync(context.RequestAborted)).FirstOrDefault(candidate => candidate.Id == id);
         if (id is not null && existing is null)
@@ -120,6 +121,7 @@ public static partial class EndpointMapping
             target.Name = draft.Name;
             target.Description = draft.Description;
             target.MemberIds = draft.MemberIds;
+            target.ExternalGroups = draft.ExternalGroups;
             target.UpdatedAt = DateTimeOffset.UtcNow;
         }, context.RequestAborted);
 

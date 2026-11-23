@@ -141,6 +141,7 @@ public sealed partial class HtmlViews
                         <p class="muted">{{(de ? "Administratoren dürfen ohnehin alles und stehen deshalb nicht in der Liste." : "Administrators may do everything anyway and are therefore not listed.")}}</p>
                         <div class="group-checks">{{(members.Length == 0 ? empty : members)}}</div>
                     </section>
+                    {{ExternalGroupsPanel(context, group)}}
                     <section class="panel">
                         <h2>{{(de ? "Alle Verbindungen" : "All connections")}}</h2>
                         <p class="muted">{{(de ? "Jede gemeinsame Verbindung, auch künftige - außer in Ordnern, die nicht erben." : "Every shared connection, also future ones - except in folders that do not inherit.")}}</p>

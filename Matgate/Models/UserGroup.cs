@@ -19,6 +19,12 @@ public sealed class UserGroup
 
     public List<string> Folders { get; set; } = [];
 
+    // Groups of a sign-in service this group stands for, as "<provider>:<value>" ("matidentity:Family",
+    // "entra:3f2a…" or the name Entra sends). Whoever signs in through that service is put into this group when
+    // the service names one of them, and taken out again when it no longer does - so with any of these set, the
+    // service decides the membership of its users; local users stay as they are added here.
+    public List<string> ExternalGroups { get; set; } = [];
+
     public DateTimeOffset CreatedAt { get; set; } = DateTimeOffset.UtcNow;
 
     public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.UtcNow;

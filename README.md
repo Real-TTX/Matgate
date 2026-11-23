@@ -106,7 +106,7 @@ Three ready-made stacks are in this repo, all with prebuilt images:
 
 | Image | Tag |
 |---|---|
-| `ghcr.io/real-ttx/matgate` | `latest`, a version such as `0.41.0`, or `sha-…` |
+| `ghcr.io/real-ttx/matgate` | `latest`, a version such as `0.42.0`, or `sha-…` |
 | `ghcr.io/real-ttx/matgate-browser-farm` | `latest` (optional) |
 
 <details>
@@ -237,7 +237,7 @@ needed). [→ Agent documentation](agent/README.md)
 
 ### 🔐 Users & operation
 
-- Local users with username, email and password, plus a **first-run setup wizard**.
+- Local users with username, email and password, plus a **first-run setup wizard**. **Single sign-on** with MatIdentity and Microsoft Entra ID, with their groups mapped onto Matgate groups.
 - **Permissions with levels and inheritance**: read only, connect, edit or manage - per connection, per folder (and everything below) or on all connections, for users and groups. Every connection and folder shows **who has access and why**.
 - **Groups** with members; **read only** really is read only - screen and terminal only to watch, files and SQL only to read.
 - Credentials **encrypted at rest** (AES-GCM). `/guacamole` sits behind the Matgate login.
@@ -338,6 +338,31 @@ the old RDP encryption or the CredSSP scheme from before 2018.
 | `MATGATE_WEBSITE_HOST` | – | Host names for websites, like `*.web.example.com` |
 | `MATGATE_DNS_SERVER` / `MATGATE_DNS_SEARCH` | – | Your home DNS, so names like `nas` or `pc-terminal` resolve |
 | `BrowserFarm__BaseUrl` | `http://browser-farm:8090` | Where the optional browser farm lives |
+
+### 🪪 Single sign-on
+
+Both are optional and can be on at the same time. The sign-in page then has a button for each.
+
+| Variable | Meaning |
+|---|---|
+| `MATIDENTITY_AUTHORITY` / `_CLIENT_ID` / `_CLIENT_SECRET` | Sign in with **MatIdentity**. Redirect URI: `https://<matgate>/signin-oidc` |
+| `MATIDENTITY_INTERNAL_URL` | Where Matgate itself reaches MatIdentity, when that is not the public address (a container next to it) |
+| `MATGATE_ENTRA_TENANT_ID` / `_CLIENT_ID` / `_CLIENT_SECRET` | Sign in with **Microsoft Entra ID**. Redirect URI: `https://<matgate>/signin-entra` |
+| `MATGATE_SSO_ONLY` | `true` hides the password form; `/login?local=1` still shows it, as the way in when the service is down |
+
+- **Someone new** gets a Matgate user on the first sign-in, with **no rights**. Those come from groups.
+- **An existing user** with the same e-mail address is linked only after **its password** has been entered
+  once. The address alone does not prove that it is the same person.
+- **Groups**: a Matgate group can be linked to groups of the service, one per line, like
+  `matidentity:Technik` or `entra:<group object id>`. At every sign-in the user is put into the linked groups
+  the service names, and taken out of those it no longer names. The user page shows the exact values the
+  service sent last.
+- **MatIdentity** sends the groups when *Send the person's groups to the app* is ticked on the app's access
+  page.
+- **Entra** sends them once the app registration has a *groups claim* (Token configuration). App roles count
+  as well, as `entra:<role>`. With more than 200 groups Entra sends none: choose *Groups assigned to the
+  application* there.
+- A second factor is the service's business. Matgate's own TOTP applies to its password sign-in.
 
 ### 🔑 Pin your keys
 
