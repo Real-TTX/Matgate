@@ -4361,7 +4361,6 @@ public sealed partial class HtmlViews
         var sessionPrefs = JsonSerializer.Serialize(user.Session, new JsonSerializerOptions(JsonSerializerDefaults.Web));
         var keyBar = KeyBar.GuacamoleJson(user, Language(context) == "de");
         var version = ApplicationVersion();
-        var aboutTitle = $"MATGATE {version}";
         var fileIcons = JsonSerializer.Serialize(new
         {
             folder = Icon("folder"),
@@ -4611,6 +4610,22 @@ public sealed partial class HtmlViews
             clipDenied = Language(context) == "de" ? "Der Browser lässt Matgate die Zwischenablage nicht lesen. Erlaube es über das Schloss neben der Adresse - oder füge mit Strg+V ein." : "The browser does not let Matgate read the clipboard. Allow it with the lock next to the address - or paste with Ctrl+V.",
             clipPasted = Language(context) == "de" ? "Eingefügt" : "Pasted",
             clipLabel = Language(context) == "de" ? "Bild" : "Picture",
+            clipOpen = Language(context) == "de" ? "Zwischenablage" : "Clipboard",
+            clipKindImage = Language(context) == "de" ? "Bild" : "Picture",
+            clipKindText = "Text",
+            clipKindRich = Language(context) == "de" ? "Formatierter Text" : "Formatted text",
+            clipChars = Language(context) == "de" ? "Zeichen" : "characters",
+            clipLines = Language(context) == "de" ? "Zeilen" : "lines",
+            clipReading = Language(context) == "de" ? "Lese die Zwischenablage ..." : "Reading the clipboard ...",
+            clipAsPng = Language(context) == "de" ? "Als PNG-Datei einfügen" : "Paste as a PNG file",
+            clipAsJpg = Language(context) == "de" ? "Als JPG-Datei einfügen" : "Paste as a JPG file",
+            clipAsImage = Language(context) == "de" ? "Als Bild einfügen" : "Paste as a picture",
+            clipDownload = Language(context) == "de" ? "Herunterladen" : "Download",
+            clipAsText = Language(context) == "de" ? "Als Text einfügen" : "Paste as text",
+            clipAsKeys = Language(context) == "de" ? "Als Tasten tippen" : "Type as keystrokes",
+            clipAsTxt = Language(context) == "de" ? "Als TXT-Datei einfügen" : "Paste as a TXT file",
+            clipPickFile = Language(context) == "de" ? "Datei wählen ..." : "Pick a file ...",
+            pastedTextName = Language(context) == "de" ? "Text" : "Text",
             dragNoMove = Language(context) == "de" ? "In einen anderen Ordner legen darf sie nur, wer diese Verbindung bearbeiten darf. Die Reihenfolge darfst du immer ändern." : "Only whoever may change this connection can put it into another folder. The order is always yours to change.",
             managerSortByName = Language(context) == "de" ? "Nach Namen sortieren" : "Sort by name",
             pasteFoldersOnly = Language(context) == "de" ? "Ordner lassen sich nicht einfügen - nur Dateien" : "Folders cannot be pasted - only files",
@@ -4782,6 +4797,22 @@ public sealed partial class HtmlViews
                         <button id="clipboard-close" type="button" data-dialog-close>{{T(context, "Close")}}</button>
                     </div>
                 </form>
+                <!-- The clipboard of this device, for the session in front: what is in it (a picture, text), and what
+                     to do with it - paste it as text, as a file, as a picture; or paste something else (typed here, or
+                     a file of this device). The status bar's clipboard button and the session toolbar open it. -->
+                <div id="clip-panel" class="credential-dialog clip-panel hidden" role="dialog" aria-modal="true" aria-labelledby="clip-panel-title">
+                    <div class="dialog-head"><h2 id="clip-panel-title">{{(Language(context) == "de" ? "Zwischenablage" : "Clipboard")}}</h2><button type="button" class="dialog-x" data-clip-close aria-label="{{A(T(context, "Close"))}}" title="{{A(T(context, "Close"))}}">&times;</button></div>
+                    <div class="dialog-body">
+                        <div class="clip-panel-what" data-clip-what></div>
+                        <div class="clip-panel-preview" data-clip-preview></div>
+                        <div class="clip-panel-actions" data-clip-actions></div>
+                        <label class="clip-panel-other">{{(Language(context) == "de" ? "Etwas anderes einfügen" : "Paste something else")}}
+                            <textarea data-clip-text rows="4" spellcheck="false" placeholder="{{A(Language(context) == "de" ? "Text hier eingeben oder bearbeiten ..." : "Type or edit text here ...")}}"></textarea>
+                        </label>
+                        <div class="clip-panel-actions" data-clip-other-actions></div>
+                        <input type="file" data-clip-file multiple hidden>
+                    </div>
+                </div>
                 <!-- This sheet has exactly one job: handing files from this device to the open session. It once
                      had two switches - source and target, two buttons each - and with them four combinations, of
                      which "from a place into a place" had nothing to do with a session at all. Copying now
@@ -4901,7 +4932,7 @@ public sealed partial class HtmlViews
                         <button id="status-clip" type="button" class="status-clip" hidden data-has="unknown">{{Icon("clipboard")}}<span class="status-clip-label"></span></button>
                         <button id="status-system" type="button" class="status-system" hidden aria-haspopup="dialog" aria-expanded="false"><span class="status-system-cpu"></span><span class="status-system-ram"></span></button>
                         <div id="status-system-panel" class="status-system-panel" role="dialog" hidden></div>
-                        <button id="status-info-button" type="button" class="status-info-button" title="{{A(aboutTitle)}}" aria-label="{{A(aboutTitle)}}">{{Icon("info")}}</button>
+                        <span id="status-info-icon" hidden>{{Icon("info")}}</span>
                     </div>
                 </div>
             </div>
@@ -4946,7 +4977,8 @@ public sealed partial class HtmlViews
                 const statusTunnel = document.getElementById('status-tunnel');
                 const statusSync = document.getElementById('status-sync');
                 const statusMessage = document.getElementById('status-message');
-                const aboutInfoButton = document.getElementById('status-info-button');
+                // The "About" page is reached through the account menu; its icon for the tab.
+                const aboutInfoButton = document.getElementById('status-info-icon');
                 const fileViewerDialog = document.getElementById('file-viewer-dialog');
                 const credentialDialog = document.getElementById('credential-dialog');
                 const credentialFields = document.getElementById('credential-fields');
@@ -9440,6 +9472,11 @@ public sealed partial class HtmlViews
                                 actionIcons.clipboard,
                                 uiText.pasteToActiveTab || uiText.clipboard || 'Paste to active tab',
                                 async () => {
+                                    // The clipboard panel: what is on it, and what to do with it (as text, as a file, as a picture).
+                                    if (window.MatgateOpenClipPanel) {
+                                        window.MatgateOpenClipPanel();
+                                        return;
+                                    }
                                     try {
                                         const text = await readBrowserClipboard();
                                         if (text && pasteTextToRemote(tab, text)) {
@@ -9653,6 +9690,11 @@ public sealed partial class HtmlViews
                         actionIcons.clipboard,
                         uiText.pasteToActiveTab || uiText.clipboard || 'Paste to active tab',
                         async () => {
+                            // The clipboard panel: what is on it, and what to do with it (as text, as a file, as a picture).
+                            if (window.MatgateOpenClipPanel) {
+                                window.MatgateOpenClipPanel();
+                                return;
+                            }
                             try {
                                 const text = await readBrowserClipboard();
                                 if (text) {
@@ -9819,6 +9861,11 @@ public sealed partial class HtmlViews
                         actionIcons.clipboard,
                         uiText.pasteToActiveTab || uiText.clipboard || 'Paste to active tab',
                         async () => {
+                            // The clipboard panel: what is on it, and what to do with it (as text, as a file, as a picture).
+                            if (window.MatgateOpenClipPanel) {
+                                window.MatgateOpenClipPanel();
+                                return;
+                            }
                             try {
                                 const text = await readBrowserClipboard();
                                 if (text) {
@@ -12739,21 +12786,32 @@ public sealed partial class HtmlViews
                     });
                 }
 
-                // ---- The clipboard in the status bar: a button while the session in front can take files (RDP and
-                // the agent's screen as real files on the machine's clipboard, SSH into the shell's current folder with
-                // the path typed after, a Guacamole session through its drive). A click reads this device's clipboard,
-                // makes a file of a picture in it ("Bild-2026-11-23-141200.png") and hands it over. It lights up when
-                // the browser lets the page look without a click and there is a picture.
+                // ---- The clipboard of this device, for the session in front. The status bar shows a button only
+                // while something is known to be on it - a picture or text - and says which ("Bild · PNG 1280×720").
+                // Known means: the browser lets the page look without a click (Chromium, once allowed); otherwise
+                // the session toolbar's clipboard button is the way in. Both open the clipboard panel: what is in
+                // it, and what to do with it - as text, as a file (PNG, JPG, TXT), as a picture; or something else,
+                // typed there or picked from this device.
                 // var, not const: the status bar is updated before this part of the script has run.
                 var clipButton = document.getElementById('status-clip');
+                var clipPanel = document.getElementById('clip-panel');
                 var clipNote = null;
                 var clipNoteTimer = 0;
+                var clipKnown = null;
+                // What the session in front can do with the clipboard. Null when nothing is in front.
                 function clipTarget() {
                     const tab = tabs.get(activeTabId);
                     if (tab) {
-                        return tab.client && tab.filesystem
-                            ? { paste: files => pasteFilesIntoSession(tab, { files, folders: [] }), focus: () => { } }
-                            : null;
+                        if (!tab.client) {
+                            return null;
+                        }
+                        return {
+                            pasteText: text => pasteTextToRemote(tab, text),
+                            typeText: text => typeTextToRemote(tab, text),
+                            pasteFiles: tab.filesystem ? files => pasteFilesIntoSession(tab, { files, folders: [] }) : null,
+                            pasteImage: null,
+                            focus: () => tab.panel && tab.panel.focus(),
+                        };
                     }
                     const shellTab = shellTabs.get(activeShellTabId);
                     if (!shellTab) {
@@ -12761,10 +12819,17 @@ public sealed partial class HtmlViews
                     }
                     const screen = agentScreenOf(shellTab);
                     const api = screen ? screen.api : (sshTerminalOf(shellTab) || {}).api;
-                    if (!api || typeof api.pasteFiles !== 'function' || (typeof api.canPasteFiles === 'function' && !api.canPasteFiles())) {
+                    if (!api) {
                         return null;
                     }
-                    return { paste: files => api.pasteFiles(files), focus: () => api.focus && api.focus() };
+                    const can = name => typeof api['can' + name] !== 'function' || api['can' + name]();
+                    return {
+                        pasteText: text => (screen ? api.pasteText(text) : api.paste(text)),
+                        typeText: null,
+                        pasteFiles: typeof api.pasteFiles === 'function' && can('PasteFiles') ? files => api.pasteFiles(files) : null,
+                        pasteImage: typeof api.pasteImage === 'function' && can('PasteImage') ? file => api.pasteImage(file) : null,
+                        focus: () => api.focus && api.focus(),
+                    };
                 }
                 function showClipNote(text) {
                     if (!clipNote) {
@@ -12775,42 +12840,98 @@ public sealed partial class HtmlViews
                     }
                     clipNote.textContent = text;
                     clipNote.hidden = false;
-                    const box = clipButton.getBoundingClientRect();
+                    const box = (clipButton && !clipButton.hidden ? clipButton : document.getElementById('session-statusbar') || document.body).getBoundingClientRect();
                     clipNote.style.right = Math.max(8, window.innerWidth - box.right) + 'px';
                     clipNote.style.bottom = (window.innerHeight - box.top + 8) + 'px';
                     window.clearTimeout(clipNoteTimer);
                     clipNoteTimer = window.setTimeout(() => { clipNote.hidden = true; }, 6000);
                 }
-                // What is on this device's clipboard: the pictures (and other non-text things) as files, with a name
-                // of their own; and whether there is text. Throws when the browser does not allow reading.
-                async function readClipboardFiles() {
+                const clipStamp = () => {
+                    const now = new Date();
+                    const pad2 = n => String(n).padStart(2, '0');
+                    return `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-${pad2(now.getDate())}-${pad2(now.getHours())}${pad2(now.getMinutes())}${pad2(now.getSeconds())}`;
+                };
+                const clipSize = bytes => bytes >= 1048576 ? (bytes / 1048576).toFixed(1) + ' MB' : Math.max(1, Math.round(bytes / 1024)) + ' KB';
+                // What is on this device's clipboard: a picture (with its type, size and dimensions) and/or text.
+                // Throws when the browser does not allow reading.
+                async function readClipboardContent() {
                     const items = await navigator.clipboard.read();
-                    const found = [];
-                    let text = false;
+                    const found = { image: null, text: '', html: false };
                     for (const item of items) {
-                        const type = item.types.find(candidate => !candidate.startsWith('text/'));
-                        if (type) {
-                            const blob = await item.getType(type);
-                            const extension = (type.split('/')[1] || 'bin').replace('jpeg', 'jpg').replace(/[^a-z0-9]/gi, '');
-                            found.push(new File([blob], 'image.' + extension, { type }));
+                        const imageType = item.types.find(type => type.startsWith('image/'));
+                        if (imageType && !found.image) {
+                            const blob = await item.getType(imageType);
+                            let width = 0;
+                            let height = 0;
+                            try {
+                                const bitmap = await createImageBitmap(blob);
+                                width = bitmap.width;
+                                height = bitmap.height;
+                                bitmap.close && bitmap.close();
+                            }
+                            catch {
+                            }
+                            found.image = { blob, type: imageType, width, height };
                         }
-                        else if (item.types.length) {
-                            text = true;
+                        if (item.types.includes('text/plain') && !found.text) {
+                            found.text = await (await item.getType('text/plain')).text();
+                        }
+                        if (item.types.includes('text/html')) {
+                            found.html = true;
                         }
                     }
-                    return { files: found.length ? filesFromClipboard({ files: found }) : [], text };
+                    return found;
                 }
-                function showClipState(has) {
-                    clipButton.dataset.has = has;
-                    clipButton.classList.toggle('has-file', has === 'file');
-                    const label = has === 'file' ? (uiText.clipHasFile || 'A picture on the clipboard - paste it as a file') : (uiText.clipButton || 'Paste the clipboard as a file');
-                    clipButton.title = label;
-                    clipButton.setAttribute('aria-label', label);
-                    clipButton.querySelector('.status-clip-label').textContent = has === 'file' ? (uiText.clipLabel || 'Picture') : '';
+                // "Bild · PNG 1280×720" / "Text · 42 Zeichen" - what the button and the panel say it is.
+                function describeClip(found) {
+                    if (!found) {
+                        return '';
+                    }
+                    if (found.image) {
+                        const format = (found.image.type.split('/')[1] || '').toUpperCase().replace('JPEG', 'JPG');
+                        return (uiText.clipKindImage || 'Picture') + ' · ' + format + (found.image.width ? ' ' + found.image.width + '×' + found.image.height : '') + ' · ' + clipSize(found.image.blob.size);
+                    }
+                    if (found.text) {
+                        const lines = found.text.split('\n').length;
+                        return (found.html ? (uiText.clipKindRich || 'Formatted text') : (uiText.clipKindText || 'Text')) + ' · ' + found.text.length + ' ' + (uiText.clipChars || 'characters') + (lines > 1 ? ' · ' + lines + ' ' + (uiText.clipLines || 'lines') : '');
+                    }
+                    return '';
+                }
+                const imageFile = (found, kind) => {
+                    const name = (uiText.pastedImageName || 'Bild') + '-' + clipStamp();
+                    if (kind === 'jpg') {
+                        return createImageBitmap(found.image.blob).then(bitmap => {
+                            const canvas = document.createElement('canvas');
+                            canvas.width = bitmap.width;
+                            canvas.height = bitmap.height;
+                            const context = canvas.getContext('2d');
+                            context.fillStyle = '#fff';
+                            context.fillRect(0, 0, canvas.width, canvas.height);
+                            context.drawImage(bitmap, 0, 0);
+                            return new Promise(resolve => canvas.toBlob(blob => resolve(new File([blob], name + '.jpg', { type: 'image/jpeg' })), 'image/jpeg', 0.92));
+                        });
+                    }
+                    const extension = (found.image.type.split('/')[1] || 'png').replace('jpeg', 'jpg');
+                    return Promise.resolve(new File([found.image.blob], name + '.' + extension, { type: found.image.type }));
+                };
+                const textFile = text => new File([text], (uiText.pastedTextName || 'Text') + '-' + clipStamp() + '.txt', { type: 'text/plain' });
+                function showClipState(found) {
+                    clipKnown = found;
+                    if (!clipButton) {
+                        return;
+                    }
+                    const what = describeClip(found);
+                    // Only with something known on the clipboard - and a session in front to take it.
+                    clipButton.hidden = !what || !clipTarget();
+                    clipButton.dataset.has = found && found.image ? 'image' : found && found.text ? 'text' : 'none';
+                    clipButton.classList.toggle('has-file', !!(found && found.image));
+                    clipButton.querySelector('.status-clip-label').textContent = what;
+                    clipButton.title = (uiText.clipOpen || 'Clipboard') + ': ' + what;
+                    clipButton.setAttribute('aria-label', clipButton.title);
                 }
                 // Without a click only where the browser already allows it (Chromium, once granted) - never a prompt.
                 async function lookAtClipboard() {
-                    if (clipButton.hidden || !navigator.clipboard || !navigator.clipboard.read || !document.hasFocus()) {
+                    if (!navigator.clipboard || !navigator.clipboard.read || !document.hasFocus()) {
                         return;
                     }
                     try {
@@ -12818,8 +12939,7 @@ public sealed partial class HtmlViews
                         if (permission.state !== 'granted') {
                             return;
                         }
-                        const found = await readClipboardFiles();
-                        showClipState(found.files.length ? 'file' : found.text ? 'text' : 'empty');
+                        showClipState(await readClipboardContent());
                     }
                     catch {
                         // Not allowed here or now (another frame has the focus): it stays as it was.
@@ -12829,38 +12949,151 @@ public sealed partial class HtmlViews
                     if (!clipButton) {
                         return;
                     }
-                    const target = clipTarget();
-                    clipButton.hidden = !target;
-                    if (target) {
-                        lookAtClipboard();
+                    if (!clipTarget()) {
+                        clipButton.hidden = true;
+                        return;
+                    }
+                    showClipState(clipKnown);
+                    lookAtClipboard();
+                }
+                // The panel.
+                function closeClipPanel() {
+                    if (!clipPanel) {
+                        return;
+                    }
+                    clipPanel.classList.add('hidden');
+                    const preview = clipPanel.querySelector('[data-clip-preview] img');
+                    if (preview) {
+                        URL.revokeObjectURL(preview.src);
                     }
                 }
-                if (clipButton) {
-                    showClipState('unknown');
-                    clipButton.addEventListener('click', async () => {
+                function clipAction(label, iconHtml, run, primary, action) {
+                    const button = document.createElement('button');
+                    button.type = 'button';
+                    button.className = primary ? 'primary' : '';
+                    button.dataset.clipAction = action || '';
+                    button.innerHTML = (iconHtml || '') + '<span></span>';
+                    button.querySelector('span').textContent = label;
+                    button.addEventListener('click', async () => {
                         const target = clipTarget();
                         if (!target) {
+                            closeClipPanel();
                             return;
                         }
-                        let found;
-                        try {
-                            found = await readClipboardFiles();
-                        }
-                        catch {
-                            showClipNote(uiText.clipDenied || 'The browser does not let Matgate read the clipboard.');
-                            return;
-                        }
-                        if (!found.files.length) {
-                            showClipState(found.text ? 'text' : 'empty');
-                            showClipNote(found.text ? (uiText.clipOnlyText || 'The clipboard holds text only.') : (uiText.clipEmpty || 'The clipboard is empty.'));
+                        const done = await run(target);
+                        if (done !== false) {
+                            closeClipPanel();
+                            if (typeof done === 'string') {
+                                showClipNote(done);
+                            }
                             target.focus();
-                            return;
                         }
-                        showClipState('file');
-                        target.paste(found.files);
-                        showClipNote((uiText.clipPasted || 'Pasted') + ': ' + found.files.map(file => file.name).join(', '));
-                        target.focus();
                     });
+                    return button;
+                }
+                async function openClipPanel() {
+                    if (!clipPanel) {
+                        return;
+                    }
+                    const target = clipTarget();
+                    if (!target) {
+                        return;
+                    }
+                    const what = clipPanel.querySelector('[data-clip-what]');
+                    const preview = clipPanel.querySelector('[data-clip-preview]');
+                    const actions = clipPanel.querySelector('[data-clip-actions]');
+                    const other = clipPanel.querySelector('[data-clip-other-actions]');
+                    const field = clipPanel.querySelector('[data-clip-text]');
+                    const picker = clipPanel.querySelector('[data-clip-file]');
+                    what.textContent = uiText.clipReading || 'Reading the clipboard ...';
+                    preview.replaceChildren();
+                    actions.replaceChildren();
+                    field.value = '';
+                    // Over whatever is in front - a page tab as well as a session's own area.
+                    if (clipPanel.parentElement !== document.body) {
+                        document.body.appendChild(clipPanel);
+                    }
+                    clipPanel.classList.remove('hidden');
+                    let found = null;
+                    try {
+                        found = await readClipboardContent();
+                        showClipState(found);
+                    }
+                    catch {
+                        what.textContent = uiText.clipDenied || 'The browser does not let Matgate read the clipboard.';
+                    }
+                    const pasted = name => (uiText.clipPasted || 'Pasted') + ': ' + name;
+                    if (found && found.image) {
+                        what.textContent = describeClip(found);
+                        const image = document.createElement('img');
+                        image.src = URL.createObjectURL(found.image.blob);
+                        image.alt = '';
+                        preview.appendChild(image);
+                        if (target.pasteFiles) {
+                            actions.append(
+                                clipAction(uiText.clipAsPng || 'Paste as a PNG file', actionIcons.upload || '', async t => { const file = await imageFile(found, 'png'); t.pasteFiles([file]); return pasted(file.name); }, true, 'png'),
+                                clipAction(uiText.clipAsJpg || 'Paste as a JPG file', '', async t => { const file = await imageFile(found, 'jpg'); t.pasteFiles([file]); return pasted(file.name); }, false, 'jpg'));
+                        }
+                        if (target.pasteImage) {
+                            actions.append(clipAction(uiText.clipAsImage || 'Paste as a picture', actionIcons.clipboard || '', async t => { t.pasteImage(await imageFile(found, 'png')); }, !target.pasteFiles, 'image'));
+                        }
+                        actions.append(clipAction(uiText.clipDownload || 'Download', '', async () => {
+                            const file = await imageFile(found, 'png');
+                            const link = document.createElement('a');
+                            link.href = URL.createObjectURL(file);
+                            link.download = file.name;
+                            document.body.appendChild(link);
+                            link.click();
+                            link.remove();
+                            window.setTimeout(() => URL.revokeObjectURL(link.href), 4000);
+                            return false;
+                        }, false, 'download'));
+                    }
+                    else if (found && found.text) {
+                        what.textContent = describeClip(found);
+                        const text = document.createElement('pre');
+                        text.textContent = found.text.length > 2000 ? found.text.slice(0, 2000) + ' …' : found.text;
+                        preview.appendChild(text);
+                        field.value = found.text;
+                    }
+                    else if (found) {
+                        what.textContent = uiText.clipEmpty || 'The clipboard is empty.';
+                    }
+                    // What is in the field below - the clipboard's text, edited, or something else typed in.
+                    const fieldText = () => field.value;
+                    other.replaceChildren(
+                        clipAction(uiText.clipAsText || 'Paste as text', actionIcons.clipboard || '', t => (fieldText() ? (t.pasteText(fieldText()), undefined) : false), !(found && found.image), 'text'),
+                        ...(target.typeText ? [clipAction(uiText.clipAsKeys || 'Type as keystrokes', '', t => (fieldText() ? (t.typeText(fieldText()), undefined) : false), false, 'keys')] : []),
+                        ...(target.pasteFiles ? [
+                            clipAction(uiText.clipAsTxt || 'Paste as a TXT file', '', t => { if (!fieldText()) { return false; } const file = textFile(fieldText()); t.pasteFiles([file]); return pasted(file.name); }, false, 'txt'),
+                            clipAction(uiText.clipPickFile || 'Pick a file ...', '', () => { picker.click(); return false; }, false, 'pick'),
+                        ] : []));
+                    picker.onchange = () => {
+                        const files = Array.from(picker.files || []);
+                        picker.value = '';
+                        const t = clipTarget();
+                        if (files.length && t && t.pasteFiles) {
+                            t.pasteFiles(files);
+                            closeClipPanel();
+                            showClipNote(pasted(files.map(file => file.name).join(', ')));
+                            t.focus();
+                        }
+                    };
+                    (actions.querySelector('button') || other.querySelector('button') || field).focus();
+                }
+                window.MatgateOpenClipPanel = openClipPanel;
+                if (clipPanel) {
+                    clipPanel.querySelector('[data-clip-close]').addEventListener('click', closeClipPanel);
+                    clipPanel.addEventListener('keydown', event => {
+                        if (event.key === 'Escape') {
+                            event.stopPropagation();
+                            closeClipPanel();
+                        }
+                    });
+                }
+                if (clipButton) {
+                    clipButton.hidden = true;
+                    clipButton.addEventListener('click', openClipPanel);
                     window.addEventListener('focus', () => followClipboard());
                     document.addEventListener('visibilitychange', () => {
                         if (!document.hidden) {
@@ -22168,6 +22401,17 @@ public sealed partial class HtmlViews
                     .status-clip:hover { border-color: var(--accent); color: var(--text); }
                     .status-clip.has-file { background: color-mix(in srgb, var(--accent) 16%, var(--surface)); border-color: var(--accent); color: var(--text); }
                     .status-clip-label:empty { display: none; }
+                    .status-clip-label { max-width: 260px; overflow: hidden; text-overflow: ellipsis; }
+                    .credential-dialog.clip-panel { position: fixed; width: min(560px, calc(100vw - 24px)); z-index: 45; }
+                    .clip-panel .dialog-body { display: grid; gap: 10px; }
+                    .clip-panel-what { font-weight: 600; }
+                    .clip-panel-preview:empty { display: none; }
+                    .clip-panel-preview img { background: repeating-conic-gradient(var(--line) 0 25%, transparent 0 50%) 0 0 / 16px 16px; border: 1px solid var(--line); border-radius: 8px; display: block; max-height: 220px; max-width: 100%; object-fit: contain; }
+                    .clip-panel-preview pre { background: var(--surface-2, var(--surface)); border: 1px solid var(--line); border-radius: 8px; font-size: 12.5px; margin: 0; max-height: 160px; overflow: auto; padding: 8px 10px; white-space: pre-wrap; word-break: break-word; }
+                    .clip-panel-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+                    .clip-panel-actions:empty { display: none; }
+                    .clip-panel-other { display: grid; gap: 4px; }
+                    .clip-panel-other textarea { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; min-height: 80px; resize: vertical; }
                     .status-clip-note {
                         background: var(--surface);
                         border: 1px solid var(--line);
@@ -22603,7 +22847,7 @@ public sealed partial class HtmlViews
                             overflow-y: hidden;
                             overscroll-behavior-x: contain;
                             padding: 4px var(--home-pad) 8px;
-                            scroll-padding-inline: var(--home-pad) calc(var(--home-pad) + var(--qc-tile) + 8px);
+                            scroll-padding-inline: var(--home-pad);
                             scrollbar-width: none;
                             -webkit-overflow-scrolling: touch;
                         }
@@ -22628,32 +22872,9 @@ public sealed partial class HtmlViews
                             text-overflow: clip;
                             white-space: nowrap;
                         }
-                        /* "More" pinned at the right end: a fade before it, and the strip of page to its right
-                           covered, so that no tile shows behind it. right: 0 and not the padding: a sticky box
-                           already stops at the row's padding, so the page's edge is where it stands. The cover
-                           is a plain block rather than a second shadow: a shadow has the tile's round corners,
-                           and the tile behind showed through them at the edge of the screen. */
-                        .home2-quick-row > .home2-proto-more {
-                            background: var(--surface);
-                            box-shadow: -18px 0 14px -8px var(--bg);
-                            position: sticky;
-                            right: 0;
-                            scroll-snap-align: end;
-                            z-index: 1;
-                        }
-                        .home2-quick-row > .home2-proto-more::after {
-                            background: var(--bg);
-                            bottom: -1px;
-                            content: "";
-                            left: calc(100% + 1px);
-                            pointer-events: none;
-                            position: absolute;
-                            top: -1px;
-                            width: var(--home-pad);
-                        }
-                        .home2-quick-row > .home2-proto-more:focus-visible { box-shadow: var(--focus-ring), -18px 0 14px -8px var(--bg); }
-                        /* Pinned, it does not lift under the mouse either: its cover would leave the edge free. */
-                        .home2-quick-row > .home2-proto-more:hover { transform: none; }
+                        /* "More" is the last tile and scrolls with the others, as the folder tiles do (0.43.2):
+                           not pinned. That there is more still shows - the tile at the edge is cut. */
+                        .home2-quick-row > .home2-proto-more { scroll-snap-align: end; }
                     }
                     /* A swipe comes to rest at the start of a tile - only under a finger. A snapping row also moves
                        a tile that the keyboard brings into view to the nearest such rest, and that can be under
@@ -25860,6 +26081,7 @@ public sealed partial class HtmlViews
                            named here as well - otherwise each of them keeps its desktop box. */
                         .credential-dialog,
                         .credential-dialog.clipboard-dialog,
+                        .credential-dialog.clip-panel,
                         .credential-dialog.send-files-dialog,
                         .credential-dialog.copy-to-dialog,
                         .credential-dialog.confirm-dialog,

@@ -121,7 +121,7 @@ public sealed class PostgresDialect : IDatabaseDialect
         $"SELECT * FROM {table}{(orderColumn is null ? "" : " ORDER BY " + Quote(orderColumn) + (descending ? " DESC" : ""))} LIMIT {limit} OFFSET {offset}";
 }
 
-public sealed class DatabaseGateway
+public sealed partial class DatabaseGateway
 {
     public const int MaxRows = 1000;
     public const int MaxCellLength = 4000;

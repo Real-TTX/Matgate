@@ -2938,6 +2938,20 @@ public static class AgentScreenPage
                 // Files from the shell (the clipboard button of its status bar): onto the machine's clipboard as
                 // real files, and pasted there. False where this session cannot take files (VNC).
                 canPasteFiles: () => clipFiles,
+                // A picture as a picture (pasted into a document, not as a file): RDP takes it as a bitmap.
+                canPasteImage: () => clipImage !== 'none',
+                pasteImage: file => {
+                    if (!file || clipImage === 'none') {
+                        return false;
+                    }
+                    if (clipImage === 'dib') {
+                        toDib(file).then(dib => uploadFiles([dib], 'image')).catch(() => setStatus(text.clipFailed, true));
+                    }
+                    else {
+                        uploadFiles([file], 'image');
+                    }
+                    return true;
+                },
                 pasteFiles: files => {
                     if (!clipFiles || !files || !files.length) {
                         return false;

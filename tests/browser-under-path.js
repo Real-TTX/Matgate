@@ -42,18 +42,26 @@ const check = (name, got, want) => {
     return [boxes.length, new Set(boxes.map(b => Math.round(b.top))).size, row.scrollWidth > row.clientWidth + 1,
       document.documentElement.scrollWidth <= innerWidth + 1, boxes.every(b => b.width > 40)];
   }), [12, 1, true, true, true]);
-  check("'More' stays in sight at the right edge, and the tile before it is cut", await page.evaluate(() => {
+  // Since 0.43.2 "More" is not pinned: it is the last tile and scrolls with the others, as the folder tiles do.
+  check("the tile at the right edge is cut, so that there is more to see", await page.evaluate(() => {
     const row = document.querySelector(".home2-quick-row"); row.scrollLeft = 0;
-    const more = row.querySelector("[data-home2-more]").getBoundingClientRect();
-    const cut = [...row.querySelectorAll("[data-home2-qc]")].some(c => { const b = c.getBoundingClientRect(); return b.left < more.left && b.right > more.left; });
-    return [more.left >= 0 && more.right <= innerWidth, cut];
-  }), [true, true]);
-  check("the browser chip scrolls into sight and is not under 'More'", await page.evaluate(async () => {
+    return [...row.querySelectorAll(".home2-proto-chip")].some(c => { const b = c.getBoundingClientRect(); return b.left < innerWidth && b.right > innerWidth; });
+  }), true);
+  check("'More' is the last tile and scrolls with the others", await page.evaluate(async () => {
+    const row = document.querySelector(".home2-quick-row"); row.scrollLeft = 0;
+    const more = row.querySelector("[data-home2-more]");
+    const before = more.getBoundingClientRect().left;
+    const last = row.querySelector(".home2-proto-chip:last-child") === more;
+    row.scrollLeft = row.scrollWidth; await new Promise(r => setTimeout(r, 300));
+    const after = more.getBoundingClientRect();
+    return [last, getComputedStyle(more).position !== "sticky", before > innerWidth - 10 || before > after.left, after.right <= innerWidth + 1];
+  }), [true, true, true, true]);
+  check("the browser chip scrolls into sight and is not covered", await page.evaluate(async () => {
     const chip = document.querySelector(".home2-quick-row [data-home2-qc='website']");
     chip.scrollIntoView({ inline: "nearest", block: "nearest" }); await new Promise(r => setTimeout(r, 400));
-    const b = chip.getBoundingClientRect(), more = document.querySelector(".home2-quick-row [data-home2-more]").getBoundingClientRect();
+    const b = chip.getBoundingClientRect();
     const hit = document.elementFromPoint(b.left + b.width / 2, b.top + b.height / 2);
-    return [b.left >= 0 && b.right <= more.left + 1, !!hit && chip.contains(hit)];
+    return [b.left >= 0 && b.right <= innerWidth + 1, !!hit && chip.contains(hit)];
   }), [true, true]);
   check("'Anpassen' is there for a phone without a long press", await page.evaluate(() => !!document.querySelector(".home2-quick-section .home2-section-link")?.offsetParent), true);
   // The start page is built anew after a favourite, an edit or a change in the settings: the row stays where it

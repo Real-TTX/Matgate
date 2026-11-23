@@ -106,7 +106,7 @@ Three ready-made stacks are in this repo, all with prebuilt images:
 
 | Image | Tag |
 |---|---|
-| `ghcr.io/real-ttx/matgate` | `latest`, a version such as `0.43.1`, or `sha-…` |
+| `ghcr.io/real-ttx/matgate` | `latest`, a version such as `0.44.0`, or `sha-…` |
 | `ghcr.io/real-ttx/matgate-browser-farm` | `latest` (optional) |
 
 <details>
@@ -168,10 +168,12 @@ volumes:
   ([compare them](#-two-engines)).
 - **RDP clipboard for text, pictures and files**, both ways. Ctrl+V puts files into the Explorer window that
   is open on the remote desktop. Sound works, and the resolution **follows the window without reconnecting**.
-- **A clipboard button in the status bar**: a picture copied on this device (a screenshot) becomes a file
-  ("Bild-…png") at a click and goes into the session in front: RDP and the agent's screen get it as a real
-  file on their clipboard and paste it, SSH gets it in the shell's current folder (when the shell reports it,
-  OSC 7; else the home) with its path typed on the command line, a Guacamole session through its drive.
+- **The clipboard, for the session in front**: the status bar shows what is on this device's clipboard ("Picture ·
+  PNG 1280×720", "Text · 42 characters") - only while there is something. A click (or the toolbar's clipboard
+  button) opens a panel with a preview and what to do with it: a picture as a PNG or JPG file, as a picture or
+  downloaded; text as text, typed, or as a TXT file, edited first; or something else typed in or picked. RDP and
+  the agent's screen get files as real files on their clipboard, SSH in the shell's current folder (OSC 7; else
+  the home) with the path typed, a Guacamole session through its drive.
 - **Tabs** that you can drag, and **sessions that outlive the browser**. A reload, a lost network or a closed
   app finds the very same session again, on another device too.
 - **Already open?** If you open a connection that already has a session somewhere, Matgate asks whether to
@@ -223,8 +225,13 @@ needed). [→ Agent documentation](agent/README.md)
 
 ### 🗄️ Databases
 
-- **SQL Server, MySQL / MariaDB and PostgreSQL** in one database browser: databases, tables and views,
-  rows a page at a time, sorting by column, and your own statements.
+- **SQL Server, MySQL / MariaDB and PostgreSQL** in one small **SQL studio**: an object explorer with
+  databases, tables and views (columns, keys, indexes, foreign keys), procedures and functions, each with a
+  menu - rows, a SELECT, **script as CREATE**, the structure.
+- A real **SQL editor** (CodeMirror, served by Matgate itself): colours per server, **completion** of tables and
+  columns, queries in tabs that are there again after a reload, run the **selection** (Ctrl+Enter / F5),
+  **several results**, **cancel**, a **history**, and **export** of every row as CSV or JSON.
+- Rows a page at a time, sorted by a column. **Read only** stays read only, in the editor too.
 - Also through **quick connect**, with nothing saved.
 
 ### 🗂️ Organizing & sharing

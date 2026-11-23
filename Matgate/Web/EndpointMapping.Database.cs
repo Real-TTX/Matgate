@@ -21,6 +21,11 @@ public static partial class EndpointMapping
         app.MapGet("/api/db/{id:guid}/objects", DatabaseObjectsAsync).RequireAuthorization();
         app.MapGet("/api/db/{id:guid}/rows", DatabaseRowsAsync).RequireAuthorization();
         app.MapPost("/api/db/{id:guid}/query", DatabaseQueryAsync).RequireAuthorization();
+        app.MapPost("/api/db/{id:guid}/cancel", DatabaseCancelAsync).RequireAuthorization();
+        app.MapGet("/api/db/{id:guid}/table", DatabaseTableAsync).RequireAuthorization();
+        app.MapGet("/api/db/{id:guid}/routines", DatabaseRoutinesAsync).RequireAuthorization();
+        app.MapGet("/api/db/{id:guid}/script", DatabaseScriptAsync).RequireAuthorization();
+        app.MapPost("/api/db/{id:guid}/export", DatabaseExportAsync).RequireAuthorization();
     }
 
     private sealed record DatabaseAccess(ServerEndpoint Server, MatgateUser User, string Login, string Password);
@@ -156,8 +161,165 @@ public static partial class EndpointMapping
             }
 
             var database = form["db"].ToString();
-            return await Databases.QueryAsync(
-                access.Server, access.Login, access.Password, database.Length > 0 ? database : null, sql,
-                IsReadOnlyFor(access.User, access.Server), HtmlViews.Language(context) == "de", context.RequestAborted);
+            // A query the page can stop (the Cancel button): known by the user and the page's own id for it.
+            var key = access.User.Id.ToString("N") + ":" + form["queryId"].ToString();
+            using var cancel = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
+            if (form["queryId"].ToString().Length is > 0 and <= 64)
+            {
+                RunningQueries[key] = cancel;
+            }
+
+            try
+            {
+                var batch = await Databases.BatchAsync(
+                    access.Server, access.Login, access.Password, database.Length > 0 ? database : null, sql,
+                    IsReadOnlyFor(access.User, access.Server), HtmlViews.Language(context) == "de", cancel.Token);
+                var first = batch.Results.FirstOrDefault();
+                // The first result's fields at the top, as before 0.44.0; every result in "results".
+                return new
+                {
+                    columns = first?.Columns ?? [],
+                    rows = first?.Rows ?? [],
+                    affected = batch.Affected,
+                    truncated = first?.Truncated ?? false,
+                    elapsedMs = batch.ElapsedMs,
+                    results = batch.Results,
+                    readOnly = IsReadOnlyFor(access.User, access.Server),
+                };
+            }
+            finally
+            {
+                RunningQueries.TryRemove(key, out _);
+            }
         });
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, CancellationTokenSource> RunningQueries = new();
+
+    // The Cancel button: the running query of this user with this id stops (the server is told to cancel it).
+    private static async Task<IResult> DatabaseCancelAsync(Guid id, HttpContext context, JsonDataStore store)
+    {
+        var (access, result) = await RequireDatabaseAsync(id, context, store, true);
+        if (result is not null)
+        {
+            return result;
+        }
+
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        if (RunningQueries.TryGetValue(access!.User.Id.ToString("N") + ":" + form["queryId"].ToString(), out var running))
+        {
+            try
+            {
+                running.Cancel();
+            }
+            catch (ObjectDisposedException)
+            {
+                // Finished meanwhile.
+            }
+        }
+
+        return Results.NoContent();
+    }
+
+    private static Task<IResult> DatabaseTableAsync(Guid id, HttpContext context, JsonDataStore store) =>
+        DatabaseRunAsync(id, context, store, async access =>
+        {
+            var query = context.Request.Query;
+            return await Databases.TableAsync(access.Server, access.Login, access.Password, query["db"].ToString(), query["schema"].ToString(), query["table"].ToString(), context.RequestAborted);
+        });
+
+    private static Task<IResult> DatabaseRoutinesAsync(Guid id, HttpContext context, JsonDataStore store) =>
+        DatabaseRunAsync(id, context, store, async access => new
+        {
+            routines = await Databases.RoutinesAsync(access.Server, access.Login, access.Password, context.Request.Query["db"].ToString(), context.RequestAborted),
+        });
+
+    private static Task<IResult> DatabaseScriptAsync(Guid id, HttpContext context, JsonDataStore store) =>
+        DatabaseRunAsync(id, context, store, async access =>
+        {
+            var query = context.Request.Query;
+            return new
+            {
+                script = await Databases.ScriptAsync(access.Server, access.Login, access.Password, query["db"].ToString(), query["kind"].ToString(), query["schema"].ToString(), query["name"].ToString(), context.RequestAborted),
+            };
+        });
+
+    private const long MaxExportRows = 1_000_000;
+
+    // A statement's whole first result as a file - CSV (for Excel: UTF-8 with its mark, ";" in German) or JSON -
+    // streamed as it is read, not held in memory. The same rules as a query: read-only stays read-only.
+    private static async Task DatabaseExportAsync(Guid id, HttpContext context, JsonDataStore store)
+    {
+        var (access, result) = await RequireDatabaseAsync(id, context, store, true);
+        if (result is not null)
+        {
+            await result.ExecuteAsync(context);
+            return;
+        }
+
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        var sql = form["sql"].ToString();
+        var database = form["db"].ToString();
+        var json = form["format"] == "json";
+        var german = HtmlViews.Language(context) == "de";
+        var separator = form["separator"].ToString() is { Length: 1 } chosen ? chosen : german ? ";" : ",";
+        var name = new string((form["name"].ToString() is { Length: > 0 } given ? given : "export").Where(character => char.IsLetterOrDigit(character) || character is '-' or '_' or '.').ToArray());
+        if (string.IsNullOrWhiteSpace(sql) || string.IsNullOrEmpty(access!.Login))
+        {
+            context.Response.StatusCode = StatusCodes.Status400BadRequest;
+            return;
+        }
+
+        string Csv(string? value) =>
+            value is null ? "" : value.IndexOfAny([separator[0], '"', '\n', '\r']) >= 0 ? "\"" + value.Replace("\"", "\"\"") + "\"" : value;
+        IReadOnlyList<string> names = [];
+        var started = false;
+        var wroteRow = false;
+        var writer = new StreamWriter(context.Response.Body, new System.Text.UTF8Encoding(!json));
+        try
+        {
+            await Databases.ExportAsync(
+                access.Server, access.Login, access.Password, database.Length > 0 ? database : null, sql,
+                IsReadOnlyFor(access.User, access.Server), german, MaxExportRows,
+                async columns =>
+                {
+                    names = columns;
+                    context.Response.ContentType = json ? "application/json; charset=utf-8" : "text/csv; charset=utf-8";
+                    context.Response.Headers.ContentDisposition = $"attachment; filename=\"{(name.Length == 0 ? "export" : name)}.{(json ? "json" : "csv")}\"";
+                    started = true;
+                    await writer.WriteAsync(json ? "[" : string.Join(separator, columns.Select(Csv)) + "\r\n");
+                },
+                async values =>
+                {
+                    if (json)
+                    {
+                        var entry = new Dictionary<string, string?>();
+                        for (var i = 0; i < values.Length; i++)
+                        {
+                            entry[names[i]] = values[i];
+                        }
+
+                        await writer.WriteAsync((wroteRow ? "," : "") + "\n" + System.Text.Json.JsonSerializer.Serialize(entry));
+                        wroteRow = true;
+                    }
+                    else
+                    {
+                        await writer.WriteAsync(string.Join(separator, values.Select(Csv)) + "\r\n");
+                    }
+                },
+                context.RequestAborted);
+            if (json)
+            {
+                await writer.WriteAsync("\n]\n");
+            }
+
+            await writer.FlushAsync(context.RequestAborted);
+        }
+        catch (DatabaseException exception)
+        {
+            if (!started)
+            {
+                await DatabaseError(context, exception).ExecuteAsync(context);
+            }
+        }
+    }
 }

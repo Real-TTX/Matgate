@@ -29,6 +29,7 @@ public static partial class EndpointMapping
         app.MapPost("/api/agent/{id:guid}/update", AgentUpdateAsync).RequireAuthorization();
         app.MapGet("/agent/{id:guid}/terminal", AgentTerminalPageAsync).RequireAuthorization();
         app.MapGet("/assets/xterm/{file}", XtermAsset);
+        app.MapGet("/assets/codemirror/{file}", (string file) => EmbeddedAsset("codemirror/", file));
         MapAgentScreenEndpoints(app);
     }
 
@@ -578,9 +579,12 @@ public static partial class EndpointMapping
             })));
     }
 
-    private static IResult XtermAsset(string file)
+    private static IResult XtermAsset(string file) => EmbeddedAsset("xterm/", file);
+
+    // A file of a library served from the gateway itself (no CDN), cached by the browser for a day.
+    private static IResult EmbeddedAsset(string prefix, string file)
     {
-        var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream("xterm/" + file);
+        var stream = Assembly.GetExecutingAssembly().GetManifestResourceStream(prefix + file);
         if (stream is null)
         {
             return Results.NotFound();

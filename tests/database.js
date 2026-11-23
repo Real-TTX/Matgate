@@ -71,7 +71,17 @@ const check = (name, got, want) => {
     }
     return null;
   };
-  const tableNames = () => inFrame(() => [...document.querySelectorAll("[data-db-tree] .dbx-node-table span")].map(s => s.textContent));
+  const tableNames = () => inFrame(() => [...document.querySelectorAll("[data-db-tree] .dbx-node-table .dbx-label")].map(s => s.textContent));
+  // The document in front (0.44.0: queries, rows and structures are tabs of the page; the first column is "#").
+  const V = "[data-db-pane]:not([hidden]) ";
+  const runQuery = async sql => {
+    await inFrame(text => window.MatgateDatabase.active().setSql(text), sql);
+    await frameOf().click(V + "[data-db-run]");
+  };
+  const newQuery = async sql => {
+    await inFrame(text => window.MatgateDatabase.openQuery({ sql: text }), sql);
+    await sleep(300);
+  };
   const grid = selector => inFrame(s => {
     const table = document.querySelector(s + " table");
     return table ? { head: [...table.tHead.rows[0].cells].map(c => c.firstChild.textContent), rows: [...table.tBodies[0].rows].map(r => [...r.cells].map(c => c.textContent)) } : null;
@@ -99,18 +109,20 @@ const check = (name, got, want) => {
       await frame.click("[data-db-login] button[type='submit']");
       // The table to read, made through the SQL field.
       await waitFor(() => document.querySelectorAll("[data-db-tree] .dbx-node-db").length > 0, null, 30000);
-      await frame.click("[data-db-tab='sql']");
-      await frame.fill("[data-db-sql]", "IF OBJECT_ID('dbo.customers') IS NULL BEGIN CREATE TABLE dbo.customers (id INT PRIMARY KEY, name NVARCHAR(80) NOT NULL, city NVARCHAR(80) NULL, since DATE NULL); INSERT INTO dbo.customers VALUES (1, N'Anna Berg', N'Hamburg', '2021-03-01'), (2, N'Ben Clausen', N'Kiel', '2022-07-15'), (3, N'Cora Dahl', NULL, '2023-01-09'); END");
-      await frame.press("[data-db-sql]", "Control+Enter");
-      const made = await waitFor(() => { const m = document.querySelector("[data-db-message]"); return m && !/Lädt|Loading/.test(m.textContent) ? m.textContent : null; });
-      check(label + "a statement without rows says how many it changed", /changed|geändert/.test(made || ""), true);
+      // Typed into the editor and run with Ctrl+Enter, as a person does.
+      await newQuery("");
+      await frame.click(V + ".cm-content");
+      await page.keyboard.insertText("IF OBJECT_ID('dbo.customers') IS NULL BEGIN CREATE TABLE dbo.customers (id INT PRIMARY KEY, name NVARCHAR(80) NOT NULL, city NVARCHAR(80) NULL, since DATE NULL); INSERT INTO dbo.customers VALUES (1, N'Anna Berg', N'Hamburg', '2021-03-01'), (2, N'Ben Clausen', N'Kiel', '2022-07-15'), (3, N'Cora Dahl', NULL, '2023-01-09'); END");
+      await page.keyboard.press("Control+Enter");
+      const made = await waitFor(v => { const m = document.querySelector(v + "[data-db-message]"); return m && !m.hidden && !/Läuft|Running/.test(m.textContent) ? m.textContent : null; }, V);
+      check(label + "a statement without rows says how many it changed", /changed|geändert|Done|Fertig/.test(made || ""), true);
       await frame.click("[data-db-refresh]");
       // Only system databases there: none opens by itself - a click on one opens it.
       await waitFor(() => [...document.querySelectorAll("[data-db-tree] .dbx-node-db")].some(n => n.textContent === "master") || null);
       await frame.locator("[data-db-tree] .dbx-node-db").filter({ hasText: /^master$/ }).click();
     }
 
-    const listed = await waitFor(() => { const names = [...document.querySelectorAll("[data-db-tree] .dbx-node-table span")].map(s => s.textContent); return names.includes("customers") ? names : null; }, null, 60000);
+    const listed = await waitFor(() => { const names = [...document.querySelectorAll("[data-db-tree] .dbx-node-table .dbx-label")].map(s => s.textContent); return names.includes("customers") ? names : null; }, null, 60000);
     check(label + "its database is open with the tables" + (kind.ask ? "" : " and the view"), [!!listed && listed.includes("customers"), kind.ask ? true : !!listed && listed.includes("customers_in_kiel")], [true, true]);
     if (!listed) { continue; }
     // A database's name stands beside its arrow, not in it (the arrow of a closed one is turned, and so was the
@@ -121,34 +133,110 @@ const check = (name, got, want) => {
     check(label + "the filter's text starts after its magnifier", await inFrame(() => parseFloat(getComputedStyle(document.querySelector("[data-db-filter]")).paddingLeft) >= 28), true);
 
     await frameOf().locator("[data-db-tree] .dbx-node-table").filter({ hasText: /^customers$/ }).first().click();
-    const rows = await waitFor(() => { const t = document.querySelector("[data-db-data] table"); return t && t.tBodies[0].rows.length ? true : null; });
-    const first = await grid("[data-db-data]");
-    check(label + "a click on the table shows its rows, NULL as NULL", [!!rows, first && first.head.slice(0, 3), first && first.rows.length, first && first.rows[2][2]], [true, ["id", "name", "city"], 3, "NULL"]);
-    check(label + "with how many there are", await inFrame(() => document.querySelector("[data-db-range]").textContent), "1–3 of 3 rows");
-    await frameOf().click("[data-db-data] th:nth-child(2)");
+    const rows = await waitFor(v => { const t = document.querySelector(v + "[data-db-data] table"); return t && t.tBodies[0].rows.length ? true : null; }, V);
+    const first = await grid(V + "[data-db-data]");
+    check(label + "a click on the table shows its rows in a tab of their own, NULL as NULL", [!!rows, first && first.head.slice(1, 4), first && first.rows.length, first && first.rows[2][3]], [true, ["id", "name", "city"], 3, "NULL"]);
+    check(label + "with how many there are", await inFrame(v => document.querySelector(v + "[data-db-range]").textContent, V), "1–3 of 3 rows");
+    await frameOf().click(V + "[data-db-data] th:nth-child(3)");
     await sleep(400);
-    await frameOf().click("[data-db-data] th:nth-child(2)");
-    const ordered = await waitFor(() => { const t = document.querySelector("[data-db-data] table"); return t && /▼/.test(t.tHead.textContent) ? [...t.tBodies[0].rows].map(r => r.cells[1].textContent) : null; });
+    await frameOf().click(V + "[data-db-data] th:nth-child(3)");
+    const ordered = await waitFor(v => { const t = document.querySelector(v + "[data-db-data] table"); return t && /▼/.test(t.tHead.textContent) ? [...t.tBodies[0].rows].map(r => r.cells[2].textContent) : null; }, V);
     check(label + "a second click on a column orders by it backwards", ordered, ["Cora Dahl", "Ben Clausen", "Anna Berg"]);
 
     if (!kind.ask) {
       await frameOf().locator("[data-db-tree] .dbx-node-table").filter({ hasText: /^numbers$/ }).first().click();
-      await waitFor(() => /of 150/.test(document.querySelector("[data-db-range]").textContent) || null);
-      check(label + "a big table comes a hundred rows at a time", await inFrame(() => document.querySelector("[data-db-range]").textContent), "1–100 of 150 rows");
-      await frameOf().click("[data-db-next]");
-      await waitFor(() => /^101/.test(document.querySelector("[data-db-range]").textContent) || null);
-      check(label + "and the next page has the rest", await inFrame(() => document.querySelector("[data-db-range]").textContent), "101–150 of 150 rows");
+      await waitFor(v => /of 150/.test(document.querySelector(v + "[data-db-range]").textContent) || null, V);
+      check(label + "a big table comes a hundred rows at a time", await inFrame(v => document.querySelector(v + "[data-db-range]").textContent, V), "1–100 of 150 rows");
+      await frameOf().click(V + "[data-db-next]");
+      await waitFor(v => /^101/.test(document.querySelector(v + "[data-db-range]").textContent) || null, V);
+      check(label + "and the next page has the rest", await inFrame(v => document.querySelector(v + "[data-db-range]").textContent, V), "101–150 of 150 rows");
     }
 
-    await frameOf().click("[data-db-tab='sql']");
-    await frameOf().fill("[data-db-sql]", "SELECT name FROM customers WHERE city = 'Kiel'");
-    await frameOf().click("[data-db-run]");
-    const answer = await waitFor(() => { const t = document.querySelector("[data-db-result] table"); return t ? [...t.tBodies[0].rows].map(r => r.cells[0].textContent) : null; });
+    // ---- the SQL editor
+    await newQuery("");
+    check(label + "a query has a real editor (CodeMirror)", await inFrame(v => !!document.querySelector(v + ".cm-editor") && window.MatgateDatabase.hasEditor, V), true);
+    await runQuery("SELECT name FROM customers WHERE city = 'Kiel'");
+    const answer = await waitFor(v => { const t = document.querySelector(v + "[data-db-result] table"); return t ? [...t.tBodies[0].rows].map(r => r.cells[1].textContent) : null; }, V);
     check(label + "a statement typed in runs and shows its rows", answer, ["Ben Clausen"]);
-    await frameOf().fill("[data-db-sql]", "SELECT * FROM no_such_table");
-    await frameOf().click("[data-db-run]");
-    const fault = await waitFor(() => { const m = document.querySelector("[data-db-message]"); return m && m.classList.contains("bad") ? m.textContent : null; });
+    check(label + "its words are in colour", await inFrame(v => {
+      const spans = [...document.querySelectorAll(v + ".cm-line span")];
+      const keyword = spans.find(s => s.textContent === "SELECT");
+      const text = spans.find(s => /^'/.test(s.textContent));
+      return !!keyword && getComputedStyle(keyword).color !== getComputedStyle(text).color;
+    }, V), true);
+    await runQuery("SELECT * FROM no_such_table");
+    const fault = await waitFor(v => { const m = document.querySelector(v + "[data-db-message]"); return m && m.classList.contains("bad") ? m.textContent : null; }, V);
     check(label + "a wrong one says what the server said", !!fault && /no_such_table/i.test(fault), true);
+
+    // Two statements, two results.
+    await runQuery("SELECT 1 AS one;\nSELECT 2 AS two;");
+    const tabs = await waitFor(v => { const t = [...document.querySelectorAll(v + "[data-db-result-tabs] [data-db-result-index]")]; return t.length >= 3 ? t.map(x => x.textContent) : null; }, V);
+    check(label + "two statements give two results (and the messages)", tabs && tabs.length, 3);
+    // Only the selection runs when something is selected.
+    await inFrame(v => {
+      const doc = window.MatgateDatabase.active();
+      doc.setSql("SELECT 'not this' AS x;\nSELECT 'this' AS x;");
+    }, V);
+    await frameOf().click(V + ".cm-content");
+    await page.keyboard.press("Control+End");
+    await page.keyboard.press("Shift+Home");
+    await frameOf().click(V + "[data-db-run]");
+    const selected = await waitFor(v => { const t = document.querySelector(v + "[data-db-result] table"); const value = t ? t.tBodies[0].rows[0].cells[1].textContent : ""; return /this/.test(value) ? value : null; }, V);
+    check(label + "with a selection only it runs", selected, "this");
+    // Completion of tables (and, once known, their columns).
+    await inFrame(() => window.MatgateDatabase.active().setSql(""));
+    await frameOf().click(V + ".cm-content");
+    await page.keyboard.type("SELECT * FROM custo", { delay: 30 });
+    const offered = await waitFor(() => { const box = document.querySelector(".cm-tooltip-autocomplete"); return box ? box.textContent : null; }, null, 6000);
+    check(label + "the editor offers the tables as one types", !!offered && /customers/.test(offered), true);
+    await page.keyboard.press("Escape");
+
+    // ---- the object explorer: a table's columns and keys, its structure, the statement that makes it
+    await frameOf().locator("[data-db-tree] .dbx-node-table").filter({ hasText: /^customers$/ }).first().locator(".dbx-caret").click();
+    const columns = await waitFor(() => { const names = [...document.querySelectorAll("[data-db-tree] .dbx-node[data-kind='column'] .dbx-label")].map(n => n.textContent); return names.length >= 4 ? names : null; });
+    check(label + "opened in the tree, a table shows its columns", columns && columns.slice(0, 4), ["id", "name", "city", "since"]);
+    check(label + "the primary key's column is marked", await inFrame(() => !!document.querySelector("[data-db-tree] .dbx-node.pk[data-kind='column']")), true);
+    const struct = await inFrame(name => {
+      const db = [...document.querySelectorAll("[data-db-tree] .dbx-node-table")].find(n => n.dataset.name === name);
+      return window.MatgateDatabase.openStructure(db.dataset.db, db.dataset.schema, name).then(() => true);
+    }, "customers");
+    const structure = await waitFor(v => { const box = document.querySelector(v + "[data-db-structure]"); return box && box.querySelector("table") ? box.innerText : null; }, V);
+    check(label + "the structure lists columns, types and the primary key", !!struct && !!structure && /name/.test(structure) && /Primary key|Primärschlüssel/.test(structure), true);
+    await frameOf().click(V + "[data-db-structure] .dbx-bar button");
+    const script = await waitFor(() => { const text = window.MatgateDatabase.active() && window.MatgateDatabase.active().getSql ? window.MatgateDatabase.active().getSql() : ""; return /CREATE TABLE/i.test(text) ? text : null; });
+    check(label + "\"Script as CREATE\" gives the statement that makes the table", !!script && /customers/i.test(script) && /PRIMARY KEY/i.test(script), true);
+
+    // ---- export: every row, as a file
+    const csv = await inFrame(async ([id, password]) => {
+      const body = new FormData(); body.append("sql", "SELECT id, name FROM customers ORDER BY id"); body.append("format", "csv"); body.append("separator", ",");
+      const db = document.querySelector("[data-db-tree] .dbx-node-table").dataset.db; body.append("db", db);
+      const headers = { "X-Matgate-Csrf": window.MatgateDatabase.csrf };
+      if (password) { headers["X-Matgate-Db-Password"] = password; }
+      const response = await fetch("/api/db/" + id + "/export", { method: "POST", body, credentials: "same-origin", headers });
+      return response.ok ? (await response.text()).replace(/^﻿/, "").trim().split(/\r?\n/) : ["HTTP " + response.status];
+    }, [kind.server.id, kind.ask || ""]);
+    check(label + "the export has every row with a header", csv, ["id,name", "1,Anna Berg", "2,Ben Clausen", "3,Cora Dahl"]);
+
+    if (kind.protocol === "Postgres") {
+      // A long query can be stopped.
+      await newQuery("");
+      await runQuery("SELECT pg_sleep(30)");
+      await sleep(1200);
+      await frameOf().click(V + "[data-db-stop]");
+      const stopped = await waitFor(v => { const m = document.querySelector(v + "[data-db-message]"); return m && m.classList.contains("bad") ? m.textContent : null; }, V, 15000);
+      check(label + "\"Cancel\" stops a running query", !!stopped && /Abgebrochen|Cancelled|cancel/i.test(stopped), true);
+      // The history has what ran; the queries are there again after a reload.
+      await frameOf().click(V + "[data-db-history]");
+      check(label + "the history lists what ran", await inFrame(() => [...document.querySelectorAll("[data-db-menu] .dbx-history-item span")].some(s => /pg_sleep/.test(s.textContent))), true);
+      await frameOf().press("body", "Escape");
+      const before = await inFrame(() => document.querySelectorAll("[data-db-doc='query']").length);
+      await frameOf().evaluate(() => location.reload());
+      await sleep(2500);
+      const after = await waitFor(() => document.querySelectorAll("[data-db-doc='query']").length || null, null, 15000);
+      check(label + "the query tabs are there again after a reload", after, before);
+    }
+    // Leave no query tabs behind for the next connection's round.
+    await inFrame(() => { try { Object.keys(localStorage).filter(k => k.startsWith("matgate.db.")).forEach(k => localStorage.removeItem(k)); } catch { } });
 
     // Close the tab again.
     await page.evaluate(() => document.querySelectorAll("#session-tabs .session-tab:not(.session-tab--add) .session-tab-close").forEach(x => x.click()));
@@ -196,7 +284,7 @@ const check = (name, got, want) => {
   for (let i = 0; i < 60 && !quickFrame; i++) { await sleep(300); quickFrame = frameOf(); }
   check("connecting opens the database browser in a tab", !!quickFrame, true);
   if (quickFrame) {
-    const quickTables = await waitFor(() => { const names = [...document.querySelectorAll("[data-db-tree] .dbx-node-table span")].map(s => s.textContent); return names.includes("customers") ? names : null; }, null, 30000);
+    const quickTables = await waitFor(() => { const names = [...document.querySelectorAll("[data-db-tree] .dbx-node-table .dbx-label")].map(s => s.textContent); return names.includes("customers") ? names : null; }, null, 30000);
     check("with the tables of the database asked for", !!quickTables && quickTables.includes("customers"), true);
   }
   check("and nothing was saved", (await servers()).filter(s => s.name === "postgres").length, 0);

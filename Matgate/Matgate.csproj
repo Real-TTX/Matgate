@@ -6,12 +6,14 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <!-- The H.264 encoder of Matgate's own display engine is called through function pointers. -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <VersionPrefix>0.43.1</VersionPrefix>
+    <VersionPrefix>0.44.0</VersionPrefix>
   </PropertyGroup>
 
   <ItemGroup>
     <!-- xterm.js for the agent terminals, served from the gateway itself (no CDN). -->
     <EmbeddedResource Include="Web/Assets/xterm/*" LogicalName="xterm/%(Filename)%(Extension)" />
+    <!-- CodeMirror 6 for the database browser's editor, one file built from npm (Web/Assets/codemirror/build). -->
+    <EmbeddedResource Include="Web/Assets/codemirror/*" LogicalName="codemirror/%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup>

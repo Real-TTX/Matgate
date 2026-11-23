@@ -1,9 +1,12 @@
-// The clipboard button in the status bar (0.43.0): with a picture on this device's clipboard, a click makes a file
-// of it ("Bild-<time>.png") and hands it to the session in front - on Matgate's own engine:
-//   SSH  uploaded into the shell's current folder (when the shell says which, OSC 7) or the home, its path typed
-//   RDP  a real file on the machine's clipboard (the session reads it through the clipboard's file streams)
-//   VNC  cannot take files: no button
-// Text alone is not taken over (Ctrl+V does that) - the button says so.
+// The clipboard of this device, for the session in front (0.44.0), on Matgate's own engine:
+//   - the status bar shows a button only while something is on the clipboard, and says what ("PNG 40×30", "Text")
+//   - the button (and the session toolbar's clipboard button) opens a panel: what is in it, and what to do with it
+//       a picture  as a PNG or JPG file, as a picture, or downloaded
+//       text       as text, typed, as a TXT file - edited first, or something else typed in
+//   - where it goes:
+//       SSH  files into the shell's current folder (when the shell says which, OSC 7) or the home, the path typed
+//       RDP  a real file on the machine's clipboard (the session reads it through the clipboard's file streams)
+//       VNC  no files - text only
 const { chromium } = require("playwright-core");
 const { execFileSync } = require("child_process");
 const BASE = "http://127.0.0.1:18091";
@@ -50,8 +53,27 @@ const onDesktop = command => { try { return execFileSync("docker", ["exec", "-u"
     const g = canvas.getContext("2d"); g.fillStyle = "#c02"; g.fillRect(0, 0, 40, 30);
     const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/png"));
     await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+    window.dispatchEvent(new Event("focus"));
   });
-  const button = () => page.evaluate(() => { const el = document.getElementById("status-clip"); return el ? { shown: !el.hidden, has: el.dataset.has } : null; });
+  const putText = text => page.evaluate(async t => { await navigator.clipboard.writeText(t); window.dispatchEvent(new Event("focus")); }, text);
+  const button = async () => {
+    await sleep(500);
+    return page.evaluate(() => { const el = document.getElementById("status-clip"); return el ? { shown: !el.hidden, label: el.textContent.trim() } : null; });
+  };
+  const openPanel = async () => {
+    await page.click("#status-clip");
+    for (let i = 0; i < 20; i++) {
+      const ready = await page.evaluate(() => { const p = document.getElementById("clip-panel"); return !!p && !p.classList.contains("hidden") && !/Lese|Reading/.test(p.querySelector("[data-clip-what]").textContent); });
+      if (ready) { break; }
+      await sleep(200);
+    }
+    return page.evaluate(() => ({
+      what: document.querySelector("#clip-panel [data-clip-what]").textContent,
+      actions: [...document.querySelectorAll("#clip-panel [data-clip-action]")].map(b => b.dataset.clipAction),
+      preview: !!document.querySelector("#clip-panel [data-clip-preview] img"),
+    }));
+  };
+  const act = action => page.click("#clip-panel [data-clip-action='" + action + "']");
   const note = () => page.evaluate(() => { const el = document.querySelector(".status-clip-note"); return el && !el.hidden ? el.textContent : ""; });
   const closeTabs = async () => {
     for (let i = 0; i < 6; i++) {
@@ -64,40 +86,75 @@ const onDesktop = command => { try { return execFileSync("docker", ["exec", "-u"
   const made = [];
   try {
     // =========================================================================================== SSH
-    onSsh("rm -f /config/Bild-*.png /config/Image-*.png /tmp/Bild-*.png /tmp/Image-*.png");
+    onSsh("rm -f /config/Bild-*.png /config/Image-*.png /config/Bild-*.jpg /config/Image-*.jpg /config/Text-*.txt /tmp/Bild-*.png /tmp/Image-*.png");
     const ssh = await connection("Clip-SSH", "Ssh", { host: "ssh", port: "2222", targetUserName: "demo", targetPassword: "demo-only-pw", engine: "" });
     made.push(ssh.name);
     await page.goto(BASE + "/?open=" + ssh.id, { waitUntil: "networkidle" });
     let terminal = null;
     for (let i = 0; i < 40 && !terminal; i++) { terminal = page.frames().find(f => /\/ssh\/.+\/terminal/.test(f.url())); await sleep(300); }
     for (let i = 0; i < 40 && !/\$/.test(await terminal.evaluate(() => document.querySelector(".xterm-rows").innerText).catch(() => "")); i++) { await sleep(300); }
-    await page.evaluate(() => window.updateStatusBar ? window.updateStatusBar() : null).catch(() => { });
-    await sleep(300);
-    check("SSH: the status bar has the clipboard button", (await button()).shown, true);
 
-    await page.evaluate(() => navigator.clipboard.writeText("nur Text"));
-    await page.click("#status-clip");
-    await sleep(500);
-    check("text alone is not taken over - the button says so", /Text|text/.test(await note()), true);
+    await page.evaluate(() => navigator.clipboard.write([]).catch(() => navigator.clipboard.writeText("")));
+    await page.evaluate(() => window.dispatchEvent(new Event("focus")));
+    check("with nothing on the clipboard there is no button", (await button()).shown, false);
 
     await putPicture();
-    await page.click("#status-clip");
+    const pictureButton = await button();
+    check("with a picture the button is there and says what it is", [pictureButton.shown, /PNG 40×30/.test(pictureButton.label)], [true, true]);
+    const panel = await openPanel();
+    check("the panel shows the picture and what can be done with it", [panel.preview, ["png", "jpg", "download"].every(a => panel.actions.includes(a))], [true, true]);
+    await act("png");
     let home = "";
     for (let i = 0; i < 30 && !home; i++) { home = onSsh("ls /config | grep -E '^(Bild|Image)-.*\\.png$' | head -1"); await sleep(300); }
-    check("SSH: the picture is a file with a name of its own in the home folder", /^(Bild|Image)-\d{4}-\d\d-\d\d-\d{6}\.png$/.test(home), true);
+    check("SSH: as a PNG file in the home folder, with a name of its own", /^(Bild|Image)-\d{4}-\d\d-\d\d-\d{6}\.png$/.test(home), true);
     await sleep(800);
-    const line = await terminal.evaluate(() => document.querySelector(".xterm-rows").innerText);
-    check("SSH: and its path is on the command line", line.includes("/config/" + home), true);
+    check("SSH: and its path is on the command line", (await terminal.evaluate(() => document.querySelector(".xterm-rows").innerText)).includes("/config/" + home), true);
     check("the note says what was pasted", (await note()).includes(home), true);
 
-    // The shell says where it is (OSC 7): the next picture goes there.
+    await terminal.evaluate(() => window.MatgateTerminal.paste("\u0015"));
+    await putPicture();
+    await openPanel();
+    await act("jpg");
+    let jpg = "";
+    for (let i = 0; i < 30 && !jpg; i++) { jpg = onSsh("ls /config | grep -E '^(Bild|Image)-.*\\.jpg$' | head -1"); await sleep(300); }
+    check("SSH: or as a JPG file", !!jpg, true);
+    check("which is a JPEG", onSsh("head -c 3 /config/'" + jpg + "' | od -An -tx1 | tr -d ' '"), "ffd8ff");
+
+    // Text: as text, or as a TXT file - edited first.
+    await terminal.evaluate(() => window.MatgateTerminal.paste("\u0015"));
+    await putText("hallo welt");
+    const textButton = await button();
+    check("with text the button says it is text", /Text · 10/.test(textButton.label), true);
+    const textPanel = await openPanel();
+    check("the panel offers text, a TXT file or a file of this device", ["text", "txt", "pick"].every(a => textPanel.actions.includes(a)), true);
+    await page.fill("#clip-panel [data-clip-text]", "echo eingefuegt-$((40+2))");
+    await act("text");
+    await sleep(500);
+    await terminal.evaluate(() => window.MatgateTerminal.paste("\r"));
+    let typed = false;
+    for (let i = 0; i < 20 && !typed; i++) { typed = /eingefuegt-42/.test(await terminal.evaluate(() => document.querySelector(".xterm-rows").innerText)); await sleep(300); }
+    check("SSH: edited text pasted as text runs", typed, true);
+    await putText("Notiz fuer den Server");
+    await openPanel();
+    await act("txt");
+    let txt = "";
+    for (let i = 0; i < 30 && !txt; i++) { txt = onSsh("ls /config | grep -E '^Text-.*\\.txt$' | head -1"); await sleep(300); }
+    check("SSH: text as a TXT file", !!txt && onSsh("cat /config/'" + txt + "'") === "Notiz fuer den Server", true);
+
+    // The shell says where it is (OSC 7): the next file goes there.
     await terminal.evaluate(() => window.MatgateTerminal.paste("\u0015cd /tmp && printf '\\033]7;file://ssh/tmp\\007'\r"));
     await sleep(1200);
     await putPicture();
-    await page.click("#status-clip");
+    await openPanel();
+    await act("png");
     let there = "";
     for (let i = 0; i < 30 && !there; i++) { there = onSsh("ls /tmp | grep -E '^(Bild|Image)-.*\\.png$' | head -1"); await sleep(300); }
     check("SSH: into the folder the shell is in, once it says so", !!there, true);
+    // The session toolbar's clipboard button opens the same panel.
+    await page.evaluate(() => document.querySelector("#connection-tab-actions [data-action='clipboard']").click());
+    await sleep(800);
+    check("the toolbar's clipboard button opens the panel", await page.evaluate(() => !document.getElementById("clip-panel").classList.contains("hidden")), true);
+    await page.click("#clip-panel [data-clip-close]");
     await closeTabs();
 
     // =========================================================================================== RDP
@@ -112,9 +169,11 @@ const onDesktop = command => { try { return execFileSync("docker", ["exec", "-u"
       await sleep(500);
     }
     await sleep(1500);
-    check("RDP: the status bar has the clipboard button", (await button()).shown, true);
     await putPicture();
-    await page.click("#status-clip");
+    check("RDP: the button is there with the picture", (await button()).shown, true);
+    const rdpPanel = await openPanel();
+    check("RDP: files and a picture can be pasted", ["png", "jpg", "image"].every(a => rdpPanel.actions.includes(a)), true);
+    await act("png");
     let uris = "";
     for (let i = 0; i < 40 && !/Bild-|Image-/.test(uris); i++) { await sleep(700); uris = onDesktop("timeout 3 xclip -o -selection clipboard -t text/uri-list"); }
     check("RDP: the picture is a file on the machine's clipboard", /(Bild|Image)-[0-9-]+\.png/.test(uris), true);
@@ -132,7 +191,10 @@ const onDesktop = command => { try { return execFileSync("docker", ["exec", "-u"
       await sleep(500);
     }
     await sleep(1000);
-    check("VNC: cannot take files - no button", (await button()).shown, false);
+    await putPicture();
+    const vncPanel = await openPanel();
+    check("VNC: no files - only text (and the picture to download)", [vncPanel.actions.includes("png"), vncPanel.actions.includes("text"), vncPanel.actions.includes("download")], [false, true, true]);
+    await page.click("#clip-panel [data-clip-close]");
     await closeTabs();
   }
   finally {
@@ -141,7 +203,7 @@ const onDesktop = command => { try { return execFileSync("docker", ["exec", "-u"
       await page.evaluate(n => { const row = [...document.querySelectorAll("tr")].find(r => r.innerText.includes(n)); const form = row && row.querySelector("form[action*='/delete']"); if (form) { form.removeAttribute("data-confirm"); form.submit(); } }, name);
       await sleep(800);
     }
-    onSsh("rm -f /config/Bild-*.png /config/Image-*.png /tmp/Bild-*.png /tmp/Image-*.png");
+    onSsh("rm -f /config/Bild-*.png /config/Image-*.png /config/Bild-*.jpg /config/Image-*.jpg /config/Text-*.txt /tmp/Bild-*.png /tmp/Image-*.png");
     await b.close();
   }
   console.log(failures.length ? "\n" + failures.length + " FAILED: " + failures.join(", ") : "\nall passed");
