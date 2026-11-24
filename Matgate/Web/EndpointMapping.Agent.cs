@@ -108,6 +108,7 @@ public static partial class EndpointMapping
         }
 
         agents.Attach(match.Id, link);
+        await RememberAgentPlatformAsync(store, match, link.Hello, context.RequestAborted);
         try
         {
             await link.Completion.WaitAsync(context.RequestAborted);
@@ -119,6 +120,33 @@ public static partial class EndpointMapping
         {
             agents.Detach(match.Id, link);
             link.Dispose();
+        }
+    }
+
+    // What the agent said it is, kept with its connection: the start page and the side panel show the
+    // system's sign by it. Written only when it changed - this runs on every status call.
+    private static async Task RememberAgentPlatformAsync(JsonDataStore store, ServerEndpoint server, AgentHello hello, CancellationToken cancellationToken)
+    {
+        var platform = (hello.Platform ?? "").Trim();
+        if (platform.Length == 0 || string.Equals(server.AgentPlatform, platform, StringComparison.Ordinal))
+        {
+            return;
+        }
+
+        try
+        {
+            await store.UpdateServersAsync(servers =>
+            {
+                var stored = servers.FirstOrDefault(candidate => candidate.Id == server.Id);
+                if (stored is not null)
+                {
+                    stored.AgentPlatform = platform;
+                }
+            }, cancellationToken);
+            server.AgentPlatform = platform;
+        }
+        catch (OperationCanceledException)
+        {
         }
     }
 
@@ -134,6 +162,7 @@ public static partial class EndpointMapping
         {
             var link = await agents.GetAsync(server!, context.RequestAborted);
             var hello = link.Hello;
+            await RememberAgentPlatformAsync(store, server!, hello, context.RequestAborted);
             var terminalsAllowed = CanUseAgentTerminal(user!, server!);
             return Results.Json(new
             {

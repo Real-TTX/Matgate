@@ -340,7 +340,7 @@ public sealed partial class HtmlViews
             .admtree-node.is-off { opacity: .6; }
             .admtree-root { font-weight: 700; }
             .admtree-icon { align-items: center; display: inline-flex; flex: 0 0 auto; }
-            .admtree-icon .icon { height: 16px; width: 16px; }
+            .admtree-icon .icon { height: 19px; width: 19px; }
             .admtree-folder-icon { color: var(--accent); }
             .admtree-text { display: grid; flex: 1 1 auto; min-width: 0; }
             .admtree-text strong { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -359,8 +359,9 @@ public sealed partial class HtmlViews
             .admdetail-head { align-items: center; display: flex; gap: 14px; }
             .admdetail-head h2 { font-size: 22px; margin: 0; }
             .admdetail-head .eyebrow { margin: 0 0 2px; }
-            .admdetail-icon { align-items: center; background: color-mix(in srgb, var(--proto, var(--accent)) 14%, var(--surface)); border-radius: 14px; color: var(--proto, var(--accent)); display: inline-flex; flex: 0 0 auto; height: 48px; justify-content: center; width: 48px; }
-            .admdetail-icon .icon, .admdetail-icon svg { height: 24px; width: 24px; }
+            .admdetail-icon { align-items: center; color: var(--proto, var(--accent)); display: inline-flex; flex: 0 0 auto; height: 48px; justify-content: center; width: 48px; }
+            .admdetail-icon .server-icon { height: 48px; width: 48px; }
+            .admdetail-icon .icon, .admdetail-icon svg { height: 34px; width: 34px; }
             .admdetail-back { display: none; }
             .admdetail-crumbs a { color: inherit; text-decoration: none; }
             .admdetail-crumbs a:hover { text-decoration: underline; }
@@ -391,6 +392,12 @@ public sealed partial class HtmlViews
                 .admdetail-back { display: inline-flex; }
                 .admdetail-head { flex-wrap: wrap; }
                 .admdetail-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+                /* The figures as one line of text on a phone (0.48.0) - "6 users · 2 admins · 1 locked" - not four tiles. */
+                .admdetail-stats { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius, 14px); display: flex; flex-wrap: wrap; gap: 4px 0; padding: 10px 14px; }
+                .admdetail-stats > div { align-items: baseline; background: none; border: 0; display: inline-flex; gap: 5px; padding: 0; }
+                .admdetail-stats > div + div::before { color: var(--muted); content: "·"; margin: 0 8px; }
+                .admdetail-stats strong { font-size: 15px; }
+                .admdetail-stats span { font-size: 14px; }
             }
         </style>
         """;

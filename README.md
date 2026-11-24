@@ -106,7 +106,7 @@ Three ready-made stacks are in this repo, all with prebuilt images:
 
 | Image | Tag |
 |---|---|
-| `ghcr.io/real-ttx/matgate` | `latest`, a version such as `0.47.0`, or `sha-…` |
+| `ghcr.io/real-ttx/matgate` | `latest`, a version such as `0.48.0`, or `sha-…` |
 | `ghcr.io/real-ttx/matgate-browser-farm` | `latest` (optional) |
 
 <details>
@@ -504,6 +504,11 @@ connection, on a **folder** or on **all connections**.
   right there) and **what they may use**, each with the reason. A group shows its members (added and removed
   right there), the SSO groups it stands for, and **what it may do** - entries on all connections, folders or
   single connections, the level changed and saved at once. `/admin/users` is still the table of every user.
+- **Signs**: a connection is shown by its mark alone, in the protocol's colour - the Windows window for RDP,
+  the prompt for SSH, a cylinder with PG / My / MS for a database, and for an agent the system it last said it
+  runs on (Windows, Linux, macOS). Windows, Linux and Apple can also be chosen as a connection's own icon.
+- **On a phone** the start page is a list: one row per connection, a tap connects, "⋮" holds the rest (favourite,
+  settings, access, copy the address). Quick connect and the folders are chips instead of tiles.
 - **Read only on a database** runs one reading statement at a time inside a read-only transaction that is
   rolled back. A database login that cannot write is still the safest answer.
 - Roles on the user: `Admin` (everything), `Manage servers` (edits every shared connection, makes shared

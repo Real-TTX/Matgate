@@ -1167,7 +1167,7 @@ public sealed partial class HtmlViews
         var body = $$"""
             <div class="conn-page">
                 <section class="page-head conn-head">
-                    <span class="conn-head-icon" style="--proto: {{ProtocolAccent(server.Protocol)}}" aria-hidden="true">{{Icon(ServerEndpoint.EffectiveIconKey(server.Protocol, server.IconKey))}}</span>
+                    <span class="conn-head-icon" style="--proto: {{ProtocolAccent(server.Protocol)}}" aria-hidden="true">{{Icon(server.SignKey())}}</span>
                     <div>
                         <p class="eyebrow">{{(de ? "Verbindung" : "Connection")}}</p>
                         <h1>{{E(server.Name)}}</h1>
@@ -2979,8 +2979,10 @@ public sealed partial class HtmlViews
         // The folder it is filed in, for the server manager's tree.
         folder = (server.FolderName ?? "").Trim(),
         protocol = server.Protocol.ToString().ToUpperInvariant(),
-        iconKey = ServerEndpoint.EffectiveIconKey(server.Protocol, server.IconKey),
-        iconHtml = Icon(ServerEndpoint.EffectiveIconKey(server.Protocol, server.IconKey)),
+        iconKey = server.SignKey(),
+        iconHtml = Icon(server.SignKey()),
+        // PG / My / MS on a database's sign in the side panel.
+        signTag = server.SignKey() == "database" ? server.SignTag() : "",
         // The protocol's colour dot - so a button in the bar carries the same shade as the card it
         // came from.
         protoColor = ProtocolAccent(server.Protocol),
@@ -4103,6 +4105,7 @@ public sealed partial class HtmlViews
         // record. The gear still pointed at /admin/servers/<id> - and therefore at a
         // page that does not exist (404).
         var isArea = server.Protocol == ServerProtocol.Local;
+        var de = Language(context) == "de";
         var canEdit = includeEditButtons
             && !isArea
             && Services.AccessResolver.Level(user, server) >= AccessLevel.Edit;
@@ -4120,7 +4123,7 @@ public sealed partial class HtmlViews
             : "";
 
         return $$"""
-            <article class="connection-choice" data-home2-card="1" data-card-server="{{(isArea ? "" : server.Id.ToString())}}" data-folder-path="{{A((server.FolderName ?? "").Trim())}}" data-fav="{{(IsFavoriteServer(user, server.Id) ? "1" : "0")}}" data-folder="{{A(FolderFilterKey(server.FolderName))}}" data-search="{{A(searchIndex)}}" style="--proto: {{ProtocolAccent(server.Protocol)}}">
+            <article class="connection-choice" data-home2-card="1" data-card-server="{{(isArea ? "" : server.Id.ToString())}}" data-card-access="{{(canEdit && server.OwnerUserId is null ? "1" : "0")}}" data-folder-path="{{A((server.FolderName ?? "").Trim())}}" data-fav="{{(IsFavoriteServer(user, server.Id) ? "1" : "0")}}" data-folder="{{A(FolderFilterKey(server.FolderName))}}" data-search="{{A(searchIndex)}}" style="--proto: {{ProtocolAccent(server.Protocol)}}">
                 <span class="connection-choice-mark" aria-hidden="true">{{ConnectionMark(server)}}</span>
                 {{(isArea ? "" : """<span class="connection-grip" aria-hidden="true"><svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><circle cx="9" cy="6" r="1.6"/><circle cx="15" cy="6" r="1.6"/><circle cx="9" cy="12" r="1.6"/><circle cx="15" cy="12" r="1.6"/><circle cx="9" cy="18" r="1.6"/><circle cx="15" cy="18" r="1.6"/></svg></span>""")}}
                 <div class="connection-choice-body">
@@ -4137,6 +4140,7 @@ public sealed partial class HtmlViews
                             {{extraHtml}}
                         </div>
                         <div class="connection-choice-corner">{{settingsCorner}}{{FavoriteToggleForm(context, user, server, returnUrl)}}</div>
+                        <button type="button" class="connection-choice-more" data-card-more title="{{A(de ? "Mehr" : "More")}}" aria-label="{{A((de ? "Mehr zu " : "More for ") + server.Name)}}">{{Icon("more")}}</button>
                     </div>
                     {{(string.IsNullOrWhiteSpace(server.Notes) ? "" : $"""<p class="muted connection-choice-notes">{E(server.Notes)}</p>""")}}
                 </div>
@@ -4154,7 +4158,7 @@ public sealed partial class HtmlViews
     {
         ServerProtocol.Rdp => """<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M3 5.6 10.4 4.6v6.8H3z"/><path d="M11.6 4.4 21 3v8.4h-9.4z"/><path d="M3 12.6h7.4v6.8L3 18.4z"/><path d="M11.6 12.6H21V21l-9.4-1.4z"/></svg>""",
         ServerProtocol.Ssh => """<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="m4 7 5 5-5 5"/><path d="M12 18h8"/></svg>""",
-        _ => Icon(ServerEndpoint.EffectiveIconKey(server.Protocol, server.IconKey)),
+        _ => Icon(server.SignKey()),
     };
 
     private static string FavoriteToggleForm(
@@ -4291,7 +4295,7 @@ public sealed partial class HtmlViews
                     <div class="session-tabs viewer-tabs">
                         <div class="session-tab active viewer-tab">
                             <div class="session-tab-main viewer-tab-main" aria-current="page">
-                                <span class="session-tab-title">{{Icon(ServerEndpoint.EffectiveIconKey(server.Protocol, server.IconKey))}}<span>{{E(file.FileName)}}</span></span>
+                                <span class="session-tab-title">{{Icon(server.SignKey())}}<span>{{E(file.FileName)}}</span></span>
                                 <small>{{E(path)}} &middot; {{E(file.ContentType)}} &middot; {{FormatFileSize(file.Length)}}</small>
                             </div>
                         </div>
@@ -4320,7 +4324,7 @@ public sealed partial class HtmlViews
                     <div class="session-tabs viewer-tabs">
                         <div class="session-tab active viewer-tab">
                             <div class="session-tab-main viewer-tab-main" aria-current="page">
-                                <span class="session-tab-title">{{Icon(ServerEndpoint.EffectiveIconKey(server.Protocol, server.IconKey))}}<span>{{E(title)}}</span></span>
+                                <span class="session-tab-title">{{Icon(server.SignKey())}}<span>{{E(title)}}</span></span>
                                 <small>{{E(path)}}</small>
                             </div>
                         </div>
@@ -6995,6 +6999,13 @@ public sealed partial class HtmlViews
                             });
                         });
 
+                        // Who may use it - as in the side panel's menu; the phone's "..." leads here too.
+                        const accessId = card.dataset.cardServer;
+                        if (accessId && card.dataset.cardAccess === '1') {
+                            const name = ((card.querySelector('h3') || {}).textContent || '').trim();
+                            items.push({ label: uiText.managerAccess || 'Access ...', iconHtml: fileIcon('shield'), onSelect: () => openShellTab('/admin/access?server=' + encodeURIComponent(accessId), (uiText.managerAccessTitle || 'Access') + ': ' + name, fileIcon('shield'), '') });
+                        }
+
                         const address = ((card.querySelector('.target') || {}).textContent || '').trim();
                         if (address) {
                             items.push({ separator: true });
@@ -7228,6 +7239,28 @@ public sealed partial class HtmlViews
                             items: menu.items
                         });
                     });
+
+                    // The "..." of a connection on a phone: the card's menu, as a right click opens it (star,
+                    // settings, access, copy the address). The card itself connects when tapped.
+                    document.addEventListener('click', event => {
+                        const more = event.target instanceof Element ? event.target.closest('[data-card-more]') : null;
+                        const card = more ? more.closest('[data-home2-card]') : null;
+                        if (!card || typeof window.MatgateOpenMenu !== 'function') {
+                            return;
+                        }
+
+                        event.preventDefault();
+                        event.stopPropagation();
+                        const menu = contextMenuOfCard(card);
+                        const box = more.getBoundingClientRect();
+                        window.MatgateOpenMenu({
+                            trigger: more,
+                            at: { x: box.right, y: box.bottom },
+                            title: menu.title,
+                            closeLabel: ui('close'),
+                            items: menu.items
+                        });
+                    }, true);
 
                     // A finger held still on the side panel is its right click: that is where a new connection
                     // or folder is made now that the panel has no head. iOS sends no contextmenu for it, so it is
@@ -8641,7 +8674,7 @@ public sealed partial class HtmlViews
                             page: '',
                             name: server.name || '',
                             note: server.target && server.target !== '-' ? server.target : '',
-                            iconHtml: server.iconHtml || '',
+                            iconHtml: (server.iconHtml || '') + (server.signTag ? '<span class="server-icon-tag">' + escapeHtml(server.signTag) + '</span>' : ''),
                             color: server.protoColor || 'var(--accent)',
                             tip: [server.name, server.protocol, server.target].filter(Boolean).join(' · '),
                             open: sessions.length,
@@ -19186,10 +19219,8 @@ public sealed partial class HtmlViews
                     .server-manager-count { color: var(--muted); flex: 0 0 auto; font-size: 11.5px; font-weight: 600; }
                     .server-manager-item { min-height: 40px; }
                     .server-manager-item--flat { padding-left: 8px; }
-                    .server-manager-item-icon {
+                    .server-manager-item-icon { position: relative;
                         align-items: center;
-                        background: color-mix(in srgb, var(--proto) 14%, var(--surface));
-                        border-radius: 8px;
                         color: var(--proto);
                         display: inline-flex;
                         flex: 0 0 auto;
@@ -19197,7 +19228,8 @@ public sealed partial class HtmlViews
                         justify-content: center;
                         width: 28px;
                     }
-                    .server-manager-item-icon .icon { height: 15px; width: 15px; }
+                    .server-manager-item-icon > .icon { height: 19px; width: 19px; }
+                    .server-manager-item-icon .server-icon-tag { bottom: -3px; font-size: 7.5px; padding: 1px 2px; right: -4px; }
                     .server-manager-item-text { display: grid; flex: 1 1 auto; line-height: 1.25; min-width: 0; }
                     .server-manager-item-text strong { font-size: 13.5px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
                     .server-manager-item-text small { color: var(--muted); font-size: 11.5px; font-weight: 400; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -19331,7 +19363,8 @@ public sealed partial class HtmlViews
                         .server-manager-tree { padding: 0 8px 16px; }
                         .server-manager-folder { font-size: 15px; min-height: 44px; }
                         .server-manager-item { min-height: 52px; }
-                        .server-manager-item-icon { height: 34px; width: 34px; }
+                        .server-manager-item-icon { height: 30px; width: 30px; }
+                        .server-manager-item-icon > .icon { height: 23px; width: 23px; }
                         .server-manager-item-text strong { font-size: 15px; }
                         .server-manager-item-text small { font-size: 12.5px; }
                         .side-panel-entry-wide { display: none; }
@@ -19978,8 +20011,7 @@ public sealed partial class HtmlViews
                     .page-head.conn-head { align-items: center; display: flex; gap: 16px; justify-content: flex-start; }
                     .conn-head-icon {
                         align-items: center;
-                        background: color-mix(in srgb, var(--proto, var(--accent)) 14%, var(--surface));
-                        border-radius: 16px;
+                        background: none;
                         color: var(--proto, var(--accent));
                         display: inline-flex;
                         flex: 0 0 auto;
@@ -19987,7 +20019,7 @@ public sealed partial class HtmlViews
                         justify-content: center;
                         width: 56px;
                     }
-                    .conn-head-icon .icon { height: 26px; width: 26px; }
+                    .conn-head-icon .icon { height: 40px; width: 40px; }
                     .conn-head .eyebrow { margin: 0 0 2px; }
                     .conn-head h1 { margin: 0; overflow-wrap: anywhere; }
                     .conn-head .muted { margin: 4px 0 0; }
@@ -21496,26 +21528,42 @@ public sealed partial class HtmlViews
                     .server-title h2 {
                         margin: 8px 0 0;
                     }
+                    /* A connection's sign: the mark alone in the protocol's colour, no tinted square behind it. */
                     .server-icon {
                         align-items: center;
-                        background: var(--surface-2);
-                        border: 1px solid var(--line);
-                        border-radius: var(--radius);
-                        color: var(--accent);
+                        background: none;
+                        border: 0;
+                        color: var(--proto, var(--accent));
                         display: inline-flex;
                         flex: 0 0 auto;
                         height: 42px;
                         justify-content: center;
+                        position: relative;
                         width: 42px;
                     }
+                    .server-icon > .icon { height: 28px; width: 28px; }
                     .server-icon.small {
-                        height: 30px;
-                        width: 30px;
+                        height: 24px;
+                        width: 24px;
                     }
-                    .server-icon.small .icon {
-                        height: 15px;
-                        width: 15px;
+                    .server-icon.small > .icon {
+                        height: 19px;
+                        width: 19px;
                     }
+                    .server-icon-tag {
+                        background: var(--surface);
+                        border: 1px solid currentColor;
+                        border-radius: 5px;
+                        bottom: -1px;
+                        font-size: 9px;
+                        font-weight: 800;
+                        letter-spacing: .02em;
+                        line-height: 1;
+                        padding: 1px 3px;
+                        position: absolute;
+                        right: -3px;
+                    }
+                    .server-icon.small .server-icon-tag { bottom: -3px; font-size: 7.5px; padding: 1px 2px; right: -5px; }
                     .server-name-cell {
                         align-items: center;
                         display: inline-flex;
@@ -22841,74 +22889,40 @@ public sealed partial class HtmlViews
                     }
                     .home2-proto-chip-icon {
                         align-items: center;
-                        background: color-mix(in srgb, var(--proto, var(--accent)) 16%, transparent);
-                        border-radius: 12px;
                         color: var(--proto, var(--accent));
                         display: inline-flex;
                         flex: 0 0 auto;
-                        height: 40px;
+                        height: 36px;
                         justify-content: center;
-                        width: 40px;
+                        width: 36px;
                     }
-                    .home2-proto-chip-icon .icon { height: 20px; width: 20px; }
+                    .home2-proto-chip-icon .icon { height: 26px; width: 26px; }
                     .home2-proto-chip-name { font-size: 14px; font-weight: 700; line-height: 16px; white-space: nowrap; }
                     .home2-proto-more { --proto: var(--accent); }
-                    .home2-proto-more .home2-proto-chip-icon { background: var(--surface-2); color: var(--muted); }
+                    .home2-proto-more .home2-proto-chip-icon { color: var(--muted); }
                     /* The page's padding as a value of its own: the row of tiles on a phone reaches out to the
                        edges of the screen by exactly that much. */
                     .connection-picker-panel { --home-pad: clamp(14px, 3vw, 28px); padding: var(--home-pad); }
-                    /* On a phone the tiles are ONE row to swipe through, out to the edges of the screen. That
-                       there is more must show at a glance - the owner once did not find the browser behind the
-                       edge of a row like this: the tile at the edge is cut, "More" stays pinned at the right end
-                       with a fade before it, and once the row is scrolled its start fades as well. None of the
-                       four goes without the others. */
+                    /* On a phone quick connect is a few chips (0.48.0), sign beside name, that wrap onto a second
+                       line where they must - no tiles to swipe through, nothing hidden behind the edge. */
                     @media (max-width: 720px) {
                         .home2-quick-row {
-                            --qc-tile: clamp(68px, calc((100vw - 2 * var(--home-pad) - 32px) / 4.5), 84px);
                             display: flex;
-                            flex-wrap: nowrap;
+                            flex-wrap: wrap;
                             gap: 8px;
-                            /* "More" lies above the other tiles, and above nothing else on the page. */
-                            isolation: isolate;
-                            margin-inline: calc(-1 * var(--home-pad));
-                            overflow-x: auto;
-                            overflow-y: hidden;
-                            overscroll-behavior-x: contain;
-                            padding: 4px var(--home-pad) 8px;
-                            scroll-padding-inline: var(--home-pad);
-                            scrollbar-width: none;
-                            -webkit-overflow-scrolling: touch;
-                        }
-                        .home2-quick-row::-webkit-scrollbar { display: none; }
-                        .home2-quick-row.is-scrolled {
-                            -webkit-mask-image: linear-gradient(to right, transparent 0, #000 24px);
-                            mask-image: linear-gradient(to right, transparent 0, #000 24px);
                         }
                         .home2-proto-chip {
-                            flex: 0 0 var(--qc-tile);
+                            border-radius: 999px;
+                            flex: 0 0 auto;
+                            flex-direction: row;
                             gap: 6px;
-                            min-height: 80px;
-                            padding: 10px 4px 8px;
-                            scroll-snap-align: start;
+                            min-height: 40px;
+                            padding: 4px 14px 4px 8px;
                         }
-                        .home2-proto-chip-icon { border-radius: 10px; height: 36px; width: 36px; }
-                        /* Never cut: the names are short enough for the narrowest tile. */
-                        .home2-proto-chip-name {
-                            font-size: 12.5px;
-                            max-width: none;
-                            overflow: visible;
-                            text-overflow: clip;
-                            white-space: nowrap;
-                        }
-                        /* "More" is the last tile and scrolls with the others, as the folder tiles do (0.43.2):
-                           not pinned. That there is more still shows - the tile at the edge is cut. */
-                        .home2-quick-row > .home2-proto-more { scroll-snap-align: end; }
-                    }
-                    /* A swipe comes to rest at the start of a tile - only under a finger. A snapping row also moves
-                       a tile that the keyboard brings into view to the nearest such rest, and that can be under
-                       "More"; without it the tile stops just before "More" (the row's scroll padding). */
-                    @media (max-width: 720px) and (pointer: coarse) {
-                        .home2-quick-row { scroll-snap-type: x proximity; }
+                        .home2-proto-chip-icon { height: 24px; width: 24px; }
+                        .home2-proto-chip-icon .icon { height: 20px; width: 20px; }
+                        .home2-proto-chip-name { font-size: 14px; font-weight: 650; }
+                        .home2-proto-more { padding-right: 12px; }
                     }
                     .home2-proto-dialog {
                         background: var(--panel);
@@ -23191,6 +23205,13 @@ public sealed partial class HtmlViews
                             padding-inline: var(--home-pad);
                             scroll-padding-inline: var(--home-pad);
                         }
+                        /* The folders as chips (0.48.0): sign, name and count in one line, a finger high. */
+                        .home2-folder-grid { gap: 8px; margin-block: -12px; padding-block: 12px; }
+                        .home2-folder-grid .home2-folder-tile { border-radius: 999px; gap: 8px; min-height: 40px; min-width: 0; padding: 4px 14px 4px 10px; }
+                        .home2-folder-grid .home2-folder-icon { height: 22px; width: 22px; }
+                        .home2-folder-grid .home2-folder-icon .icon { height: 19px; width: 19px; }
+                        .home2-folder-grid .home2-folder-copy { align-items: baseline; display: flex; gap: 6px; }
+                        .home2-folder-grid .home2-folder-copy small { font-size: 12.5px; }
                     }
                     .home2-folder-tile {
                         align-items: center;
@@ -23218,16 +23239,14 @@ public sealed partial class HtmlViews
                     }
                     .home2-folder-icon {
                         align-items: center;
-                        background: color-mix(in srgb, var(--proto, var(--accent)) 16%, transparent);
-                        border-radius: 10px;
                         color: var(--proto, var(--accent));
                         display: inline-flex;
                         flex: 0 0 auto;
-                        height: 38px;
+                        height: 28px;
                         justify-content: center;
-                        width: 38px;
+                        width: 28px;
                     }
-                    .home2-folder-icon .icon { height: 18px; width: 18px; }
+                    .home2-folder-icon .icon { height: 22px; width: 22px; }
                     .home2-folder-copy { display: grid; gap: 1px; min-width: 0; }
                     .home2-folder-name {
                         font-weight: 700;
@@ -23285,14 +23304,6 @@ public sealed partial class HtmlViews
                     .server-view-panel[hidden] { display: none; }
                     .server-gallery-search { margin-bottom: 14px; }
                     .server-gallery-empty { margin: 8px 0 0; }
-                    .server-gallery .connection-choice .server-icon {
-                        background: color-mix(in srgb, var(--proto, var(--accent)) 16%, transparent);
-                        color: var(--proto, var(--accent));
-                    }
-                    .home2 .connection-choice .server-icon {
-                        background: color-mix(in srgb, var(--proto, var(--accent)) 16%, transparent);
-                        color: var(--proto, var(--accent));
-                    }
                     @media (hover: hover) {
                         .home2 .connection-choice:hover { border-color: var(--proto, var(--accent)); }
                     }
@@ -23363,27 +23374,43 @@ public sealed partial class HtmlViews
                         .home2-qc-actions .button { width: 100%; justify-content: center; }
                     }
                     /* ==== Part 3 – start page (prefix home2-) ==== */
-                    /* The cards of the start page on a phone: one compact block each - the sign, the name with
-                       the address and when it was used on one line under it, and on the right the star and the
-                       gear (a phone has no long press on a card for its menu) above "Connect". About 114px high
-                       instead of 175. A share's card keeps its own shape. The notes, where there are any, take
-                       a row of their own under it all; a third row in the template would leave a gap of its own
-                       in every card without notes. */
+                    /* The connections of the start page on a phone (0.48.0): a list, not cards - one row each with
+                       the sign, the name and under it the address and when it was used, and "..." at the end for
+                       the rest (star, settings, access, copy). The row itself connects when tapped: "Connect" lies
+                       invisibly over the whole row, under the "..." and the grip. About eight rows to a screen
+                       instead of two cards. The rows of one section sit in one box with lines between them. */
                     @media (max-width: 720px) {
+                        .home2 .home2-card-grid:has(> .connection-choice[data-fav]) {
+                            background: var(--surface);
+                            border: 1px solid var(--line);
+                            border-radius: 16px;
+                            gap: 0;
+                            grid-template-columns: minmax(0, 1fr);
+                            overflow: hidden;
+                        }
                         .home2 .connection-choice[data-home2-card][data-fav] {
                             align-items: center;
-                            border-radius: 16px;
+                            background: transparent;
+                            border: 0;
+                            border-radius: 0;
+                            box-shadow: none;
                             column-gap: 12px;
                             display: grid;
-                            grid-template-areas: "icon copy corner" "icon copy actions";
-                            grid-template-columns: 40px minmax(0, 1fr) auto;
-                            min-height: 0;
-                            padding: 12px 12px 12px 14px;
-                            row-gap: 6px;
+                            grid-template-areas: "icon copy more";
+                            grid-template-columns: 32px minmax(0, 1fr) auto;
+                            isolation: isolate;
+                            min-height: 60px;
+                            padding: 8px 4px 8px 14px;
+                            row-gap: 4px;
+                            transform: none;
                         }
+                        .home2 .connection-choice[data-fav]:not([hidden]) ~ .connection-choice[data-fav]:not([hidden]) { border-top: 1px solid var(--line); }
+                        .home2 .connection-choice[data-fav]::before { display: none; }
+                        .home2 .connection-choice[data-fav]:active { background: color-mix(in srgb, var(--proto, var(--accent)) 8%, transparent); }
                         .home2 .connection-choice[data-fav] > .connection-choice-body,
                         .home2 .connection-choice[data-fav] .connection-choice-title { display: contents; }
-                        .home2 .connection-choice[data-fav] .server-icon { grid-area: icon; height: 40px; width: 40px; }
+                        .home2 .connection-choice[data-fav] .server-icon { grid-area: icon; height: 32px; width: 32px; }
+                        .home2 .connection-choice[data-fav] .server-icon > .icon { height: 26px; width: 26px; }
                         .home2 .connection-choice[data-fav] .connection-choice-copy {
                             align-content: center;
                             align-items: baseline;
@@ -23391,7 +23418,7 @@ public sealed partial class HtmlViews
                             display: flex;
                             flex-wrap: wrap;
                             grid-area: copy;
-                            row-gap: 3px;
+                            row-gap: 2px;
                         }
                         /* The protocol and the folder are told by the sign and the side panel's groups. */
                         .home2 .connection-choice[data-fav] .connection-choice-badges { display: none; }
@@ -23417,11 +23444,53 @@ public sealed partial class HtmlViews
                         .home2 .connection-choice[data-fav] .connection-choice-time { flex: 0 0 auto; font-size: 13px; margin: 0; }
                         .home2 .connection-choice[data-fav] .connection-choice-time .icon { display: none; }
                         .home2 .connection-choice[data-fav] .target + .connection-choice-time::before { content: "·"; }
-                        .home2 .connection-choice[data-fav] .connection-choice-corner { align-self: start; grid-area: corner; justify-self: end; margin: 0; }
-                        .home2 .connection-choice[data-fav] .connection-choice-actions { align-self: end; flex-direction: row; grid-area: actions; justify-self: end; margin: 0; }
-                        .home2 .connection-choice[data-fav] .connection-choice-notes { font-size: 13px; grid-column: 1 / -1; }
-                        .home2 .connection-choice[data-fav] .favorite-toggle { height: 44px; min-height: 44px; min-width: 44px; width: 44px; }
-                        .home2 .connection-choice[data-fav] .connection-choice-mark { bottom: -16px; height: 72px; opacity: .07; right: -12px; width: 72px; }
+                        /* Star and gear move into the menu; a favourite still shows its star, small, before the "...". */
+                        .home2 .connection-choice[data-fav] .connection-choice-corner { display: none; }
+                        .home2 .connection-choice[data-fav][data-fav="1"] h3::after {
+                            color: var(--accent);
+                            content: "\2605";
+                            font-size: 13px;
+                            margin-left: 6px;
+                        }
+                        .home2 .connection-choice[data-fav] .connection-choice-more {
+                            align-items: center;
+                            background: transparent;
+                            border: 0;
+                            border-radius: 12px;
+                            box-shadow: none;
+                            color: var(--muted);
+                            display: inline-flex;
+                            grid-area: more;
+                            height: 44px;
+                            justify-content: center;
+                            min-height: 44px;
+                            padding: 0;
+                            position: relative;
+                            width: 44px;
+                            z-index: 2;
+                        }
+                        .home2 .connection-choice[data-fav] .connection-choice-more .icon { height: 20px; transform: rotate(90deg); width: 20px; }
+                        /* "Connect" over the whole row, unseen: a tap anywhere on the row is the button's own click. */
+                        .home2 .connection-choice[data-fav] .connection-choice-actions { display: contents; }
+                        .home2 .connection-choice[data-fav] .connection-choice-open {
+                            background: transparent;
+                            border: 0;
+                            border-radius: 0;
+                            box-shadow: none;
+                            color: transparent;
+                            font-size: 0;
+                            inset: 0;
+                            min-height: 0;
+                            opacity: 0;
+                            padding: 0;
+                            position: absolute;
+                            z-index: 1;
+                        }
+                        .home2 .connection-choice[data-fav] .connection-grip { left: 0; top: 50%; transform: translateY(-50%); z-index: 3; }
+                        .home2 .connection-choice[data-fav] .connection-choice-notes { display: none; }
+                        .home2 .connection-choice[data-fav] .connection-choice-mark { display: none; }
+                        [data-home2-all] .connection-choice[data-home2-card][data-fav] { padding-left: 30px; }
+                        [data-home2-all] .connection-choice[data-fav] .connection-grip { background: transparent; left: 4px; }
                     }
                     .connection-browser-empty {
                         align-items: flex-start;
@@ -24025,7 +24094,9 @@ public sealed partial class HtmlViews
                         .connection-choice:hover::before { opacity: 0; }
                     }
                     .connection-choice:has(:focus-visible) { box-shadow: var(--focus-ring), var(--shadow-card); }
-                    .connection-choice .server-icon { background: color-mix(in srgb, var(--proto, var(--accent)) 14%, var(--surface)); border-color: transparent; color: var(--proto, var(--accent)); }
+                    .connection-choice .server-icon { color: var(--proto, var(--accent)); }
+                    /* The "..." of a card is for a phone only - on a larger screen the star, the gear and the right click are there. */
+                    .connection-choice-more { display: none; }
                     .connection-choice-badges .badge:first-child:not(.server-folder-badge) { background: color-mix(in srgb, var(--proto, var(--accent)) 14%, var(--surface)); border-color: transparent; color: color-mix(in srgb, var(--proto, var(--accent)) 75%, var(--text)); font-weight: 700; }
                     /* A long name without a space (a place's "Connection/Datenbank") wraps instead of running
                        under the star. */
@@ -28657,9 +28728,13 @@ public sealed partial class HtmlViews
 
     private static string ServerIcon(ServerEndpoint server, string size = "")
     {
-        var iconKey = ServerEndpoint.EffectiveIconKey(server.Protocol, server.IconKey);
+        // The sign alone, in the protocol's colour - no tinted square behind it (0.48.0). A database
+        // carries its few letters at the corner.
+        var iconKey = server.SignKey();
         var sizeClass = string.IsNullOrWhiteSpace(size) ? "" : $" {A(size)}";
-        return $"""<span class="server-icon{sizeClass}" title="{A(iconKey.ToUpperInvariant())}">{Icon(iconKey)}</span>""";
+        var tag = iconKey == "database" ? server.SignTag() : "";
+        var tagHtml = tag.Length == 0 ? "" : $"""<span class="server-icon-tag">{E(tag)}</span>""";
+        return $"""<span class="server-icon{sizeClass}" style="--proto: {ProtocolAccent(server.Protocol)}" title="{A(ServerProtocolLabel(server.Protocol))}">{Icon(iconKey)}{tagHtml}</span>""";
     }
 
     private static string ServerScopeText(HttpContext context, ServerEndpoint server, IReadOnlyList<MatgateUser>? users = null, MatgateUser? currentUser = null)
@@ -28729,6 +28804,9 @@ public sealed partial class HtmlViews
             "terminal" => "Terminal",
             "folder" => "Folder",
             "database" => "Database",
+            "windows" => "Windows",
+            "linux" => "Linux",
+            "apple" => "Apple",
             "cloud" => "Cloud",
             "shield" => "Shield",
             "home" => "Home",
@@ -29260,7 +29338,7 @@ public sealed partial class HtmlViews
             .ToList();
 
         OrderItem Entry(ServerEndpoint server, bool isOn) =>
-            new(server.Id.ToString(), ServerEndpoint.EffectiveIconKey(server.Protocol, server.IconKey), server.Name, isOn);
+            new(server.Id.ToString(), server.SignKey(), server.Name, isOn);
 
         return [.. chosen.Select(server => Entry(server, true)), .. rest.Select(server => Entry(server, false))];
     }
@@ -29427,9 +29505,13 @@ public sealed partial class HtmlViews
             "mail" => """<rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/>""",
             "chevron-down" => """<path d="m6 9 6 6 6-6"/>""",
             "info" => """<circle cx="12" cy="12" r="9"/><path d="M12 17v-6"/><path d="M12 8h.01"/>""",
-            "rdp" => """<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/><path d="M8 8h3v3H8z"/><path d="M13 8h3v3h-3z"/><path d="M8 13h3v1H8z"/><path d="M13 13h3v1h-3z"/>""",
+            // The signs one knows a connection by (0.48.0): the Windows window for a remote desktop, the
+            // prompt for a terminal, the penguin and the apple for an agent on Linux or a Mac.
+            "rdp" or "windows" => """<path fill="currentColor" stroke="none" d="M3 5.6 10.4 4.6v6.8H3z"/><path fill="currentColor" stroke="none" d="M11.6 4.4 21 3v8.4h-9.4z"/><path fill="currentColor" stroke="none" d="M3 12.6h7.4v6.8L3 18.4z"/><path fill="currentColor" stroke="none" d="M11.6 12.6H21V21l-9.4-1.4z"/>""",
+            "linux" => """<path d="M8 20.2c-1.8-1.4-2.7-3.7-2.7-6.1 0-2.6 1.3-4.2 2.4-5.6V7.4a4.3 4.3 0 0 1 8.6 0v1.1c1.1 1.4 2.4 3 2.4 5.6 0 2.4-.9 4.7-2.7 6.1"/><path d="M9.7 19.6c-.6-1.2-1-2.7-1-4.2 0-1.9 1.5-3.3 3.3-3.3s3.3 1.4 3.3 3.3c0 1.5-.4 3-1 4.2"/><path d="M10.6 7.2h.01"/><path d="M13.4 7.2h.01"/><path d="m11 9.1 1 .8 1-.8"/><path d="M5.4 20.6c1.3.7 2.9.7 4.2 0"/><path d="M14.4 20.6c1.3.7 2.9.7 4.2 0"/>""",
+            "apple" => """<path fill="currentColor" stroke="none" d="M16.4 12.7c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.8-1.4-.1-2.8.9-3.5.9-.7 0-1.8-.8-3-.8-1.5 0-3 .9-3.8 2.3-1.6 2.8-.4 7 1.2 9.3.8 1.1 1.7 2.4 2.9 2.3 1.2 0 1.6-.7 3-.7s1.8.7 3 .7c1.3 0 2.1-1.1 2.8-2.3.9-1.3 1.3-2.6 1.3-2.6s-2.5-1-2.5-3.8zM14.1 5.9c.6-.8 1.1-1.9 1-3-.9 0-2.1.6-2.7 1.4-.6.7-1.1 1.8-1 2.9 1 .1 2.1-.5 2.7-1.3z"/>""",
             "vnc" => """<rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/>""",
-            "ssh" => """<rect x="3" y="4" width="18" height="16" rx="2"/><path d="m7 9 3 3-3 3"/><path d="M12 15h5"/>""",
+            "ssh" => """<path d="m4 7 5 5-5 5"/><path d="M12 18h8"/>""",
             "sftp" => """<path d="M3 8a2 2 0 0 1 2-2h5l2 2h7a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><rect x="9" y="12" width="6" height="5" rx="1"/><path d="M10.5 12v-1.5a1.5 1.5 0 0 1 3 0V12"/>""",
             "ftp" => """<path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/><path d="M7 9l5-5 5 5"/><path d="M12 4v12"/><path d="m8 13 4 4 4-4"/>""",
             "smb" => """<rect x="4" y="4" width="16" height="6" rx="2"/><rect x="4" y="14" width="16" height="6" rx="2"/><path d="M8 7h.01"/><path d="M8 17h.01"/><path d="M12 10v4"/><path d="M9 12h6"/>""",

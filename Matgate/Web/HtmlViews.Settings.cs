@@ -320,7 +320,7 @@ public sealed partial class HtmlViews
             var where = string.IsNullOrWhiteSpace(server.FolderName)
                 ? ServerProtocolLabel(server.Protocol)
                 : $"{server.FolderName} · {ServerProtocolLabel(server.Protocol)}";
-            return $"""<li class="set-fav"><span class="set-fav-tile" style="--proto: {ProtocolAccent(server.Protocol)}" aria-hidden="true">{Icon(ServerEndpoint.EffectiveIconKey(server.Protocol, server.IconKey))}</span><span class="set-fav-text"><strong>{E(server.Name)}</strong><small>{E(where)}</small></span><form method="post" action="/account/favorites/{server.Id}/toggle">{Csrf(context)}<input type="hidden" name="returnUrl" value="{A(returnUrl)}"><button type="submit" class="set-icon-button is-on" title="{A(remove)}" aria-label="{A(remove)}">{Icon("star")}</button></form></li>""";
+            return $"""<li class="set-fav"><span class="set-fav-tile" style="--proto: {ProtocolAccent(server.Protocol)}" aria-hidden="true">{Icon(server.SignKey())}</span><span class="set-fav-text"><strong>{E(server.Name)}</strong><small>{E(where)}</small></span><form method="post" action="/account/favorites/{server.Id}/toggle">{Csrf(context)}<input type="hidden" name="returnUrl" value="{A(returnUrl)}"><button type="submit" class="set-icon-button is-on" title="{A(remove)}" aria-label="{A(remove)}">{Icon("star")}</button></form></li>""";
         }
 
         var favorites = favoriteServers.Count == 0

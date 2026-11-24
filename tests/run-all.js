@@ -64,7 +64,7 @@ const GROUPS = [
   },
   {
     name: "Group 13 - one press on a toolbar button, the frame of the dialogs, the server manager, the account menu",
-    scripts: ["action-press.js", "server-manager.js", "account-menu.js"],
+    scripts: ["action-press.js", "server-manager.js", "account-menu.js", "phone-list.js"],
   },
   {
     name: "Group 14 - folders in the side panel, sessions in windows of their own, the database browser",

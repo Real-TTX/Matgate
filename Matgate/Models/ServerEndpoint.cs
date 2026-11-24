@@ -18,6 +18,9 @@ public sealed class ServerEndpoint
         "terminal",
         "folder",
         "database",
+        "windows",
+        "linux",
+        "apple",
         "cloud",
         "shield",
         "home",
@@ -33,6 +36,10 @@ public sealed class ServerEndpoint
     public ServerProtocol Protocol { get; set; } = ServerProtocol.Rdp;
 
     public string IconKey { get; set; } = "";
+
+    // The build an agent said it is when it last connected (win-x64, linux-arm64, osx-arm64 ...): its sign
+    // shows the system even while the agent is offline. Empty until the first connection.
+    public string AgentPlatform { get; set; } = "";
 
     public string Host { get; set; } = "";
 
@@ -215,6 +222,41 @@ public sealed class ServerEndpoint
             _ => "server"
         };
     }
+
+    // The sign this connection is shown with: its own icon where one was chosen, otherwise the protocol's -
+    // and for an agent the system it runs on, once it has said so.
+    public string SignKey()
+    {
+        if (Protocol == ServerProtocol.Agent && string.IsNullOrWhiteSpace(NormalizeIconKey(IconKey)))
+        {
+            var platform = (AgentPlatform ?? "").Trim().ToLowerInvariant();
+            if (platform.StartsWith("win", StringComparison.Ordinal))
+            {
+                return "windows";
+            }
+
+            if (platform.StartsWith("linux", StringComparison.Ordinal))
+            {
+                return "linux";
+            }
+
+            if (platform.StartsWith("osx", StringComparison.Ordinal) || platform.StartsWith("mac", StringComparison.Ordinal))
+            {
+                return "apple";
+            }
+        }
+
+        return EffectiveIconKey(Protocol, IconKey);
+    }
+
+    // The few letters on a database's sign that tell which one it is - three cylinders look alike.
+    public string SignTag() => Protocol switch
+    {
+        ServerProtocol.Postgres => "PG",
+        ServerProtocol.MySql => "My",
+        ServerProtocol.MsSql => "MS",
+        _ => ""
+    };
 
     // A website's address as it is stored: what was written, with https in front where no scheme was
     // given - and nothing else. The path stays as it is; "/admin" is not "/admin/" to every website.

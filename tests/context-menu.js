@@ -66,7 +66,7 @@ const FOLDER = "Rechtsklick";
   const box = await card("Linux-Testhost").boundingBox();
   await rightClick(card("Linux-Testhost"));
   check("a right click on a card opens its menu: what the card's buttons do, and two things more", await menu(page),
-    ["Connect", "Open in a new browser tab", "-", "Add to favorites", "Settings", "-", "Copy address"]);
+    ["Connect", "Open in a new browser tab", "-", "Add to favorites", "Settings", "Access ...", "-", "Copy address"]);
   check("at the pointer, and on one line each", await page.evaluate(([x, y]) => {
     const panel = document.querySelector(".context-menu-home .toolbar-menu-panel");
     const rect = panel.getBoundingClientRect();
@@ -224,7 +224,7 @@ const FOLDER = "Rechtsklick";
   check("on a phone the same menu is a sheet with the card's name on it", [
     await menu(small),
     await small.evaluate(() => { const head = document.querySelector(".toolbar-menu-panel.menu-sheet .menu-sheet-head strong"); return head ? head.textContent : null; }),
-  ], [["Connect", "Open in a new browser tab", "-", "Add to favorites", "Settings", "-", "Copy address"], "Linux-Testhost"]);
+  ], [["Connect", "Open in a new browser tab", "-", "Add to favorites", "Settings", "Access ...", "-", "Copy address"], "Linux-Testhost"]);
   await small.click(".menu-sheet-close");
   await sleep(200);
   check("closed by its cross", await menu(small), null);
