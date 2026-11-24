@@ -535,6 +535,7 @@ public static partial class EndpointMapping
         app.MapGet("/workspaces/{id:guid}", WorkspaceDetailAsync).RequireAuthorization();
         app.MapPost("/workspaces/{id:guid}/update", UpdateWorkspaceAsync).RequireAuthorization();
         app.MapPost("/workspaces/{id:guid}/extend", WorkspaceExtendAsync).RequireAuthorization();
+        app.MapPost("/workspaces/{id:guid}/expire", WorkspaceExpireAsync).RequireAuthorization();
         // A place's settings as a fragment for the dialog in the file manager. Who may see them is
         // decided by the same check as on the page.
         app.MapGet("/api/workspaces/{id:guid}/settings", WorkspaceSettingsFragmentAsync).RequireAuthorization();
@@ -1862,6 +1863,46 @@ public static partial class EndpointMapping
         return Results.Redirect(WorkspaceTabRedirect(context, $"/workspaces/{id}", form, "settings"));
     }
 
+
+    // Public access ended now (Administration -> Workspaces): the link stops working at once; "extend" opens it
+    // again from now on.
+    private static async Task<IResult> WorkspaceExpireAsync(
+        Guid id,
+        HttpContext context,
+        JsonDataStore store,
+        HtmlViews views,
+        WorkspaceService workspaceService)
+    {
+        var user = await RequireUserAsync(context, store);
+        if (user is null)
+        {
+            return Results.Redirect("/login");
+        }
+
+        var access = await RequireWorkspaceAdminAsync(id, context, store, workspaceService);
+        if (access.Result is not null)
+        {
+            return access.Result;
+        }
+
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        if (!ValidateCsrf(context, form))
+        {
+            return BadRequest(context, user, views);
+        }
+
+        await workspaceService.UpdateWorkspacesAsync(workspaces =>
+        {
+            if (workspaces.FirstOrDefault(workspace => workspace.Id == id) is { } stored)
+            {
+                stored.PublicAccessExpiresAt = DateTimeOffset.UtcNow;
+                stored.UpdatedAt = DateTimeOffset.UtcNow;
+            }
+        }, context.RequestAborted);
+        await workspaceService.RecordActivityAsync(access.Workspace!, context, user, "Ended public access", "/", "", "Admin", context.RequestAborted);
+        var rawReturn = form["returnUrl"].ToString();
+        return Results.Redirect(EmbedAwareRedirect(context, string.IsNullOrWhiteSpace(rawReturn) ? $"/workspaces/{id}?tab=settings" : NormalizeReturnUrl(rawReturn)));
+    }
     private static async Task<IResult> DeleteWorkspaceAsync(
         Guid id,
         HttpContext context,
@@ -1879,6 +1920,12 @@ public static partial class EndpointMapping
         if (access.Result is not null)
         {
             return access.Result;
+        }
+
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        if (!ValidateCsrf(context, form))
+        {
+            return BadRequest(context, user, views);
         }
 
         var workspace = access.Workspace!;
@@ -1914,6 +1961,13 @@ public static partial class EndpointMapping
             rootPath,
             "Admin",
             context.RequestAborted);
+        // From the administration's list: back there.
+        var rawReturn = form["returnUrl"].ToString();
+        if (!string.IsNullOrWhiteSpace(rawReturn))
+        {
+            return Results.Redirect(EmbedAwareRedirect(context, NormalizeReturnUrl(rawReturn)));
+        }
+
         return Results.Redirect("/workspaces");
     }
 

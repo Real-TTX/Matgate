@@ -995,7 +995,7 @@ public sealed partial class HtmlViews
             tabs.Add(new("groups", de ? "Gruppen" : "Groups", Icon("users"), GroupsAdminPanel(context, groups ?? [], users, grants ?? [], servers, folderObjects ?? [])));
             tabs.Add(new("sso", de ? "Anmeldung" : "Sign-in", Icon("key"), SsoPanel(context, users, groups ?? [])));
         }
-        tabs.Add(new("workspaces", T(context, "Workspaces"), Icon("briefcase"), $"""<section class="panel">{workspaceTable}</section>"""));
+        tabs.Add(new("workspaces", T(context, "Workspaces"), Icon("briefcase"), WorkspacesAdminPanel(context, workspaces, users, workspaceTable)));
 
         if (browser is not null)
         {

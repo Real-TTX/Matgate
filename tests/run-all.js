@@ -60,7 +60,7 @@ const GROUPS = [
   },
   {
     name: "Group 12 - the agent on Linux",
-    scripts: ["agent-linux.js", "clipboard-button.js", "perf-position.js"],
+    scripts: ["agent-linux.js", "clipboard-button.js", "perf-position.js", "admin-workspaces.js"],
   },
   {
     name: "Group 13 - one press on a toolbar button, the frame of the dialogs, the server manager, the account menu",
