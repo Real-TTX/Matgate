@@ -106,7 +106,7 @@ Three ready-made stacks are in this repo, all with prebuilt images:
 
 | Image | Tag |
 |---|---|
-| `ghcr.io/real-ttx/matgate` | `latest`, a version such as `0.50.0`, or `sha-…` |
+| `ghcr.io/real-ttx/matgate` | `latest`, a version such as `0.51.0`, or `sha-…` |
 | `ghcr.io/real-ttx/matgate-browser-farm` | `latest` (optional) |
 
 <details>
@@ -354,7 +354,7 @@ the old RDP encryption or the CredSSP scheme from before 2018.
 | `MATGATE_REQUIRE_HTTPS` | `false` | Force HTTPS and secure cookies behind a TLS proxy |
 | `MATGATE_WEBSITE_HOST` | – | Host names for websites, like `*.web.example.com` |
 | `MATGATE_DNS_SERVER` / `MATGATE_DNS_SEARCH` | – | Your home DNS, so names like `nas` or `pc-terminal` resolve |
-| `BrowserFarm__BaseUrl` | `http://browser-farm:8090` | Where the optional browser farm lives |
+| `BrowserFarm__BaseUrl` | – | Where the optional browser farm lives, until it is set under Administration → Browser farm |
 
 ### 🪪 Single sign-on
 
@@ -508,6 +508,10 @@ connection, on a **folder** or on **all connections**.
 - **Administration → Workspaces** too: the list shows how long each share is still open (or that it expired);
   the chosen one has its public link to copy, the facts (password, uploads, owner, folder) and, right there,
   open, edit, log, delete, **extend** by 1, 7 or 30 days and **end the public access now**. "List" is the table.
+- **Administration → Browser farm** is there for every admin: the farm switched on and off, its address, the
+  host for VNC and a token (stored encrypted), with "Check the connection" - saved, it applies at once. With a
+  farm: its places as tiles (free, or in use by whom), the counts, the number of places and the resolution, the
+  sessions running (each can be ended) and the ones before.
 - **Signs**: a connection is shown by its mark alone, in the protocol's colour - the Windows window for RDP,
   the prompt for SSH, a cylinder with PG / My / MS for a database, and for an agent the system it last said it
   runs on (Windows, Linux, macOS). Windows, Linux and Apple can also be chosen as a connection's own icon.

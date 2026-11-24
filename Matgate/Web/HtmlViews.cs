@@ -999,7 +999,7 @@ public sealed partial class HtmlViews
 
         if (browser is not null)
         {
-            tabs.Add(new("browser", de ? "Browser" : "Browser", Icon("globe"), BrowserAdminPanel(context, browser, de)));
+            tabs.Add(new("browser", de ? "Browser-Farm" : "Browser farm", Icon("globe"), BrowserAdminPanel(context, browser, de)));
         }
 
         var tabParam = context.Request.Query["tab"].ToString().ToLowerInvariant();
@@ -1017,104 +1017,6 @@ public sealed partial class HtmlViews
             """;
 
         return Layout(context, currentUser, T(context, "Administration"), body);
-    }
-
-    private static string BrowserAdminPanel(HttpContext context, BrowserAdminData browser, bool de)
-    {
-        static string Duration(DateTimeOffset from, DateTimeOffset to)
-        {
-            var seconds = Math.Max(0, (to - from).TotalSeconds);
-            return seconds < 90 ? $"{(int)seconds}s" : $"{(int)(seconds / 60)}m";
-        }
-
-        var status = browser.Status;
-        var statusBadge = status is null
-            ? $"""<span class="badge badge--danger">{E(de ? "Farm nicht erreichbar" : "Browser farm unreachable")}</span>"""
-            : $"""<span class="badge">{E((de ? "Pool" : "Pool") + $": {status.Busy}/{status.PoolSize} " + (de ? "belegt" : "in use"))}</span>""";
-
-        var activeRows = browser.Active.Count == 0
-            ? $"""<tr><td colspan="5" class="muted">{E(de ? "Keine aktiven Sitzungen." : "No active sessions.")}</td></tr>"""
-            : string.Join("", browser.Active.Select(s => $$"""
-                <tr>
-                    <td>{{E(s.UserName)}}</td>
-                    <td><strong>{{E(s.ServerName)}}</strong><br><span class="muted">{{E(s.Url)}}</span></td>
-                    <td><span class="badge">{{E(s.Browser)}}</span></td>
-                    <td title="{{A(s.StartedAt.ToString("u"))}}">{{E(Duration(s.StartedAt, DateTimeOffset.UtcNow))}}</td>
-                    <td class="table-actions"><form method="post" action="/admin/browser/{{s.Id}}/release" data-confirm="{{A(de ? "Sitzung shareTrigger?" : "Release this session?")}}">{{Csrf(context)}}<button type="submit" class="icon-button danger-action" title="{{A(de ? "Freigeben" : "Release")}}" aria-label="{{A(de ? "Freigeben" : "Release")}}">{{Icon("trash")}}</button></form></td>
-                </tr>
-                """));
-
-        var historyRows = browser.History.Count == 0
-            ? $"""<tr><td colspan="6" class="muted">{E(de ? "Noch kein Verlauf." : "No history yet.")}</td></tr>"""
-            : string.Join("", browser.History.Take(50).Select(h => $$"""
-                <tr>
-                    <td>{{E(h.UserName)}}</td>
-                    <td><strong>{{E(h.ServerName)}}</strong><br><span class="muted">{{E(h.Url)}}</span></td>
-                    <td><span class="badge">{{E(h.Browser)}}</span></td>
-                    <td title="{{A(h.StartedAt.ToString("u"))}}">{{E(h.StartedAt.ToString("yyyy-MM-dd HH:mm"))}}</td>
-                    <td>{{E(Duration(h.StartedAt, h.EndedAt))}}</td>
-                    <td><span class="muted">{{E(h.Reason)}}</span></td>
-                </tr>
-                """));
-
-        var poolValue = browser.Settings.PoolSize > 0
-            ? browser.Settings.PoolSize
-            : (status?.PoolSize ?? 10);
-        var geometryValue = string.IsNullOrWhiteSpace(browser.Settings.Geometry)
-            ? (status?.Geometry ?? "1280x800x24")
-            : browser.Settings.Geometry;
-
-        return $$"""
-            <section class="panel">
-                <div class="server-view-bar">
-                    <h2 style="margin:0">{{E(de ? "Browser-Dienst" : "Browser service")}}</h2>
-                    {{statusBadge}}
-                </div>
-                <p class="muted">{{E(de
-                    ? "Sitzungen für \"via Chromium/Firefox VNC\"-Websites. Jede belegt einen Slot im Pool und wird beim Schließen (oder nach Timeout) automatisch freigegeben."
-                    : "Sessions for \"via Chromium/Firefox VNC\" websites. Each uses one pool slot and is released automatically on close (or after a timeout).")}}</p>
-                <form method="post" action="/admin/browser/settings" class="form-grid" style="margin-bottom:8px">
-                    {{Csrf(context)}}
-                    <label>{{E(de ? "Pool-Größe (parallele Sitzungen)" : "Pool size (parallel sessions)")}}
-                        <input name="poolSize" type="number" min="1" max="50" value="{{A(poolValue.ToString())}}">
-                    </label>
-                    <label>{{E(de ? "Auflösung (BreitexHoehexTiefe)" : "Resolution (widthxheightxdepth)")}}
-                        <input name="geometry" value="{{A(geometryValue)}}" placeholder="1280x800x24">
-                    </label>
-                    <div class="actions"><button type="submit" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button></div>
-                    <p class="muted" style="grid-column:1/-1">{{E(de
-                        ? "Wird live an den Browser-Dienst übergeben. Eine kleinere Pool-Größe betrifft nur neue Sitzungen; eine neue Auflösung gilt für neu geöffnete Sitzungen."
-                        : "Applied to the browser service live. A smaller pool only affects new sessions; a new resolution applies to newly opened sessions.")}}</p>
-                </form>
-                <h3>{{E(de ? "Aktive Sitzungen" : "Active sessions")}}</h3>
-                <div class="table-wrap">
-                    <table>
-                        <thead><tr>
-                            <th>{{T(context, "User")}}</th>
-                            <th>{{E(de ? "Website" : "Website")}}</th>
-                            <th>{{E(de ? "Browser" : "Browser")}}</th>
-                            <th>{{E(de ? "Laeuft seit" : "Running")}}</th>
-                            <th class="table-actions">{{T(context, "Actions")}}</th>
-                        </tr></thead>
-                        <tbody>{{activeRows}}</tbody>
-                    </table>
-                </div>
-                <h3 style="margin-top:22px">{{E(de ? "Verlauf" : "History")}}</h3>
-                <div class="table-wrap">
-                    <table>
-                        <thead><tr>
-                            <th>{{T(context, "User")}}</th>
-                            <th>{{E(de ? "Website" : "Website")}}</th>
-                            <th>{{E(de ? "Browser" : "Browser")}}</th>
-                            <th>{{E(de ? "Start" : "Started")}}</th>
-                            <th>{{E(de ? "Dauer" : "Duration")}}</th>
-                            <th>{{E(de ? "Ende" : "Reason")}}</th>
-                        </tr></thead>
-                        <tbody>{{historyRows}}</tbody>
-                    </table>
-                </div>
-            </section>
-            """;
     }
 
     public string Servers(HttpContext context, MatgateUser currentUser, IReadOnlyList<ServerEndpoint> servers, IReadOnlyList<MatgateUser> users)
@@ -19060,6 +18962,21 @@ public sealed partial class HtmlViews
                         font-family: Segoe UI, system-ui, -apple-system, sans-serif;
                         line-height: 1.5;
                         -webkit-tap-highlight-color: transparent;
+                        /* An app, not a document: a long press, a double click or a drag over buttons, cards,
+                           menus and lists selects nothing (and on iOS no callout pops up). What one types or
+                           may want to copy stays selectable - see below. */
+                        -webkit-touch-callout: none;
+                        -webkit-user-select: none;
+                        user-select: none;
+                    }
+                    /* Selectable on purpose: fields (on iOS a field that inherits user-select:none opens the
+                       keyboard but takes no characters), editors, code and addresses, table cells, facts,
+                       and whatever marks itself with data-selectable. */
+                    input, textarea, select, [contenteditable]:not([contenteditable="false"]), [contenteditable]:not([contenteditable="false"]) *,
+                    code, pre, kbd, samp, td, dd, [data-selectable], [data-selectable] * {
+                        -webkit-touch-callout: default;
+                        -webkit-user-select: text;
+                        user-select: text;
                     }
                     html[data-shell-layout="1"] {
                         height: 100vh;

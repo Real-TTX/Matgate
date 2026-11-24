@@ -6,34 +6,87 @@ namespace Matgate.Services;
 
 // Thin HTTP client for the optional browser-farm sidecar's control API (acquire/release/status).
 // If no BaseUrl is configured the farm is considered absent and IsConfigured is false.
+// Where the farm is comes from Administration -> Browser farm (Use, at start and on saving); until that was
+// saved once, from BrowserFarm__BaseUrl / BrowserFarm__VncHost / MATGATE_BROWSER_FARM_TOKEN[_FILE].
 public sealed class BrowserFarmClient
 {
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromSeconds(20) };
-    private readonly string _baseUrl;
+    private volatile string _baseUrl;
+    private volatile string _vncHost;
+    private volatile string _token = "";
     private readonly string _tokenEnv;
     private readonly string _tokenFile;
     private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web);
 
     public BrowserFarmClient(IConfiguration configuration)
     {
-        _baseUrl = (configuration["BrowserFarm:BaseUrl"] ?? "").Trim().TrimEnd('/');
-        VncHost = (configuration["BrowserFarm:VncHost"] ?? "").Trim();
-        if (string.IsNullOrWhiteSpace(VncHost) && Uri.TryCreate(_baseUrl, UriKind.Absolute, out var uri))
-        {
-            VncHost = uri.Host;
-        }
-
+        EnvironmentBaseUrl = (configuration["BrowserFarm:BaseUrl"] ?? "").Trim().TrimEnd('/');
+        EnvironmentVncHost = (configuration["BrowserFarm:VncHost"] ?? "").Trim();
+        _baseUrl = EnvironmentBaseUrl;
+        _vncHost = DeriveVncHost(EnvironmentBaseUrl, EnvironmentVncHost);
         _tokenEnv = Environment.GetEnvironmentVariable("MATGATE_BROWSER_FARM_TOKEN") ?? "";
         _tokenFile = Environment.GetEnvironmentVariable("MATGATE_BROWSER_FARM_TOKEN_FILE") ?? "";
     }
 
+    public string EnvironmentBaseUrl { get; }
+
+    public string EnvironmentVncHost { get; }
+
+    public string BaseUrl => _baseUrl;
+
     public bool IsConfigured => !string.IsNullOrWhiteSpace(_baseUrl);
 
-    // Hostname guacd should connect the VNC session to (the farm's service name on the docker network).
-    public string VncHost { get; }
+    // Hostname the VNC session is opened to (the farm's service name on the docker network).
+    public string VncHost => _vncHost;
+
+    // From the administration: the farm's address ("" = no farm), the host for VNC ("" = the address's host)
+    // and the token ("" = the one from the environment, if any).
+    public void Use(string baseUrl, string vncHost, string token)
+    {
+        _baseUrl = (baseUrl ?? "").Trim().TrimEnd('/');
+        _vncHost = DeriveVncHost(_baseUrl, (vncHost ?? "").Trim());
+        _token = (token ?? "").Trim();
+    }
+
+    private static string DeriveVncHost(string baseUrl, string vncHost) =>
+        vncHost.Length > 0 ? vncHost : Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri) ? uri.Host : "";
+
+    // "Check the connection": the status of a farm at an address not saved yet. Null + the reason when it fails.
+    public async Task<(FarmStatus? Status, string Error)> TryStatusAsync(string baseUrl, string token, CancellationToken cancellationToken)
+    {
+        baseUrl = (baseUrl ?? "").Trim().TrimEnd('/');
+        if (!Uri.TryCreate(baseUrl, UriKind.Absolute, out var uri) || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps))
+        {
+            return (null, "address");
+        }
+
+        try
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Get, baseUrl + "/status");
+            request.Headers.TryAddWithoutValidation("X-Farm-Token", string.IsNullOrWhiteSpace(token) ? ReadToken() : token.Trim());
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            timeout.CancelAfter(TimeSpan.FromSeconds(8));
+            using var response = await _http.SendAsync(request, timeout.Token);
+            if (!response.IsSuccessStatusCode)
+            {
+                return (null, "HTTP " + (int)response.StatusCode);
+            }
+
+            return (await response.Content.ReadFromJsonAsync<FarmStatus>(JsonOptions, timeout.Token), "");
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or JsonException or NotSupportedException)
+        {
+            return (null, exception is TaskCanceledException ? "timeout" : exception.Message);
+        }
+    }
 
     private string ReadToken()
     {
+        if (!string.IsNullOrWhiteSpace(_token))
+        {
+            return _token;
+        }
+
         if (!string.IsNullOrWhiteSpace(_tokenEnv))
         {
             return _tokenEnv.Trim();

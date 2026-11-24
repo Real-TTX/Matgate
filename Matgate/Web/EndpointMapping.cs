@@ -591,6 +591,8 @@ public static partial class EndpointMapping
         app.MapPost("/api/browser-sessions/{id:guid}/close", BrowserSessionCloseAsync).RequireAuthorization();
         app.MapPost("/admin/browser/{id:guid}/release", BrowserSessionAdminReleaseAsync).RequireAuthorization();
         app.MapPost("/admin/browser/settings", BrowserSettingsAsync).RequireAuthorization();
+        app.MapPost("/admin/browser/connection", BrowserConnectionAsync).RequireAuthorization();
+        app.MapPost("/admin/browser/test", BrowserTestAsync).RequireAuthorization();
         app.MapGet("/files/{id:guid}/view", FileViewerAsync).RequireAuthorization();
         app.MapGet("/api/connections/{id:guid}/sftp-home", SftpHomeDirectoryAsync).RequireAuthorization();
         app.MapGet("/api/files/{id:guid}/list", ListFilesAsync).RequireAuthorization();
@@ -2748,6 +2750,69 @@ public static partial class EndpointMapping
         var poolSize = int.TryParse(form["poolSize"].ToString(), out var parsed) ? parsed : 0;
         await farmSessions.UpdateSettingsAsync(poolSize, form["geometry"].ToString(), context.RequestAborted);
         return Results.Redirect(EmbedAwareRedirect(context, "/admin?tab=browser"));
+    }
+
+    // Administration -> Browser farm: where the farm is (on/off, address, host for VNC, token). Applies at once.
+    private static async Task<IResult> BrowserConnectionAsync(
+        HttpContext context, JsonDataStore store, HtmlViews views, BrowserFarmSessionManager farmSessions)
+    {
+        var currentUser = await RequireAdminAsync(context, store);
+        if (currentUser is null)
+        {
+            return Results.Redirect("/forbidden");
+        }
+
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        if (!ValidateCsrf(context, form))
+        {
+            return BadRequest(context, currentUser, views);
+        }
+
+        var address = form["baseUrl"].ToString().Trim();
+        // Switched on without a usable address would only fail at the next website: switched off instead.
+        var enabled = IsChecked(form, "enabled")
+            && Uri.TryCreate(address, UriKind.Absolute, out var uri) && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
+        await farmSessions.UpdateConnectionAsync(enabled, address, form["vncHost"].ToString(), form["token"].ToString(), IsChecked(form, "clearToken"), context.RequestAborted);
+        return Results.Redirect(EmbedAwareRedirect(context, "/admin?tab=browser"));
+    }
+
+    // "Check the connection": asks the farm at the address in the form (not saved yet) for its status.
+    private static async Task<IResult> BrowserTestAsync(
+        HttpContext context, JsonDataStore store, BrowserFarmSessionManager farmSessions)
+    {
+        var currentUser = await RequireAdminAsync(context, store);
+        if (currentUser is null)
+        {
+            return Results.StatusCode(StatusCodes.Status403Forbidden);
+        }
+
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        if (!ValidateCsrf(context, form))
+        {
+            return Results.BadRequest();
+        }
+
+        var de = currentUser.PreferredLanguage == "de";
+        var (status, error) = await farmSessions.TryStatusAsync(form["baseUrl"].ToString(), form["token"].ToString(), context.RequestAborted);
+        if (status is null)
+        {
+            var message = error switch
+            {
+                "address" => de ? "Das ist keine Adresse (http:// oder https://)." : "That is no address (http:// or https://).",
+                "timeout" => de ? "Keine Antwort - läuft die Farm, und erreicht Matgate sie unter dieser Adresse?" : "No answer - is the farm running, and does Matgate reach it at this address?",
+                "HTTP 401" or "HTTP 403" => de ? "Die Farm lehnt ab: das Token stimmt nicht." : "The farm refuses: the token is wrong.",
+                _ => (de ? "Nicht erreichbar: " : "Not reachable: ") + error,
+            };
+            return Results.Json(new { ok = false, message });
+        }
+
+        return Results.Json(new
+        {
+            ok = true,
+            message = de
+                ? $"Verbunden - {status.PoolSize} Plätze, {status.Busy} belegt, Auflösung {status.Geometry}."
+                : $"Connected - {status.PoolSize} slots, {status.Busy} in use, resolution {status.Geometry}.",
+        });
     }
 
     // Pre-fills the target folder when sending files into a live SSH session. The session's own SFTP
@@ -5085,16 +5150,22 @@ public static partial class EndpointMapping
         var users = await store.GetUsersAsync(context.RequestAborted);
         var workspaces = VisibleWorkspacesForUser(user, await workspaceService.GetWorkspacesAsync(context.RequestAborted));
 
-        // The Browser tab is only offered to admins when the farm is configured; fetch a status
-        // snapshot only when it will actually be shown.
+        // The Browser farm tab is offered to every admin - also to set the farm up; its status is only asked
+        // for when there is a farm.
         BrowserAdminData? browser = null;
-        if (user.IsAdmin && farmSessions.IsConfigured)
+        if (user.IsAdmin)
         {
+            var connection = farmSessions.Connection;
             browser = new BrowserAdminData(
-                await farmSessions.GetFarmStatusAsync(context.RequestAborted),
+                farmSessions.IsConfigured ? await farmSessions.GetFarmStatusAsync(context.RequestAborted) : null,
                 farmSessions.ActiveSessions,
                 farmSessions.History,
-                farmSessions.Settings);
+                farmSessions.Settings,
+                farmSessions.IsConfigured,
+                connection.FromEnvironment,
+                connection.BaseUrl,
+                connection.VncHost,
+                connection.HasToken);
         }
 
         var groups = user.IsAdmin ? await store.GetGroupsAsync(context.RequestAborted) : [];

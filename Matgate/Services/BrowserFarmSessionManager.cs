@@ -9,6 +9,7 @@ namespace Matgate.Services;
 public sealed class BrowserFarmSessionManager
 {
     private readonly BrowserFarmClient _farm;
+    private readonly SecretProtector _protector;
     private readonly ILogger<BrowserFarmSessionManager> _logger;
     private readonly ConcurrentDictionary<Guid, BrowserFarmSession> _active = new();
     private readonly object _historyGate = new();
@@ -21,9 +22,10 @@ public sealed class BrowserFarmSessionManager
     // A session with no keepalive for this long is assumed abandoned (tab closed/crashed) and released.
     private static readonly TimeSpan KeepaliveTimeout = TimeSpan.FromSeconds(120);
 
-    public BrowserFarmSessionManager(BrowserFarmClient farm, ILogger<BrowserFarmSessionManager> logger)
+    public BrowserFarmSessionManager(BrowserFarmClient farm, SecretProtector protector, ILogger<BrowserFarmSessionManager> logger)
     {
         _farm = farm;
+        _protector = protector;
         _logger = logger;
         var dataDir = Environment.GetEnvironmentVariable("MATGATE_DATA_DIR");
         if (string.IsNullOrWhiteSpace(dataDir))
@@ -35,11 +37,50 @@ public sealed class BrowserFarmSessionManager
         _settingsPath = Path.Combine(dataDir, "browser-farm-settings.json");
         LoadHistory();
         LoadSettings();
+        ApplyConnection();
     }
 
     public bool IsConfigured => _farm.IsConfigured;
 
     public BrowserFarmSettings Settings => _settings;
+
+    // Where the farm is, as the administration shows it: saved there, or still from the environment.
+    public (bool FromEnvironment, string BaseUrl, string VncHost, bool HasToken) Connection =>
+        _settings.ConnectionSaved
+            ? (false, _settings.BaseUrl, _settings.VncHost, _settings.Token.Length > 0)
+            : (true, _farm.EnvironmentBaseUrl, _farm.EnvironmentVncHost, false);
+
+    public Task<(FarmStatus? Status, string Error)> TryStatusAsync(string baseUrl, string token, CancellationToken cancellationToken) =>
+        string.IsNullOrWhiteSpace(token) && _settings.ConnectionSaved && _settings.Token.Length > 0
+            ? _farm.TryStatusAsync(baseUrl, _protector.Unprotect(_settings.Token), cancellationToken)
+            : _farm.TryStatusAsync(baseUrl, token, cancellationToken);
+
+    // Saved under Administration -> Browser farm: applies at once. A token left empty keeps the one there is;
+    // "clearToken" drops it. Switched off = no address (the sessions running stay until they are closed).
+    public async Task UpdateConnectionAsync(bool enabled, string baseUrl, string vncHost, string token, bool clearToken, CancellationToken cancellationToken)
+    {
+        var keptToken = clearToken ? "" : token.Trim().Length > 0 ? _protector.Protect(token.Trim()) : _settings.Token;
+        _settings = new BrowserFarmSettings
+        {
+            PoolSize = _settings.PoolSize,
+            Geometry = _settings.Geometry,
+            ConnectionSaved = true,
+            BaseUrl = enabled ? (baseUrl ?? "").Trim().TrimEnd('/') : "",
+            VncHost = (vncHost ?? "").Trim(),
+            Token = keptToken,
+        };
+        SaveSettings();
+        ApplyConnection();
+        await ReconcileSettingsAsync(cancellationToken);
+    }
+
+    private void ApplyConnection()
+    {
+        if (_settings.ConnectionSaved)
+        {
+            _farm.Use(_settings.BaseUrl, _settings.VncHost, _protector.Unprotect(_settings.Token));
+        }
+    }
 
     // Persist the admin-chosen pool size / geometry and push them to the farm immediately.
     public async Task UpdateSettingsAsync(int poolSize, string geometry, CancellationToken cancellationToken)
@@ -48,6 +89,10 @@ public sealed class BrowserFarmSessionManager
         {
             PoolSize = Math.Clamp(poolSize, 1, 50),
             Geometry = NormalizeGeometry(geometry),
+            ConnectionSaved = _settings.ConnectionSaved,
+            BaseUrl = _settings.BaseUrl,
+            VncHost = _settings.VncHost,
+            Token = _settings.Token,
         };
         SaveSettings();
         await _farm.ConfigureAsync(_settings.PoolSize, _settings.Geometry, cancellationToken);
@@ -301,6 +346,13 @@ public sealed class BrowserFarmSettings
 {
     public int PoolSize { get; set; }
     public string Geometry { get; set; } = "";
+
+    // Saved under Administration -> Browser farm: from then on these hold, not the environment. BaseUrl ""
+    // = no farm. Token encrypted (SecretProtector); "" = the one from the environment, if any.
+    public bool ConnectionSaved { get; set; }
+    public string BaseUrl { get; set; } = "";
+    public string VncHost { get; set; } = "";
+    public string Token { get; set; } = "";
 }
 
 // Snapshot passed to the admin "Browser" view.
@@ -308,7 +360,12 @@ public sealed record BrowserAdminData(
     FarmStatus? Status,
     IReadOnlyList<BrowserFarmSession> Active,
     IReadOnlyList<BrowserFarmHistoryEntry> History,
-    BrowserFarmSettings Settings);
+    BrowserFarmSettings Settings,
+    bool Configured = true,
+    bool FromEnvironment = false,
+    string BaseUrl = "",
+    string VncHost = "",
+    bool HasToken = false);
 
 public sealed class BrowserFarmSession
 {
