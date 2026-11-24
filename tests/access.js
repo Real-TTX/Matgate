@@ -176,7 +176,7 @@ const check = (name, got, want) => {
     if (dbId) { await removeByForm(admin, "/admin?tab=servers", DB); }
     // The group (its delete button is on its own page).
     await admin.goto(BASE + "/admin?tab=groups", { waitUntil: "networkidle" });
-    const groupLink = await admin.evaluate(g => { const a = [...document.querySelectorAll("a[href^='/admin/groups/']")].find(x => x.textContent.trim() === g); return a ? a.getAttribute("href") : null; }, GROUP);
+    const groupLink = await admin.evaluate(g => { const a = [...document.querySelectorAll("[data-admp-group]")].find(x => x.dataset.admpGroup === g); return a ? "/admin/groups/" + new URL(a.href).searchParams.get("sel") : null; }, GROUP);
     if (groupLink) {
       await admin.goto(BASE + groupLink, { waitUntil: "networkidle" });
       await admin.evaluate(() => { const form = document.querySelector("form[action$='/delete']"); form.removeAttribute("data-confirm"); form.submit(); });

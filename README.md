@@ -106,7 +106,7 @@ Three ready-made stacks are in this repo, all with prebuilt images:
 
 | Image | Tag |
 |---|---|
-| `ghcr.io/real-ttx/matgate` | `latest`, a version such as `0.46.0`, or `sha-…` |
+| `ghcr.io/real-ttx/matgate` | `latest`, a version such as `0.47.0`, or `sha-…` |
 | `ghcr.io/real-ttx/matgate-browser-farm` | `latest` (optional) |
 
 <details>
@@ -499,6 +499,11 @@ connection, on a **folder** or on **all connections**.
   delete) or all connections - each with its **access**: the entries (the level changed and saved at once, a row
   to add one, the switch "inherit from above") and **who has access in the end, with every reason**. "Access
   ..." in the side panel's right-click menu leads there as well.
+- **Administration → Users** and **→ Groups** work the same way: a list to search on the left, the chosen one
+  beside it. A user shows how they sign in (password, SSO, two-factor), their groups (put in and taken out
+  right there) and **what they may use**, each with the reason. A group shows its members (added and removed
+  right there), the SSO groups it stands for, and **what it may do** - entries on all connections, folders or
+  single connections, the level changed and saved at once. `/admin/users` is still the table of every user.
 - **Read only on a database** runs one reading statement at a time inside a read-only transaction that is
   rolled back. A database login that cannot write is still the safest answer.
 - Roles on the user: `Admin` (everything), `Manage servers` (edits every shared connection, makes shared

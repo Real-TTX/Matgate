@@ -174,7 +174,7 @@ const idp = async (method, url, body) => {
     await signInSso(anna);
     check("signed in through MatIdentity alone, as the linked user", await anna.evaluate(async () => (await (await fetch("/account", { credentials: "same-origin" })).text()).includes("anna")), true);
 
-    await root.goto(GATE + "/admin?tab=users", { waitUntil: "networkidle" });
+    await root.goto(GATE + "/admin?tab=users&view=list", { waitUntil: "networkidle" });
     const annaId = await root.evaluate(() => { const a = [...document.querySelectorAll("a[href^='/admin/users/']")].find(x => x.textContent.trim() === "anna"); return a ? a.getAttribute("href").split("/").pop() : null; });
     await root.goto(GATE + "/admin/users/" + annaId, { waitUntil: "networkidle" });
     check("the user page shows the linked account and the group MatIdentity named", await root.evaluate(() => {
@@ -203,7 +203,7 @@ const idp = async (method, url, body) => {
     await sleep(800);
     check("a new person is signed in straight away", !/\/login/.test(bernd.url()), true);
     check("with no connection", await servers(bernd), []);
-    await root.goto(GATE + "/admin?tab=users", { waitUntil: "networkidle" });
+    await root.goto(GATE + "/admin?tab=users&view=list", { waitUntil: "networkidle" });
     check("and is a user of Matgate now", await root.evaluate(() => [...document.querySelectorAll("a[href^='/admin/users/']")].some(a => a.textContent.trim() === "bernd")), true);
     check("SCIM made the person", !!created.id, true);
   }

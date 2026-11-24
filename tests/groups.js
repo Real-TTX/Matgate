@@ -83,7 +83,7 @@ const check = (name, got, want) => {
     await Promise.all([admin.waitForLoadState("networkidle"), admin.click("button[form='group-form']")]);
     await sleep(800);
     await admin.goto(BASE + "/admin?tab=groups", { waitUntil: "networkidle" });
-    groupId = await admin.evaluate(() => { const link = [...document.querySelectorAll("a[href^='/admin/groups/']")].find(a => /Technik-Team/.test(a.textContent)); return link ? link.getAttribute("href").split("/").pop() : null; });
+    groupId = await admin.evaluate(() => { const node = [...document.querySelectorAll("[data-admp-group]")].find(a => /Technik-Team/.test(a.dataset.admpGroup)); return node ? new URL(node.href).searchParams.get("sel") : null; });
     check("the group is in the administration's list", !!groupId, true);
 
     const names = async () => (await servers(member)).map(s => s.name).sort();

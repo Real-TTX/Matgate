@@ -14,6 +14,8 @@ public static partial class EndpointMapping
         app.MapPost("/admin/groups", GroupSaveAsync).RequireAuthorization();
         app.MapPost("/admin/groups/{id:guid}", GroupSaveAsync).RequireAuthorization();
         app.MapPost("/admin/groups/{id:guid}/delete", GroupDeleteAsync).RequireAuthorization();
+        app.MapPost("/admin/groups/members", GroupMemberAsync).RequireAuthorization();
+        app.MapPost("/admin/groups/{id:guid}/grant", GroupGrantAsync).RequireAuthorization();
     }
 
     private const string GroupList = "/admin?tab=groups";
@@ -178,7 +180,7 @@ public static partial class EndpointMapping
             }
         }, context.RequestAborted);
 
-        return Results.Redirect(EmbedAwareRedirect(context, GroupList));
+        return Results.Redirect(EmbedAwareRedirect(context, HtmlViews.AdminGroupsUrl(groupId)));
     }
 
     private static async Task<IResult> GroupDeleteAsync(Guid id, HttpContext context, JsonDataStore store, HtmlViews views)
@@ -198,5 +200,130 @@ public static partial class EndpointMapping
         await store.UpdateGroupsAsync(groups => groups.RemoveAll(group => group.Id == id), context.RequestAborted);
         await store.UpdateGrantsAsync(grants => grants.RemoveAll(grant => grant.PrincipalKind == AccessPrincipalKind.Group && grant.PrincipalId == id), context.RequestAborted);
         return Results.Redirect(EmbedAwareRedirect(context, GroupList));
+    }
+
+    // Back to the page of the administration the form sat on (only there), else to the groups.
+    private static string AdminReturn(IFormCollection form, string fallback)
+    {
+        var requested = form["return"].ToString();
+        return requested.StartsWith("/admin", StringComparison.Ordinal) && !requested.StartsWith("//", StringComparison.Ordinal) ? requested : fallback;
+    }
+
+    // One user into a group or out of it - from the group's page in the tab, or from the user's.
+    private static async Task<IResult> GroupMemberAsync(HttpContext context, JsonDataStore store, HtmlViews views)
+    {
+        var admin = await RequireAdminAsync(context, store);
+        if (admin is null)
+        {
+            return Results.Redirect("/forbidden");
+        }
+
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        if (!ValidateCsrf(context, form))
+        {
+            return BadRequest(context, admin, views);
+        }
+
+        if (Guid.TryParse(form["group"], out var groupId)
+            && Guid.TryParse(form["user"], out var userId)
+            && await store.FindUserByIdAsync(userId, context.RequestAborted) is not null)
+        {
+            var add = form["op"] == "add";
+            await store.UpdateGroupsAsync(groups =>
+            {
+                if (groups.FirstOrDefault(group => group.Id == groupId) is not { } group)
+                {
+                    return;
+                }
+
+                group.MemberIds.Remove(userId);
+                if (add)
+                {
+                    group.MemberIds.Add(userId);
+                }
+
+                group.UpdatedAt = DateTimeOffset.UtcNow;
+            }, context.RequestAborted);
+        }
+
+        return Results.Redirect(EmbedAwareRedirect(context, AdminReturn(form, GroupList)));
+    }
+
+    // One entry of a group: "all", "folder:<path>" or "server:<id>" with a level; "None" takes it away.
+    private static async Task<IResult> GroupGrantAsync(Guid id, HttpContext context, JsonDataStore store, HtmlViews views)
+    {
+        var admin = await RequireAdminAsync(context, store);
+        if (admin is null)
+        {
+            return Results.Redirect("/forbidden");
+        }
+
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        if (!ValidateCsrf(context, form))
+        {
+            return BadRequest(context, admin, views);
+        }
+
+        var back = AdminReturn(form, HtmlViews.AdminGroupsUrl(id));
+        if (!(await store.GetGroupsAsync(context.RequestAborted)).Any(group => group.Id == id))
+        {
+            return Results.Redirect(EmbedAwareRedirect(context, GroupList));
+        }
+
+        // The remove button sends "None" next to the select's level.
+        var values = form["level"].Select(value => value ?? "").ToList();
+        var level = values.Contains(nameof(AccessLevel.None))
+            ? AccessLevel.None
+            : values.Select(value => Enum.TryParse<AccessLevel>(value, out var parsed) ? parsed : AccessLevel.None).DefaultIfEmpty(AccessLevel.None).Max();
+        var target = form["target"].ToString();
+        (AccessTargetKind Kind, Guid Id)? resolved = null;
+        if (target == "all")
+        {
+            resolved = (AccessTargetKind.All, Guid.Empty);
+        }
+        else if (target.StartsWith("server:", StringComparison.Ordinal)
+            && Guid.TryParse(target["server:".Length..], out var serverId)
+            && (await store.GetServersAsync(context.RequestAborted)).Any(server => server.Id == serverId && server.OwnerUserId is null))
+        {
+            resolved = (AccessTargetKind.Server, serverId);
+        }
+        else if (target.StartsWith("folder:", StringComparison.Ordinal) && ServerFolders.CleanPath(target["folder:".Length..]) is { Length: > 0 } path)
+        {
+            if (level == AccessLevel.None)
+            {
+                var existing = (await store.GetFoldersAsync(context.RequestAborted)).FirstOrDefault(folder => folder.OwnerUserId is null && AccessResolver.FolderKey(folder.Name) == AccessResolver.FolderKey(path));
+                resolved = existing is null ? null : (AccessTargetKind.Folder, existing.Id);
+            }
+            else
+            {
+                var folders = await store.EnsureSharedFoldersAsync([path], context.RequestAborted);
+                resolved = (AccessTargetKind.Folder, folders[AccessResolver.FolderKey(path)].Id);
+            }
+        }
+
+        if (resolved is { } chosen)
+        {
+            await store.UpdateGrantsAsync(grants =>
+            {
+                var current = grants.FirstOrDefault(grant => grant.Targets(chosen.Kind, chosen.Id) && grant.PrincipalKind == AccessPrincipalKind.Group && grant.PrincipalId == id);
+                if (level == AccessLevel.None)
+                {
+                    if (current is not null)
+                    {
+                        grants.Remove(current);
+                    }
+                }
+                else if (current is null)
+                {
+                    grants.Add(new AccessGrant { TargetKind = chosen.Kind, TargetId = chosen.Id, PrincipalKind = AccessPrincipalKind.Group, PrincipalId = id, Level = level });
+                }
+                else
+                {
+                    current.Level = level;
+                }
+            }, context.RequestAborted);
+        }
+
+        return Results.Redirect(EmbedAwareRedirect(context, back));
     }
 }

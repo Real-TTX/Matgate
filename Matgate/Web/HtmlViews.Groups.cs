@@ -7,62 +7,6 @@ namespace Matgate.Web;
 // connections, each with a level.
 public sealed partial class HtmlViews
 {
-    private static string GroupsPanel(HttpContext context, IReadOnlyList<UserGroup> groups, IReadOnlyList<MatgateUser> users, IReadOnlyList<AccessGrant> grants)
-    {
-        var de = Language(context) == "de";
-        var editLabel = de ? "Bearbeiten" : "Edit";
-        var names = users.ToDictionary(user => user.Id, user => string.IsNullOrWhiteSpace(user.DisplayName) ? user.UserName : user.DisplayName);
-        int Count(UserGroup group, AccessTargetKind kind) => grants.Count(grant => grant.PrincipalKind == AccessPrincipalKind.Group && grant.PrincipalId == group.Id && grant.TargetKind == kind);
-        string Given(UserGroup group)
-        {
-            var parts = new List<string>();
-            if (grants.FirstOrDefault(grant => grant.PrincipalKind == AccessPrincipalKind.Group && grant.PrincipalId == group.Id && grant.TargetKind == AccessTargetKind.All) is { } all)
-            {
-                parts.Add((de ? "Alle: " : "All: ") + AccessLevelLabel(all.Level, de));
-            }
-
-            var folders = Count(group, AccessTargetKind.Folder);
-            if (folders > 0)
-            {
-                parts.Add(de ? $"{folders} Ordner" : $"{folders} folder(s)");
-            }
-
-            var servers = Count(group, AccessTargetKind.Server);
-            if (servers > 0)
-            {
-                parts.Add(de ? $"{servers} Verbindung(en)" : $"{servers} connection(s)");
-            }
-
-            return parts.Count == 0 ? (de ? "nichts" : "nothing") : string.Join(" · ", parts);
-        }
-
-        var rows = string.Join("", groups.OrderBy(group => group.Name, StringComparer.OrdinalIgnoreCase).Select(group => $$"""
-            <tr>
-                <td><a href="/admin/groups/{{group.Id}}"><strong>{{E(group.Name)}}</strong></a>{{(string.IsNullOrWhiteSpace(group.Description) ? "" : $"""<br><small class="muted">{E(group.Description)}</small>""")}}</td>
-                <td data-sort-value="{{group.MemberIds.Count}}" class="muted">{{E(string.Join(", ", group.MemberIds.Where(names.ContainsKey).Take(5).Select(id => names[id])) + (group.MemberIds.Count > 5 ? ", ..." : ""))}}</td>
-                <td class="muted">{{E(Given(group))}}</td>
-                <td class="table-actions"><div class="row-actions"><a class="icon-button" href="/admin/groups/{{group.Id}}" title="{{A(editLabel)}}" aria-label="{{A(editLabel)}}">{{Icon("edit")}}</a></div></td>
-            </tr>
-            """));
-        var headers = $$"""<th data-sortable>{{T(context, "Name")}}</th><th data-sortable>{{(de ? "Mitglieder" : "Members")}}</th><th>{{(de ? "Darf" : "May")}}</th><th class="table-actions">{{T(context, "Actions")}}</th>""";
-        var table = DataTable(
-            de ? "Gruppen suchen..." : "Search groups...",
-            headers,
-            rows,
-            de ? "Noch keine Gruppe." : "No group yet.",
-            4,
-            15,
-            $$"""<a class="button primary" href="/admin/groups/new">{{Icon("plus")}}{{(de ? "Neue Gruppe" : "New group")}}</a>""");
-        return $$"""
-            <section class="panel" data-groups>
-                <p class="muted settings-lead">{{(de
-                    ? "Gruppen geben ihren Mitgliedern Rechte - auf alle Verbindungen, auf ganze Ordner (mit Unterordnern und allem, was später hineinkommt) oder auf einzelne, jeweils mit einer Stufe von „Nur lesen“ bis „Verwalten“. Was ein Benutzer selbst bekommen hat, gilt daneben; es zählt das Höchste."
-                    : "Groups give their members rights - on all connections, on whole folders (with their subfolders and whatever is filed there later) or on single ones, each with a level from \"Read only\" to \"Manage\". What a user was given on their own holds as well; the highest counts.")}}</p>
-                {{table}}
-            </section>
-            """;
-    }
-
     public string GroupPage(
         HttpContext context,
         MatgateUser currentUser,
@@ -161,7 +105,7 @@ public sealed partial class HtmlViews
                 <section class="panel conn-actions">
                     <div class="form-actions">
                         <button type="submit" form="group-form" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button>
-                        <a class="button" href="/admin?tab=groups">{{Icon("arrow-left")}}{{T(context, "Back")}}</a>
+                        <a class="button" href="{{A(isNew ? AdminGroupsUrl() : AdminGroupsUrl(group!.Id))}}">{{Icon("arrow-left")}}{{T(context, "Back")}}</a>
                         {{delete}}
                     </div>
                 </section>

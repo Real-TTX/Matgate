@@ -390,6 +390,7 @@ public sealed partial class HtmlViews
                 .admconn:not(.has-selection) .admdetail { display: none; }
                 .admdetail-back { display: inline-flex; }
                 .admdetail-head { flex-wrap: wrap; }
+                .admdetail-facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
             }
         </style>
         """;

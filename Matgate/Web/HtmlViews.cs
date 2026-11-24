@@ -681,7 +681,7 @@ public sealed partial class HtmlViews
                     <p class="eyebrow">{{T(context, "Users")}}</p>
                     <h1>{{E(editedUser.UserName)}}</h1>
                 </div>
-                <a class="button" href="/admin/users">{{T(context, "Back")}}</a>
+                <a class="button" href="{{A(AdminUsersUrl(editedUser.Id))}}">{{T(context, "Back")}}</a>
             </section>
             <section class="panel">
                 <h2>{{T(context, "Profile")}}</h2>
@@ -774,7 +774,7 @@ public sealed partial class HtmlViews
                 .access-file-check { font-size: 13px; margin-bottom: 4px; }
                 [data-user-access-table] td small { display: block; }
             </style>
-            <section class="panel">
+            <section class="panel" id="password">
                 <h2>{{T(context, "Password")}}</h2>
                 <p class="muted settings-lead">{{(de
                     ? "Mindestens 10 Zeichen. Der Benutzer bleibt angemeldet, wo er es schon ist - sag ihm das neue Passwort auf einem anderen Weg als per Mail."
@@ -991,8 +991,8 @@ public sealed partial class HtmlViews
         };
         if (currentUser.IsAdmin)
         {
-            tabs.Add(new("users", T(context, "Users"), Icon("users"), $"""<section class="panel">{userTable}</section>"""));
-            tabs.Add(new("groups", de ? "Gruppen" : "Groups", Icon("users"), GroupsPanel(context, groups ?? [], users, grants ?? [])));
+            tabs.Add(new("users", T(context, "Users"), Icon("user"), UsersAdminPanel(context, currentUser, users, groups ?? [], servers, folderObjects ?? [], userTable)));
+            tabs.Add(new("groups", de ? "Gruppen" : "Groups", Icon("users"), GroupsAdminPanel(context, groups ?? [], users, grants ?? [], servers, folderObjects ?? [])));
             tabs.Add(new("sso", de ? "Anmeldung" : "Sign-in", Icon("key"), SsoPanel(context)));
         }
         tabs.Add(new("workspaces", T(context, "Workspaces"), Icon("briefcase"), $"""<section class="panel">{workspaceTable}</section>"""));

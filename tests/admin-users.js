@@ -44,11 +44,8 @@ const PW = "test-only-pw-1234";
   ]);
   await sleep(500);
 
-  const id = await page.evaluate((n) => {
-    const row = Array.from(document.querySelectorAll("tr")).find(r => r.innerText.includes(n));
-    const a = row && row.querySelector("a[href*='/admin/users/']");
-    return a ? a.getAttribute("href").split("/").pop() : null;
-  }, NEU);
+  // Since 0.47.0 a new user opens on its own entry in Administration -> Users (?tab=users&sel=<id>).
+  const id = new URL(page.url()).searchParams.get("sel");
   check("user created and found", typeof id === "string", true);
 
   await page.goto(BASE + "/admin/users/" + id, { waitUntil: "networkidle" });

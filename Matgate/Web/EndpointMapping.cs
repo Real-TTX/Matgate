@@ -612,7 +612,8 @@ public static partial class EndpointMapping
         app.MapDelete("/api/files/{id:guid}", DeleteFileAsync).RequireAuthorization();
 
         app.MapGet("/admin", AdminHomeAsync).RequireAuthorization();
-        app.MapGet("/admin/users", () => Results.Redirect("/admin?tab=users")).RequireAuthorization();
+        // The list of every user, to search and sort; the tab itself shows one user at a time.
+        app.MapGet("/admin/users", () => Results.Redirect("/admin?tab=users&view=list")).RequireAuthorization();
         app.MapGet("/admin/users/new", NewUserAsync).RequireAuthorization();
         app.MapPost("/admin/users", CreateUserAsync).RequireAuthorization();
         app.MapGet("/admin/users/{id:guid}", UserDetailAsync).RequireAuthorization();
@@ -3832,6 +3833,7 @@ public static partial class EndpointMapping
         var defaults = await store.GetDefaultsAsync(context.RequestAborted);
         var exists = false;
         var emailTaken = false;
+        var createdId = Guid.NewGuid();
         await store.UpdateUsersAsync(users =>
         {
             exists = users.Any(user => string.Equals(user.UserName, userName, StringComparison.OrdinalIgnoreCase));
@@ -3846,6 +3848,7 @@ public static partial class EndpointMapping
             var now = DateTimeOffset.UtcNow;
             users.Add(new MatgateUser
             {
+                Id = createdId,
                 UserName = userName,
                 Email = email,
                 DisplayName = Clean(form["displayName"].ToString(), userName),
@@ -3895,7 +3898,7 @@ public static partial class EndpointMapping
         }
 
         await configWriter.SynchronizeAsync(context.RequestAborted);
-        return Results.Redirect(EmbedAwareRedirect(context, "/admin/users"));
+        return Results.Redirect(EmbedAwareRedirect(context, HtmlViews.AdminUsersUrl(createdId)));
     }
 
     private static async Task<IResult> UserDetailAsync(

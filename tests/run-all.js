@@ -68,7 +68,7 @@ const GROUPS = [
   },
   {
     name: "Group 14 - folders in the side panel, sessions in windows of their own, the database browser",
-    scripts: ["side-panel-folders.js", "session-windows.js", "database.js", "file-tabs-copy.js", "access.js"],
+    scripts: ["side-panel-folders.js", "session-windows.js", "database.js", "file-tabs-copy.js", "access.js", "admin-people.js"],
   },
   {
     name: "Group 15 - stored credentials, the order of things and the way back to it",
