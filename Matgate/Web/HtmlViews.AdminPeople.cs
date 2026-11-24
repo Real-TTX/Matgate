@@ -448,18 +448,14 @@ public sealed partial class HtmlViews
                     <button type="submit" class="primary">{{Icon("plus")}}{{(de ? "Hinzufügen" : "Add")}}</button>
                 </form>
                 """;
+        var ssoNames = SsoGroupNames(context);
         var external = group.ExternalGroups.Count == 0
             ? ""
             : $$"""
                 <div class="admp-sso" data-admp-sso>
                     <span class="admp-sso-label">{{Icon("globe")}}{{(de ? "Steht für die SSO-Gruppen" : "Stands for the SSO groups")}}</span>
-                    <span class="admp-chips">{{string.Join("", group.ExternalGroups.Select(value =>
-                    {
-                        var colon = value.IndexOf(':');
-                        var provider = colon > 0 ? SsoProviderLabel(value[..colon]) : "";
-                        return $"""<span class="acc-reason">{(provider.Length == 0 ? "" : $"<strong>{E(provider)}</strong> · ")}{E(colon > 0 ? value[(colon + 1)..] : value)}</span>""";
-                    }))}}</span>
-                    <small class="muted">{{(de ? "Wer sich darüber anmeldet, kommt automatisch hinein - und wieder heraus, wenn der Dienst die Gruppe nicht mehr nennt." : "Whoever signs in through it is put in automatically - and taken out again when the service no longer names the group.")}}</small>
+                    <span class="admp-chips">{{string.Join("", group.ExternalGroups.Select(value => SsoGroupChip(value, ssoNames)))}}</span>
+                    <small class="muted">{{(de ? "Wer sich darüber anmeldet, kommt automatisch hinein - und wieder heraus, wenn der Dienst die Gruppe nicht mehr nennt." : "Whoever signs in through it is put in automatically - and taken out again when the service no longer names the group.")}} <a href="/admin?tab=sso#sso-groups">{{(de ? "Ändern unter Anmeldung" : "Change under Sign-in")}}</a></small>
                 </div>
                 """;
 

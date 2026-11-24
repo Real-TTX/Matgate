@@ -106,7 +106,7 @@ Three ready-made stacks are in this repo, all with prebuilt images:
 
 | Image | Tag |
 |---|---|
-| `ghcr.io/real-ttx/matgate` | `latest`, a version such as `0.48.0`, or `sha-…` |
+| `ghcr.io/real-ttx/matgate` | `latest`, a version such as `0.49.0`, or `sha-…` |
 | `ghcr.io/real-ttx/matgate-browser-farm` | `latest` (optional) |
 
 <details>
@@ -373,15 +373,16 @@ there, these environment variables do the same (a stack set up that way keeps wo
 - **Someone new** gets a Matgate user on the first sign-in, with **no rights**. Those come from groups.
 - **An existing user** with the same e-mail address is linked only after **its password** has been entered
   once. The address alone does not prove that it is the same person.
-- **Groups**: a Matgate group can be linked to groups of the service, one per line, like
-  `matidentity:Technik` or `entra:<group object id>`. At every sign-in the user is put into the linked groups
-  the service names, and taken out of those it no longer names. The user page shows the exact values the
-  service sent last.
+- **Groups**: under Administration → Sign-in, *Groups of the services* lists every group (or app role) a
+  service named at a sign-in. Each gets a name there (Entra sends object IDs) and the Matgate group that stands
+  for it; whoever signed in before is sorted in at once. At every sign-in the user is put into the linked groups
+  the service names, and taken out of those it no longer names.
 - **MatIdentity** sends the groups when *Send the person's groups to the app* is ticked on the app's access
   page.
-- **Entra** sends them once the app registration has a *groups claim* (Token configuration). App roles count
-  as well, as `entra:<role>`. With more than 200 groups Entra sends none: choose *Groups assigned to the
-  application* there.
+- **Entra** sends them once the app registration has a *groups claim* (Token configuration); the Entra card
+  lists the steps of the registration. App roles count as well, as `entra:<role>`, and arrive with their name.
+  With more than 200 groups Entra sends none: Matgate then leaves the user's groups as they were and says so on
+  the user page and the Sign-in page. Choose *Groups assigned to the application* there.
 - A second factor is the service's business. Matgate's own TOTP applies to its password sign-in.
 
 ### 🔑 Pin your keys

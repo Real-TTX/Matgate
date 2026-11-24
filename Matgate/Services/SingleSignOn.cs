@@ -61,7 +61,8 @@ public sealed class SsoSettings
 }
 
 // Who the service says signed in - the same shape for every service.
-public sealed record ExternalIdentity(string Provider, string Issuer, string Subject, string Email, bool EmailVerified, string Name, string UserName, IReadOnlyList<string> Groups);
+// GroupsIncomplete: the service has more groups for the person than it sent (Entra "group overage").
+public sealed record ExternalIdentity(string Provider, string Issuer, string Subject, string Email, bool EmailVerified, string Name, string UserName, IReadOnlyList<string> Groups, bool GroupsIncomplete = false);
 
 public static class SingleSignOn
 {
@@ -192,7 +193,22 @@ public static class SingleSignOn
             provider == SsoProvider.Entra || string.Equals(Claim("email_verified"), "true", StringComparison.OrdinalIgnoreCase),
             Claim("name"),
             preferred.Length > 0 ? preferred : email,
-            groups);
+            groups,
+            GroupsIncomplete(principal));
+    }
+
+    // Entra puts at most ~200 groups into a token. Beyond that it sends none, but says so: "hasgroups" (implicit
+    // flow) or "_claim_names" pointing "groups" to Microsoft Graph. Without "groups" in the token then, an
+    // empty list would take the person out of every linked group - so it is marked as incomplete instead.
+    public static bool GroupsIncomplete(ClaimsPrincipal principal)
+    {
+        if (principal.HasClaim(claim => claim.Type == "groups"))
+        {
+            return false;
+        }
+
+        return principal.HasClaim(claim => claim.Type == "hasgroups" && string.Equals(claim.Value, "true", StringComparison.OrdinalIgnoreCase))
+            || principal.HasClaim(claim => claim.Type == "_claim_names" && claim.Value.Contains("\"groups\"", StringComparison.Ordinal));
     }
 
     // A user name for someone new: from their name at the service ("anna.berg@firma.de" -> "anna.berg"), made

@@ -22,6 +22,81 @@ public static partial class EndpointMapping
         app.MapGet("/admin/sso", () => Results.Redirect("/admin?tab=sso")).RequireAuthorization();
         app.MapPost("/admin/sso", SsoSaveAsync).RequireAuthorization();
         app.MapPost("/admin/sso/test", SsoTestAsync).RequireAuthorization();
+        app.MapPost("/admin/sso/group", SsoGroupAsync).RequireAuthorization();
+    }
+
+    // One group of a service (Administration -> Sign-in, "Groups of the services"): its name, and which group of
+    // Matgate stands for it. "keep" leaves the links as they are (it is linked to several), "" links it to none.
+    private static async Task<IResult> SsoGroupAsync(HttpContext context, JsonDataStore store, HtmlViews views, SsoSettingsService sso)
+    {
+        var admin = await RequireAdminAsync(context, store);
+        if (admin is null)
+        {
+            return Results.Redirect("/forbidden");
+        }
+
+        var form = await context.Request.ReadFormAsync(context.RequestAborted);
+        if (!ValidateCsrf(context, form))
+        {
+            return BadRequest(context, admin, views);
+        }
+
+        var value = form["value"].ToString().Trim();
+        var colon = value.IndexOf(':');
+        if (colon <= 0 || colon == value.Length - 1)
+        {
+            return Results.Redirect(EmbedAwareRedirect(context, "/admin?tab=sso"));
+        }
+
+        var config = sso.Load();
+        var name = form["name"].ToString().Trim();
+        if (name.Length > 0)
+        {
+            config.GroupNames[value] = name.Length > 80 ? name[..80] : name;
+        }
+        else
+        {
+            config.GroupNames.Remove(value);
+        }
+
+        sso.Save(config);
+        var target = form["group"].ToString();
+        if (target != "keep")
+        {
+            Guid.TryParse(target, out var groupId);
+            var provider = value[..colon];
+            var signedIn = (await store.GetUsersAsync(context.RequestAborted))
+                .SelectMany(user => user.ExternalLogins
+                    .Where(login => string.Equals(login.Provider, provider, StringComparison.OrdinalIgnoreCase) && login.LastSignInAt is not null && !login.LastGroupsIncomplete)
+                    .Select(login => (user.Id, (IReadOnlyCollection<string>)login.LastGroups)))
+                .ToList();
+            await store.UpdateGroupsAsync(groups =>
+            {
+                foreach (var group in groups)
+                {
+                    var had = group.ExternalGroups.RemoveAll(key => string.Equals(key, value, StringComparison.OrdinalIgnoreCase)) > 0;
+                    var wants = group.Id == groupId;
+                    if (wants)
+                    {
+                        group.ExternalGroups.Add(value);
+                    }
+
+                    if (had != wants)
+                    {
+                        group.UpdatedAt = DateTimeOffset.UtcNow;
+                    }
+                }
+
+                // Whoever signed in through the service already is sorted in now, by what it named last time -
+                // not only at the next sign-in.
+                foreach (var (userId, named) in signedIn)
+                {
+                    SingleSignOn.SyncGroups(userId, provider, named, groups);
+                }
+            }, context.RequestAborted);
+        }
+
+        return Results.Redirect(EmbedAwareRedirect(context, "/admin?tab=sso#sso-groups"));
     }
 
     // What the form says, with a secret left empty meaning: keep the one there is.
@@ -37,6 +112,7 @@ public static partial class EndpointMapping
         EntraClientId = form["entraClientId"].ToString().Trim(),
         EntraClientSecret = form["entraClientSecret"].ToString() is { Length: > 0 } entraSecret ? entraSecret : before.EntraClientSecret,
         SsoOnly = IsChecked(form, "ssoOnly"),
+        GroupNames = before.GroupNames,
     };
 
     private static async Task<IResult> SsoSaveAsync(HttpContext context, JsonDataStore store, HtmlViews views, SsoSettingsService sso)
@@ -224,18 +300,28 @@ public static partial class EndpointMapping
             login.Issuer = identity.Issuer;
             login.Email = identity.Email;
             login.LastSignInAt = DateTimeOffset.UtcNow;
-            login.LastGroups = [.. identity.Groups];
+            // More groups than the service sent: the list from before stays, and so do the memberships.
+            login.LastGroupsIncomplete = identity.GroupsIncomplete;
+            if (!identity.GroupsIncomplete)
+            {
+                login.LastGroups = [.. identity.Groups];
+            }
         }, cancellationToken);
+        if (identity.GroupsIncomplete)
+        {
+            return;
+        }
+
         await store.UpdateGroupsAsync(groups => SingleSignOn.SyncGroups(userId, identity.Provider, identity.Groups, groups), cancellationToken);
     }
 
-    private sealed record SsoLink(Guid UserId, string Provider, string Issuer, string Subject, string Email, bool EmailVerified, string Name, string UserName, List<string> Groups, DateTimeOffset Expires);
+    private sealed record SsoLink(Guid UserId, string Provider, string Issuer, string Subject, string Email, bool EmailVerified, string Name, string UserName, List<string> Groups, DateTimeOffset Expires, bool GroupsIncomplete = false);
 
     private static IDataProtector SsoLinkProtector(IDataProtectionProvider protection) => protection.CreateProtector("Matgate.SsoLink.v1");
 
     private static void AppendSsoLink(HttpContext context, IDataProtectionProvider protection, ExternalIdentity identity, Guid userId)
     {
-        var link = new SsoLink(userId, identity.Provider, identity.Issuer, identity.Subject, identity.Email, identity.EmailVerified, identity.Name, identity.UserName, [.. identity.Groups], DateTimeOffset.UtcNow.AddMinutes(10));
+        var link = new SsoLink(userId, identity.Provider, identity.Issuer, identity.Subject, identity.Email, identity.EmailVerified, identity.Name, identity.UserName, [.. identity.Groups], DateTimeOffset.UtcNow.AddMinutes(10), identity.GroupsIncomplete);
         context.Response.Cookies.Append(SsoLinkCookie, SsoLinkProtector(protection).Protect(JsonSerializer.Serialize(link)), new CookieOptions
         {
             HttpOnly = true,
@@ -271,7 +357,7 @@ public static partial class EndpointMapping
             return;
         }
 
-        var identity = new ExternalIdentity(link.Provider, link.Issuer, link.Subject, link.Email, link.EmailVerified, link.Name, link.UserName, link.Groups);
+        var identity = new ExternalIdentity(link.Provider, link.Issuer, link.Subject, link.Email, link.EmailVerified, link.Name, link.UserName, link.Groups, link.GroupsIncomplete);
         await RecordExternalLoginAsync(store, user.Id, identity, context.RequestAborted);
     }
 

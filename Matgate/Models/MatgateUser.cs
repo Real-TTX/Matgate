@@ -374,4 +374,8 @@ public sealed class ExternalLogin
     // The groups (and app roles) the service named at the last sign-in, as "<provider>:<value>" - what a group
     // of Matgate can be linked to. Shown on the user's page, so that nobody has to guess the spelling.
     public List<string> LastGroups { get; set; } = [];
+
+    // True when the service said there are more groups than it puts into a sign-in (Entra above ~200 groups):
+    // LastGroups is then the list from before, and the groups of Matgate were left as they were.
+    public bool LastGroupsIncomplete { get; set; }
 }

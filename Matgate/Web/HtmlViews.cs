@@ -993,7 +993,7 @@ public sealed partial class HtmlViews
         {
             tabs.Add(new("users", T(context, "Users"), Icon("user"), UsersAdminPanel(context, currentUser, users, groups ?? [], servers, folderObjects ?? [], userTable)));
             tabs.Add(new("groups", de ? "Gruppen" : "Groups", Icon("users"), GroupsAdminPanel(context, groups ?? [], users, grants ?? [], servers, folderObjects ?? [])));
-            tabs.Add(new("sso", de ? "Anmeldung" : "Sign-in", Icon("key"), SsoPanel(context)));
+            tabs.Add(new("sso", de ? "Anmeldung" : "Sign-in", Icon("key"), SsoPanel(context, users, groups ?? [])));
         }
         tabs.Add(new("workspaces", T(context, "Workspaces"), Icon("briefcase"), $"""<section class="panel">{workspaceTable}</section>"""));
 

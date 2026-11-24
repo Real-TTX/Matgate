@@ -88,4 +88,25 @@ public sealed class SingleSignOnTests
         Assert.Equal("/signin-oidc", both.Find("matidentity")!.CallbackPath);
         Assert.True(both.SsoOnly);
     }
+
+    [Fact]
+    public void Entra_with_too_many_groups_is_marked_incomplete()
+    {
+        var overage = SingleSignOn.Read(SsoProvider.Entra, Principal(
+            ("oid", "o1"), ("tid", "t1"), ("preferred_username", "anna@firma.de"),
+            ("_claim_names", "{\"groups\":\"src1\"}")));
+        Assert.NotNull(overage);
+        Assert.True(overage!.GroupsIncomplete);
+        Assert.Empty(overage.Groups);
+
+        var implicitFlow = SingleSignOn.Read(SsoProvider.Entra, Principal(("oid", "o1"), ("tid", "t1"), ("hasgroups", "true")));
+        Assert.True(implicitFlow!.GroupsIncomplete);
+
+        var normal = SingleSignOn.Read(SsoProvider.Entra, Principal(("oid", "o1"), ("tid", "t1"), ("groups", "3f2a")));
+        Assert.False(normal!.GroupsIncomplete);
+        Assert.Equal(["entra:3f2a"], normal.Groups);
+
+        var noGroupsAtAll = SingleSignOn.Read(SsoProvider.Entra, Principal(("oid", "o1"), ("tid", "t1")));
+        Assert.False(noGroupsAtAll!.GroupsIncomplete);
+    }
 }

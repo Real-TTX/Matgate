@@ -179,7 +179,7 @@ const idp = async (method, url, body) => {
     await root.goto(GATE + "/admin/users/" + annaId, { waitUntil: "networkidle" });
     check("the user page shows the linked account and the group MatIdentity named", await root.evaluate(() => {
       const row = document.querySelector("[data-external-login='matidentity']");
-      return !!row && row.innerText.includes("matidentity:Technik");
+      return !!row && !!row.querySelector("[data-sso-value='matidentity:Technik']");
     }), true);
 
     // ---- out of the MatIdentity group: out of the Matgate group at the next sign-in

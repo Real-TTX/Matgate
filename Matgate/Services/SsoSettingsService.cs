@@ -29,6 +29,10 @@ public sealed class SsoConfig
     public string EntraClientSecret { get; set; } = "";
 
     public bool SsoOnly { get; set; }
+
+    // Names for what the services send: Entra sends a group as its object id ("entra:3f2a...") - here it gets a
+    // name ("Technik") to be shown wherever it appears. Key "<provider>:<value>".
+    public Dictionary<string, string> GroupNames { get; set; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
 public sealed class SsoSettingsService
@@ -72,6 +76,7 @@ public sealed class SsoSettingsService
             try
             {
                 var stored = JsonSerializer.Deserialize<SsoConfig>(File.ReadAllText(_path), JsonOptions) ?? new SsoConfig();
+                stored.GroupNames = new(stored.GroupNames ?? [], StringComparer.OrdinalIgnoreCase);
                 stored.MatIdentityClientSecret = _protector.Unprotect(stored.MatIdentityClientSecret);
                 stored.EntraClientSecret = _protector.Unprotect(stored.EntraClientSecret);
                 return stored;
@@ -112,6 +117,7 @@ public sealed class SsoSettingsService
             EntraClientId = config.EntraClientId.Trim(),
             EntraClientSecret = _protector.Protect(config.EntraClientSecret),
             SsoOnly = config.SsoOnly,
+            GroupNames = config.GroupNames.Where(pair => pair.Value.Trim().Length > 0).ToDictionary(pair => pair.Key.Trim(), pair => pair.Value.Trim(), StringComparer.OrdinalIgnoreCase),
         };
         var temp = _path + ".tmp";
         File.WriteAllText(temp, JsonSerializer.Serialize(stored, JsonOptions));

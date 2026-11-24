@@ -14,9 +14,25 @@ public sealed partial class HtmlViews
         _ => provider,
     };
 
+    // The names given to the services' groups under Administration -> Sign-in ("entra:<object id>" -> "Technik").
+    private static IReadOnlyDictionary<string, string> SsoGroupNames(HttpContext context) =>
+        context.RequestServices.GetService<Services.SsoSettingsService>()?.Load().GroupNames
+        ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+
+    // A group of a service as a chip: its name when it has one (the raw value then as the tooltip), else the value.
+    private static string SsoGroupChip(string value, IReadOnlyDictionary<string, string> names)
+    {
+        var colon = value.IndexOf(':');
+        var provider = colon > 0 ? SsoProviderLabel(value[..colon]) : "";
+        var raw = colon > 0 ? value[(colon + 1)..] : value;
+        var shown = names.TryGetValue(value, out var name) && name.Length > 0 ? name : raw;
+        return $"""<span class="acc-reason sso-chip" title="{A(value)}" data-sso-value="{A(value)}">{(provider.Length == 0 ? "" : $"<strong>{E(provider)}</strong> · ")}{E(shown)}</span>""";
+    }
+
     private static string ExternalLoginsPanel(HttpContext context, MatgateUser user)
     {
         var de = Language(context) == "de";
+        var names = SsoGroupNames(context);
         var settings = context.RequestServices.GetService<Services.SsoSettings>();
         if (user.ExternalLogins.Count == 0 && (settings is null || settings.Providers.Count == 0))
         {
@@ -27,7 +43,7 @@ public sealed partial class HtmlViews
             <tr data-external-login="{{A(login.Provider)}}">
                 <td><strong>{{E(SsoProviderLabel(login.Provider))}}</strong><small class="muted">{{E(login.Email)}}</small></td>
                 <td class="muted">{{(login.LastSignInAt is { } last ? E(last.ToLocalTime().ToString("dd.MM.yyyy HH:mm")) : "-")}}</td>
-                <td>{{(login.LastGroups.Count == 0 ? $"""<span class="muted">{E(de ? "keine" : "none")}</span>""" : string.Join(" ", login.LastGroups.Select(group => $"""<code class="sso-group">{E(group)}</code>""")))}}</td>
+                <td>{{(login.LastGroups.Count == 0 ? $"""<span class="muted">{E(de ? "keine" : "none")}</span>""" : string.Join(" ", login.LastGroups.Select(group => SsoGroupChip(group, names))))}}{{(login.LastGroupsIncomplete ? $"""<p class="sso-warning" data-sso-incomplete>{E(de ? "Zu viele Gruppen: Der Dienst hat bei der letzten Anmeldung keine mitgeschickt. Die Gruppen in Matgate sind unverändert geblieben. In Entra unter „Tokenkonfiguration“ auf „Der Anwendung zugewiesene Gruppen“ umstellen." : "Too many groups: the service sent none at the last sign-in. The groups in Matgate were left as they were. In Entra, under \"Token configuration\", switch to \"Groups assigned to the application\".")}</p>""" : "")}}</td>
                 <td class="table-actions">
                     <form method="post" action="/admin/users/{{user.Id}}/unlink" data-confirm="{{A(de ? "Verknüpfung lösen? Dieses Konto meldet sich danach nicht mehr als dieser Benutzer an." : "Unlink? This account then no longer signs in as this user.")}}">
                         {{Csrf(context)}}
@@ -45,8 +61,8 @@ public sealed partial class HtmlViews
             <section class="panel" data-external-logins>
                 <h2>{{(de ? "Anmeldung über Dienste" : "Sign-in services")}}</h2>
                 <p class="muted settings-lead">{{(de
-                    ? "Konten von MatIdentity oder Microsoft, mit denen sich dieser Benutzer anmeldet. „Gruppen“ ist, was der Dienst zuletzt genannt hat - genau so schreibt man es in eine Gruppe, um sie zu verknüpfen."
-                    : "Accounts of MatIdentity or Microsoft this user signs in with. \"Groups\" is what the service named last - written exactly like that into a group, it links the two.")}}</p>
+                    ? "Konten von MatIdentity oder Microsoft, mit denen sich dieser Benutzer anmeldet. „Gruppen“ ist, was der Dienst zuletzt genannt hat; mit Gruppen von Matgate verknüpft werden sie unter Administration → Anmeldung."
+                    : "Accounts of MatIdentity or Microsoft this user signs in with. \"Groups\" is what the service named last; they are linked to groups of Matgate under Administration → Sign-in.")}}</p>
                 {{noPassword}}
                 <div class="table-wrap">
                     <table class="access-table">
@@ -57,7 +73,8 @@ public sealed partial class HtmlViews
             </section>
             <style>
                 [data-external-logins] td small { display: block; }
-                .sso-group { background: var(--surface-2, rgba(127,127,127,.12)); border-radius: 6px; display: inline-block; font-size: 12px; margin: 1px 2px; padding: 2px 6px; }
+                .sso-chip { background: var(--surface-2, rgba(127,127,127,.12)); border-radius: 999px; display: inline-block; font-size: 12px; margin: 1px 2px; padding: 2px 8px; }
+                .sso-warning { background: color-mix(in srgb, #d97706 14%, var(--surface)); border-radius: 8px; font-size: 12px; margin: 6px 0 0; padding: 6px 10px; }
             </style>
             """;
     }
@@ -87,7 +104,7 @@ public sealed partial class HtmlViews
 
     // Administration -> Sign-in: MatIdentity and Microsoft Entra ID, each on or off, with what the service needs and
     // the address to give the service (to copy); "only through the services". Saved, it applies at once.
-    private static string SsoPanel(HttpContext context)
+    private static string SsoPanel(HttpContext context, IReadOnlyList<MatgateUser> users, IReadOnlyList<UserGroup> groups)
     {
         var de = Language(context) == "de";
         var service = context.RequestServices.GetService<Services.SsoSettingsService>();
@@ -102,14 +119,15 @@ public sealed partial class HtmlViews
         string Copy(string label, string value) => $$"""
             <div class="sso-copy"><span>{{E(label)}}</span><code>{{E(value)}}</code><button type="button" class="button" data-sso-copy="{{A(value)}}">{{Icon("copy")}}<span>{{E(de ? "Kopieren" : "Copy")}}</span></button></div>
             """;
-        string Card(string key, string title, string lead, bool on, string fields, string copies) => $$"""
+        string Card(string key, string title, string lead, bool on, string fields, string copies, string status = "", string steps = "") => $$"""
             <section class="sso-card{{(on ? " is-on" : "")}}" data-sso-card="{{key}}">
                 <header class="sso-card-head">
                     <label class="sso-switch"><input type="checkbox" name="{{key}}Enabled"{{Checked(on)}} data-sso-enabled><span class="sso-switch-track" aria-hidden="true"></span></label>
-                    <div><h3>{{E(title)}}</h3><p class="muted">{{E(lead)}}</p></div>
+                    <div><h3>{{E(title)}}</h3><p class="muted">{{E(lead)}}</p>{{status}}</div>
                     <span class="sso-state" data-sso-state>{{(on ? (de ? "An" : "On") : (de ? "Aus" : "Off"))}}</span>
                 </header>
                 <div class="sso-card-body">
+                    {{steps}}
                     {{copies}}
                     <div class="sso-fields">{{fields}}</div>
                     <div class="sso-check"><button type="button" class="button" data-sso-test="{{key}}">{{Icon("refresh")}}<span>{{E(de ? "Verbindung prüfen" : "Check the connection")}}</span></button><span class="muted" data-sso-test-result></span></div>
@@ -129,17 +147,113 @@ public sealed partial class HtmlViews
             + Field(de ? "Interne Adresse (optional)" : "Internal address (optional)", "matIdentityInternalUrl", config.MatIdentityInternalUrl,
                 de ? "Wie Matgate selbst MatIdentity erreicht, wenn nicht über die öffentliche Adresse - z. B. http://matidentity:2300." : "How Matgate itself reaches MatIdentity when not through the public address - e.g. http://matidentity:2300.",
                 "url", "http://matidentity:2300"),
-            Copy(de ? "Umleitungs-URI für MatIdentity" : "Redirect URI for MatIdentity", origin + "/signin-oidc"));
+            Copy(de ? "Umleitungs-URI für MatIdentity" : "Redirect URI for MatIdentity", origin + "/signin-oidc"),
+            Status(Services.SsoProvider.MatIdentity));
+        // Per service: how many sign in through it, when last, and whether one of them has too many groups.
+        string Status(string provider)
+        {
+            var logins = users.SelectMany(user => user.ExternalLogins.Where(login => login.Provider == provider)).ToList();
+            if (logins.Count == 0)
+            {
+                return $"""<p class="sso-status muted" data-sso-status="{provider}">{E(de ? "Noch niemand hat sich darüber angemeldet." : "Nobody has signed in through it yet.")}</p>""";
+            }
+
+            var last = logins.Max(login => login.LastSignInAt);
+            var incomplete = logins.Count(login => login.LastGroupsIncomplete);
+            var text = de
+                ? $"{logins.Count} Konto/Konten verknüpft" + (last is { } at ? $" · zuletzt {at.ToLocalTime():dd.MM.yyyy HH:mm}" : "")
+                : $"{logins.Count} account(s) linked" + (last is { } at2 ? $" · last {at2.ToLocalTime():yyyy-MM-dd HH:mm}" : "");
+            var warning = incomplete == 0
+                ? ""
+                : $"""<p class="sso-warning" data-sso-incomplete>{E(de
+                    ? $"{incomplete} Konto/Konten mit zu vielen Gruppen: Entra schickt dann keine mit, die Gruppen in Matgate bleiben unverändert. Abhilfe: in Entra unter „Tokenkonfiguration“ nur „Der Anwendung zugewiesene Gruppen“ senden - oder App-Rollen nehmen."
+                    : $"{incomplete} account(s) with too many groups: Entra then sends none, the groups in Matgate stay as they are. Remedy: in Entra, under \"Token configuration\", send only \"Groups assigned to the application\" - or use app roles.")}</p>""";
+            return $"""<p class="sso-status" data-sso-status="{provider}">{E(text)}</p>{warning}""";
+        }
+
+        string Steps(params string[] steps) => $"""<ol class="sso-steps">{string.Join("", steps.Select(step => $"<li>{step}</li>"))}</ol>""";
+        var entraSteps = de
+            ? Steps(
+                "Im <strong>Entra admin center</strong> unter <em>App-Registrierungen</em> → <em>Neue Registrierung</em>: Name „Matgate“, Konten nur in diesem Verzeichnis, Plattform <em>Web</em> mit der Umleitungs-URI unten.",
+                "Unter <em>Zertifikate &amp; Geheimnisse</em> einen geheimen Clientschlüssel anlegen und hier eintragen (den <em>Wert</em>, nicht die ID). Er läuft ab - rechtzeitig erneuern.",
+                "Unter <em>Tokenkonfiguration</em> → <em>Gruppenanspruch hinzufügen</em>: <em>Sicherheitsgruppen</em>, bei vielen Gruppen besser <em>Der Anwendung zugewiesene Gruppen</em>. Entra schickt Gruppen als Objekt-ID - die bekommen unten unter „Gruppen der Dienste“ einen Namen.",
+                "Alternativ <em>App-Rollen</em> anlegen (z. B. „Technik“) und unter <em>Unternehmensanwendungen</em> zuweisen: die kommen mit ihrem Namen an.",
+                "Mandanten-ID und Anwendungs-ID von der <em>Übersicht</em> hier eintragen, „Verbindung prüfen“, speichern.")
+            : Steps(
+                "In the <strong>Entra admin center</strong>, under <em>App registrations</em> → <em>New registration</em>: name \"Matgate\", accounts in this directory only, platform <em>Web</em> with the redirect URI below.",
+                "Under <em>Certificates &amp; secrets</em>, add a client secret and enter it here (the <em>value</em>, not the ID). It expires - renew it in time.",
+                "Under <em>Token configuration</em> → <em>Add groups claim</em>: <em>Security groups</em>, with many groups better <em>Groups assigned to the application</em>. Entra sends groups as object IDs - they get a name below under \"Groups of the services\".",
+                "Or add <em>app roles</em> (e.g. \"Engineering\") and assign them under <em>Enterprise applications</em>: those arrive with their name.",
+                "Enter the tenant ID and application ID from the <em>Overview</em> here, \"Check the connection\", save.");
+
         var entra = Card(
             "entra",
             "Microsoft Entra ID",
-            de ? "Anmelden mit dem Microsoft-Konto der Firma. Im Entra-Portal eine App-Registrierung anlegen, unter „Tokenkonfiguration“ einen Gruppen-Claim hinzufügen (bei vielen Gruppen: „Der Anwendung zugewiesene Gruppen“)."
-               : "Sign in with the company's Microsoft account. In the Entra portal, add an app registration and, under \"Token configuration\", a groups claim (with many groups: \"Groups assigned to the application\").",
+            de ? "Anmelden mit dem Microsoft-Konto der Firma."
+               : "Sign in with the company's Microsoft account.",
             config.EntraEnabled,
             Field(de ? "Mandanten-ID (Tenant)" : "Tenant ID", "entraTenantId", config.EntraTenantId, "", "text", "00000000-0000-0000-0000-000000000000")
             + Field(de ? "Anwendungs-ID (Client)" : "Application (client) ID", "entraClientId", config.EntraClientId, "", "text", "00000000-0000-0000-0000-000000000000")
             + Secret(de ? "Geheimer Clientschlüssel" : "Client secret", "entraClientSecret", config.EntraClientSecret),
-            Copy(de ? "Umleitungs-URI (Web) für Entra" : "Redirect URI (web) for Entra", origin + "/signin-entra"));
+            Copy(de ? "Umleitungs-URI (Web) für Entra" : "Redirect URI (web) for Entra", origin + "/signin-entra"),
+            Status(Services.SsoProvider.Entra),
+            entraSteps);
+
+        // ---- Groups of the services: everything they named at a sign-in, and everything a group of Matgate is
+        // linked to - each with a name (Entra sends object ids) and the group of Matgate that stands for it.
+        var names = config.GroupNames;
+        var seen = new Dictionary<string, List<MatgateUser>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var user in users)
+        {
+            foreach (var value in user.ExternalLogins.SelectMany(login => login.LastGroups).Distinct(StringComparer.OrdinalIgnoreCase))
+            {
+                (seen.TryGetValue(value, out var list) ? list : seen[value] = []).Add(user);
+            }
+        }
+
+        foreach (var value in groups.SelectMany(group => group.ExternalGroups))
+        {
+            seen.TryAdd(value, []);
+        }
+
+        var sortedGroups = groups.OrderBy(group => group.Name, StringComparer.CurrentCultureIgnoreCase).ToList();
+        var groupRows = string.Join("", seen
+            .OrderBy(pair => pair.Key[..Math.Max(0, pair.Key.IndexOf(':'))], StringComparer.OrdinalIgnoreCase)
+            .ThenBy(pair => names.TryGetValue(pair.Key, out var name) ? name : "~" + pair.Key, StringComparer.CurrentCultureIgnoreCase)
+            .Select(pair =>
+            {
+                var value = pair.Key;
+                var colon = value.IndexOf(':');
+                var provider = colon > 0 ? value[..colon] : "";
+                var raw = colon > 0 ? value[(colon + 1)..] : value;
+                var linked = sortedGroups.Where(group => group.ExternalGroups.Contains(value, StringComparer.OrdinalIgnoreCase)).ToList();
+                var options = (linked.Count > 1 ? $"""<option value="keep" selected>{E(de ? $"{linked.Count} Gruppen ({string.Join(", ", linked.Select(group => group.Name))})" : $"{linked.Count} groups ({string.Join(", ", linked.Select(group => group.Name))})")}</option>""" : "")
+                    + $"""<option value=""{(linked.Count == 0 ? " selected" : "")}>{E(de ? "- keine Gruppe -" : "- no group -")}</option>"""
+                    + string.Join("", sortedGroups.Select(group => $"""<option value="{group.Id}"{(linked.Count == 1 && linked[0].Id == group.Id ? " selected" : "")}>{E(group.Name)}</option>"""));
+                var people = pair.Value.Count == 0
+                    ? $"""<span class="muted">{E(de ? "noch niemand" : "nobody yet")}</span>"""
+                    : E(string.Join(", ", pair.Value.Take(3).Select(PersonName)) + (pair.Value.Count > 3 ? $" +{pair.Value.Count - 3}" : ""));
+                return $$"""
+                    <form method="post" action="/admin/sso/group" class="sso-group-row" data-sso-group="{{A(value)}}">
+                        {{Csrf(context)}}<input type="hidden" name="value" value="{{A(value)}}">
+                        <div class="sso-group-what"><span class="sso-group-provider">{{E(SsoProviderLabel(provider))}}</span><code title="{{A(value)}}">{{E(raw)}}</code><small class="muted" data-sso-group-people>{{people}}</small></div>
+                        <label class="sso-group-name"><span>{{(de ? "Name" : "Name")}}</span><input type="text" name="name" value="{{A(names.TryGetValue(value, out var given) ? given : "")}}" placeholder="{{A(de ? "z. B. Technik" : "e.g. Engineering")}}" maxlength="80" autocomplete="off"></label>
+                        <label class="sso-group-link"><span>{{(de ? "Gruppe in Matgate" : "Group in Matgate")}}</span><select name="group" data-sso-group-select>{{options}}</select></label>
+                        <button type="submit" class="button" data-sso-group-save>{{Icon("save")}}<span>{{T(context, "Save")}}</span></button>
+                    </form>
+                    """;
+            }));
+        var groupsSection = $$"""
+            <section class="sso-groups" id="sso-groups" data-sso-groups>
+                <h3>{{(de ? "Gruppen der Dienste" : "Groups of the services")}}</h3>
+                <p class="muted">{{(de
+                    ? "Was die Dienste bei einer Anmeldung als Gruppe oder App-Rolle genannt haben. Mit einer Gruppe von Matgate verknüpft, kommt jeder hinein, den der Dienst darin nennt - und wieder heraus, wenn nicht mehr; wer schon angemeldet war, sofort. Entra nennt Gruppen nur mit ihrer Objekt-ID: ein Name hier macht sie lesbar."
+                    : "What the services named as a group or app role at a sign-in. Linked to a group of Matgate, everyone the service names in it is put in - and out again once no longer; who signed in before, right away. Entra names groups by their object ID only: a name here makes them readable.")}}</p>
+                {{(groupRows.Length == 0
+                    ? $"""<p class="sso-groups-empty muted">{E(de ? "Noch keine. Sobald sich jemand über einen Dienst anmeldet, stehen seine Gruppen hier." : "None yet. As soon as someone signs in through a service, their groups are listed here.")}</p>"""
+                    : $"""<div class="sso-group-list">{groupRows}</div>""")}}
+            </section>
+            """;
 
         var fromEnvironment = service is { FromFile: false } && (config.MatIdentityEnabled || config.EntraEnabled)
             ? $"""<p class="sso-note">{E(de ? "Diese Werte kommen zurzeit aus Umgebungsvariablen. Speichern übernimmt sie hierher - danach gilt, was hier steht." : "These values come from environment variables at the moment. Saving takes them over - from then on what is here holds.")}</p>"""
@@ -147,8 +261,8 @@ public sealed partial class HtmlViews
         return $$"""
             <section class="panel sso-panel" data-sso-panel>
                 <p class="muted settings-lead">{{(de
-                    ? "Anmelden über einen Dienst statt mit einem Passwort von Matgate. Wer neu kommt, bekommt einen Benutzer ohne Rechte - die kommen über Gruppen, die man unter „Gruppen“ mit Gruppen des Dienstes verknüpft. Ein bestehendes Konto mit derselben Adresse wird erst nach seinem Passwort verknüpft."
-                    : "Sign in through a service instead of with a password of Matgate. Someone new gets a user without rights - those come from groups, linked under \"Groups\" to groups of the service. An existing account with the same address is linked only after its password.")}}</p>
+                    ? "Anmelden über einen Dienst statt mit einem Passwort von Matgate. Wer neu kommt, bekommt einen Benutzer ohne Rechte - die kommen über Gruppen von Matgate, die man unten unter „Gruppen der Dienste“ mit Gruppen des Dienstes verknüpft. Ein bestehendes Konto mit derselben Adresse wird erst nach seinem Passwort verknüpft."
+                    : "Sign in through a service instead of with a password of Matgate. Someone new gets a user without rights - those come from groups of Matgate, linked below under \"Groups of the services\" to groups of the service. An existing account with the same address is linked only after its password.")}}</p>
                 {{fromEnvironment}}
                 <form method="post" action="/admin/sso" class="sso-form" data-sso-form>
                     {{Csrf(context)}}
@@ -159,6 +273,7 @@ public sealed partial class HtmlViews
                     </section>
                     <div class="actions"><button type="submit" class="primary">{{Icon("save")}}{{T(context, "Save")}}</button></div>
                 </form>
+                {{groupsSection}}
             </section>
             <style>
                 .sso-panel { display: grid; gap: 14px; }
@@ -172,7 +287,7 @@ public sealed partial class HtmlViews
                 .sso-card-head h3 { font-size: 16px; margin: 0 0 2px; }
                 .sso-card-head p { font-size: 13px; margin: 0; }
                 .sso-card-head > div { flex: 1 1 auto; }
-                .sso-state { border-radius: 999px; font-size: 12px; font-weight: 700; padding: 3px 10px; background: var(--surface-2, var(--line)); }
+                .sso-state { align-self: flex-start; flex: 0 0 auto; white-space: nowrap; border-radius: 999px; font-size: 12px; font-weight: 700; padding: 3px 10px; background: var(--surface-2, var(--line)); }
                 .sso-card.is-on .sso-state { background: color-mix(in srgb, var(--accent) 18%, var(--surface)); color: var(--accent); }
                 .sso-card-body { border-top: 1px solid var(--line); display: grid; gap: 12px; padding: 14px 16px; }
                 .sso-card:not(.is-on) .sso-card-body { display: none; }
@@ -193,6 +308,27 @@ public sealed partial class HtmlViews
                 .sso-switch input:checked + .sso-switch-track { background: var(--accent); }
                 .sso-switch input:checked + .sso-switch-track::after { transform: translateX(18px); }
                 .sso-switch input:focus-visible + .sso-switch-track { box-shadow: var(--focus-ring); }
+                .sso-status { font-size: 13px; font-weight: 600; margin: 6px 0 0; }
+                .sso-status.muted { font-weight: 400; }
+                .sso-steps { display: grid; font-size: 13px; gap: 6px; line-height: 1.45; margin: 0; padding-left: 20px; }
+                .sso-steps em { font-style: normal; font-weight: 600; }
+                .sso-groups { border-top: 1px solid var(--line); display: grid; gap: 8px; padding-top: 14px; }
+                .sso-groups h3 { font-size: 16px; margin: 0; }
+                .sso-groups > p { font-size: 13px; margin: 0; }
+                .sso-group-list { border: 1px solid var(--line); border-radius: var(--radius, 14px); overflow: hidden; }
+                .sso-group-row { align-items: end; display: grid; gap: 10px 14px; grid-template-columns: minmax(200px, 1.3fr) minmax(150px, 1fr) minmax(170px, 1fr) auto; padding: 10px 14px; }
+                .sso-group-row + .sso-group-row { border-top: 1px solid var(--line); }
+                .sso-group-what { align-self: center; display: grid; gap: 2px; min-width: 0; }
+                .sso-group-provider { color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
+                .sso-group-what code { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                .sso-group-what small { font-size: 12px; }
+                .sso-group-name, .sso-group-link { display: grid; gap: 3px; min-width: 0; }
+                .sso-group-name > span, .sso-group-link > span { color: var(--muted); font-size: 12px; }
+                @media (max-width: 720px) {
+                    .sso-group-row { grid-template-columns: 1fr auto; }
+                    .sso-group-what, .sso-group-name, .sso-group-link { grid-column: 1 / -1; }
+                    .sso-group-row > button { grid-column: 2; }
+                }
             </style>
             <script>
                 (() => {
@@ -212,6 +348,8 @@ public sealed partial class HtmlViews
                         try { await navigator.clipboard.writeText(button.dataset.ssoCopy); } catch { }
                         button.querySelector('span').textContent = {{JsonSerializer.Serialize(de ? "Kopiert" : "Copied")}};
                     }));
+                    // A group of a service: picking the group of Matgate saves at once, like the access rows.
+                    panel.querySelectorAll('[data-sso-group-select]').forEach(select => select.addEventListener('change', () => select.form.requestSubmit()));
                     panel.querySelectorAll('[data-sso-test]').forEach(button => button.addEventListener('click', async () => {
                         const result = button.parentElement.querySelector('[data-sso-test-result]');
                         result.className = 'muted';
