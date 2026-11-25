@@ -56,7 +56,7 @@ const GROUPS = [
   },
   {
     name: "Group 11 - websites: an address of their own, the path under Matgate's, a browser tab; the settings page and what saving it keeps",
-    scripts: ["website.js", "settings-page.js", "settings-safety.js", "sso-groups.js"],
+    scripts: ["website.js", "settings-page.js", "settings-safety.js", "sso-groups.js", "db-edit-plan.js"],
   },
   {
     name: "Group 12 - the agent on Linux",

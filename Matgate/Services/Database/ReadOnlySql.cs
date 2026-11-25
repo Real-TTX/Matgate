@@ -27,9 +27,74 @@ public static class ReadOnlySql
         "LOCK", "UNLOCK", "KILL", "SHUTDOWN", "DBCC", "BACKUP", "RESTORE", "RECONFIGURE", "BULK",
         "OPENROWSET", "OPENDATASOURCE", "OPENQUERY", "USE", "GO", "LOAD", "HANDLER", "COPY",
     };
+    // Exactly one statement (a ";" at its end allowed): what EXPLAIN may be put in front of. Strings, quoted
+    // names and comments are skipped as in Refusal. SQL Server needs no ";" between statements - there the
+    // plan is only shown, nothing runs, so it does not matter.
+    public static bool IsSingleStatement(string sql, ServerProtocol protocol)
+    {
+        var (words, several) = Scan(sql, protocol);
+        return words.Count > 0 && !several;
+    }
 
     // Null when the statement may run read-only; otherwise why not.
     public static string? Refusal(string sql, ServerProtocol protocol, bool german)
+    {
+        var (words, several) = Scan(sql, protocol);
+        if (several)
+        {
+            // Anything after a finished statement: a second one.
+            return german ? "Nur lesen: bitte nur eine Anweisung auf einmal." : "Read-only: one statement at a time, please.";
+        }
+
+        if (words.Count == 0)
+        {
+            return german ? "Keine Abfrage." : "No statement.";
+        }
+
+        if (!ReadingWords.Contains(words[0]))
+        {
+            return german
+                ? $"Nur lesen: „{words[0].ToUpperInvariant()}“ ändert etwas. Erlaubt sind Abfragen wie SELECT, WITH, SHOW oder EXPLAIN."
+                : $"Read-only: \"{words[0].ToUpperInvariant()}\" changes something. Allowed are statements such as SELECT, WITH, SHOW or EXPLAIN.";
+        }
+
+        // SQL Server needs no ";" between two statements ("SELECT 1 COMMIT DELETE FROM t" is three), and a
+        // COMMIT would end the transaction that undoes the rest. So no word that changes, ends a transaction or
+        // runs something else may appear anywhere - outside strings and comments, which are skipped above.
+        for (var w = 0; w < words.Count; w++)
+        {
+            if (ChangingWords.Contains(words[w]) && !(w > 0 && string.Equals(words[w - 1], "SHOW", StringComparison.OrdinalIgnoreCase)))
+            {
+                return german
+                    ? $"Nur lesen: „{words[w].ToUpperInvariant()}“ ist hier nicht erlaubt."
+                    : $"Read-only: \"{words[w].ToUpperInvariant()}\" is not allowed here.";
+            }
+        }
+
+        for (var w = 0; w + 1 < words.Count; w++)
+        {
+            if (string.Equals(words[w], "INTO", StringComparison.OrdinalIgnoreCase)
+                && (string.Equals(words[w + 1], "OUTFILE", StringComparison.OrdinalIgnoreCase) || string.Equals(words[w + 1], "DUMPFILE", StringComparison.OrdinalIgnoreCase)))
+            {
+                return german ? "Nur lesen: SELECT ... INTO OUTFILE schreibt eine Datei." : "Read-only: SELECT ... INTO OUTFILE writes a file.";
+            }
+        }
+
+        return null;
+    }
+
+    // What opens the read-only transaction on each server.
+    public static string Begin(ServerProtocol protocol) => protocol switch
+    {
+        ServerProtocol.Postgres => "BEGIN TRANSACTION READ ONLY",
+        ServerProtocol.MySql => "START TRANSACTION READ ONLY",
+        _ => "BEGIN TRANSACTION",
+    };
+
+    public static string End(ServerProtocol protocol) => protocol == ServerProtocol.MsSql ? "IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION" : "ROLLBACK";
+
+    // The words of a statement outside strings and comments, and whether a second statement follows the first.
+    private static (List<string> Words, bool Several) Scan(string sql, ServerProtocol protocol)
     {
         var words = new List<string>();
         var statements = 0;
@@ -59,7 +124,7 @@ public static class ReadOnlySql
             if (statements > 0 && !char.IsWhiteSpace(c) && c != ';')
             {
                 // Anything after a finished statement: a second one.
-                return german ? "Nur lesen: bitte nur eine Anweisung auf einmal." : "Read-only: one statement at a time, please.";
+                return (words, true);
             }
 
             if (c is '\'' or '"' or '`' || c == '[' && protocol == ServerProtocol.MsSql)
@@ -140,50 +205,6 @@ public static class ReadOnlySql
             i++;
         }
 
-        if (words.Count == 0)
-        {
-            return german ? "Keine Abfrage." : "No statement.";
-        }
-
-        if (!ReadingWords.Contains(words[0]))
-        {
-            return german
-                ? $"Nur lesen: „{words[0].ToUpperInvariant()}“ ändert etwas. Erlaubt sind Abfragen wie SELECT, WITH, SHOW oder EXPLAIN."
-                : $"Read-only: \"{words[0].ToUpperInvariant()}\" changes something. Allowed are statements such as SELECT, WITH, SHOW or EXPLAIN.";
-        }
-
-        // SQL Server needs no ";" between two statements ("SELECT 1 COMMIT DELETE FROM t" is three), and a
-        // COMMIT would end the transaction that undoes the rest. So no word that changes, ends a transaction or
-        // runs something else may appear anywhere - outside strings and comments, which are skipped above.
-        for (var w = 0; w < words.Count; w++)
-        {
-            if (ChangingWords.Contains(words[w]) && !(w > 0 && string.Equals(words[w - 1], "SHOW", StringComparison.OrdinalIgnoreCase)))
-            {
-                return german
-                    ? $"Nur lesen: „{words[w].ToUpperInvariant()}“ ist hier nicht erlaubt."
-                    : $"Read-only: \"{words[w].ToUpperInvariant()}\" is not allowed here.";
-            }
-        }
-
-        for (var w = 0; w + 1 < words.Count; w++)
-        {
-            if (string.Equals(words[w], "INTO", StringComparison.OrdinalIgnoreCase)
-                && (string.Equals(words[w + 1], "OUTFILE", StringComparison.OrdinalIgnoreCase) || string.Equals(words[w + 1], "DUMPFILE", StringComparison.OrdinalIgnoreCase)))
-            {
-                return german ? "Nur lesen: SELECT ... INTO OUTFILE schreibt eine Datei." : "Read-only: SELECT ... INTO OUTFILE writes a file.";
-            }
-        }
-
-        return null;
+        return (words, false);
     }
-
-    // What opens the read-only transaction on each server.
-    public static string Begin(ServerProtocol protocol) => protocol switch
-    {
-        ServerProtocol.Postgres => "BEGIN TRANSACTION READ ONLY",
-        ServerProtocol.MySql => "START TRANSACTION READ ONLY",
-        _ => "BEGIN TRANSACTION",
-    };
-
-    public static string End(ServerProtocol protocol) => protocol == ServerProtocol.MsSql ? "IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION" : "ROLLBACK";
 }

@@ -106,7 +106,7 @@ Three ready-made stacks are in this repo, all with prebuilt images:
 
 | Image | Tag |
 |---|---|
-| `ghcr.io/real-ttx/matgate` | `latest`, a version such as `0.51.0`, or `sha-…` |
+| `ghcr.io/real-ttx/matgate` | `latest`, a version such as `0.52.0`, or `sha-…` |
 | `ghcr.io/real-ttx/matgate-browser-farm` | `latest` (optional) |
 
 <details>
@@ -235,6 +235,13 @@ needed). [→ Agent documentation](agent/README.md)
 - A **table designer**: columns (type, NULL, default, primary key, identity), indexes and foreign keys - for a new
   table or one that is there. It shows the statements first and runs them when asked; on PostgreSQL and SQL Server
   all of them or none (one transaction).
+- **Edit rows** in a table's data view: change a cell (or set it to NULL), add a row, remove one. The SQL preview
+  shows the statements; saving runs them in one transaction, found by the primary key - if a row was changed or
+  removed meanwhile, nothing is saved. Tables without a primary key, binary data and automatic numbers are not
+  edited here.
+- An **execution plan** (Plan, Ctrl+L) without running the statement: a tree of steps with each one's share of the
+  cost, the most costly marked (PostgreSQL, SQL Server; MySQL/MariaDB as its table, full scans marked). On
+  PostgreSQL also **with run times** - run inside a transaction that is rolled back.
 - Also through **quick connect**, with nothing saved.
 
 ### 🗂️ Organizing & sharing

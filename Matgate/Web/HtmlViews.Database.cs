@@ -103,6 +103,31 @@ public sealed partial class HtmlViews
             transactional = de ? "Alles oder nichts: läuft in einer Transaktion." : "All or nothing: runs in a transaction.",
             notTransactional = de ? "MySQL/MariaDB kann Strukturänderungen nicht zurückrollen: bei einem Fehler bleibt, was davor gelaufen ist." : "MySQL/MariaDB cannot roll back structure changes: on an error what ran before it stays.",
             more = de ? "Mehr" : "More",
+            edit = de ? "Bearbeiten" : "Edit",
+            editDone = de ? "Fertig" : "Done",
+            editHint = de ? "Zelle antippen zum Ändern · Enter übernimmt, Esc verwirft · # löscht die Zeile" : "Tap a cell to change it · Enter keeps, Esc drops · # removes the row",
+            noKey = de ? "Ohne Primärschlüssel lässt sich eine Zeile nicht sicher finden - ändern geht hier nur über eine Abfrage." : "Without a primary key a row cannot be found safely - change it through a query instead.",
+            addRow = de ? "Zeile" : "Row",
+            changes = de ? "{n} Änderung(en)" : "{n} change(s)",
+            save = de ? "Speichern" : "Save",
+            discard = de ? "Verwerfen" : "Discard",
+            saved = de ? "Gespeichert: {n} Änderung(en)." : "Saved: {n} change(s).",
+            finishFirst = de ? "Erst speichern oder verwerfen" : "Save or discard first",
+            notEditable = de ? "Lässt sich hier nicht bearbeiten" : "Cannot be edited here",
+            auto = de ? "(automatisch)" : "(automatic)",
+            useDefault = de ? "VORGABE" : "DEFAULT",
+            setNull = "NULL",
+            rowsAll = de ? "Alles in einer Transaktion: trifft eine Änderung nicht genau eine Zeile, bleibt alles, wie es war." : "All in one transaction: if a change does not hit exactly one row, everything stays as it was.",
+            plan = de ? "Plan" : "Plan",
+            planHint = de ? "Ausführungsplan - wie die Datenbank die Anweisung abarbeiten würde, ohne sie auszuführen (Strg+L)" : "Execution plan - how the database would work through the statement, without running it (Ctrl+L)",
+            withTimes = de ? "mit Laufzeiten" : "with run times",
+            withTimesHint = de ? "Führt die Anweisung aus und misst - in einer Transaktion, die danach zurückgerollt wird." : "Runs the statement and measures - inside a transaction that is rolled back afterwards.",
+            planRows = de ? "geschätzt {n} Zeilen" : "estimated {n} rows",
+            planActual = de ? "tatsächlich {n} Zeilen in {ms} ms" : "actually {n} rows in {ms} ms",
+            planCost = de ? "Kosten" : "Cost",
+            planCostly = de ? "teuerster Schritt" : "most costly step",
+            planCopy = de ? "Plan kopieren" : "Copy the plan",
+            planFullScan = de ? "liest die ganze Tabelle" : "reads the whole table",
         });
         var csrf = JsonSerializer.Serialize(context.User.FindFirstValue("csrf") ?? "");
         var setup = JsonSerializer.Serialize(new
@@ -142,6 +167,8 @@ public sealed partial class HtmlViews
                     <span data-db-icon="clock">{{Icon("clock")}}</span><span data-db-icon="download">{{Icon("download")}}</span>
                     <span data-db-icon="copy">{{Icon("copy")}}</span>
                     <span data-db-icon="close">{{Icon("x")}}</span><span data-db-icon="link">{{Icon("arrow-right")}}</span>
+                    <span data-db-icon="edit">{{Icon("edit")}}</span><span data-db-icon="plus">{{Icon("plus")}}</span><span data-db-icon="trash">{{Icon("trash")}}</span>
+                    <span data-db-icon="save">{{Icon("save")}}</span><span data-db-icon="plan">{{Icon("list")}}</span>
                 </div>
                 <div class="dbx-menu" data-db-menu role="menu" hidden></div>
                 <form class="dbx-login" data-db-login hidden>
@@ -270,6 +297,45 @@ public sealed partial class HtmlViews
                 .dbx-login-box { background: var(--panel, var(--surface)); border: 1px solid var(--line); border-radius: 16px; display: grid; gap: 12px; padding: 20px; width: min(360px, calc(100vw - 32px)); }
                 .dbx-login-box h2 { margin: 0; }
                 .dbx-login-box label { display: grid; gap: 4px; }
+                /* Editing rows in the data view. */
+                .dbx-edit-bar { background: color-mix(in srgb, var(--accent) 8%, var(--surface)); border-top: 1px solid var(--line); }
+                .dbx-edit-bar[hidden] { display: none; }
+                .dbx-edit-preview { padding: 0 12px 8px; }
+                .dbx-edit-preview[hidden] { display: none; }
+                .dbx-edit-preview p { margin: 4px 0 0; }
+                .dbx-edit-bar .dbx-muted { flex: 1 1 260px; }
+                .dbx-grid.is-editing td:not(.num) { cursor: text; }
+                .dbx-grid.is-editing td.locked { cursor: not-allowed; opacity: .7; }
+                .dbx-grid.is-editing td.num { cursor: pointer; }
+                .dbx-grid.is-editing td.num:hover { color: var(--danger, #b3261e); }
+                .dbx-grid td.changed { background: color-mix(in srgb, #d97706 16%, var(--surface)) !important; }
+                .dbx-grid tr.deleted td { background: color-mix(in srgb, var(--danger, #b3261e) 10%, var(--surface)) !important; text-decoration: line-through; }
+                .dbx-grid tr.added td { background: color-mix(in srgb, var(--accent) 10%, var(--surface)) !important; }
+                .dbx-grid td.default { color: var(--muted); font-style: italic; }
+                .dbx-grid td.editing { overflow: visible; padding: 0; position: relative; }
+                .dbx-cell-editor { align-items: center; display: flex; gap: 2px; min-width: 180px; }
+                .dbx-cell-editor input { border-radius: 0; flex: 1 1 auto; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; min-height: 30px; padding: 3px 8px; }
+                .dbx-cell-editor button { font-size: 11px; min-height: 30px; padding: 0 6px; }
+                /* The execution plan. */
+                .dbx-plan { display: grid; gap: 10px; padding: 8px 14px 18px; }
+                .dbx-plan-notes { display: grid; font-size: 12.5px; gap: 4px; margin: 0; padding: 0; list-style: none; }
+                .dbx-plan-notes li { background: color-mix(in srgb, var(--accent) 8%, var(--surface)); border-radius: 8px; padding: 6px 10px; }
+                .dbx-plan-tree { display: grid; list-style: none; margin: 0; padding: 0; }
+                .dbx-plan-node { border-bottom: 1px solid color-mix(in srgb, var(--line) 60%, transparent); display: grid; gap: 2px; padding: 6px 8px 6px calc(8px + var(--depth, 0) * 20px); position: relative; }
+                .dbx-plan-node::before { border-left: 1px solid var(--line); bottom: 0; content: ""; left: calc(var(--depth, 0) * 20px - 6px); position: absolute; top: 0; }
+                .dbx-plan-node[style*="--depth: 0"]::before { display: none; }
+                .dbx-plan-head { align-items: baseline; display: flex; flex-wrap: wrap; gap: 4px 10px; }
+                .dbx-plan-op { font-weight: 700; }
+                .dbx-plan-target { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12.5px; }
+                .dbx-plan-numbers { color: var(--muted); font-size: 12px; margin-left: auto; white-space: nowrap; }
+                .dbx-plan-detail { color: var(--muted); font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; overflow-wrap: anywhere; }
+                .dbx-plan-bar { background: color-mix(in srgb, var(--line) 50%, transparent); border-radius: 999px; height: 4px; overflow: hidden; }
+                .dbx-plan-bar > span { background: var(--accent); display: block; height: 100%; }
+                .dbx-plan-node.costly { background: color-mix(in srgb, #d97706 10%, var(--surface)); }
+                .dbx-plan-node.costly .dbx-plan-bar > span { background: #d97706; }
+                .dbx-plan-warn { color: #b45309; font-size: 12px; }
+                .dbx-grid tr.full-scan td { background: color-mix(in srgb, #d97706 10%, var(--surface)); }
+                .dbx-plan-times { align-items: center; display: inline-flex; font-size: 12.5px; gap: 6px; }
                 /* SQL colours - readable on light and dark alike. */
                 .dbx { --sql-keyword: #8250df; --sql-string: #1a7f37; --sql-number: #b35900; --sql-comment: #6e7781; --sql-type: #0a6cc2; --sql-operator: var(--muted); --sql-name: var(--text); }
                 html[data-theme="dark"] .dbx { --sql-keyword: #c49bff; --sql-string: #7ee2a1; --sql-number: #ffb070; --sql-comment: #8b949e; --sql-type: #79c0ff; }
@@ -752,6 +818,286 @@ public sealed partial class HtmlViews
             };
             const findDocument = key => documents.find(doc => doc.key === key);
 
+            // Editing a table's rows in the data view: cells changed in place, rows added and removed - kept here until
+            // "Save", which sends them as one transaction; "SQL preview" shows the statements first. A row is found by
+            // its primary key: a table without one is not edited. Binary data, automatic numbers and values too long
+            // to be shown whole are not edited either.
+            const rowEditor = ({ pane, grid, state, rerender, db, schema, name }) => {
+                const bar = pane.querySelector('[data-db-edit-bar]');
+                const say = bar.querySelector('[data-db-edit-text]');
+                const previewBox = pane.querySelector('[data-db-edit-preview]');
+                const ed = { on: false, info: null, noKey: false, updates: new Map(), deletes: new Set(), inserts: [] };
+                const editable = column => !!column && !column.identity
+                    && !/binary|blob|bytea|image|geometry|geography|hierarchyid|rowversion|sql_variant/i.test(column.type)
+                    && !(setup.protocol === 'mssql' && /^timestamp/i.test(column.type));
+                const columnOf = column => ed.info.columns.find(entry => entry.name === column);
+                const indexOf = column => state.result.columns.indexOf(column);
+                const keyOf = index => {
+                    const key = {};
+                    ed.info.columns.filter(column => column.primaryKey).forEach(column => { key[column.name] = state.result.rows[index][indexOf(column.name)]; });
+                    return key;
+                };
+                const changeList = () => [
+                    ...Array.from(ed.deletes).map(index => ({ op: 'delete', key: keyOf(index) })),
+                    ...Array.from(ed.updates.entries()).filter(([index]) => !ed.deletes.has(index)).map(([index, values]) => ({ op: 'update', key: keyOf(index), values })),
+                    ...ed.inserts.slice().reverse().map(values => ({ op: 'insert', values })),
+                ];
+                const refresh = () => {
+                    const count = changeList().length;
+                    say.textContent = ed.noKey ? texts.noKey : count ? texts.changes.replace('{n}', count) + ' · ' + texts.rowsAll : texts.editHint;
+                    bar.querySelector('[data-db-edit-save]').disabled = !count;
+                    bar.querySelector('[data-db-edit-preview-button]').disabled = !count;
+                    bar.querySelector('[data-db-edit-discard]').disabled = !count;
+                    bar.querySelector('[data-db-edit-add]').disabled = ed.noKey;
+                };
+                const show = (cell, value) => {
+                    cell.classList.remove('default');
+                    cell.classList.toggle('null', value === null);
+                    cell.textContent = value === null ? 'NULL' : value;
+                };
+                const decorate = () => {
+                    grid.classList.toggle('is-editing', ed.on);
+                    const table = grid.querySelector('table');
+                    if (!ed.on || !state.result || !table) {
+                        return;
+                    }
+                    const body = table.tBodies[0];
+                    const columns = state.result.columns;
+                    if (!state.result.rows.length && ed.inserts.length) {
+                        body.replaceChildren();
+                    }
+                    Array.from(body.rows).forEach((row, index) => {
+                        if (index >= state.result.rows.length) {
+                            return;
+                        }
+                        row.dataset.row = String(index);
+                        row.classList.toggle('deleted', ed.deletes.has(index));
+                        row.cells[0].title = ed.noKey ? '' : texts.remove;
+                        const changes = ed.updates.get(index) || {};
+                        Array.from(row.cells).slice(1).forEach((cell, c) => {
+                            const original = state.result.rows[index][c];
+                            cell.dataset.col = columns[c];
+                            const locked = ed.noKey || !editable(columnOf(columns[c])) || (original !== null && original.length > 4000);
+                            cell.classList.toggle('locked', locked);
+                            if (locked) {
+                                cell.title = texts.notEditable;
+                            }
+                            if (Object.prototype.hasOwnProperty.call(changes, columns[c])) {
+                                show(cell, changes[columns[c]]);
+                                cell.classList.add('changed');
+                            }
+                        });
+                    });
+                    ed.inserts.forEach((values, n) => {
+                        const row = body.insertRow(n);
+                        row.className = 'added';
+                        row.dataset.added = String(n);
+                        const number = row.insertCell();
+                        number.className = 'num';
+                        number.textContent = '+';
+                        number.title = texts.remove;
+                        columns.forEach(column => {
+                            const cell = row.insertCell();
+                            cell.dataset.col = column;
+                            const info = columnOf(column);
+                            if (Object.prototype.hasOwnProperty.call(values, column)) {
+                                show(cell, values[column]);
+                                cell.classList.add('changed');
+                            }
+                            else {
+                                cell.classList.add('default');
+                                cell.textContent = info && info.identity ? texts.auto : texts.useDefault;
+                            }
+                            if (!editable(info)) {
+                                cell.classList.add('locked');
+                                cell.title = texts.notEditable;
+                            }
+                        });
+                    });
+                    refresh();
+                };
+                const redraw = () => { rerender(); decorate(); };
+                const currentValue = (row, column) => {
+                    if (row.dataset.added !== undefined) {
+                        const values = ed.inserts[Number(row.dataset.added)];
+                        return Object.prototype.hasOwnProperty.call(values, column) ? values[column] : '';
+                    }
+                    const index = Number(row.dataset.row);
+                    const changes = ed.updates.get(index);
+                    return changes && Object.prototype.hasOwnProperty.call(changes, column) ? changes[column] : state.result.rows[index][indexOf(column)];
+                };
+                const setValue = (row, column, value) => {
+                    if (row.dataset.added !== undefined) {
+                        ed.inserts[Number(row.dataset.added)][column] = value;
+                        return;
+                    }
+                    const index = Number(row.dataset.row);
+                    const changes = ed.updates.get(index) || {};
+                    if (value === state.result.rows[index][indexOf(column)]) {
+                        delete changes[column];
+                    }
+                    else {
+                        changes[column] = value;
+                    }
+                    if (Object.keys(changes).length) {
+                        ed.updates.set(index, changes);
+                    }
+                    else {
+                        ed.updates.delete(index);
+                    }
+                };
+                const rowSelector = row => row.dataset.added !== undefined ? 'tr[data-added="' + row.dataset.added + '"]' : 'tr[data-row="' + row.dataset.row + '"]';
+                const openCell = cell => {
+                    const row = cell.parentElement;
+                    const column = cell.dataset.col;
+                    const info = columnOf(column);
+                    const before = currentValue(row, column);
+                    const box = el('div', 'dbx-cell-editor');
+                    const input = el('input');
+                    input.value = before === null || before === undefined ? '' : before;
+                    input.spellcheck = false;
+                    input.setAttribute('aria-label', column);
+                    input.dataset.dbCellInput = column;
+                    box.appendChild(input);
+                    let done = false;
+                    const selector = rowSelector(row);
+                    const finish = (value, step) => {
+                        if (done) {
+                            return;
+                        }
+                        done = true;
+                        if (value !== undefined) {
+                            setValue(row, column, value);
+                        }
+                        redraw();
+                        if (step) {
+                            const again = grid.querySelector(selector);
+                            const cells = again ? Array.from(again.cells).filter(other => other.dataset.col && !other.classList.contains('locked')) : [];
+                            const at = cells.findIndex(other => other.dataset.col === column);
+                            const next = cells[at + step];
+                            if (next) {
+                                openCell(next);
+                            }
+                        }
+                    };
+                    if (info && info.nullable) {
+                        const nullButton = el('button', '', texts.setNull);
+                        nullButton.type = 'button';
+                        nullButton.dataset.dbCellNull = '1';
+                        nullButton.addEventListener('pointerdown', event => event.preventDefault());
+                        nullButton.addEventListener('click', () => finish(null));
+                        box.appendChild(nullButton);
+                    }
+                    cell.classList.add('editing');
+                    cell.replaceChildren(box);
+                    input.addEventListener('keydown', event => {
+                        if (event.key === 'Enter') {
+                            event.preventDefault();
+                            finish(input.value);
+                        }
+                        else if (event.key === 'Escape') {
+                            event.preventDefault();
+                            finish(undefined);
+                        }
+                        else if (event.key === 'Tab') {
+                            event.preventDefault();
+                            finish(input.value, event.shiftKey ? -1 : 1);
+                        }
+                    });
+                    input.addEventListener('blur', () => window.setTimeout(() => finish(input.value), 0));
+                    input.focus();
+                    input.select();
+                };
+                grid.addEventListener('click', event => {
+                    const cell = event.target.closest('td');
+                    if (!ed.on || ed.noKey || !cell || !grid.contains(cell) || cell.classList.contains('editing')) {
+                        return;
+                    }
+                    const row = cell.parentElement;
+                    if (cell.classList.contains('num')) {
+                        if (row.dataset.added !== undefined) {
+                            ed.inserts.splice(Number(row.dataset.added), 1);
+                        }
+                        else if (row.dataset.row !== undefined) {
+                            const index = Number(row.dataset.row);
+                            if (ed.deletes.has(index)) { ed.deletes.delete(index); } else { ed.deletes.add(index); }
+                        }
+                        redraw();
+                        return;
+                    }
+                    if (!cell.dataset.col || cell.classList.contains('locked') || row.classList.contains('deleted')) {
+                        return;
+                    }
+                    openCell(cell);
+                });
+                const clear = () => { ed.updates.clear(); ed.deletes.clear(); ed.inserts = []; previewBox.hidden = true; previewBox.replaceChildren(); };
+                const send = apply => api('/edit', {
+                    method: 'POST',
+                    body: JSON.stringify({ db, schema, table: name, changes: changeList(), apply }),
+                    headers: { 'Content-Type': 'application/json' },
+                });
+                const note = (text, bad) => { previewBox.hidden = false; previewBox.replaceChildren(el('p', bad ? 'dbx-error' : 'dbx-muted', text)); };
+                bar.querySelector('[data-db-edit-add]').addEventListener('click', () => {
+                    ed.inserts.unshift({});
+                    redraw();
+                    const first = grid.querySelector('tr[data-added="0"] td[data-col]:not(.locked)');
+                    if (first) {
+                        openCell(first);
+                    }
+                });
+                bar.querySelector('[data-db-edit-discard]').addEventListener('click', () => { clear(); redraw(); });
+                bar.querySelector('[data-db-edit-preview-button]').addEventListener('click', async () => {
+                    try {
+                        const data = await send(false);
+                        const sql = el('pre', 'dbx-messages dbx-design-sql', data.statements.join('\n'));
+                        sql.dataset.dbEditSql = '1';
+                        previewBox.hidden = false;
+                        previewBox.replaceChildren(sql);
+                    }
+                    catch (error) {
+                        note(error.message, true);
+                    }
+                });
+                bar.querySelector('[data-db-edit-save]').addEventListener('click', async event => {
+                    const button = event.currentTarget;
+                    button.disabled = true;
+                    try {
+                        const data = await send(true);
+                        clear();
+                        await state.load();
+                        note(texts.saved.replace('{n}', data.ran));
+                    }
+                    catch (error) {
+                        note(error.message, true);
+                        refresh();
+                    }
+                });
+                return {
+                    decorate,
+                    dirty: () => changeList().length > 0,
+                    warn: () => note(texts.finishFirst, true),
+                    toggle: async () => {
+                        if (ed.on && changeList().length) {
+                            note(texts.finishFirst, true);
+                            return ed.on;
+                        }
+                        if (!ed.on) {
+                            ed.info = await loadTable(db, schema, name);
+                            if (ed.info.error) {
+                                note(ed.info.error, true);
+                                return false;
+                            }
+                            ed.noKey = !ed.info.columns.some(column => column.primaryKey);
+                        }
+                        ed.on = !ed.on;
+                        bar.hidden = !ed.on;
+                        clear();
+                        redraw();
+                        return ed.on;
+                    },
+                };
+            };
+
             // A table's (or view's) rows, a page at a time, ordered by a click on a column.
             const openData = (db, schema, name, kind) => {
                 const key = (kind || 'table') + ':' + db + ':' + schema + '.' + name;
@@ -765,9 +1111,19 @@ public sealed partial class HtmlViews
                 pane.innerHTML = '<div class="dbx-bar" data-db-pager>' +
                     '<button type="button" class="dbx-icon-button" data-db-prev title="' + texts.previous + '">‹</button><span data-db-range></span>' +
                     '<button type="button" class="dbx-icon-button" data-db-next title="' + texts.next + '">›</button><span class="dbx-grow"></span>' +
+                    (setup.readOnly || kind === 'view' ? '' : '<button type="button" class="dbx-icon-button" data-db-edit>' + icon('edit') + '<span></span></button>') +
                     '<button type="button" class="dbx-icon-button" data-db-as-query>' + icon('code') + '<span></span></button>' +
                     '<button type="button" class="dbx-icon-button" data-db-export>' + icon('download') + '<span></span></button>' +
-                    '<button type="button" class="dbx-icon-button" data-db-reload title="' + texts.refresh + '">' + icon('caret').replace('chevron', 'chevron') + '</button></div><div class="dbx-grid" data-db-data></div>';
+                    '<button type="button" class="dbx-icon-button" data-db-reload title="' + texts.refresh + '">' + icon('caret').replace('chevron', 'chevron') + '</button></div>' +
+                    '<div class="dbx-bar dbx-edit-bar" data-db-edit-bar hidden><span class="dbx-muted" data-db-edit-text></span>' +
+                    '<button type="button" class="dbx-icon-button" data-db-edit-add>' + icon('plus') + '<span></span></button>' +
+                    '<button type="button" class="dbx-icon-button" data-db-edit-preview-button>' + icon('code') + '<span></span></button>' +
+                    '<button type="button" class="dbx-icon-button" data-db-edit-discard>' + icon('close') + '<span></span></button>' +
+                    '<button type="button" class="primary dbx-icon-button" data-db-edit-save>' + icon('save') + '<span></span></button></div>' +
+                    '<div class="dbx-edit-preview" data-db-edit-preview hidden></div>' +
+                    '<div class="dbx-grid" data-db-data></div>';
+                [['[data-db-edit] span', texts.edit], ['[data-db-edit-add] span', texts.addRow], ['[data-db-edit-preview-button] span', texts.preview], ['[data-db-edit-discard] span', texts.discard], ['[data-db-edit-save] span', texts.save]]
+                    .forEach(([selector, text]) => { const target = pane.querySelector(selector); if (target) { target.textContent = text; } });
                 pane.querySelector('[data-db-reload]').innerHTML = (document.querySelector('[data-db-refresh]') || {}).innerHTML || '↻';
                 pane.querySelector('[data-db-as-query] span').textContent = texts.asQuery;
                 pane.querySelector('[data-db-export] span').textContent = texts.export;
@@ -784,20 +1140,39 @@ public sealed partial class HtmlViews
                         range.textContent = first + '–' + (state.offset + result.rows.length) + (result.total !== null && result.total !== undefined ? ' ' + texts.of + ' ' + result.total : '') + ' ' + texts.rows;
                         pane.querySelector('[data-db-prev]').disabled = state.offset === 0;
                         pane.querySelector('[data-db-next]').disabled = result.total !== null && result.total !== undefined ? state.offset + result.rows.length >= result.total : result.rows.length < state.limit;
-                        renderTable(grid, { ...result, first: state.offset + 1 }, {
-                            order: state.order,
-                            desc: state.desc,
-                            by: column => { state.desc = state.order === column ? !state.desc : false; state.order = column; state.offset = 0; load(); },
-                        });
+                        state.result = result;
+                        rerender();
+                        editor.decorate();
                     }
                     catch (error) {
                         range.textContent = '';
                         hint(grid, error.message, true);
                     }
                 };
-                pane.querySelector('[data-db-prev]').addEventListener('click', () => { state.offset = Math.max(0, state.offset - state.limit); load(); });
-                pane.querySelector('[data-db-next]').addEventListener('click', () => { state.offset += state.limit; load(); });
-                pane.querySelector('[data-db-reload]').addEventListener('click', load);
+                const rerender = () => renderTable(grid, { ...state.result, first: state.offset + 1 }, {
+                    order: state.order,
+                    desc: state.desc,
+                    by: column => {
+                        if (editor.dirty()) { editor.warn(); return; }
+                        state.desc = state.order === column ? !state.desc : false; state.order = column; state.offset = 0; load();
+                    },
+                });
+                state.load = load;
+                const editor = rowEditor({ pane, grid, state, rerender, db, schema, name });
+                // Paging, ordering and reloading would lose what is not saved yet.
+                const guarded = action => () => { if (editor.dirty()) { editor.warn(); return; } action(); };
+                pane.querySelector('[data-db-prev]').addEventListener('click', guarded(() => { state.offset = Math.max(0, state.offset - state.limit); load(); }));
+                pane.querySelector('[data-db-next]').addEventListener('click', guarded(() => { state.offset += state.limit; load(); }));
+                pane.querySelector('[data-db-reload]').addEventListener('click', guarded(load));
+                const editButton = pane.querySelector('[data-db-edit]');
+                if (editButton) {
+                    editButton.addEventListener('click', async () => {
+                        const on = await editor.toggle();
+                        editButton.classList.toggle('primary', on);
+                        editButton.setAttribute('aria-pressed', on ? 'true' : 'false');
+                        editButton.querySelector('span').textContent = on ? texts.editDone : texts.edit;
+                    });
+                }
                 pane.querySelector('[data-db-as-query]').addEventListener('click', () => openQuery({ sql: selectOf(db, schema, name), db }));
                 pane.querySelector('[data-db-export]').addEventListener('click', event => openMenu(event.currentTarget, [
                     { icon: 'download', label: texts.exportCsv, action: 'csv', run: () => download('SELECT * FROM ' + qualified(schema, name), db, 'csv', name).catch(error => hint(grid, error.message, true)) },
@@ -944,6 +1319,8 @@ public sealed partial class HtmlViews
                     '<select data-db-sql-db aria-label="' + texts.database + '"></select>' +
                     '<button type="button" class="primary dbx-icon-button" data-db-run>' + icon('play') + '<span></span></button>' +
                     '<button type="button" class="dbx-icon-button" data-db-stop disabled>' + icon('stop') + '<span></span></button>' +
+                    '<button type="button" class="dbx-icon-button" data-db-plan>' + icon('plan') + '<span></span></button>' +
+                    (setup.protocol === 'postgres' ? '<label class="dbx-plan-times"><input type="checkbox" data-db-plan-times><span></span></label>' : '') +
                     '<span class="dbx-grow"></span>' +
                     '<button type="button" class="dbx-icon-button" data-db-history>' + icon('clock') + '<span></span></button>' +
                     '<button type="button" class="dbx-icon-button" data-db-export>' + icon('download') + '<span></span></button></div>' +
@@ -954,6 +1331,13 @@ public sealed partial class HtmlViews
                 pane.querySelector('[data-db-history] span').textContent = texts.history;
                 pane.querySelector('[data-db-export] span').textContent = texts.export;
                 pane.querySelector('[data-db-run]').title = texts.runHint;
+                pane.querySelector('[data-db-plan] span').textContent = texts.plan;
+                pane.querySelector('[data-db-plan]').title = texts.planHint;
+                const timesBox = pane.querySelector('[data-db-plan-times]');
+                if (timesBox) {
+                    timesBox.nextElementSibling.textContent = texts.withTimes;
+                    timesBox.parentElement.title = texts.withTimesHint;
+                }
                 const dbSelect = pane.querySelector('[data-db-sql-db]');
                 const message = pane.querySelector('[data-db-message]');
                 const resultGrid = pane.querySelector('[data-db-result]');
@@ -997,6 +1381,7 @@ public sealed partial class HtmlViews
                                 CM.Prec.highest(CM.keymap.of([
                                     { key: 'Mod-Enter', run: () => { run(); return true; } },
                                     { key: 'F5', run: () => { run(); return true; } },
+                                    { key: 'Mod-l', run: () => { plan(); return true; } },
                                 ])),
                                 CM.keymap.of([...CM.closeBracketsKeymap, ...CM.defaultKeymap, ...CM.searchKeymap, ...CM.historyKeymap, ...CM.completionKeymap, CM.indentWithTab]),
                                 CM.EditorView.updateListener.of(change => {
@@ -1017,6 +1402,10 @@ public sealed partial class HtmlViews
                         if ((event.key === 'Enter' && (event.ctrlKey || event.metaKey)) || event.key === 'F5') {
                             event.preventDefault();
                             run();
+                        }
+                        else if (event.key.toLowerCase() === 'l' && (event.ctrlKey || event.metaKey)) {
+                            event.preventDefault();
+                            plan();
                         }
                     });
                     fallback.addEventListener('input', saveQueries);
@@ -1134,6 +1523,130 @@ public sealed partial class HtmlViews
                 };
                 doc.run = run;
                 runButton.addEventListener('click', run);
+
+                // The execution plan: how the server would run the statement (the selection, if any) - a tree with
+                // each step's share of the cost, the most costly one marked; MySQL's table of steps with full scans
+                // marked. Only "with run times" (PostgreSQL) runs it, in a transaction rolled back afterwards.
+                const planButton = pane.querySelector('[data-db-plan]');
+                const amount = value => value === null || value === undefined ? '' : (Math.round(value * 100) / 100).toLocaleString();
+                const showPlan = () => {
+                    resultTabs.querySelectorAll('[data-db-result-index]').forEach(tab => tab.classList.toggle('active', tab.dataset.dbResultIndex === 'plan'));
+                    const data = doc.plan;
+                    const box = el('div', 'dbx-plan');
+                    box.dataset.dbPlanShape = data.shape;
+                    if (data.notes.length) {
+                        const notes = el('ul', 'dbx-plan-notes');
+                        data.notes.forEach(text => notes.appendChild(el('li', '', text)));
+                        box.appendChild(notes);
+                    }
+                    if (data.shape === 'table' && data.table) {
+                        const holder = el('div', 'dbx-grid');
+                        renderTable(holder, data.table, null);
+                        const typeAt = data.table.columns.findIndex(column => column.toLowerCase() === 'type');
+                        holder.querySelectorAll('tbody tr').forEach((row, index) => {
+                            if (typeAt >= 0 && data.table.rows[index] && data.table.rows[index][typeAt] === 'ALL') {
+                                row.classList.add('full-scan');
+                                row.title = texts.planFullScan;
+                            }
+                        });
+                        box.appendChild(holder);
+                    }
+                    else {
+                        const all = [];
+                        const walk = (step, depth) => { all.push([step, depth]); step.children.forEach(child => walk(child, depth + 1)); };
+                        data.nodes.forEach(step => walk(step, 0));
+                        const most = Math.max(0, ...all.map(([step]) => step.selfCost || 0));
+                        const total = data.nodes.reduce((sum, step) => sum + (step.cost || 0), 0) || most || 1;
+                        const list = el('ol', 'dbx-plan-tree');
+                        all.forEach(([step, depth]) => {
+                            const item = el('li', 'dbx-plan-node');
+                            item.style.setProperty('--depth', depth);
+                            item.dataset.planStep = step.operation;
+                            if (all.length > 1 && most > 0 && step.selfCost === most) {
+                                item.classList.add('costly');
+                                item.title = texts.planCostly;
+                            }
+                            const head = el('div', 'dbx-plan-head');
+                            head.appendChild(el('span', 'dbx-plan-op', step.operation));
+                            if (step.target) {
+                                head.appendChild(el('span', 'dbx-plan-target', step.target));
+                            }
+                            const numbers = [];
+                            if (step.rows !== null && step.rows !== undefined) {
+                                numbers.push(texts.planRows.replace('{n}', amount(step.rows)));
+                            }
+                            if (step.actualRows !== null && step.actualRows !== undefined) {
+                                numbers.push(texts.planActual.replace('{n}', amount(step.actualRows)).replace('{ms}', amount(step.actualMs)));
+                            }
+                            if (step.selfCost !== null && step.selfCost !== undefined) {
+                                numbers.push(texts.planCost + ' ' + Math.round(100 * step.selfCost / total) + ' %');
+                            }
+                            head.appendChild(el('span', 'dbx-plan-numbers', numbers.join(' · ')));
+                            item.appendChild(head);
+                            if (step.detail) {
+                                item.appendChild(el('div', 'dbx-plan-detail', step.detail));
+                            }
+                            step.warnings.forEach(warning => item.appendChild(el('div', 'dbx-plan-warn', '⚠ ' + warning)));
+                            const bar = el('div', 'dbx-plan-bar');
+                            const fill = el('span');
+                            fill.style.width = (most > 0 ? Math.max(1, Math.round(100 * (step.selfCost || 0) / most)) : 0) + '%';
+                            bar.appendChild(fill);
+                            item.appendChild(bar);
+                            list.appendChild(item);
+                        });
+                        box.appendChild(list);
+                    }
+                    const copy = el('button', 'dbx-icon-button');
+                    copy.type = 'button';
+                    copy.style.justifySelf = 'start';
+                    copy.innerHTML = icon('copy') + '<span></span>';
+                    copy.querySelector('span').textContent = texts.planCopy;
+                    copy.addEventListener('click', async () => { try { await navigator.clipboard.writeText(data.raw); message.textContent = texts.copied; } catch { } });
+                    box.appendChild(copy);
+                    resultGrid.replaceChildren(box);
+                };
+                const plan = async () => {
+                    const text = statement().trim();
+                    if (!text || running) {
+                        doc.focus();
+                        return;
+                    }
+                    running = 'plan';
+                    runButton.disabled = true;
+                    planButton.disabled = true;
+                    message.hidden = false;
+                    message.className = 'dbx-message dbx-muted';
+                    message.textContent = texts.running;
+                    const body = new FormData();
+                    body.append('sql', text);
+                    body.append('db', doc.db());
+                    if (timesBox && timesBox.checked) {
+                        body.append('analyze', '1');
+                    }
+                    try {
+                        doc.plan = await api('/plan', { method: 'POST', body });
+                        resultTabs.querySelectorAll('[data-db-result-index="plan"]').forEach(tab => tab.remove());
+                        const tab = el('button', 'dbx-result-tab', texts.plan);
+                        tab.type = 'button';
+                        tab.dataset.dbResultIndex = 'plan';
+                        tab.addEventListener('click', showPlan);
+                        resultTabs.appendChild(tab);
+                        message.textContent = texts.plan + (doc.plan.analyzed ? ' · ' + texts.withTimes : '');
+                        showPlan();
+                    }
+                    catch (error) {
+                        message.className = 'dbx-message bad';
+                        message.textContent = error.message;
+                    }
+                    finally {
+                        running = null;
+                        runButton.disabled = false;
+                        planButton.disabled = false;
+                    }
+                };
+                doc.plan = null;
+                doc.explain = plan;
+                planButton.addEventListener('click', plan);
                 stopButton.addEventListener('click', async () => {
                     if (!running) {
                         return;

@@ -27,6 +27,8 @@ public static partial class EndpointMapping
         app.MapGet("/api/db/{id:guid}/script", DatabaseScriptAsync).RequireAuthorization();
         app.MapPost("/api/db/{id:guid}/export", DatabaseExportAsync).RequireAuthorization();
         app.MapPost("/api/db/{id:guid}/design", DatabaseDesignAsync).RequireAuthorization();
+        app.MapPost("/api/db/{id:guid}/edit", DatabaseEditAsync).RequireAuthorization();
+        app.MapPost("/api/db/{id:guid}/plan", DatabasePlanAsync).RequireAuthorization();
     }
 
     private sealed record DatabaseAccess(ServerEndpoint Server, MatgateUser User, string Login, string Password);
@@ -288,6 +290,59 @@ public static partial class EndpointMapping
             return new { statements, applied = request.Apply, ran };
         });
     }
+
+    public sealed record EditRequest(string? Db, string? Schema, string? Table, List<RowChange>? Changes, bool Apply);
+
+    // The data view's changes to a table's rows: as statements first (shown before saving), run when asked
+    // ("apply") - all in one transaction. Not for whoever may only read the connection.
+    private static async Task<IResult> DatabaseEditAsync(Guid id, HttpContext context, JsonDataStore store)
+    {
+        var german = HtmlViews.Language(context) == "de";
+        EditRequest? request;
+        try
+        {
+            request = await context.Request.ReadFromJsonAsync<EditRequest>(new System.Text.Json.JsonSerializerOptions(System.Text.Json.JsonSerializerDefaults.Web), context.RequestAborted);
+        }
+        catch (System.Text.Json.JsonException)
+        {
+            request = null;
+        }
+
+        if (request?.Changes is null || string.IsNullOrEmpty(request.Table))
+        {
+            return Results.BadRequest(new { error = HtmlViews.Translate(context, "Invalid request") });
+        }
+
+        return await DatabaseRunAsync(id, context, store, async access =>
+        {
+            if (IsReadOnlyFor(access.User, access.Server))
+            {
+                throw new DatabaseException(german ? "Diese Verbindung ist für dich nur zum Lesen." : "This connection is read-only for you.");
+            }
+
+            var db = request.Db ?? "";
+            var schema = request.Schema ?? "";
+            var info = await Databases.TableAsync(access.Server, access.Login, access.Password, db, schema, request.Table, context.RequestAborted);
+            var statements = DatabaseGateway.RowStatements(access.Server.Protocol, schema, request.Table, info, request.Changes, german);
+            var ran = request.Apply && statements.Count > 0
+                ? await Databases.ApplyRowsAsync(access.Server, access.Login, access.Password, db.Length > 0 ? db : null, info, statements, german, context.RequestAborted)
+                : 0;
+            return new { statements = statements.Select(statement => statement.Preview), applied = request.Apply, ran };
+        });
+    }
+
+    // The execution plan of one statement - without running it; "analyze" (PostgreSQL) runs it inside a
+    // transaction that is rolled back.
+    private static Task<IResult> DatabasePlanAsync(Guid id, HttpContext context, JsonDataStore store) =>
+        DatabaseRunAsync(id, context, store, async access =>
+        {
+            var form = await context.Request.ReadFormAsync(context.RequestAborted);
+            var database = form["db"].ToString();
+            return await Databases.PlanAsync(
+                access.Server, access.Login, access.Password, database.Length > 0 ? database : null, form["sql"].ToString(),
+                form["analyze"] == "1" && access.Server.Protocol == ServerProtocol.Postgres,
+                IsReadOnlyFor(access.User, access.Server), HtmlViews.Language(context) == "de", context.RequestAborted);
+        });
 
     private const long MaxExportRows = 1_000_000;
 
