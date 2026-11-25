@@ -106,7 +106,7 @@ Three ready-made stacks are in this repo, all with prebuilt images:
 
 | Image | Tag |
 |---|---|
-| `ghcr.io/real-ttx/matgate` | `latest`, a version such as `0.53.0`, or `sha-…` |
+| `ghcr.io/real-ttx/matgate` | `latest`, a version such as `0.53.1`, or `sha-…` |
 | `ghcr.io/real-ttx/matgate-browser-farm` | `latest` (optional) |
 
 <details>
@@ -167,7 +167,10 @@ volumes:
 - **RDP, VNC and SSH in the browser.** Use Matgate's own engine or Guacamole, chosen per connection
   ([compare them](#-two-engines)).
 - **RDP clipboard for text, pictures and files**, both ways. Ctrl+V puts files into the Explorer window that
-  is open on the remote desktop. Sound works, and the resolution **follows the window without reconnecting**.
+  is open on the remote desktop. Copied and pasted inside the session, it stays the session's own clipboard -
+  files, formatting and large tables included. Files copied there are never downloaded by themselves: a button
+  (in the shell the clipboard button) lists them for download. Sound works, and the resolution **follows the
+  window without reconnecting**.
 - **The clipboard, for the session in front**: the status bar shows what is on this device's clipboard ("Picture ·
   PNG 1280×720", "Text · 42 characters") - only while there is something. A click (or the toolbar's clipboard
   button) opens a panel with a preview and what to do with it: a picture as a PNG or JPG file, as a picture or

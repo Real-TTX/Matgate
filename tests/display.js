@@ -79,6 +79,8 @@ const only = process.argv[2] || "";
     const dt = new DataTransfer();
     if (k === "text") { dt.setData("text/plain", v); }
     else { v.forEach(([name, size]) => dt.items.add(new File([new Uint8Array(size).fill(66)], name, { type: "application/octet-stream" }))); }
+    // Copied somewhere else first: the page lost the focus (else Ctrl+V keeps what the machine copied itself).
+    window.dispatchEvent(new Event("blur"));
     document.getElementById("sink").focus();
     document.getElementById("sink").dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
   }, [kind, value]);
@@ -221,7 +223,12 @@ const only = process.argv[2] || "";
     }
     // The other way: files copied in the session are offered for download here.
     onDesktop("printf 'aus der Sitzung' > /tmp/Notiz.txt; head -c 300000 /dev/zero | tr '\\0' 'Z' > /tmp/Daten.bin");
-    const downloadsOffered = () => view.evaluate(() => [...document.querySelectorAll("#toast [data-download]")].map(a => a.getAttribute("download")).sort().join(","));
+    // Nothing opens by itself: the bar's button lists them.
+    const downloadsOffered = () => view.evaluate(() => {
+      const button = document.getElementById("clip-files");
+      if (document.getElementById("toast").classList.contains("hidden") && !button.classList.contains("hidden")) { button.click(); }
+      return [...document.querySelectorAll("#toast:not(.hidden) [data-download]")].map(a => a.getAttribute("download")).sort().join(",");
+    });
     for (let attempt = 0; attempt < 5 && (await downloadsOffered()) !== "Daten.bin,Notiz.txt"; attempt++) {
       onDesktop("printf 'file:///tmp/Notiz.txt\\r\\nfile:///tmp/Daten.bin\\r\\n' | timeout 60 xclip -i -selection clipboard -t text/uri-list -loops 0 >/dev/null 2>&1 &");
       for (let i = 0; i < 20 && (await downloadsOffered()) !== "Daten.bin,Notiz.txt"; i++) { await sleep(400); }

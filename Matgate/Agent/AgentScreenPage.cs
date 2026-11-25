@@ -50,6 +50,9 @@ public static class AgentScreenPage
             .toast li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
             .toast a { color: #9fe0bd; white-space: nowrap; }
             .toast .muted { color: #8fa39a; }
+            .clip-files { position: relative; }
+            .clip-files span { background: #2f6b50; border-radius: 8px; color: #fff; font-size: 10px; line-height: 14px; min-width: 14px; padding: 0 3px; position: absolute; right: -2px; top: -2px; }
+            .clip-files span:empty { display: none; }
             /* The key bar wears the colours of the application - taken from the shell when the page is inside it
                (the user's theme, as the on-screen keyboard there), this page's dark ones otherwise. */
             .keys { background: var(--kb-panel, #101613); border-top: 1px solid var(--kb-line, #263029); display: none; flex: 0 0 auto; gap: 5px; overflow-x: auto; overscroll-behavior: contain; touch-action: pan-x; padding: 6px 6px calc(6px + env(safe-area-inset-bottom)); scrollbar-width: none; }
@@ -126,6 +129,7 @@ public static class AgentScreenPage
             <select id="resolution" class="wide"></select>
             <select id="quality" class="wide"></select>
             <button id="windows-button" type="button" class="icon hidden"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="13" height="13" rx="2"/><path d="M8 7V6a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2h-3"/></svg></button>
+            <button id="clip-files" type="button" class="icon clip-files hidden"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M12 11v6M9 14l3 3 3-3"/></svg><span></span></button>
             <button id="cad" type="button" class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></button>
             <button id="sound" type="button" class="icon"></button>
             <button id="mic" type="button" class="icon hidden"></button>
@@ -1850,15 +1854,17 @@ public static class AgentScreenPage
                     send('screen.sas', {});
                     return;
                 }
-                if (button.action === 'paste') {
-                    // What is on this device's clipboard goes along; without access to it the keys go alone.
+                if (button.action === 'paste' && !remoteHas('', [])) {
+                    // What is on this device's clipboard goes along; without access to it the keys go alone -
+                    // and so they do for what was copied on the machine itself.
                     let clip = '';
                     try {
                         clip = await navigator.clipboard.readText();
                     }
                     catch {
                     }
-                    if (clip) {
+                    if (clip && !remoteHas(clip, [])) {
+                        remoteClip = null;
                         dropSticky(true);
                         textBoundary();
                         setStatus(text.pasting);
@@ -2092,6 +2098,9 @@ public static class AgentScreenPage
             const CHUNK = 192 * 1024;
             const uploadFiles = async (files, kind) => {
                 const id = crypto.randomUUID();
+                remoteClip = null;
+                remoteFiles = null;
+                paintClipFiles();
                 setStatus(text.pasting);
                 send('screen.clip.begin', { id, kind, paste: true, files: files.map(file => ({ name: file.name || 'Bild.png', size: file.size })) });
                 for (let index = 0; index < files.length; index++) {
@@ -2150,6 +2159,13 @@ public static class AgentScreenPage
                 }
                 const data = event.clipboardData;
                 const files = data ? [...data.files] : [];
+                // Copied on the machine and pasted there again: its clipboard has it already - with all this
+                // device's clipboard cannot carry (files, formatting, a large table). Only Ctrl+V goes.
+                if (remoteHas(data ? data.getData('text/plain') : '', files)) {
+                    pasteThere(held);
+                    return;
+                }
+                remoteClip = null;
                 if (files.length) {
                     // One picture without a name of its own is a copied picture, not a copied file.
                     const picture = files.length === 1 && /^image\//.test(files[0].type) && /^image\.\w+$/i.test(files[0].name);
@@ -2177,6 +2193,49 @@ public static class AgentScreenPage
             });
 
             // ---- clipboard: the machine -> this device ---------------------------------------------------
+            // What was copied on the machine last, as long as the machine's clipboard still has it: its text
+            // (null for files and pictures), and whether this page has lost the focus since - only then can
+            // something else be on this device's clipboard.
+            let remoteClip = null;
+            let remoteFiles = null;
+            const sameText = (a, b) => a.replace(/\r\n/g, '\n') === b.replace(/\r\n/g, '\n');
+            const remoteHas = (plain, files) => !!remoteClip && (!remoteClip.left
+                || (!files.length && !!plain && remoteClip.text !== null && sameText(plain, remoteClip.text)));
+            window.addEventListener('blur', () => {
+                if (remoteClip) {
+                    remoteClip.left = true;
+                }
+            });
+            // Ctrl+V on the machine: V while Ctrl is held down here already, both otherwise.
+            const pasteThere = held => {
+                if (held) {
+                    tapKey(held.scan);
+                    return;
+                }
+                const ctrl = { s: 0x1d, e: false };
+                key(ctrl, true);
+                tapKey({ s: 0x2f, e: false });
+                key(ctrl, false);
+            };
+            const clipFilesButton = $('clip-files');
+            const paintClipFiles = () => {
+                const count = remoteFiles ? (remoteFiles.files || []).length : 0;
+                clipFilesButton.classList.toggle('hidden', !count);
+                clipFilesButton.title = count ? text.clipFiles + ' (' + count + ')' : '';
+                clipFilesButton.querySelector('span').textContent = count ? String(count) : '';
+                if (!count) {
+                    toast.classList.add('hidden');
+                }
+                notifyStats();
+            };
+            clipFilesButton.addEventListener('click', () => {
+                if (!toast.classList.contains('hidden')) {
+                    toast.classList.add('hidden');
+                }
+                else if (remoteFiles) {
+                    showFiles(remoteFiles);
+                }
+            });
             let pendingClipboard = null;
             const writePendingClipboard = () => {
                 const item = pendingClipboard;
@@ -2198,6 +2257,9 @@ public static class AgentScreenPage
             window.addEventListener('focus', writePendingClipboard);
             stage.addEventListener('pointerdown', writePendingClipboard);
             const onRemoteClipboard = (data, payload) => {
+                remoteClip = { text: data.kind === 'text' ? decoder.decode(payload) : null, left: false };
+                remoteFiles = data.kind === 'files' ? data : null;
+                paintClipFiles();
                 if (data.kind === 'text') {
                     pendingClipboard = { kind: 'text', text: decoder.decode(payload) };
                     writePendingClipboard();
@@ -2222,9 +2284,8 @@ public static class AgentScreenPage
                     pendingClipboard = { kind: 'image', blob: new Blob([payload], { type: 'image/png' }) };
                     writePendingClipboard();
                 }
-                else if (data.kind === 'files') {
-                    showFiles(data);
-                }
+                // Files: nothing comes down by itself - the bar's button (in the shell its clipboard button)
+                // lists them for download.
             };
             const escapeHtml = value => String(value).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
             const size = bytes => bytes < 1024 ? bytes + ' B' : bytes < 1048576 ? (bytes / 1024).toFixed(0) + ' KB' : (bytes / 1048576).toFixed(1) + ' MB';
@@ -2952,12 +3013,20 @@ public static class AgentScreenPage
                     notifyShell();
                 },
                 pasteText: value => {
+                    remoteClip = null;
                     setStatus(text.pasting);
                     send('screen.clip.set', { kind: 'text', paste: true }, encoder.encode(value));
                 },
                 // Files from the shell (the clipboard button of its status bar): onto the machine's clipboard as
                 // real files, and pasted there. False where this session cannot take files (VNC).
                 canPasteFiles: () => clipFiles,
+                // Files copied on the machine, for the shell's clipboard panel: name, size, folder, link.
+                remoteFiles: () => remoteFiles ? (remoteFiles.files || []).map((file, index) => ({
+                    name: file.name,
+                    size: file.size,
+                    folder: !!file.folder,
+                    url: file.folder ? '' : `${base}/screen-clip?` + new URLSearchParams({ session, token: remoteFiles.token, index: String(index) }),
+                })) : [],
                 // A picture as a picture (pasted into a document, not as a file): RDP takes it as a bitmap.
                 canPasteImage: () => clipImage !== 'none',
                 pasteImage: file => {

@@ -269,6 +269,28 @@ let agent;
   check("text copied on the machine lands on this device's clipboard", await view.evaluate(() => window.__screen.clipboard.slice(-1)[0]), "Hallo vom Browser ä€");
   check("really on the clipboard", await view.evaluate(() => navigator.clipboard.readText()), "Hallo vom Browser ä€");
 
+  // --- Copied on the machine and pasted there again: the machine's clipboard keeps what it has (files, formatting,
+  // a large table) - only Ctrl+V goes, even where this device's clipboard could not take it.
+  await view.evaluate(() => navigator.clipboard.writeText("Alter Text auf dem Geraet"));
+  await debug();
+  await view.keyboard.press("Control+v");
+  await sleep(900);
+  reported = await debug();
+  check("Ctrl+V after copying on the machine does not overwrite its clipboard", reported.filter(line => /^clipboard/.test(line)), []);
+  check("it is pasted there with Ctrl+V alone", reported.filter(line => /^key 2f/.test(line)), ["key 2f down", "key 2f up"]);
+  // Away from the page and back, with something else on this device's clipboard: that is pasted.
+  await view.evaluate(() => window.dispatchEvent(new Event("blur")));
+  await view.evaluate(() => navigator.clipboard.writeText("Neu vom Geraet"));
+  await view.keyboard.press("Control+v");
+  await sleep(1200);
+  check("after leaving the page, what this device copied is pasted", (await debug()).filter(line => /^clipboard/.test(line)), ["clipboard text Neu vom Geraet"]);
+  // Away and back with the machine's text still here: Ctrl+V alone again.
+  for (let i = 0; i < 20 && (await view.evaluate(() => window.__screen.clipboard.slice(-1)[0])) !== "Neu vom Geraet"; i++) { await sleep(200); }
+  await view.evaluate(() => window.dispatchEvent(new Event("blur")));
+  await view.keyboard.press("Control+v");
+  await sleep(900);
+  check("the machine's own text is not sent back to it", (await debug()).filter(line => /^clipboard/.test(line)), []);
+
   // --- Ctrl+V with nothing on this device's clipboard: the key press goes on as it is.
   await view.evaluate(() => navigator.clipboard.writeText(""));
   await debug();
@@ -279,6 +301,8 @@ let agent;
   // --- Files: pasted here, they become files on the machine's clipboard (CF_HDROP), pasted where the machine is.
   // Files cannot be put on a clipboard from a test: the paste event is made by hand, as the browser would send it.
   await view.evaluate(() => document.getElementById("sink").focus());
+  // Files on this device's clipboard were copied somewhere else: the page has lost the focus in between.
+  await view.evaluate(() => window.dispatchEvent(new Event("blur")));
   await pasteEvent("files", [["Bericht.txt", 5], ["Gross.bin", 600000]]);
   for (let i = 0; i < 40 && !(await view.evaluate(() => window.__screen.debug.some(l => /^clipboard files/.test(l)))); i++) { await sleep(300); }
   reported = await debug();
@@ -286,6 +310,11 @@ let agent;
   check("and are pasted there", reported.filter(line => /^key 2f/.test(line)), ["key 2f down", "key 2f up"]);
   // Back again: files copied on the machine are offered for download (a browser cannot put files on a clipboard).
   await sleep(800);
+  // Nothing opens and nothing comes down by itself: a button in the bar has them.
+  check("files copied on the machine open no window by themselves", await view.evaluate(() => document.getElementById("toast").classList.contains("hidden")), true);
+  check("a button in the bar says how many there are", await view.evaluate(() => { const b = document.getElementById("clip-files"); return [b.classList.contains("hidden"), b.textContent]; }), [false, "2"]);
+  check("the shell can list them too", await view.evaluate(() => window.MatgateScreen.remoteFiles().map(f => f.name)), ["Bericht.txt", "Gross.bin"]);
+  await view.click("#clip-files");
   const offered = await view.evaluate(() => [...document.querySelectorAll("#toast [data-download]")].map(a => ({ name: a.getAttribute("download"), href: a.getAttribute("href") })));
   check("files copied on the machine are offered for download", offered.map(o => o.name), ["Bericht.txt", "Gross.bin"]);
   if (offered.length === 2) {

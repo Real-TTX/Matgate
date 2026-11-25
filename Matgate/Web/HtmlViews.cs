@@ -4533,6 +4533,10 @@ public sealed partial class HtmlViews
             clipAsJpg = Language(context) == "de" ? "Als JPG-Datei einfügen" : "Paste as a JPG file",
             clipAsImage = Language(context) == "de" ? "Als Bild einfügen" : "Paste as a picture",
             clipDownload = Language(context) == "de" ? "Herunterladen" : "Download",
+            clipRemoteTitle = Language(context) == "de" ? "Auf dem Server kopiert" : "Copied on the machine",
+            clipRemoteFile = Language(context) == "de" ? "Datei auf dem Server" : "file on the machine",
+            clipRemoteFiles = Language(context) == "de" ? "Dateien auf dem Server" : "files on the machine",
+            clipRemoteFolder = Language(context) == "de" ? "Ordner (nicht ladbar)" : "Folder (cannot be downloaded)",
             clipAsText = Language(context) == "de" ? "Als Text einfügen" : "Paste as text",
             clipAsKeys = Language(context) == "de" ? "Als Tasten tippen" : "Type as keystrokes",
             clipAsTxt = Language(context) == "de" ? "Als TXT-Datei einfügen" : "Paste as a TXT file",
@@ -12789,6 +12793,7 @@ public sealed partial class HtmlViews
                         typeText: null,
                         pasteFiles: typeof api.pasteFiles === 'function' && can('PasteFiles') ? files => api.pasteFiles(files) : null,
                         pasteImage: typeof api.pasteImage === 'function' && can('PasteImage') ? file => api.pasteImage(file) : null,
+                        remoteFiles: screen && typeof api.remoteFiles === 'function' ? () => api.remoteFiles() : null,
                         focus: () => api.focus && api.focus(),
                     };
                 }
@@ -12881,9 +12886,14 @@ public sealed partial class HtmlViews
                     if (!clipButton) {
                         return;
                     }
-                    const what = describeClip(found);
+                    // Files copied on the machine come first: they are the newest, and only to be had from here.
+                    const target = clipTarget();
+                    const remote = target && target.remoteFiles ? target.remoteFiles() : [];
+                    const what = remote.length
+                        ? remote.length + ' ' + (remote.length === 1 ? (uiText.clipRemoteFile || 'file on the machine') : (uiText.clipRemoteFiles || 'files on the machine'))
+                        : describeClip(found);
                     // Only with something known on the clipboard - and a session in front to take it.
-                    clipButton.hidden = !what || !clipTarget();
+                    clipButton.hidden = !what || !target;
                     clipButton.dataset.has = found && found.image ? 'image' : found && found.text ? 'text' : 'none';
                     clipButton.classList.toggle('has-file', !!(found && found.image));
                     clipButton.querySelector('.status-clip-label').textContent = what;
@@ -12984,6 +12994,38 @@ public sealed partial class HtmlViews
                         what.textContent = uiText.clipDenied || 'The browser does not let Matgate read the clipboard.';
                     }
                     const pasted = name => (uiText.clipPasted || 'Pasted') + ': ' + name;
+                    // Files copied on the machine: downloaded only when asked for, one by one.
+                    const remote = target.remoteFiles ? target.remoteFiles() : [];
+                    if (remote.length) {
+                        const box = document.createElement('div');
+                        box.className = 'clip-remote';
+                        box.dataset.clipRemote = '';
+                        const head = document.createElement('strong');
+                        head.textContent = uiText.clipRemoteTitle || 'Copied on the machine';
+                        const list = document.createElement('ul');
+                        remote.forEach(file => {
+                            const row = document.createElement('li');
+                            const name = document.createElement('span');
+                            name.textContent = file.name;
+                            row.appendChild(name);
+                            if (file.url) {
+                                const link = document.createElement('a');
+                                link.href = file.url;
+                                link.download = file.name.split('/').pop();
+                                link.textContent = (uiText.clipDownload || 'Download') + ' (' + clipSize(file.size) + ')';
+                                row.appendChild(link);
+                            }
+                            else {
+                                const note = document.createElement('span');
+                                note.className = 'muted';
+                                note.textContent = uiText.clipRemoteFolder || 'Folder';
+                                row.appendChild(note);
+                            }
+                            list.appendChild(row);
+                        });
+                        box.append(head, list);
+                        preview.appendChild(box);
+                    }
                     if (found && found.image) {
                         what.textContent = describeClip(found);
                         const image = document.createElement('img');
@@ -22399,6 +22441,12 @@ public sealed partial class HtmlViews
                     .clip-panel .dialog-body { display: grid; gap: 10px; }
                     .clip-panel-what { font-weight: 600; }
                     .clip-panel-preview:empty { display: none; }
+                    .clip-remote { display: grid; gap: 6px; margin-bottom: 10px; }
+                    .clip-remote ul { list-style: none; margin: 0; max-height: 180px; overflow: auto; padding: 0; }
+                    .clip-remote li { align-items: center; display: flex; gap: 10px; justify-content: space-between; padding: 3px 0; }
+                    .clip-remote li span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                    .clip-remote a { color: var(--accent); white-space: nowrap; }
+                    .clip-remote .muted { color: var(--muted); }
                     .clip-panel-preview img { background: repeating-conic-gradient(var(--line) 0 25%, transparent 0 50%) 0 0 / 16px 16px; border: 1px solid var(--line); border-radius: 8px; display: block; max-height: 220px; max-width: 100%; object-fit: contain; }
                     .clip-panel-preview pre { background: var(--surface-2, var(--surface)); border: 1px solid var(--line); border-radius: 8px; font-size: 12.5px; margin: 0; max-height: 160px; overflow: auto; padding: 8px 10px; white-space: pre-wrap; word-break: break-word; }
                     .clip-panel-actions { display: flex; flex-wrap: wrap; gap: 8px; }
