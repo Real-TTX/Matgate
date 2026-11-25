@@ -29610,7 +29610,7 @@ public sealed partial class HtmlViews
             """;
     }
 
-    private static string ApplicationVersion()
+    internal static string ApplicationVersion()
     {
         var assembly = Assembly.GetEntryAssembly() ?? Assembly.GetExecutingAssembly();
         var informational = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;

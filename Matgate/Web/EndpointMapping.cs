@@ -451,7 +451,8 @@ public static partial class EndpointMapping
         MapFolderEndpoints(app);
         MapKeptSessionEndpoints(app);
         MapWebsiteSiteEndpoints(app);
-        app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
+        // "app" and "version" let ThixGate recognise a Matgate when an account is added (docs/thixgate-plan.md).
+        app.MapGet("/health", () => Results.Ok(new { status = "ok", app = "matgate", version = HtmlViews.ApplicationVersion() }));
         app.MapMethods("/favicon.svg", new[] { "GET", "HEAD" }, () => Results.Text(FaviconSvg, "image/svg+xml"));
         app.MapMethods("/favicon.ico", new[] { "GET", "HEAD" }, () => Results.Text(FaviconSvg, "image/svg+xml"));
         app.MapMethods("/pwa-icon.svg", new[] { "GET", "HEAD" }, () => Results.Text(FaviconSvg, "image/svg+xml"));
