@@ -106,7 +106,7 @@ Three ready-made stacks are in this repo, all with prebuilt images:
 
 | Image | Tag |
 |---|---|
-| `ghcr.io/real-ttx/matgate` | `latest`, a version such as `0.52.0`, or `sha-…` |
+| `ghcr.io/real-ttx/matgate` | `latest`, a version such as `0.53.0`, or `sha-…` |
 | `ghcr.io/real-ttx/matgate-browser-farm` | `latest` (optional) |
 
 <details>
@@ -189,8 +189,11 @@ volumes:
 - **Touchpad or direct touch**, pinch to zoom, two fingers to scroll.
 - **Right click you can see**: hold a finger still and a ring fills up. When it is full, it is a right
   click. Choose hold, two-finger tap or both, and how long to hold, under *Settings → Sessions → Touch*.
+- **Select and drag with a finger**: tap, then touch again and hold - the left button stays down while the finger
+  does, to select text or move a window (also after a double tap). Works on the touchpad and with direct touch.
 - **A key bar of your own** under every session: Esc, Tab, Ctrl, Alt, the arrows and your own shortcuts.
-- The **device keyboard** leaves the picture reachable. Quick connect is one row to swipe.
+- The **device keyboard** leaves the picture reachable. A swipe on the key bar or another control does not
+  move the app around it. Nothing of the app is selected by accident.
 
 ### 🛰️ The Matgate agent
 

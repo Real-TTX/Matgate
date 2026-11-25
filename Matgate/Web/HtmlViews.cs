@@ -28129,6 +28129,7 @@ public sealed partial class HtmlViews
                         window.MatgateCloseAboutWindow = () => false;
                     })();
                 </script>
+            {{TouchGuard.Script}}
             </body>
             </html>
             """;

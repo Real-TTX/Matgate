@@ -34,6 +34,28 @@ const check = (name, got, want) => {
     await card.dblclick({ force: true }).catch(() => {});
     check("a double click selects nothing", await p.evaluate(() => String(getSelection())), "");
 
+    // A swipe on a control that cannot scroll does not move the page (on iOS it slid the whole app); where
+    // something scrolls, it still does.
+    const swipe = (selector, dy) => p.evaluate(([s, d]) => {
+      const target = typeof s === "string" ? document.querySelector(s) : null;
+      if (!target) { return null; }
+      const box = target.getBoundingClientRect();
+      const at = (y) => new Touch({ identifier: 1, target, clientX: box.left + 10, clientY: y });
+      const y = box.top + Math.min(10, box.height / 2);
+      target.dispatchEvent(new TouchEvent("touchstart", { touches: [at(y)], changedTouches: [at(y)], bubbles: true, cancelable: true }));
+      const move = new TouchEvent("touchmove", { touches: [at(y + d)], changedTouches: [at(y + d)], bubbles: true, cancelable: true });
+      target.dispatchEvent(move);
+      target.dispatchEvent(new TouchEvent("touchend", { touches: [], changedTouches: [at(y + d)], bubbles: true, cancelable: true }));
+      return move.defaultPrevented;
+    }, [selector, dy]);
+    check("a swipe on the app's bar does not move the page", await swipe(".app-header, header", -40), true);
+    const scroller = await p.evaluate(() => {
+      const node = [...document.querySelectorAll("*")].find(n => { const s = getComputedStyle(n); return /(auto|scroll)/.test(s.overflowY) && n.scrollHeight > n.clientHeight + 1 && n.offsetParent; });
+      if (node) { node.setAttribute("data-test-scroller", "1"); }
+      return !!node;
+    });
+    check("one that scrolls still scrolls", scroller ? await swipe("[data-test-scroller] > *", -40) : false, false);
+
     await p.goto(BASE + "/admin?tab=users", { waitUntil: "networkidle" });
     check("the search field in the administration is selectable", await select("[data-admin-users] [data-admp-filter]"), "text");
     await p.goto(BASE + "/admin?tab=connections&view=list", { waitUntil: "networkidle" });

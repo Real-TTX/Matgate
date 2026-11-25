@@ -501,6 +501,32 @@ let agent;
   const direct = await touchDebug();
   const [dx, dy] = (direct.filter(l => /^move /.test(l)).pop() || "move 9999,9999").replace("move ", "").split(",").map(Number);
   check("direct touch clicks where the finger is", [dx < 40 && dy < 40, direct.filter(l => /^button/.test(l))], [true, ["button 0 down", "button 0 up"]]);
+  // Tap, then touch again and hold: the left button stays down (to select), holding still is no right click;
+  // moving drags, lifting lets go.
+  const holdAfterTap = async (x, y, taps) => {
+    await sleep(700);
+    await touchDebug();
+    for (let i = 0; i < taps; i++) {
+      await touch("pointerdown", [[1, x, y]]);
+      await sleep(60);
+      await touch("pointerup", [[1, x, y]]);
+      await sleep(120);
+    }
+    await touch("pointerdown", [[1, x, y]]);
+    await sleep(900);
+    const held = (await touchDebug()).filter(l => /^button/.test(l));
+    for (let step = 1; step <= 4; step++) { await touch("pointermove", [[1, x + step * 12, y]]); await sleep(30); }
+    await touch("pointerup", [[1, x + 48, y]]);
+    await sleep(400);
+    const after = await touchDebug();
+    return [held, after.some(l => /^move /.test(l)), after.filter(l => /^button/.test(l))];
+  };
+  const tapsThen = taps => [...Array(taps)].flatMap(() => ["button 0 down", "button 0 up"]);
+  check("direct: tap, then hold - the left button stays down, no right click", await holdAfterTap(px, py, 1), [[...tapsThen(1), "button 0 down"], true, ["button 0 up"]]);
+  await tapPage.evaluate(() => window.MatgateScreen.setPointerMode("touchpad"));
+  check("touchpad: tap, then hold - the same, at the cursor", await holdAfterTap(px, py, 1), [[...tapsThen(1), "button 0 down"], true, ["button 0 up"]]);
+  check("touchpad: tap, tap, then hold - the same", await holdAfterTap(px, py, 2), [[...tapsThen(2), "button 0 down"], true, ["button 0 up"]]);
+  await tapPage.evaluate(() => window.MatgateScreen.setPointerMode("direct"));
   await tapPage.screenshot({ path: path.join(work, "screen-phone.png") });
   await view.screenshot({ path: path.join(work, "screen-desktop.png") });
   console.log("screenshots in " + work);

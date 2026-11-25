@@ -52,7 +52,7 @@ public static class AgentScreenPage
             .toast .muted { color: #8fa39a; }
             /* The key bar wears the colours of the application - taken from the shell when the page is inside it
                (the user's theme, as the on-screen keyboard there), this page's dark ones otherwise. */
-            .keys { background: var(--kb-panel, #101613); border-top: 1px solid var(--kb-line, #263029); display: none; flex: 0 0 auto; gap: 5px; overflow-x: auto; overscroll-behavior-x: contain; padding: 6px 6px calc(6px + env(safe-area-inset-bottom)); scrollbar-width: none; }
+            .keys { background: var(--kb-panel, #101613); border-top: 1px solid var(--kb-line, #263029); display: none; flex: 0 0 auto; gap: 5px; overflow-x: auto; overscroll-behavior: contain; touch-action: pan-x; padding: 6px 6px calc(6px + env(safe-area-inset-bottom)); scrollbar-width: none; }
             .keys::-webkit-scrollbar { display: none; }
             .keys button { background: var(--kb-key, #1f2a25); border: 1px solid var(--kb-line, #33413a); border-radius: 8px; box-shadow: none; color: var(--kb-text, #d8e0dc); flex: 0 0 auto; font-size: 15px; font-weight: 500; min-height: 40px; min-width: 44px; padding: 2px 12px; touch-action: manipulation; }
             .keys button:hover { background: var(--kb-key, #1f2a25); }
@@ -1125,6 +1125,12 @@ public static class AgentScreenPage
             let gesture = null;
             let longPress = 0;
             let lastTap = { time: 0, x: 0, y: 0 };
+            // Tap, then touch again within this time and this near: the left button goes down and stays down while the
+            // finger does - to select text or move something, as on a laptop's trackpad. Also after a double tap (tap,
+            // tap, hold). Holding still then is not a right click.
+            const dragWindowMs = 500;
+            const dragRadius = 60;
+            const tapAgain = event => performance.now() - lastTap.time < dragWindowMs && Math.hypot(event.clientX - lastTap.x, event.clientY - lastTap.y) < dragRadius;
             // How a finger makes a right click (Settings - Sessions): holding it still, tapping with two fingers, or
             // either; and how long holding takes.
             const rightClickMode = ['both', 'two', 'long'].includes(document.body.dataset.rightClick) ? document.body.dataset.rightClick : 'both';
@@ -1267,8 +1273,8 @@ public static class AgentScreenPage
                 if (touches.size === 1 && pointerMode === 'touchpad') {
                     const now = performance.now();
                     gesture = { kind: 'pad', moved: false, dragging: false, start: now, x: event.clientX, y: event.clientY };
-                    // Tap, then touch again and move: dragging with the left button, as on a laptop's trackpad.
-                    if (now - lastTap.time < 300 && Math.hypot(event.clientX - lastTap.x, event.clientY - lastTap.y) < 40) {
+                    // Tap, then touch again: dragging with the left button, as on a laptop's trackpad.
+                    if (tapAgain(event)) {
                         gesture.dragging = true;
                         buttonAtCursor(0, true);
                     }
@@ -1286,7 +1292,14 @@ public static class AgentScreenPage
                 }
                 else if (touches.size === 1) {
                     gesture = { kind: 'one', moved: false, dragging: false, start: performance.now() };
-                    if (holdRightClicks) {
+                    if (tapAgain(event)) {
+                        // Tap, then touch again: the left button down right here, held as long as the finger is.
+                        gesture.dragging = true;
+                        queueMove(event.clientX, event.clientY);
+                        flushMove();
+                        button(0, true);
+                    }
+                    else if (holdRightClicks) {
                         showRingAt(event.clientX, event.clientY);
                         longPress = window.setTimeout(() => {
                             if (gesture && gesture.kind === 'one' && !gesture.moved) {
@@ -1355,11 +1368,14 @@ public static class AgentScreenPage
                         gesture.moved = true;
                         window.clearTimeout(longPress);
                         hideRing();
-                        // Finger down and moving: a drag with the left button, like a mouse.
-                        queueMove(touch.startX, touch.startY);
-                        flushMove();
-                        button(0, true);
-                        gesture.dragging = true;
+                        // Finger down and moving: a drag with the left button, like a mouse (already down after a
+                        // tap and touching again).
+                        if (!gesture.dragging) {
+                            queueMove(touch.startX, touch.startY);
+                            flushMove();
+                            button(0, true);
+                            gesture.dragging = true;
+                        }
                     }
                     if (gesture.dragging) {
                         queueMove(touch.x, touch.y);
@@ -1442,6 +1458,8 @@ public static class AgentScreenPage
                 if (gesture.kind === 'pad') {
                     if (gesture.dragging) {
                         button(0, false);
+                        // Down and up again without moving: the second tap of a double tap - a third touch then drags.
+                        lastTap = !gesture.moved && performance.now() - gesture.start < 300 ? { time: performance.now(), x: event.clientX, y: event.clientY } : { time: 0, x: 0, y: 0 };
                     }
                     else if (!gesture.moved && performance.now() - gesture.start < 300) {
                         clickAtCursor(0);
@@ -1467,9 +1485,11 @@ public static class AgentScreenPage
                     if (gesture.dragging) {
                         queueMove(event.clientX, event.clientY);
                         button(0, false);
+                        lastTap = !gesture.moved && performance.now() - gesture.start < 300 ? { time: performance.now(), x: event.clientX, y: event.clientY } : { time: 0, x: 0, y: 0 };
                     }
                     else if (!gesture.moved) {
                         tap(event.clientX, event.clientY, 0);
+                        lastTap = { time: performance.now(), x: event.clientX, y: event.clientY };
                     }
                     gesture = null;
                 }
@@ -2976,6 +2996,7 @@ public static class AgentScreenPage
             connect();
         })();
         </script>
+        __TOUCHGUARD__
         </body>
         </html>
         """;

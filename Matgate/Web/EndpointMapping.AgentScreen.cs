@@ -239,6 +239,7 @@ public static partial class EndpointMapping
     {
         var de = HtmlViews.Language(context) == "de";
         return AgentScreenPage.Html
+            .Replace("__TOUCHGUARD__", TouchGuard.Script)
             .Replace("__LANG__", de ? "de" : "en")
             .Replace("__TITLE__", System.Net.WebUtility.HtmlEncode(title))
             .Replace("__SERVER__", serverId.ToString())

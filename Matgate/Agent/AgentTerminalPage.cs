@@ -25,7 +25,7 @@ public static class AgentTerminalPage
             #screen { flex: 1 1 auto; min-height: 0; padding: 4px 0 0 6px; }
             /* The key bar wears the colours of the application - taken from the shell when the page is inside it
                (the user's theme, as the on-screen keyboard there), this page's dark ones otherwise. */
-            .keys { background: var(--kb-panel, #101613); border-top: 1px solid var(--kb-line, #263029); display: none; flex: 0 0 auto; gap: 5px; overflow-x: auto; overscroll-behavior-x: contain; padding: 6px 6px calc(6px + env(safe-area-inset-bottom)); scrollbar-width: none; }
+            .keys { background: var(--kb-panel, #101613); border-top: 1px solid var(--kb-line, #263029); display: none; flex: 0 0 auto; gap: 5px; overflow-x: auto; overscroll-behavior: contain; touch-action: pan-x; padding: 6px 6px calc(6px + env(safe-area-inset-bottom)); scrollbar-width: none; }
             .keys::-webkit-scrollbar { display: none; }
             .keys button { background: var(--kb-key, #1f2a25); border: 1px solid var(--kb-line, #33413a); border-radius: 8px; box-shadow: none; color: var(--kb-text, #d8e0dc); flex: 0 0 auto; font-size: 15px; font-weight: 500; min-height: 40px; min-width: 44px; padding: 2px 12px; touch-action: manipulation; }
             .keys button:hover { background: var(--kb-key, #1f2a25); }
@@ -707,6 +707,7 @@ public static class AgentTerminalPage
             connect();
         })();
         </script>
+        __TOUCHGUARD__
         </body>
         </html>
         """;
