@@ -24,7 +24,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="..\..\..\Matgate\Display\Rdp\Security\**\*.cs" LinkBase="Security" />
+    <Compile Include="..\..\..\Mat.Remote\Rdp\Security\**\*.cs" LinkBase="Security" />
   </ItemGroup>
 
   <ItemGroup>

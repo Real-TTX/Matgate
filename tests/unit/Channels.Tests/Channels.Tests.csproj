@@ -13,7 +13,7 @@
   <ItemGroup>
     <!-- The channel layer has no project of its own: it is compiled into Matgate.csproj, and into these
          tests directly - so they run without the web application and see the internals. -->
-    <Compile Include="..\..\..\Matgate\Display\Rdp\Channels\**\*.cs" LinkBase="Channels" />
+    <Compile Include="..\..\..\Mat.Remote\Rdp\Channels\**\*.cs" LinkBase="Channels" />
   </ItemGroup>
 
   <ItemGroup>

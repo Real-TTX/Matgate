@@ -17,11 +17,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="..\..\..\Matgate\Display\Rdp\*.cs" LinkBase="Rdp" />
-    <Compile Include="..\..\..\Matgate\Display\Rdp\Orders\**\*.cs" LinkBase="Rdp\Orders" />
-    <Compile Include="..\..\..\Matgate\Display\Rdp\Channels\**\*.cs" LinkBase="Rdp\Channels" />
-    <Compile Include="..\..\..\Matgate\Display\Rdp\Security\**\*.cs" LinkBase="Rdp\Security" />
-    <Compile Include="..\..\..\Matgate\Display\Rdp\Graphics\**\*.cs" LinkBase="Rdp\Graphics" />
+    <Compile Include="..\..\..\Mat.Remote\Rdp\*.cs" LinkBase="Rdp" />
+    <Compile Include="..\..\..\Mat.Remote\Rdp\Orders\**\*.cs" LinkBase="Rdp\Orders" />
+    <Compile Include="..\..\..\Mat.Remote\Rdp\Channels\**\*.cs" LinkBase="Rdp\Channels" />
+    <Compile Include="..\..\..\Mat.Remote\Rdp\Security\**\*.cs" LinkBase="Rdp\Security" />
+    <Compile Include="..\..\..\Mat.Remote\Rdp\Graphics\**\*.cs" LinkBase="Rdp\Graphics" />
   </ItemGroup>
 
   <ItemGroup>

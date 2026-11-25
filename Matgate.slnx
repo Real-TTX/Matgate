@@ -1,4 +1,5 @@
 <Solution>
+  <Project Path="Mat.Remote/Mat.Remote.csproj" />
   <Project Path="Matgate/Matgate.csproj" />
   <Project Path="agent/Matgate.Agent/Matgate.Agent.csproj" />
 </Solution>

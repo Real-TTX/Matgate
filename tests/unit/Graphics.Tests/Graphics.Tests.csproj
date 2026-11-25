@@ -20,7 +20,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="..\..\..\Matgate\Display\Rdp\Graphics\**\*.cs" LinkBase="Graphics" />
+    <Compile Include="..\..\..\Mat.Remote\Rdp\Graphics\**\*.cs" LinkBase="Graphics" />
   </ItemGroup>
 
   <ItemGroup>

@@ -1,6 +1,6 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- Tests for Matgate's own VNC client (Matgate/Display/Vnc). The sources are compiled into this project
+  <!-- Tests for Matgate's own VNC client (Mat.Remote/Vnc). The sources are compiled into this project
        directly, so the tests reach the internal parts - the decoders, the DES - as well.
 
          dotnet test tests/unit/Vnc.Tests
@@ -20,7 +20,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="..\..\..\Matgate\Display\Vnc\**\*.cs" LinkBase="Vnc" />
+    <Compile Include="..\..\..\Mat.Remote\Vnc\**\*.cs" LinkBase="Vnc" />
   </ItemGroup>
 
   <ItemGroup>

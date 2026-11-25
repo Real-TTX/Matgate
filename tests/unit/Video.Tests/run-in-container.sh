@@ -15,8 +15,8 @@ DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends li
 
 # A copy, so that nothing is written into the repository and a Windows build's bin/obj are not in the way.
 rm -rf /work
-mkdir -p /work/Matgate/Display /work/tests/unit
-cp -r /repo/Matgate/Display/Video /work/Matgate/Display/
+mkdir -p /work/Mat.Remote /work/tests/unit
+cp -r /repo/Mat.Remote/Video /work/Mat.Remote/
 cp -r /repo/tests/unit/Video.Tests /work/tests/unit/
 rm -rf /work/tests/unit/Video.Tests/bin /work/tests/unit/Video.Tests/obj
 cd /work/tests/unit/Video.Tests

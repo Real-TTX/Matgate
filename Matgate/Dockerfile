@@ -7,8 +7,10 @@ WORKDIR /src
 ARG MATGATE_VERSION=
 
 COPY Matgate/Matgate.csproj Matgate/
+COPY Mat.Remote/Mat.Remote.csproj Mat.Remote/
 RUN dotnet restore Matgate/Matgate.csproj
 
+COPY Mat.Remote/ Mat.Remote/
 COPY Matgate/ Matgate/
 RUN if [ -n "$MATGATE_VERSION" ]; then \
       dotnet publish Matgate/Matgate.csproj -c Release -o /app/publish /p:UseAppHost=false /p:Version=$MATGATE_VERSION /p:InformationalVersion=$MATGATE_VERSION; \

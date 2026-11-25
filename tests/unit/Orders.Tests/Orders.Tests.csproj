@@ -17,8 +17,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="..\..\..\Matgate\Display\Rdp\Orders\**\*.cs" LinkBase="Orders" />
-    <Compile Include="..\..\..\Matgate\Display\Rdp\Graphics\**\*.cs" LinkBase="Graphics" />
+    <Compile Include="..\..\..\Mat.Remote\Rdp\Orders\**\*.cs" LinkBase="Orders" />
+    <Compile Include="..\..\..\Mat.Remote\Rdp\Graphics\**\*.cs" LinkBase="Graphics" />
   </ItemGroup>
 
   <ItemGroup>

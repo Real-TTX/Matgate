@@ -115,7 +115,7 @@ public sealed class DisplayBridge
     {
         return new ScreenSession(
             target,
-            static (target, host) => target.Protocol == "vnc" ? new VncBackend(target, host) : new RdpBackend(target, host),
+            ScreenBackends.Create,
             _loggers.CreateLogger("Matgate.Display"));
     }
 

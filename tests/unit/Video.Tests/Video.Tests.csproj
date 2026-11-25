@@ -19,7 +19,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <Compile Include="..\..\..\Matgate\Display\Video\**\*.cs" LinkBase="Video" />
+    <Compile Include="..\..\..\Mat.Remote\Video\**\*.cs" LinkBase="Video" />
   </ItemGroup>
 
   <ItemGroup>

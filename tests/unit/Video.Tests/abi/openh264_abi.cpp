@@ -1,7 +1,7 @@
 // Prints what Matgate's C# code assumes about libopenh264's binary interface, read from the library's own
 // headers by the compiler that built the library: struct sizes, field offsets, enum values, the slots of the
 // encoder's vtable, and the defaults the library fills in. The test AbiTests compares the output line by line
-// with the constants in Matgate/Display/Video/OpenH264.cs.
+// with the constants in Mat.Remote/Video/OpenH264.cs.
 //
 //   g++ -std=c++17 -O0 -o openh264_abi openh264_abi.cpp -lopenh264 && ./openh264_abi
 //

@@ -75,7 +75,7 @@
     <Compile Remove="Screen\ScreenProbe.cs" />
     <Compile Remove="ConPty.cs;PtyLauncher.cs;SessionNative.cs;UpdatePlugin.cs" />
     <!-- OpenH264 as Matgate itself binds it: the software encoder of the screen on Linux. -->
-    <Compile Include="..\..\Matgate\Display\Video\OpenH264.cs" Link="Unix\Screen\OpenH264.cs" />
+    <Compile Include="..\..\Mat.Remote\Video\OpenH264.cs" Link="Unix\Screen\OpenH264.cs" />
     <Compile Remove="Setup\Installer.cs;Setup\WindowsNative.cs" />
   </ItemGroup>
 

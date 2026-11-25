@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Mat.Remote: Matgate's own remote engine (RDP, VNC, sound, clipboard, the H.264 encoder), without ASP.NET.
+    Used by Matgate (server: picture as H.264 to the browser) and by ThixGate (desktop: picture drawn directly).
+    The namespaces stay Matgate.Display.* so that Matgate's code and data are unchanged by the move.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>Matgate.Display</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Matgate's ScreenSession sets the encoder up through internal members (ScreenQuality.EncoderOptions). -->
+    <InternalsVisibleTo Include="Matgate" />
+  </ItemGroup>
+
+</Project>

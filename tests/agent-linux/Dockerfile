@@ -5,7 +5,7 @@
 FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
 WORKDIR /src
 COPY Matgate/Agent/AgentWire.cs Matgate/Agent/AgentWire.cs
-COPY Matgate/Display/Video/OpenH264.cs Matgate/Display/Video/OpenH264.cs
+COPY Mat.Remote/Video/OpenH264.cs Mat.Remote/Video/OpenH264.cs
 COPY agent/Matgate.Agent agent/Matgate.Agent
 RUN dotnet publish agent/Matgate.Agent/Matgate.Agent.csproj -c Release -r linux-x64 -o /out -p:Version=0.10.0.1
 # The same program as a later version: what an update brings (the test serves it to Matgate as the release).
