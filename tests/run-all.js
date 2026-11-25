@@ -52,11 +52,11 @@ const GROUPS = [
   },
   {
     name: "Group 10 - sessions that outlive the browser, right click, the order of the quick-connect chips, the browser under a path",
-    scripts: ["kept-sessions.js", "context-menu.js", "quick-connect-order.js", "browser-under-path.js", "equal-cards.js"],
+    scripts: ["kept-sessions.js", "context-menu.js", "quick-connect-order.js", "browser-under-path.js"],
   },
   {
     name: "Group 11 - websites: an address of their own, the path under Matgate's, a browser tab; the settings page and what saving it keeps",
-    scripts: ["website.js", "settings-page.js", "settings-safety.js", "sso-groups.js", "db-edit-plan.js", "hold-ring-setting.js"],
+    scripts: ["website.js", "settings-page.js", "settings-safety.js", "sso-groups.js", "db-edit-plan.js"],
   },
   {
     name: "Group 12 - the agent on Linux",
@@ -74,6 +74,10 @@ const GROUPS = [
     name: "Group 15 - stored credentials, the order of things and the way back to it",
     scripts: ["credentials.js", "order-defaults.js", "groups.js", "keybar-keeps-keyboard.js", "tunnel.js",
       "ssh-key.js"],
+  },
+  {
+    name: "Group 16 - the status bar, cards of one size, the right-click ring",
+    scripts: ["status-bar.js", "equal-cards.js", "hold-ring-setting.js"],
   },
 ];
 

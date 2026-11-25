@@ -939,6 +939,7 @@ public static class AgentScreenPage
                         break;
                     case 'screen.stats':
                         window.__screen.stats = data;
+                        countShown();
                         window.setTimeout(notifyStats, 0);
                         paintPerf(data);
                         // Fewer colours show as bands in gradients - said here, they are not taken for a fault.
@@ -2196,13 +2197,30 @@ public static class AgentScreenPage
 
             // ---- clipboard: the machine -> this device ---------------------------------------------------
             // What was copied on the machine last, as long as the machine's clipboard still has it: its text
-            // (null for files and pictures), and whether this page has lost the focus since - only then can
-            // something else be on this device's clipboard.
+            // (null for files and pictures), whether that text is on this device's clipboard by now, and
+            // whether this page has lost the focus since.
             let remoteClip = null;
             let remoteFiles = null;
             const sameText = (a, b) => a.replace(/\r\n/g, '\n') === b.replace(/\r\n/g, '\n');
-            const remoteHas = (plain, files) => !!remoteClip && (!remoteClip.left
-                || (!files.length && !!plain && remoteClip.text !== null && sameText(plain, remoteClip.text)));
+            // Whether Ctrl+V is to paste what the machine has already. Text: as long as this device's
+            // clipboard still holds that text (anything else there was copied here since), or while it has
+            // not got there yet. Files and pictures: until this page has lost the focus - only then can
+            // something else have been copied on this device.
+            const remoteHas = (plain, files) => {
+                if (!remoteClip) {
+                    return false;
+                }
+                if (remoteClip.text === null) {
+                    return !remoteClip.left;
+                }
+                if (files.length) {
+                    return false;
+                }
+                if (plain && sameText(plain, remoteClip.text)) {
+                    return true;
+                }
+                return !remoteClip.written && !remoteClip.left;
+            };
             window.addEventListener('blur', () => {
                 if (remoteClip) {
                     remoteClip.left = true;
@@ -2251,6 +2269,9 @@ public static class AgentScreenPage
                     if (pendingClipboard === item) {
                         pendingClipboard = null;
                     }
+                    if (remoteClip && item.kind === 'text' && remoteClip.text === item.text) {
+                        remoteClip.written = true;
+                    }
                     window.__screen.clipboard.push(item.kind === 'text' ? item.text : 'image');
                 }).catch(() => {
                     // Needs a click or a key press here first (Safari), or focus: tried again then.
@@ -2259,7 +2280,7 @@ public static class AgentScreenPage
             window.addEventListener('focus', writePendingClipboard);
             stage.addEventListener('pointerdown', writePendingClipboard);
             const onRemoteClipboard = (data, payload) => {
-                remoteClip = { text: data.kind === 'text' ? decoder.decode(payload) : null, left: false };
+                remoteClip = { text: data.kind === 'text' ? decoder.decode(payload) : null, left: !document.hasFocus(), written: false };
                 remoteFiles = data.kind === 'files' ? data : null;
                 paintClipFiles();
                 if (data.kind === 'text') {
@@ -2867,6 +2888,16 @@ public static class AgentScreenPage
             };
             let perfFrames = window.__screen.frames;
             let perfAt = performance.now();
+            // Pictures shown here a second - next to what the machine sends - for the shell's status bar.
+            let shownFrames = window.__screen.frames;
+            let shownAt = performance.now();
+            let shownFps = null;
+            const countShown = () => {
+                const now = performance.now();
+                shownFps = Math.round((window.__screen.frames - shownFrames) * 1000 / Math.max(1, now - shownAt));
+                shownFrames = window.__screen.frames;
+                shownAt = now;
+            };
             const paintPerf = data => {
                 if (!perfOn) {
                     return;
@@ -2916,8 +2947,16 @@ public static class AgentScreenPage
             window.MatgateScreen = {
                 state: () => ({
                     status: statusLine.textContent,
+                    statusBad: statusLine.classList.contains('bad'),
                     stats: statsLine.textContent,
                     statsDetail: statsLine.title,
+                    // The numbers behind them, for the status bar's details.
+                    metrics: window.__screen.stats && statsLine.textContent ? Object.assign({}, window.__screen.stats, {
+                        shown: shownFps,
+                        width: canvas.width,
+                        height: canvas.height,
+                        scale: resolution === 'auto' ? scale : null,
+                    }) : null,
                     resolution,
                     resolutionLabel: resolutionSelect.selectedOptions[0] ? resolutionSelect.selectedOptions[0].textContent : '',
                     resolutionOptions: optionList(resolutionSelect),

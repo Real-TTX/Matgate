@@ -4356,6 +4356,22 @@ public sealed partial class HtmlViews
             fullscreen = T(context, "Fullscreen"),
             openInNewWindow = Language(context) == "de" ? "In neuem Fenster öffnen" : "Open in a new window",
             systemTitle = Language(context) == "de" ? "Auslastung des Rechners" : "How busy the machine is",
+            stState = Language(context) == "de" ? "Zustand" : "State",
+            stTarget = Language(context) == "de" ? "Verbindung" : "Connection",
+            stFps = Language(context) == "de" ? "Bilder/s" : "Frames/s",
+            stShown = Language(context) == "de" ? "gezeigt" : "shown",
+            stFrameTime = Language(context) == "de" ? "Bildzeit" : "Frame time",
+            stLatency = Language(context) == "de" ? "Latenz (hin und zurück)" : "Latency (round trip)",
+            stRate = Language(context) == "de" ? "Datenrate" : "Data rate",
+            stPicture = Language(context) == "de" ? "Bild" : "Picture",
+            stEncoder = Language(context) == "de" ? "Encoder" : "Encoder",
+            stPerFrame = Language(context) == "de" ? "je Bild" : "per frame",
+            stGateway = Language(context) == "de" ? "Matgate" : "Matgate",
+            stTunnel = Language(context) == "de" ? "Weg" : "Path",
+            stSync = Language(context) == "de" ? "Zuletzt synchron" : "Last sync",
+            stMessage = Language(context) == "de" ? "Meldung" : "Message",
+            stPerf = Language(context) == "de" ? "Leistungsanzeige im Bild" : "Performance numbers in the picture",
+            stHideHint = Language(context) == "de" ? "Statusleiste ausblenden: Einstellungen → Sitzungen → Sitzungsleiste" : "Hide the status bar: Settings → Sessions → Session bar",
             systemCpu = Language(context) == "de" ? "Prozessor" : "Processor",
             systemCores = Language(context) == "de" ? "Kerne" : "cores",
             systemMemory = Language(context) == "de" ? "Arbeitsspeicher" : "Memory",
@@ -4832,20 +4848,19 @@ public sealed partial class HtmlViews
             </section>
             </div>
             </div>
-            <div id="session-statusbar" class="session-statusbar">
+            <div id="session-statusbar" class="session-statusbar{{(user.Session?.StatusBar == false ? " is-off" : "")}}">
                 <div class="status-primary">
                     <strong id="status-title">{{T(context, "No active tab")}}</strong>
                     <span id="status-target">-</span>
                 </div>
                 <div class="status-secondary">
-                    <div class="status-metrics">
-                        <span id="status-state">{{T(context, "Ready")}}</span>
-                        <span id="status-resolution" class="status-resolution"></span>
-                        <span id="status-latency">{{T(context, "Gateway: -")}}</span>
-                        <span id="status-tunnel">{{T(context, "Tunnel: -")}}</span>
-                        <span id="status-sync">{{T(context, "Sync: -")}}</span>
-                        <span id="status-message">-</span>
-                    </div>
+                    <span id="status-message" class="status-message" hidden></span>
+                    <button id="status-metrics" type="button" class="status-metrics" aria-haspopup="dialog" aria-expanded="false">
+                        <span class="status-dot" data-tone="idle" aria-hidden="true"></span>
+                        <span id="status-state" class="status-state">{{T(context, "Ready")}}</span>
+                        <span id="status-chips" class="status-chips"></span>
+                    </button>
+                    <div id="status-metrics-panel" class="status-system-panel status-metrics-panel" role="dialog" aria-label="{{A(Language(context) == "de" ? "Verbindung" : "Connection")}}" hidden></div>
                     <div class="status-actions">
                         <button id="status-clip" type="button" class="status-clip" hidden data-has="unknown">{{Icon("clipboard")}}<span class="status-clip-label"></span></button>
                         <button id="status-system" type="button" class="status-system" hidden aria-haspopup="dialog" aria-expanded="false"><span class="status-system-cpu"></span><span class="status-system-ram"></span></button>
@@ -4891,9 +4906,6 @@ public sealed partial class HtmlViews
                 const statusTitle = document.getElementById('status-title');
                 const statusTarget = document.getElementById('status-target');
                 const statusState = document.getElementById('status-state');
-                const statusLatency = document.getElementById('status-latency');
-                const statusTunnel = document.getElementById('status-tunnel');
-                const statusSync = document.getElementById('status-sync');
                 const statusMessage = document.getElementById('status-message');
                 // The "About" page is reached through the account menu; its icon for the tab.
                 const aboutInfoButton = document.getElementById('status-info-icon');
@@ -4926,7 +4938,6 @@ public sealed partial class HtmlViews
                 const sendTargetHint = document.getElementById('send-target-hint');
                 const sftpTargetFiles = document.getElementById('sftp-target-files');
                 const sftpTargetClose = document.getElementById('sftp-target-close');
-                const statusResolution = document.getElementById('status-resolution');
                 const resolutionDialog = document.getElementById('resolution-dialog');
                 const resolutionOptions = document.getElementById('resolution-options');
                 const resolutionExtra = document.getElementById('resolution-extra');
@@ -13106,77 +13117,230 @@ public sealed partial class HtmlViews
                     document.addEventListener('copy', () => window.setTimeout(followClipboard, 50));
                 }
 
-                function updateStatusBar() {
-                    followSystemStats();
-                    followClipboard();
+                // The status bar: a dot for the state, the state, a few numbers as chips - a click opens what is
+                // behind them (and, for a screen session, the numbers in the picture).
+                const statusMetrics = document.getElementById('status-metrics');
+                const statusChips = document.getElementById('status-chips');
+                const statusDot = statusMetrics ? statusMetrics.querySelector('.status-dot') : null;
+                const statusPanel = document.getElementById('status-metrics-panel');
+                const latencyTone = ms => ms == null ? '' : ms < 60 ? 'ok' : ms < 150 ? 'warn' : 'bad';
+                const formatRate = kbps => kbps == null ? '' : kbps >= 1000 ? (kbps / 1000).toFixed(1) + ' Mbit/s' : Math.round(kbps) + ' kbit/s';
+                function statusModel() {
+                    const gateway = gatewayLatencyMs;
+                    const gatewayChip = gateway === null ? null : { kind: 'gateway', value: gateway + ' ms', tone: latencyTone(gateway), title: (uiText.stGateway || 'Gateway') + ': ' + gateway + ' ms' };
+                    const gatewayRow = [uiText.stGateway || 'Gateway', gateway === null ? '-' : gateway + ' ms', latencyTone(gateway)];
                     const tab = tabs.get(activeTabId);
                     const screen = tab ? null : activeAgentScreen();
                     if (screen && screen.api) {
                         const state = screen.api.state();
-                        statusTitle.textContent = screen.shellTab.title || '';
-                        statusTarget.textContent = state.texts?.target || 'Agent';
-                        statusState.textContent = state.status || ui('ready');
-                        statusLatency.textContent = gatewayLatencyMs === null ? 'Gateway: -' : `Gateway: ${gatewayLatencyMs} ms`;
-                        statusTunnel.textContent = screen.kind === 'agent' ? 'Tunnel: Agent' : 'Tunnel: Matgate';
-                        statusSync.textContent = state.stats || '-';
-                        statusMessage.textContent = state.statsDetail || '-';
-                        if (statusResolution) {
-                            statusResolution.textContent = state.resolutionLabel ? `Screen: ${state.resolutionLabel}` : '';
+                        const m = state.metrics;
+                        const chips = [];
+                        const described = (screen.shellTab.description || '').trim() || state.texts?.target || 'Agent';
+                        const rows = [[uiText.stState || 'State', state.status || ui('ready'), state.statusBad ? 'bad' : ''], [uiText.stTarget || 'Connection', described]];
+                        if (m) {
+                            const fps = m.fps == null ? null : Math.round(m.fps);
+                            if (fps !== null) {
+                                chips.push({ kind: 'fps', value: fps + ' fps', title: uiText.stFps || 'Frames per second' });
+                            }
+                            // Where the session itself does not measure its way there and back (RDP), Matgate's is it.
+                            if (m.rtt != null) {
+                                chips.push({ kind: 'latency', value: Math.round(m.rtt) + ' ms', tone: latencyTone(m.rtt), title: uiText.stLatency || 'Latency' });
+                            }
+                            else if (gatewayChip) {
+                                chips.push(Object.assign({}, gatewayChip, { kind: 'latency' }));
+                            }
+                            if (m.kbps != null) {
+                                chips.push({ kind: 'rate', value: formatRate(m.kbps), title: uiText.stRate || 'Data rate' });
+                            }
+                            rows.push(
+                                [uiText.stFps || 'Frames per second', (fps === null ? '-' : fps) + (m.shown != null ? ' / ' + m.shown + ' ' + (uiText.stShown || 'shown') : '') + (m.fpsLimit ? ' · max ' + m.fpsLimit : '')],
+                                [uiText.stFrameTime || 'Frame time', fps ? (1000 / fps).toFixed(1) + ' ms' : '-'],
+                                [uiText.stLatency || 'Latency', m.rtt == null ? '-' : Math.round(m.rtt) + ' ms', latencyTone(m.rtt)],
+                                [uiText.stRate || 'Data rate', formatRate(m.kbps) || '-'],
+                                [uiText.stPicture || 'Picture', (m.width && m.height ? m.width + '×' + m.height : '-') + (m.scale ? ' · ' + m.scale + ' %' : '') + (m.colours > 0 && m.colours < 24 ? ' · ' + m.colours + ' bit' : '')],
+                                [uiText.stEncoder || 'Encoder', (m.encoder || '-') + (m.agentMs != null ? ' · ' + m.agentMs + ' ms ' + (uiText.stPerFrame || 'per frame') : '')]);
                         }
-                        return;
+                        if (!chips.length && gatewayChip) {
+                            chips.push(gatewayChip);
+                        }
+                        rows.push(gatewayRow, [uiText.stTunnel || 'Path', screen.kind === 'agent' ? 'Agent' : 'Matgate']);
+                        return {
+                            title: screen.shellTab.title || '', target: described, state: state.status || ui('ready'),
+                            tone: state.statusBad ? 'bad' : m ? 'ok' : 'busy', chips, rows, message: '', screen,
+                        };
                     }
-
                     // A page in a tab (an SSH terminal or a database of Matgate's own, an admin page): its name and
                     // what its tab says of it, not "New connection".
                     const pageTab = tab ? null : shellTabs.get(activeShellTabId);
                     if (pageTab) {
                         const ownSession = /^\/(ssh|db)\//.test(pageTab.url || '');
-                        statusTitle.textContent = pageTab.title || '';
-                        statusTarget.textContent = shellTabDescription(pageTab) || '-';
-                        statusState.textContent = ui('ready');
-                        statusLatency.textContent = gatewayLatencyMs === null ? 'Gateway: -' : `Gateway: ${gatewayLatencyMs} ms`;
-                        statusTunnel.textContent = ownSession ? 'Tunnel: Matgate' : 'Tunnel: -';
-                        statusSync.textContent = 'Sync: -';
-                        statusMessage.textContent = '-';
-                        if (statusResolution) {
-                            statusResolution.textContent = '';
-                        }
-                        return;
+                        return {
+                            title: pageTab.title || '', target: shellTabDescription(pageTab) || '', state: ui('ready'), tone: 'ok',
+                            chips: gatewayChip ? [gatewayChip] : [], message: '',
+                            rows: [[uiText.stState || 'State', ui('ready')], gatewayRow, [uiText.stTunnel || 'Path', ownSession ? 'Matgate' : '-']],
+                        };
                     }
-
                     if (!tab) {
-                        statusTitle.textContent = ui('newConnection');
-                        statusTarget.textContent = '-';
-                        statusState.textContent = ui('ready');
-                        statusLatency.textContent = gatewayLatencyMs === null ? 'Gateway: -' : `Gateway: ${gatewayLatencyMs} ms`;
-                        statusTunnel.textContent = 'Tunnel: -';
-                        statusSync.textContent = 'Sync: -';
-                        statusMessage.textContent = ui('chooseConnection');
-                        if (statusResolution) {
-                            statusResolution.textContent = '';
-                        }
-                        return;
+                        return {
+                            title: ui('newConnection'), target: '', state: ui('ready'), tone: 'idle', chips: gatewayChip ? [gatewayChip] : [], message: '',
+                            rows: [[uiText.stState || 'State', ui('ready')], gatewayRow],
+                        };
                     }
-
-                    statusTitle.textContent = tab.name;
-                    statusTarget.textContent = isWebsiteProtocol(tab.protocol)
+                    const target = isWebsiteProtocol(tab.protocol)
                         ? `${protocolLabel(tab.protocol)} ${tab.displayUrl || tab.target || tab.currentUrl}`
                         : `${protocolLabel(tab.protocol)} ${tab.target}`;
-                    statusState.textContent = tab.status || ui('ready');
-                    statusLatency.textContent = gatewayLatencyMs === null ? 'Gateway: -' : `Gateway: ${gatewayLatencyMs} ms`;
-                    statusTunnel.textContent = isFileProtocol(tab.protocol)
-                        ? `Tunnel: ${ui('fileApi')}`
-                        : isWebsiteProtocol(tab.protocol)
-                            ? `Tunnel: ${uiText.websiteProxy || 'Website proxy'}`
-                        : `Tunnel: ${tab.tunnelState || '-'}`;
-                    statusSync.textContent = `Sync: ${formatAge(tab.lastSyncAt)}`;
-                    statusMessage.textContent = tab.lastError || tab.lastMessage || '-';
-                    if (statusResolution) {
-                        const stScaleOnly = isScaleOnlyTab(tab);
-                        statusResolution.textContent = supportsResolution(tab.protocol)
-                            ? `${stScaleOnly ? 'Scale' : 'Screen'}: ${resolutionOptionLabel(tab.displayRes, stScaleOnly)}`
-                            : '';
+                    const tunnel = isFileProtocol(tab.protocol)
+                        ? ui('fileApi')
+                        : isWebsiteProtocol(tab.protocol) ? (uiText.websiteProxy || 'Website proxy') : (tab.tunnelState || '-');
+                    const rows = [[uiText.stState || 'State', tab.status || ui('ready'), tab.lastError ? 'bad' : ''], [uiText.stTarget || 'Connection', target]];
+                    if (supportsResolution(tab.protocol)) {
+                        rows.push([uiText.stPicture || 'Picture', resolutionOptionLabel(tab.displayRes, isScaleOnlyTab(tab))]);
                     }
+                    rows.push(gatewayRow, [uiText.stTunnel || 'Path', tunnel], [uiText.stSync || 'Last sync', formatAge(tab.lastSyncAt)]);
+                    const message = tab.lastError || tab.lastMessage || '';
+                    if (message) {
+                        rows.push([uiText.stMessage || 'Message', message, tab.lastError ? 'bad' : '']);
+                    }
+                    return {
+                        title: tab.name, target, state: tab.status || ui('ready'),
+                        tone: tab.lastError ? 'bad' : tab.status === ui('connected') ? 'ok' : tab.status && tab.status !== ui('ready') ? 'busy' : 'idle',
+                        chips: gatewayChip ? [gatewayChip] : [], rows, message: tab.lastError || '',
+                    };
+                }
+                function renderStatusPanel(model) {
+                    if (!statusPanel || statusPanel.hidden) {
+                        return;
+                    }
+                    const head = document.createElement('div');
+                    head.className = 'status-panel-head';
+                    const dot = document.createElement('span');
+                    dot.className = 'status-dot';
+                    dot.dataset.tone = model.tone;
+                    const name = document.createElement('strong');
+                    name.textContent = model.title || model.state;
+                    head.append(dot, name);
+                    const list = document.createElement('dl');
+                    list.className = 'status-panel-rows';
+                    model.rows.forEach(([label, value, tone]) => {
+                        const term = document.createElement('dt');
+                        term.textContent = label;
+                        const text = document.createElement('dd');
+                        text.textContent = value;
+                        if (tone) {
+                            text.dataset.tone = tone;
+                        }
+                        list.append(term, text);
+                    });
+                    const parts = [head, list];
+                    const api = model.screen && model.screen.api;
+                    if (api && typeof api.setPerf === 'function') {
+                        const state = api.state();
+                        const perf = document.createElement('label');
+                        perf.className = 'status-panel-switch';
+                        perf.innerHTML = '<input type="checkbox" data-status-perf><span></span>';
+                        perf.querySelector('span').textContent = state.texts?.perf || uiText.stPerf || 'Numbers in the picture';
+                        const box = perf.querySelector('input');
+                        box.checked = !!state.perf;
+                        box.addEventListener('change', () => {
+                            api.setPerf(box.checked);
+                            renderStatusPanel(statusModel());
+                        });
+                        parts.push(perf);
+                        if (state.perf && typeof api.setPerfPosition === 'function') {
+                            const labels = state.texts?.perfPlaces || ['Top left', 'Top right', 'Bottom left', 'Bottom right'];
+                            const corners = document.createElement('div');
+                            corners.className = 'status-panel-corners';
+                            corners.setAttribute('role', 'group');
+                            corners.setAttribute('aria-label', state.texts?.perfPosition || 'Where');
+                            ['top-left', 'top-right', 'bottom-left', 'bottom-right'].forEach((place, index) => {
+                                const button = document.createElement('button');
+                                button.type = 'button';
+                                button.dataset.statusPerfAt = place;
+                                button.className = 'status-corner status-corner--' + place;
+                                button.title = labels[index];
+                                button.setAttribute('aria-label', labels[index]);
+                                button.setAttribute('aria-pressed', state.perfAt === place ? 'true' : 'false');
+                                button.innerHTML = '<span></span>';
+                                button.addEventListener('click', () => {
+                                    api.setPerfPosition(place);
+                                    renderStatusPanel(statusModel());
+                                });
+                                corners.appendChild(button);
+                            });
+                            parts.push(corners);
+                        }
+                    }
+                    const hint = document.createElement('small');
+                    hint.className = 'status-panel-hint';
+                    hint.textContent = uiText.stHideHint || 'Hide the status bar: Settings → Sessions';
+                    parts.push(hint);
+                    statusPanel.replaceChildren(...parts);
+                }
+                function closeStatusPanel() {
+                    if (statusPanel && !statusPanel.hidden) {
+                        statusPanel.hidden = true;
+                        statusMetrics.setAttribute('aria-expanded', 'false');
+                    }
+                }
+                if (statusMetrics && statusPanel) {
+                    // The clicks do not take the keyboard away from the session in front.
+                    statusMetrics.addEventListener('pointerdown', event => event.preventDefault());
+                    statusMetrics.addEventListener('click', () => {
+                        if (!statusPanel.hidden) {
+                            closeStatusPanel();
+                            return;
+                        }
+                        statusPanel.hidden = false;
+                        statusMetrics.setAttribute('aria-expanded', 'true');
+                        renderStatusPanel(statusModel());
+                    });
+                    statusPanel.addEventListener('pointerdown', event => {
+                        if (!(event.target instanceof HTMLInputElement) && !event.target.closest('label')) {
+                            event.preventDefault();
+                        }
+                    });
+                    document.addEventListener('pointerdown', event => {
+                        if (!statusPanel.hidden && !statusPanel.contains(event.target) && !statusMetrics.contains(event.target)) {
+                            closeStatusPanel();
+                        }
+                    });
+                    document.addEventListener('keydown', event => {
+                        if (event.key === 'Escape') {
+                            closeStatusPanel();
+                        }
+                    });
+                }
+
+                function updateStatusBar() {
+                    followSystemStats();
+                    followClipboard();
+                    const model = statusModel();
+                    statusTitle.textContent = model.title || '';
+                    statusTarget.textContent = model.target || '';
+                    statusTarget.hidden = !model.target;
+                    statusState.textContent = model.state || '';
+                    if (statusDot) {
+                        statusDot.dataset.tone = model.tone || 'idle';
+                    }
+                    if (statusChips) {
+                        statusChips.replaceChildren(...model.chips.map(chip => {
+                            const item = document.createElement('span');
+                            item.className = 'status-chip';
+                            item.dataset.kind = chip.kind;
+                            if (chip.tone) {
+                                item.dataset.tone = chip.tone;
+                            }
+                            item.title = chip.title || '';
+                            item.textContent = chip.value;
+                            return item;
+                        }));
+                    }
+                    if (statusMetrics) {
+                        statusMetrics.title = model.rows.map(([label, value]) => label + ': ' + value).join('\n');
+                    }
+                    statusMessage.textContent = model.message || '';
+                    statusMessage.hidden = !model.message;
+                    renderStatusPanel(model);
                 }
 
                 window.MatgateWebsiteLocationChanged = (tabId, url, base) => {
@@ -22515,14 +22679,74 @@ public sealed partial class HtmlViews
                         color: var(--muted);
                         font-size: 13px;
                     }
-                    #status-state {
-                        background: var(--surface-2);
-                        border-radius: var(--radius);
-                        color: var(--accent);
-                        font-weight: 700;
-                        padding: 2px 7px;
+                    #status-message { color: var(--danger, #c0392b); max-width: 360px; }
+                    #status-message[hidden] { display: none; }
+                    /* The connection in a few numbers: a dot for its state, the state, chips - one button that opens
+                       the details. Latency coloured: green below 60 ms, amber below 150, red above. */
+                    .status-metrics {
+                        align-items: center;
+                        appearance: none;
+                        background: transparent;
+                        border: 1px solid transparent;
+                        border-radius: var(--radius-pill, 999px);
+                        color: var(--text);
+                        cursor: pointer;
+                        display: inline-flex;
+                        font: inherit;
+                        font-size: 12px;
+                        gap: 8px;
+                        height: 24px;
+                        min-height: 0;
+                        padding: 0 4px 0 8px;
+                        white-space: nowrap;
                     }
-                    #status-message { max-width: 360px; }
+                    .status-metrics:hover, .status-metrics[aria-expanded="true"] { background: var(--surface-2); border-color: var(--line); }
+                    .status-metrics .status-state { color: var(--text); font-size: 12px; font-weight: 600; }
+                    .status-dot { background: var(--muted); border-radius: 50%; flex: 0 0 auto; height: 8px; width: 8px; }
+                    .status-dot[data-tone="ok"] { background: #2e9e6a; box-shadow: 0 0 0 3px color-mix(in srgb, #2e9e6a 22%, transparent); }
+                    .status-dot[data-tone="busy"] { animation: status-pulse 1.2s ease-in-out infinite; background: #d49a1f; }
+                    .status-dot[data-tone="bad"] { background: var(--danger, #c0392b); box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger, #c0392b) 22%, transparent); }
+                    @keyframes status-pulse { 50% { opacity: .35; } }
+                    .status-chips { display: inline-flex; gap: 4px; }
+                    .status-chips:empty { display: none; }
+                    .status-metrics .status-chip {
+                        background: var(--surface-2);
+                        border: 1px solid var(--line);
+                        border-radius: var(--radius-pill, 999px);
+                        color: var(--text);
+                        font-size: 11.5px;
+                        font-variant-numeric: tabular-nums;
+                        font-weight: 600;
+                        line-height: 18px;
+                        padding: 0 8px;
+                    }
+                    .status-chip[data-tone="ok"] { color: #2e9e6a; }
+                    .status-chip[data-tone="warn"] { color: #c98a10; }
+                    .status-chip[data-tone="bad"] { color: var(--danger, #c0392b); }
+                    .status-metrics-panel { width: min(340px, calc(100vw - 24px)); }
+                    .status-panel-head { align-items: center; display: flex; gap: 8px; min-width: 0; }
+                    .status-panel-head strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                    .status-panel-rows { display: grid; font-size: 13px; gap: 6px 14px; grid-template-columns: auto minmax(0, 1fr); margin: 0; }
+                    .status-panel-rows dt { color: var(--muted); }
+                    .status-panel-rows dd { font-variant-numeric: tabular-nums; font-weight: 600; margin: 0; overflow-wrap: anywhere; text-align: right; }
+                    .status-panel-rows dd[data-tone="ok"] { color: #2e9e6a; }
+                    .status-panel-rows dd[data-tone="warn"] { color: #c98a10; }
+                    .status-panel-rows dd[data-tone="bad"] { color: var(--danger, #c0392b); }
+                    .status-panel-switch { align-items: center; border-top: 1px solid var(--line); cursor: pointer; display: flex; font-size: 13px; font-weight: 600; gap: 10px; padding-top: 10px; }
+                    .status-panel-switch input { accent-color: var(--accent); height: 16px; margin: 0; width: 16px; }
+                    .status-panel-corners { display: grid; gap: 6px; grid-template-columns: repeat(4, 1fr); }
+                    .status-corner { aspect-ratio: 16 / 10; background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; cursor: pointer; min-height: 0; padding: 0; position: relative; }
+                    .status-corner span { background: var(--muted); border-radius: 2px; height: 5px; position: absolute; width: 12px; }
+                    .status-corner--top-left span { left: 5px; top: 5px; }
+                    .status-corner--top-right span { right: 5px; top: 5px; }
+                    .status-corner--bottom-left span { bottom: 5px; left: 5px; }
+                    .status-corner--bottom-right span { bottom: 5px; right: 5px; }
+                    .status-corner[aria-pressed="true"] { border-color: var(--accent); }
+                    .status-corner[aria-pressed="true"] span { background: var(--accent); }
+                    .status-panel-hint { color: var(--muted); font-size: 12px; }
+                    /* Switched off in the settings: nothing but the strip an iPhone keeps for its home bar. */
+                    .session-statusbar.is-off { border-top: 0; min-height: 0; padding: 0 0 env(safe-area-inset-bottom); }
+                    .session-statusbar.is-off > * { display: none !important; }
                     .connection-panel {
                         background: #111614;
                         height: 100%;
@@ -25866,7 +26090,8 @@ public sealed partial class HtmlViews
                         .session-statusbar { gap: 8px; }
                         .status-primary { flex: 1 1 auto; min-width: 0; }
                         .status-secondary { margin-left: auto; }
-                        .status-metrics { display: none; }
+                        .status-metrics .status-state { display: none; }
+                        .status-metrics .status-chip[data-kind="rate"] { display: none; }
                         .server-form-footer { align-items: stretch; flex-direction: column; }
                         .server-form-actions { margin-left: 0; justify-content: stretch; width: 100%; }
                         .server-form-actions > * { flex: 1; justify-content: center; }

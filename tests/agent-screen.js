@@ -271,13 +271,19 @@ let agent;
 
   // --- Copied on the machine and pasted there again: the machine's clipboard keeps what it has (files, formatting,
   // a large table) - only Ctrl+V goes, even where this device's clipboard could not take it.
-  await view.evaluate(() => navigator.clipboard.writeText("Alter Text auf dem Geraet"));
   await debug();
   await view.keyboard.press("Control+v");
   await sleep(900);
   reported = await debug();
   check("Ctrl+V after copying on the machine does not overwrite its clipboard", reported.filter(line => /^clipboard/.test(line)), []);
   check("it is pasted there with Ctrl+V alone", reported.filter(line => /^key 2f/.test(line)), ["key 2f down", "key 2f up"]);
+  // Something else copied on this device since (here without the page losing the focus, as with the
+  // clipboard history): that is what is pasted.
+  await view.evaluate(() => navigator.clipboard.writeText("Anders vom Geraet"));
+  await view.keyboard.press("Control+v");
+  await sleep(1200);
+  check("something copied here since is pasted, focus or not", (await debug()).filter(line => /^clipboard/.test(line)), ["clipboard text Anders vom Geraet"]);
+  for (let i = 0; i < 20 && (await view.evaluate(() => window.__screen.clipboard.slice(-1)[0])) !== "Anders vom Geraet"; i++) { await sleep(200); }
   // Away from the page and back, with something else on this device's clipboard: that is pasted.
   await view.evaluate(() => window.dispatchEvent(new Event("blur")));
   await view.evaluate(() => navigator.clipboard.writeText("Neu vom Geraet"));

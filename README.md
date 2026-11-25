@@ -106,7 +106,7 @@ Three ready-made stacks are in this repo, all with prebuilt images:
 
 | Image | Tag |
 |---|---|
-| `ghcr.io/real-ttx/matgate` | `latest`, a version such as `0.54.0`, or `sha-…` |
+| `ghcr.io/real-ttx/matgate` | `latest`, a version such as `0.55.0`, or `sha-…` |
 | `ghcr.io/real-ttx/matgate-browser-farm` | `latest` (optional) |
 
 <details>
@@ -183,7 +183,7 @@ volumes:
   *bring it here* or start a *new session*, so the same Windows user is not signed in twice.
 - **Fastest response** quality: fewer colours (16 bit) and short buffers for the lowest latency.
 - **Pop a session out** into a window of its own and hand it back with one click, handy on several monitors.
-- **Real fullscreen** (safe-area aware on iPhone), clipboard sync and a live status bar with latency.
+- **Real fullscreen** (safe-area aware on iPhone), clipboard sync and a compact status bar - a dot for the state, frames a second, latency (coloured) and data rate; a click shows frame time, picture, encoder and Matgate's own latency and switches the numbers into the picture. It can be switched off under *Settings → Sessions*.
 - **A scale instead of a resolution**: fit to window at 50 %, 100 %, 150 %, …
 - **A password that is not stored** is asked for when connecting.
 

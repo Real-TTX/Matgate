@@ -274,6 +274,10 @@ public sealed class SessionPreferences
     // least RestoreAllMinutes - so an app closed on the phone and opened again finds its sessions running.
     public bool RestoreAll { get; set; }
 
+    // The status bar at the bottom of the shell: connection state and numbers, clipboard, the machine's load.
+    // Off: none, on every device (on an iPhone the strip of its home indicator stays clear).
+    public bool StatusBar { get; set; } = true;
+
     public const int RestoreAllMinutes = 30;
 
     // The minutes that count: the ones chosen, or with RestoreAll at least RestoreAllMinutes.

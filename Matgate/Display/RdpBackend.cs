@@ -532,7 +532,10 @@ internal sealed class RdpBackend : IScreenBackend, IRdpHandler
             // The remote side owns the clipboard now.
             _localKind = 0;
             _remoteFileFormat = files;
-            wanted = files != 0 ? files : text ? TextFormat : image ? BitmapFormat : 0;
+            // Text or a picture first: many programs (Outlook, browsers, editors) offer a file list next to
+            // what was really copied, and only text and pictures reach this device's clipboard. A file list
+            // alone is what Explorer copies.
+            wanted = text ? TextFormat : image ? BitmapFormat : files;
             _requestedFormat = wanted;
         }
 

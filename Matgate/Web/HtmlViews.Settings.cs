@@ -439,7 +439,10 @@ public sealed partial class HtmlViews
                 ? "Neu geladen, Netz weg, anderes Gerät: so lange laufen RDP-, VNC- und SSH-Sitzungen über Matgates eigene Engine weiter. Ein geschlossener Tab beendet seine Sitzung sofort; Guacamole-Sitzungen verbinden sich neu."
                 : "Reloaded, network lost, another device: this is how long RDP, VNC and SSH sessions through Matgate's own engine keep running. Closing a tab ends its session at once; Guacamole sessions reconnect.");
         var bar = SettingsCard(de ? "Sitzungsleiste" : "Session bar",
-            OrderList("action-order-list", "actionOrder", "hiddenActions", "data-action", "data-action-visible",
+            SwitchRow("statusBar", prefs.StatusBar,
+                de ? "Statusleiste unten anzeigen" : "Show the status bar at the bottom",
+                de ? "Zustand, Bildrate, Latenz und Datenrate der Sitzung, Zwischenablage und Auslastung. Aus: mehr Platz für die Sitzung – auf dem iPhone bleibt der Streifen über dem Home-Balken trotzdem frei." : "The session's state, frame rate, latency and data rate, the clipboard and the load. Off: more room for the session – on an iPhone the strip above the home bar stays clear all the same.")
+            + OrderList("action-order-list", "actionOrder", "hiddenActions", "data-action", "data-action-visible",
                 ActionOrderItems(de, prefs), string.Join(",", SessionPreferences.SortableActions), de),
             de
                 ? "Welche Knöpfe über einer Sitzung stehen, und in welcher Reihenfolge. Auf schmalen Schirmen kommt der Rest ins „…“-Menü; Trennen steht immer rechts."

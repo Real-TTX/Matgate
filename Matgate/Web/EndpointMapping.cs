@@ -4736,6 +4736,7 @@ public static partial class EndpointMapping
             current.Session.KeepSessionMinutes = SessionPreferences.NormalizeKeepSessionMinutes(
                 int.TryParse(form["keepSessionMinutes"].ToString(), out var keepMinutes) ? keepMinutes : 0);
             current.Session.RestoreAll = Checked(form, "restoreAll");
+            current.Session.StatusBar = Checked(form, "statusBar");
             if (form.ContainsKey("touchRightClick"))
             {
                 current.Session.TouchRightClick = SessionPreferences.NormalizeTouchRightClick(form["touchRightClick"].ToString());
