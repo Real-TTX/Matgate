@@ -52,11 +52,11 @@ const GROUPS = [
   },
   {
     name: "Group 10 - sessions that outlive the browser, right click, the order of the quick-connect chips, the browser under a path",
-    scripts: ["kept-sessions.js", "context-menu.js", "quick-connect-order.js", "browser-under-path.js"],
+    scripts: ["kept-sessions.js", "context-menu.js", "quick-connect-order.js", "browser-under-path.js", "equal-cards.js"],
   },
   {
     name: "Group 11 - websites: an address of their own, the path under Matgate's, a browser tab; the settings page and what saving it keeps",
-    scripts: ["website.js", "settings-page.js", "settings-safety.js", "sso-groups.js", "db-edit-plan.js"],
+    scripts: ["website.js", "settings-page.js", "settings-safety.js", "sso-groups.js", "db-edit-plan.js", "hold-ring-setting.js"],
   },
   {
     name: "Group 12 - the agent on Linux",

@@ -24070,6 +24070,20 @@ public sealed partial class HtmlViews
                     .connection-choice-actions { justify-content: flex-start; }
                     .connection-choice-actions .connection-choice-open { border-radius: 999px; flex: 0 0 auto; min-height: 36px; padding: 6px 18px; }
                     .connection-choice-corner .favorite-toggle { background: color-mix(in srgb, var(--surface) 80%, transparent); border-radius: 10px; }
+                    /* Every card on the start page has the same size - connections, places, workspaces, in every
+                       section: one line each for the badges, the name, the address and a note, cut off with "...",
+                       and "Connect" at the bottom edge. (The phone has its list instead.) */
+                    @media (min-width: 721px) {
+                        .home2 .home2-card-grid { grid-auto-rows: var(--home2-card-height, 176px); }
+                        .home2 .home2-card-grid > .connection-choice { box-sizing: border-box; height: 100%; min-height: 0; overflow: hidden; }
+                        .home2 .home2-card-grid > .connection-choice .connection-choice-badges { flex-wrap: nowrap; overflow: hidden; }
+                        .home2 .home2-card-grid > .connection-choice .connection-choice-badges .badge { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+                        .home2 .home2-card-grid > .connection-choice h3,
+                        .home2 .home2-card-grid > .connection-choice .target,
+                        .home2 .home2-card-grid > .connection-choice .connection-choice-notes { overflow: hidden; overflow-wrap: normal; text-overflow: ellipsis; white-space: nowrap; }
+                        .home2 .home2-card-grid > .connection-choice .connection-choice-body { flex: 1 1 auto; min-height: 0; overflow: hidden; }
+                        .home2 .home2-card-grid > .connection-choice .connection-choice-actions { flex: 0 0 auto; margin-top: auto; }
+                    }
                     .table-actions {
                         text-align: right;
                     }

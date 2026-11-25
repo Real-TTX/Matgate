@@ -192,12 +192,17 @@ public sealed class SessionPreferences
     public static string NormalizeTouchRightClick(string? value) =>
         TouchRightClickChoices.Contains(value ?? "") ? value! : "both";
 
-    // How long a finger is held still before it is a right click, in milliseconds.
+    // How long a finger is held still before it is a right click, in milliseconds: short, medium or long.
     public int LongPressMs { get; set; } = 550;
 
-    public static readonly int[] LongPressChoices = [400, 550, 700, 850, 1000];
+    public static readonly int[] LongPressChoices = [400, 550, 850];
 
-    public static int NormalizeLongPressMs(int value) => LongPressChoices.Contains(value) ? value : 550;
+    // A value from before the three steps (700, 1000) goes to the nearest one; a tie to the shorter.
+    public static int NormalizeLongPressMs(int value) =>
+        value <= 0 ? 550 : LongPressChoices.OrderBy(choice => Math.Abs(choice - value)).ThenBy(choice => choice).First();
+
+    // The ring that fills under the finger while it is held. Off: the right click still comes, unseen.
+    public bool HoldRing { get; set; } = true;
 
     // --- Keyboard helpers ---
     // In fullscreen, capture browser-reserved shortcuts (Windows, Alt+Tab, Alt+F4, Ctrl+W/T, Escape)

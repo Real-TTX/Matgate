@@ -106,7 +106,7 @@ Three ready-made stacks are in this repo, all with prebuilt images:
 
 | Image | Tag |
 |---|---|
-| `ghcr.io/real-ttx/matgate` | `latest`, a version such as `0.53.1`, or `sha-…` |
+| `ghcr.io/real-ttx/matgate` | `latest`, a version such as `0.54.0`, or `sha-…` |
 | `ghcr.io/real-ttx/matgate-browser-farm` | `latest` (optional) |
 
 <details>
@@ -191,7 +191,7 @@ volumes:
 
 - **Touchpad or direct touch**, pinch to zoom, two fingers to scroll.
 - **Right click you can see**: hold a finger still and a ring fills up. When it is full, it is a right
-  click. Choose hold, two-finger tap or both, and how long to hold, under *Settings → Sessions → Touch*.
+  click. Choose hold, two-finger tap or both, how long to hold (short, medium, long) and whether the ring shows at all, under *Settings → Sessions → Touch*.
 - **Select and drag with a finger**: tap, then touch again and hold - the left button stays down while the finger
   does, to select text or move a window (also after a double tap). Works on the touchpad and with direct touch.
 - **A key bar of your own** under every session: Esc, Tab, Ctrl, Alt, the arrows and your own shortcuts.

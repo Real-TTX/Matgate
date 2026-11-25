@@ -110,6 +110,8 @@ public static class AgentScreenPage
             /* Holding a finger still: a ring fills under it; full, it is a right click. */
             .hold-ring { --hold: 400ms; height: 64px; left: 0; margin: -32px 0 0 -32px; opacity: 0; pointer-events: none; position: fixed; top: 0; transform: scale(.7); transition: opacity .12s ease, transform .12s ease; width: 64px; z-index: 20; }
             .hold-ring.show { opacity: 1; transform: scale(1); }
+            /* Switched off in the settings: the right click comes all the same. */
+            body[data-hold-ring="off"] .hold-ring { display: none; }
             .hold-ring svg { display: block; height: 100%; overflow: visible; transform: rotate(-90deg); width: 100%; }
             .hold-ring .track { fill: rgba(16, 22, 19, .35); stroke: rgba(255, 255, 255, .55); stroke-width: 4; }
             .hold-ring .fill { fill: none; stroke: #9fe0bd; stroke-dasharray: 176; stroke-dashoffset: 176; stroke-linecap: round; stroke-width: 5; }
@@ -119,7 +121,7 @@ public static class AgentScreenPage
             @keyframes hold-fill { to { stroke-dashoffset: 0; } }
         </style>
         </head>
-        <body data-server="__SERVER__" data-text="__TEXT__" data-kind="__KIND__" data-base="__BASE__" data-keys="__KEYS__" data-quality-default="__QUALITY__" data-right-click="__RIGHTCLICK__" data-hold-ms="__HOLDMS__" data-csrf="__CSRF__">
+        <body data-server="__SERVER__" data-text="__TEXT__" data-kind="__KIND__" data-base="__BASE__" data-keys="__KEYS__" data-quality-default="__QUALITY__" data-right-click="__RIGHTCLICK__" data-hold-ms="__HOLDMS__" data-hold-ring="__HOLDRING__" data-csrf="__CSRF__">
         <div class="bar">
             <button id="home" type="button" class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg></button>
             <strong>__TITLE__</strong>

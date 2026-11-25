@@ -4739,6 +4739,8 @@ public static partial class EndpointMapping
             if (form.ContainsKey("touchRightClick"))
             {
                 current.Session.TouchRightClick = SessionPreferences.NormalizeTouchRightClick(form["touchRightClick"].ToString());
+                // The switch sits in the same card: sent with it, or switched off.
+                current.Session.HoldRing = Checked(form, "holdRing");
             }
             if (form.ContainsKey("longPressMs"))
             {

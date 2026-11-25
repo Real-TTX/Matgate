@@ -399,17 +399,26 @@ public sealed partial class HtmlViews
             ("long", de ? "Nur lang drücken" : "Only hold"),
         }.Select(choice => $"""<option value="{choice.Item1}"{Selected(rightClick == choice.Item1)}>{E(choice.Item2)}</option>"""));
         var hold = SessionPreferences.NormalizeLongPressMs(prefs.LongPressMs);
+        string HoldName(int ms) => ms switch
+        {
+            400 => de ? "Kurz" : "Short",
+            850 => de ? "Lang" : "Long",
+            _ => de ? "Mittel" : "Medium",
+        };
         var holdOptions = string.Join("", SessionPreferences.LongPressChoices.Select(ms =>
-            $"""<option value="{ms.ToString(CultureInfo.InvariantCulture)}"{Selected(hold == ms)}>{E((ms / 1000.0).ToString("0.0##", de ? CultureInfo.GetCultureInfo("de-DE") : CultureInfo.InvariantCulture) + (de ? " Sekunden" : " seconds"))}</option>"""));
+            $"""<option value="{ms.ToString(CultureInfo.InvariantCulture)}"{Selected(hold == ms)}>{E(HoldName(ms) + " (" + (ms / 1000.0).ToString("0.0##", de ? CultureInfo.GetCultureInfo("de-DE") : CultureInfo.InvariantCulture) + (de ? " s)" : " s)"))}</option>"""));
         var touch = SettingsCard(de ? "Touch" : "Touch",
             SelectRow("set-touch-right-click", "touchRightClick",
                 de ? "Rechtsklick mit dem Finger" : "Right click with a finger",
                 de ? "Beim langen Drücken füllt sich unter dem Finger ein Kreis – ist er voll, ist es ein Rechtsklick." : "While holding, a circle fills under the finger – once it is full, it is a right click.",
                 rightClickOptions)
             + SelectRow("set-long-press", "longPressMs",
-                de ? "Lang drücken dauert" : "Holding takes",
-                "",
-                holdOptions),
+                de ? "Wartezeit bis zum Rechtsklick" : "Wait before the right click",
+                de ? "Wie lange der Finger still liegen muss." : "How long the finger has to stay still.",
+                holdOptions)
+            + SwitchRow("holdRing", prefs.HoldRing,
+                de ? "Kreis beim Rechtsklick zeigen" : "Show the right-click circle",
+                de ? "Der Kreis, der sich beim langen Drücken füllt. Aus: der Rechtsklick kommt trotzdem, nur ohne Anzeige." : "The circle that fills while holding. Off: the right click still comes, just without it."),
             de ? "Für RDP, VNC und Bildschirme über den Agent (Matgates eigene Engine)." : "For RDP, VNC and screens through the agent (Matgate's own engine).");
         var keyboard = SettingsCard(de ? "Tastatur" : "Keyboard",
             SwitchRow("systemCombos", prefs.SystemCombos,

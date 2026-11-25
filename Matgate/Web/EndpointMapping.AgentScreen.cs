@@ -248,6 +248,7 @@ public static partial class EndpointMapping
             .Replace("__QUALITY__", SessionPreferences.NormalizeScreenQuality(user.Session?.ScreenQuality))
             .Replace("__RIGHTCLICK__", SessionPreferences.NormalizeTouchRightClick(user.Session?.TouchRightClick))
             .Replace("__HOLDMS__", SessionPreferences.NormalizeLongPressMs(user.Session?.LongPressMs ?? 550).ToString(System.Globalization.CultureInfo.InvariantCulture))
+            .Replace("__HOLDRING__", user.Session?.HoldRing == false ? "off" : "on")
             .Replace("__CSRF__", System.Net.WebUtility.HtmlEncode(context.User.FindFirst("csrf")?.Value ?? ""))
             .Replace("__KEYS__", System.Net.WebUtility.HtmlEncode(KeyBar.ScreenJson(user, de)))
             .Replace("__TEXT__", System.Net.WebUtility.HtmlEncode(JsonSerializer.Serialize(new
