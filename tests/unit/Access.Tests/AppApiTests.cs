@@ -139,7 +139,9 @@ public sealed class AppApiTests : IDisposable
 
         var library = AppLibrary.Build(user, servers);
 
-        Assert.Equal(["Mine", "Shell", "Web"], library.Connections.Select(connection => connection.Name).Order().ToArray());
+        // "Watched" (RDP, read only) is there too: it opens as a session on Matgate, which keeps it read-only.
+        Assert.Equal(["Mine", "Shell", "Watched", "Web"], library.Connections.Select(connection => connection.Name).Order().ToArray());
+        Assert.Equal("ReadOnly", library.Connections.Single(connection => connection.Name == "Watched").Level);
         Assert.Equal(["Lab", "Lab/Linux"], library.Folders.Select(folder => folder.Path).ToArray());
         Assert.Equal(("Linux", "Lab"), (library.Folders[1].Name, library.Folders[1].Parent));
 

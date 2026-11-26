@@ -98,7 +98,7 @@ So ist es gebaut (`Matgate/Web/EndpointMapping.App.cs`, `Services/AppDeviceStore
 | `POST /app/api/logout`, Einstellungen → Sicherheit → Geräte | Gerät abmelden; mit dem Benutzer gehen auch seine Geräte |
 
 Alles unter `/app/api` gilt nur mit `Authorization: Bearer` – das Cookie des Browsers zählt dort nicht. „Nur lesen“-Verbindungen
-fehlen in der Bibliothek: eine App mit eigener Engine könnte sie nicht schreibgeschützt halten. Die Bibliothek wird abgefragt
+gehen nicht durch die Durchleitung: eine App mit eigener Engine könnte sie nicht schreibgeschützt halten (seit Stufe 3: als Sitzung auf Matgate). Die Bibliothek wird abgefragt
 (alle 5 Minuten und auf Knopfdruck, dank ETag billig), einen Ereignis-Strom gibt es noch nicht.
 
 In ThixGate: Matgate › Anmelden (Browser, Rückkehr auf 127.0.0.1), Tab „Verbindungen“ (Verbinden, In Bibliothek übernehmen),
@@ -123,12 +123,31 @@ Durchleitung ist kein offener Proxy. Die Anmeldung und das Passwort kommen von T
   aktuell gehalten; einzelne Verbindungen lassen sich in die eigene Bibliothek **kopieren**.
 - Je Verbindung **„Verbinden über“: direkt / Matgate *X*** – auch für eigene Verbindungen.
 
-## Stufe 3 – später
+## Stufe 3 – Sitzung auf Matgate, Zurückschreiben – **erledigt (Matgate 0.58.0, ThixGate 0.3)**
 
-- **Sitzung auf Matgate** statt Durchleitung: für Verbindungen, deren Passwort nur Matgate kennt (gespeicherte
-  Zugangsdaten auf dem Server, die nie aufs Gerät sollen) – Bild als H.264 vom bestehenden `screen-socket`, auf dem
-  Gerät per Hardware dekodiert.
-- Zurückschreiben nach Matgate (Verbindungen anlegen/ändern mit Bearbeiten-Recht).
+So ist es gebaut (`Matgate/Web/EndpointMapping.AppScreen.cs`, `Services/AppLibrary.cs`, `Display/ScreenSession.cs`):
+
+| Weg | Was |
+|---|---|
+| `GET /app/api/screen/{id}?quality=&resolution=&fitWidth=&fitHeight=` (WebSocket) | eine Sitzung von Matgates eigener Engine (RDP, VNC; auch durch den Tunnel) mit **Matgates** Anmeldung – fehlt sie, fragt Matgate (`screen.auth`) und die Antwort geht an Matgate. Dasselbe Bildschirm-Protokoll wie die Bildschirm-Seite des Browsers, nur das Bild kommt als `screen.tiles`: das geänderte Rechteck als BGRX-Zeilen in zlib, je Stück mit `screen.ack` quittiert (dieselbe Taktung wie H.264). Mit „Nur lesen“ kommt das Bild, aber keine Taste und kein Zeiger geht durch. Noch ohne Zwischenablage und Ton; endet mit dem Socket; protokolliert |
+| `GET /app/api/library` | zusätzlich RDP/VNC mit „Nur lesen“ (Level `ReadOnly`: nur als Sitzung auf Matgate), je Verbindung `canDelete`, beim Benutzer `canCreatePrivate`/`canCreateShared` |
+| `POST /app/api/connections` | neue Verbindung (RDP, VNC, SSH): eigene mit „Verbindungen anlegen“, geteilte mit „Verbindungen verwalten“ |
+| `PUT /app/api/connections/{id}` | ändern mit „Bearbeiten“ – nur was die Verbindung ist (Name, Adresse, Port, Benutzer, Domäne, Ordner, Notiz, Tastatur, Zertifikat); Protokoll, Passwort, Schlüssel, Tunnel, Besitzer und Rechte bleiben |
+| `DELETE /app/api/connections/{id}` | löschen mit „Verwalten“ (oder als Verwalter einer geteilten), wie im Formular |
+
+**Warum Kacheln statt H.264:** ThixGate läuft auf Windows und macOS; ein H.264-Decoder wäre je Plattform eigener
+nativer Code (Media Foundation, VideoToolbox), auf dem Mac von hier aus nicht prüfbar. Die Kacheln sind verlustfrei
+(Text sofort scharf), brauchen auf Matgate keine OpenH264-Bibliothek und auf dem Gerät nur .NET. Mehr Daten bei
+bewegten Bildern – H.264 kann als weiteres Format dazukommen (`picture` in `screen.ready` nennt das Format).
+
+In ThixGate: je Verbindung über Matgate (RDP/VNC) **„Sitzung auf Matgate“** (Gateway-Tab); aus der Matgate-Bibliothek
+gehen Verbindungen mit in Matgate gespeichertem Passwort und „Nur lesen“ von selbst so. Im Tab „Verbindungen“ eines
+Matgate: **Neu in Matgate, Bearbeiten, Löschen** – soweit Matgate es erlaubt.
+
+## Stufe 4 – später
+
+- Zwischenablage und Ton auch für die Sitzung auf Matgate; H.264 als zweites Bildformat.
+- Ereignis-Strom statt Abfragen der Bibliothek.
 - SFTP-/SMB-Dateimanager, weitere Protokolle, iPhone/Android über Avalonia.
 
 ## Offene Entscheidungen

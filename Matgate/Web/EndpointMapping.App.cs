@@ -21,6 +21,11 @@ public static partial class EndpointMapping
         app.MapGet("/app/api/library", AppLibraryAsync);
         app.MapPost("/app/api/logout", AppLogoutAsync);
         app.Map("/app/api/relay/{id:guid}", AppRelayAsync);
+        // Stage 3 (EndpointMapping.AppScreen.cs): a session on Matgate, and writing connections back.
+        app.Map("/app/api/screen/{id:guid}", AppScreenAsync);
+        app.MapPost("/app/api/connections", AppCreateConnectionAsync);
+        app.MapPut("/app/api/connections/{id:guid}", AppUpdateConnectionAsync);
+        app.MapDelete("/app/api/connections/{id:guid}", AppDeleteConnectionAsync);
         app.MapPost("/account/devices/{id:guid}/remove", RemoveAppDeviceAsync).RequireAuthorization();
     }
 

@@ -111,12 +111,14 @@ public sealed class DisplayBridge
         }
     }
 
-    public ScreenSession Open(ScreenTarget target)
+    // tiles: the picture for an app as compressed pieces of the screen, not as H.264 (needs no encoder library).
+    public ScreenSession Open(ScreenTarget target, bool tiles = false)
     {
         return new ScreenSession(
             target,
             ScreenBackends.Create,
-            _loggers.CreateLogger("Matgate.Display"));
+            _loggers.CreateLogger("Matgate.Display"),
+            tiles);
     }
 
     // Windows' keyboard layout ids (KLID) for the layouts Matgate's connection form offers.

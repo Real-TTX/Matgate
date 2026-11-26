@@ -31,6 +31,12 @@ public sealed class ScreenSession : IScreenHost, IAsyncDisposable
     private readonly long[] _sentAt = new long[64];
     private readonly ScreenAudio _audio;
 
+    // The picture as compressed pieces of the screen instead of H.264 (see SendTiles): for an app that draws it
+    // itself and has no H.264 decoder on every platform. Lossless, so text is sharp at once.
+    private readonly bool _tiles;
+    private int _tileWidth;
+    private int _tileHeight;
+
     private Thread? _video;
     private bool _ready;
     private int _disposed;
@@ -70,9 +76,10 @@ public sealed class ScreenSession : IScreenHost, IAsyncDisposable
     private long _statRttCount;
     private double _statEncodeMs;
 
-    public ScreenSession(ScreenTarget target, Func<ScreenTarget, IScreenHost, IScreenBackend> backend, ILogger logger)
+    public ScreenSession(ScreenTarget target, Func<ScreenTarget, IScreenHost, IScreenBackend> backend, ILogger logger, bool tiles = false)
     {
         _target = target;
+        _tiles = tiles;
         _logger = logger;
         _resolution = target.Resolution;
         _fitWidth = target.FitWidth;
@@ -647,6 +654,11 @@ public sealed class ScreenSession : IScreenHost, IAsyncDisposable
             _keyRequested = false;
         }
 
+        if (_tiles)
+        {
+            return SendTiles(now, dirty, key, reopen, left, top, right, bottom);
+        }
+
         var started = Stopwatch.GetTimestamp();
         var opened = false;
         var failed = false;
@@ -745,6 +757,131 @@ public sealed class ScreenSession : IScreenHost, IAsyncDisposable
         return 1;
     }
 
+    // The picture for an app (see _tiles): the rectangle that changed - all of it after a change of size, for a new
+    // viewer or when asked for a key picture - as BGRX rows, compressed with zlib, in one "screen.tiles" message. The
+    // pacing is the same as for H.264: at most so many on their way, each acknowledged with "screen.ack".
+    private int SendTiles(long now, bool dirty, bool key, bool reopen, int left, int top, int right, int bottom)
+    {
+        var started = Stopwatch.GetTimestamp();
+        byte[]? packed = null;
+        int x = 0, y = 0, w = 0, h = 0, screenWidth = 0, screenHeight = 0;
+        var whole = false;
+        var took = _backend.WithFrame((pixels, stride, width, height) =>
+        {
+            screenWidth = width;
+            screenHeight = height;
+            if (width < 1 || height < 1)
+            {
+                return;
+            }
+
+            whole = key || reopen || width != _tileWidth || height != _tileHeight;
+            if (whole)
+            {
+                w = width;
+                h = height;
+            }
+            else if (dirty)
+            {
+                x = Math.Clamp(left, 0, width);
+                y = Math.Clamp(top, 0, height);
+                w = Math.Clamp(right, x, width) - x;
+                h = Math.Clamp(bottom, y, height) - y;
+            }
+
+            if (w > 0 && h > 0)
+            {
+                packed = PackTile(pixels, stride, x, y, w, h);
+            }
+        });
+
+        if (!took)
+        {
+            lock (_state)
+            {
+                _dirty |= dirty;
+                _keyRequested |= key;
+                _reopen |= reopen;
+            }
+
+            return 100;
+        }
+
+        _refine = false;
+        if (packed is null)
+        {
+            lock (_state)
+            {
+                _lastEncode = now;
+            }
+
+            return 1;
+        }
+
+        if (whole && (reopen || screenWidth != _tileWidth || screenHeight != _tileHeight))
+        {
+            _tileWidth = screenWidth;
+            _tileHeight = screenHeight;
+            Emit("screen.monitor", new JsonObject
+            {
+                ["monitor"] = 0,
+                ["width"] = screenWidth,
+                ["height"] = screenHeight,
+                ["videoWidth"] = screenWidth,
+                ["videoHeight"] = screenHeight,
+                ["modes"] = new JsonArray(Modes.Select(mode => (JsonNode)mode).ToArray()),
+                ["saved"] = $"{_nativeWidth}x{_nativeHeight}",
+                ["resolution"] = _resolution,
+            });
+        }
+
+        long sequence;
+        lock (_state)
+        {
+            _lastEncode = now;
+            sequence = ++_sent;
+            _sentAt[sequence % _sentAt.Length] = now;
+            _statFrames++;
+            _statBytes += packed.Length;
+            _statEncodeMs += Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+        }
+
+        Emit(
+            "screen.tiles",
+            new JsonObject
+            {
+                ["seq"] = sequence,
+                ["key"] = whole,
+                ["format"] = TileFormat,
+                ["x"] = x,
+                ["y"] = y,
+                ["width"] = w,
+                ["height"] = h,
+                ["screenWidth"] = screenWidth,
+                ["screenHeight"] = screenHeight,
+            },
+            packed);
+        return 1;
+    }
+
+    // How a tile is packed: 4 bytes a pixel (blue, green, red, unused), row after row without gaps, zlib (RFC 1950).
+    public const string TileFormat = "bgrx-zlib";
+
+    public static byte[] PackTile(ReadOnlySpan<byte> pixels, int stride, int x, int y, int width, int height)
+    {
+        using var output = new MemoryStream();
+        using (var zlib = new System.IO.Compression.ZLibStream(output, System.IO.Compression.CompressionLevel.Fastest, leaveOpen: true))
+        {
+            var row = width * 4;
+            for (var line = 0; line < height; line++)
+            {
+                zlib.Write(pixels.Slice((y + line) * stride + x * 4, row));
+            }
+        }
+
+        return output.ToArray();
+    }
+
     private void SendStats(long now)
     {
         JsonObject stats;
@@ -762,7 +899,7 @@ public sealed class ScreenSession : IScreenHost, IAsyncDisposable
                 ["kbps"] = (long)(_statBytes * 8 / 1000 / seconds),
                 ["rtt"] = _statRttCount > 0 ? JsonValue.Create(_statRtt / _statRttCount) : null,
                 ["agentMs"] = _statFrames > 0 ? JsonValue.Create(Math.Round(_statEncodeMs / _statFrames, 1)) : null,
-                ["encoder"] = "OpenH264",
+                ["encoder"] = _tiles ? "zlib" : "OpenH264",
                 ["fpsLimit"] = _quality.FramesPerSecond,
                 ["quality"] = _quality.Name,
                 // Bits a pixel as the remote desktop sends them: fewer colours show as bands, and should not

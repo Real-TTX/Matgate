@@ -266,8 +266,10 @@ needed). [→ Agent documentation](agent/README.md)
 - Live **network tools**: ping, DNS lookup, port check, download test.
 - **Desktop app ThixGate**: a remote manager for Windows and macOS signs in through the browser (password, second
   factor, single sign-on as always, then *Allow ThixGate on this device*), shows the RDP, VNC and SSH connections
-  you may work in – without passwords – and connects to them **through Matgate** with its own engine. Each device
-  is listed under *Settings → Security → Devices* and signed out there with one click.
+  you may work in – without passwords – and connects to them **through Matgate** with its own engine. A remote
+  desktop whose password only Matgate knows, or that you may only watch, runs **as a session on Matgate** and its
+  picture goes to the app. With the rights to, the app also creates, changes and deletes connections here (never a
+  password). Each device is listed under *Settings → Security → Devices* and signed out there with one click.
 
 ### 🔐 Users & operation
 
