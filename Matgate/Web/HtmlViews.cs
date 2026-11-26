@@ -4858,6 +4858,7 @@ public sealed partial class HtmlViews
                     <button id="status-metrics" type="button" class="status-metrics" aria-haspopup="dialog" aria-expanded="false">
                         <span class="status-dot" data-tone="idle" aria-hidden="true"></span>
                         <span id="status-state" class="status-state">{{T(context, "Ready")}}</span>
+                        <canvas id="status-spark" class="status-spark" aria-hidden="true" hidden></canvas>
                         <span id="status-chips" class="status-chips"></span>
                     </button>
                     <div id="status-metrics-panel" class="status-system-panel status-metrics-panel" role="dialog" aria-label="{{A(Language(context) == "de" ? "Verbindung" : "Connection")}}" hidden></div>
@@ -10126,6 +10127,16 @@ public sealed partial class HtmlViews
                                     openScreenResolutionDialog(screen);
                                 });
                         }
+                        // And how big: one line, two, or two with the last minute as a graph.
+                        if (state.perf && typeof api.setPerfSize === 'function') {
+                            const labels = state.texts?.perfSizes || ['Small', 'Medium', 'Large'];
+                            group(state.texts?.perfSize || 'Size of the performance numbers',
+                                ['small', 'medium', 'large'].map((value, index) => ({ value, label: labels[index], active: state.perfSize === value })),
+                                value => {
+                                    api.setPerfSize(value);
+                                    openScreenResolutionDialog(screen);
+                                });
+                        }
                     }
 
                     resolutionDialog.classList.remove('hidden');
@@ -13123,6 +13134,7 @@ public sealed partial class HtmlViews
                 const statusChips = document.getElementById('status-chips');
                 const statusDot = statusMetrics ? statusMetrics.querySelector('.status-dot') : null;
                 const statusPanel = document.getElementById('status-metrics-panel');
+                const statusSpark = document.getElementById('status-spark');
                 const latencyTone = ms => ms == null ? '' : ms < 60 ? 'ok' : ms < 150 ? 'warn' : 'bad';
                 const formatRate = kbps => kbps == null ? '' : kbps >= 1000 ? (kbps / 1000).toFixed(1) + ' Mbit/s' : Math.round(kbps) + ' kbit/s';
                 function statusModel() {
@@ -13231,8 +13243,33 @@ public sealed partial class HtmlViews
                         }
                         list.append(term, text);
                     });
-                    const parts = [head, list];
+                    const parts = [head];
                     const api = model.screen && model.screen.api;
+                    // The last minute of a screen session as a graph: frames a second, latency, data rate.
+                    let graph = null;
+                    if (api && typeof api.drawHistory === 'function') {
+                        const state = api.state();
+                        const box = document.createElement('div');
+                        box.className = 'status-panel-graph';
+                        graph = document.createElement('canvas');
+                        graph.dataset.statusGraph = '';
+                        const legend = document.createElement('div');
+                        legend.className = 'status-graph-legend';
+                        const entry = (kind, label) => {
+                            const item = document.createElement('span');
+                            item.dataset.kind = kind;
+                            item.append(document.createElement('i'), label);
+                            return item;
+                        };
+                        legend.append(entry('fps', state.texts?.graphFps || uiText.stFps || 'Frames/s'));
+                        if ((state.history || []).some(sample => sample.rtt != null)) {
+                            legend.append(entry('rtt', state.texts?.graphLatency || 'Latency'));
+                        }
+                        legend.append(entry('kbps', uiText.stRate || 'Data rate'));
+                        box.append(graph, legend);
+                        parts.push(box);
+                    }
+                    parts.push(list);
                     if (api && typeof api.setPerf === 'function') {
                         const state = api.state();
                         const perf = document.createElement('label');
@@ -13246,6 +13283,29 @@ public sealed partial class HtmlViews
                             renderStatusPanel(statusModel());
                         });
                         parts.push(perf);
+                        // Small (one line), medium (two), large (two and the graph).
+                        if (state.perf && typeof api.setPerfSize === 'function') {
+                            const labels = state.texts?.perfSizes || ['Small', 'Medium', 'Large'];
+                            const sizes = document.createElement('div');
+                            sizes.className = 'status-panel-sizes';
+                            sizes.setAttribute('role', 'group');
+                            sizes.setAttribute('aria-label', state.texts?.perfSize || 'Size');
+                            sizes.title = state.texts?.perfSizeHint || '';
+                            ['small', 'medium', 'large'].forEach((size, index) => {
+                                const button = document.createElement('button');
+                                button.type = 'button';
+                                button.dataset.statusPerfSize = size;
+                                button.className = 'status-size';
+                                button.textContent = labels[index];
+                                button.setAttribute('aria-pressed', state.perfSize === size ? 'true' : 'false');
+                                button.addEventListener('click', () => {
+                                    api.setPerfSize(size);
+                                    renderStatusPanel(statusModel());
+                                });
+                                sizes.appendChild(button);
+                            });
+                            parts.push(sizes);
+                        }
                         if (state.perf && typeof api.setPerfPosition === 'function') {
                             const labels = state.texts?.perfPlaces || ['Top left', 'Top right', 'Bottom left', 'Bottom right'];
                             const corners = document.createElement('div');
@@ -13275,6 +13335,15 @@ public sealed partial class HtmlViews
                     hint.textContent = uiText.stHideHint || 'Hide the status bar: Settings → Sessions';
                     parts.push(hint);
                     statusPanel.replaceChildren(...parts);
+                    if (graph) {
+                        api.drawHistory(graph, statusGraphColours());
+                    }
+                }
+                // The graph's colours from the theme's own (a canvas does not read CSS variables).
+                function statusGraphColours() {
+                    const style = getComputedStyle(document.documentElement);
+                    const accent = style.getPropertyValue('--accent').trim() || '#4a7bd0';
+                    return { fps: '#2e9e6a', rtt: '#d49a1f', kbps: accent, kbpsAlpha: .18 };
                 }
                 function closeStatusPanel() {
                     if (statusPanel && !statusPanel.hidden) {
@@ -13321,6 +13390,14 @@ public sealed partial class HtmlViews
                     statusState.textContent = model.state || '';
                     if (statusDot) {
                         statusDot.dataset.tone = model.tone || 'idle';
+                    }
+                    // In the bar itself: the frames a second of the last minute as a small line.
+                    if (statusSpark) {
+                        const api = model.screen && model.screen.api;
+                        statusSpark.hidden = !(api && typeof api.drawHistory === 'function');
+                        if (!statusSpark.hidden) {
+                            api.drawHistory(statusSpark, Object.assign(statusGraphColours(), { rtt: 'transparent', kbpsAlpha: 0, spark: true }));
+                        }
                     }
                     if (statusChips) {
                         statusChips.replaceChildren(...model.chips.map(chip => {
@@ -22744,6 +22821,18 @@ public sealed partial class HtmlViews
                     .status-corner[aria-pressed="true"] { border-color: var(--accent); }
                     .status-corner[aria-pressed="true"] span { background: var(--accent); }
                     .status-panel-hint { color: var(--muted); font-size: 12px; }
+                    .status-spark { height: 16px; width: 56px; }
+                    .status-spark[hidden] { display: none; }
+                    .status-panel-graph { background: var(--surface-2); border: 1px solid var(--line); border-radius: 8px; display: grid; gap: 4px; padding: 6px 8px; }
+                    .status-panel-graph canvas { display: block; height: 72px; width: 100%; }
+                    .status-graph-legend { color: var(--muted); display: flex; flex-wrap: wrap; font-size: 11.5px; gap: 4px 12px; }
+                    .status-graph-legend i { border-radius: 2px; display: inline-block; height: 3px; margin-right: 5px; vertical-align: middle; width: 12px; }
+                    .status-graph-legend [data-kind="fps"] i { background: #2e9e6a; }
+                    .status-graph-legend [data-kind="rtt"] i { background: #d49a1f; }
+                    .status-graph-legend [data-kind="kbps"] i { background: var(--accent); height: 8px; opacity: .35; }
+                    .status-panel-sizes { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-pill, 999px); display: grid; gap: 2px; grid-template-columns: repeat(3, 1fr); padding: 2px; }
+                    .status-size { appearance: none; align-items: center; display: flex; justify-content: center; text-align: center; background: transparent; border: 0; border-radius: var(--radius-pill, 999px); color: var(--muted); cursor: pointer; font: inherit; font-size: 12px; font-weight: 600; min-height: 0; padding: 4px 6px; }
+                    .status-size[aria-pressed="true"] { background: var(--surface, #fff); box-shadow: 0 1px 2px rgba(0, 0, 0, .12); color: var(--text); }
                     /* Switched off in the settings: nothing but the strip an iPhone keeps for its home bar. */
                     .session-statusbar.is-off { border-top: 0; min-height: 0; padding: 0 0 env(safe-area-inset-bottom); }
                     .session-statusbar.is-off > * { display: none !important; }
@@ -26092,6 +26181,7 @@ public sealed partial class HtmlViews
                         .status-secondary { margin-left: auto; }
                         .status-metrics .status-state { display: none; }
                         .status-metrics .status-chip[data-kind="rate"] { display: none; }
+                        .status-spark { display: none; }
                         .server-form-footer { align-items: stretch; flex-direction: column; }
                         .server-form-actions { margin-left: 0; justify-content: stretch; width: 100%; }
                         .server-form-actions > * { flex: 1; justify-content: center; }

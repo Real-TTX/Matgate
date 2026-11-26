@@ -45,6 +45,15 @@ public static class AgentScreenPage
             .perf.at-bottom-left, .perf.at-bottom-right { bottom: 8px; top: auto; }
             body.fs .perf.at-bottom-left, body.fs .perf.at-bottom-right { bottom: calc(8px + env(safe-area-inset-bottom, 0px)); top: auto; }
             body.fs .perf.at-top-right, body.fs .perf.at-bottom-right { right: calc(8px + env(safe-area-inset-right, 0px)); }
+            /* Three sizes: small is one line, medium two, large two and the last minute as a graph. */
+            .perf.size-small { font-size: 10px; padding: 2px 6px; }
+            .perf-graph { display: none; height: 64px; margin-top: 4px; width: 240px; }
+            .perf.size-large { font-size: 12px; padding: 6px 8px; }
+            .perf.size-large .perf-graph { display: block; }
+            .perf-legend { display: none; font-size: 10px; gap: 10px; margin-top: 2px; }
+            .perf.size-large .perf-legend { display: flex; }
+            .perf.at-top-right .perf-legend, .perf.at-bottom-right .perf-legend { justify-content: flex-end; }
+            .perf-legend i { border-radius: 2px; display: inline-block; height: 3px; margin-right: 4px; vertical-align: middle; width: 10px; }
             .toast ul { list-style: none; margin: 8px 0; max-height: 40vh; overflow: auto; padding: 0; }
             .toast li { align-items: center; display: flex; gap: 8px; justify-content: space-between; padding: 3px 0; }
             .toast li span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -143,7 +152,7 @@ public static class AgentScreenPage
             <div id="frame"><canvas id="screen" width="16" height="9"></canvas><img id="pointer" class="hidden" alt=""></div>
             <div id="notice" class="notice"><p id="notice-text"></p><div class="notice-actions"><button id="notice-action" type="button" class="hidden"></button><button id="notice-action-2" type="button" class="hidden secondary"></button></div></div>
             <div id="toast" class="toast hidden"></div>
-            <div id="perf" class="perf hidden" aria-hidden="true"></div>
+            <div id="perf" class="perf hidden" aria-hidden="true"><div class="perf-text"></div><canvas class="perf-graph"></canvas><div class="perf-legend"></div></div>
             <div id="auth" class="auth hidden">
                 <form id="auth-form" autocomplete="off">
                     <h2 id="auth-title"></h2>
@@ -940,6 +949,7 @@ public static class AgentScreenPage
                     case 'screen.stats':
                         window.__screen.stats = data;
                         countShown();
+                        rememberStats(data);
                         window.setTimeout(notifyStats, 0);
                         paintPerf(data);
                         // Fewer colours show as bands in gradients - said here, they are not taken for a fault.
@@ -2872,7 +2882,118 @@ public static class AgentScreenPage
             // the data rate, the size of the picture and what it costs to make one. The shell's status bar has
             // some of this on a computer; a phone has no such bar, and in full screen nobody has.
             const perfBox = $('perf');
+            const perfText = perfBox.querySelector('.perf-text');
+            const perfGraph = perfBox.querySelector('.perf-graph');
+            const perfLegend = perfBox.querySelector('.perf-legend');
             let perfOn = localStorage.getItem('matgate.screen.perf') === '1';
+            const perfSizes = ['small', 'medium', 'large'];
+            let perfSize = perfSizes.indexOf(localStorage.getItem('matgate.screen.perfSize')) >= 0 ? localStorage.getItem('matgate.screen.perfSize') : 'medium';
+            const sizePerf = () => perfSizes.forEach(size => perfBox.classList.toggle('size-' + size, size === perfSize));
+            sizePerf();
+            // The last minute of numbers (one sample per stats message, about a second each) - for the graph here
+            // and the one in the shell's status bar.
+            const perfHistory = [];
+            const historyLength = 60;
+            const rememberStats = data => {
+                perfHistory.push({ fps: data.fps ?? null, shown: shownFps, rtt: data.rtt ?? null, kbps: data.kbps ?? null });
+                if (perfHistory.length > historyLength) {
+                    perfHistory.splice(0, perfHistory.length - historyLength);
+                }
+            };
+            const graphColours = { fps: '#3ecf8e', rtt: '#f0b429', kbps: 'rgba(140, 170, 255, .35)' };
+            // Frames a second as a line against the limit, the latency as a second line on its own scale, the
+            // data rate as a faint area beneath both.
+            const drawHistory = (canvasEl, history, colours, limit) => {
+                const ratio = window.devicePixelRatio || 1;
+                const width = Math.max(1, Math.round(canvasEl.clientWidth * ratio));
+                const height = Math.max(1, Math.round(canvasEl.clientHeight * ratio));
+                if (canvasEl.width !== width || canvasEl.height !== height) {
+                    canvasEl.width = width;
+                    canvasEl.height = height;
+                }
+                const g = canvasEl.getContext('2d');
+                g.clearRect(0, 0, width, height);
+                if (!history.length) {
+                    return;
+                }
+                const step = width / Math.max(1, historyLength - 1);
+                const x = index => width - (history.length - 1 - index) * step;
+                const top = 2 * ratio;
+                const usable = height - top - ratio;
+                const series = (key, max) => history.map((sample, index) => sample[key] == null ? null : [x(index), height - ratio - Math.min(1, sample[key] / max) * usable]);
+                const maxOf = key => history.reduce((most, sample) => sample[key] == null ? most : Math.max(most, sample[key]), 0);
+                // A few faint lines across, so an empty minute still reads as a graph.
+                if (!colours.spark) {
+                    g.fillStyle = colours.grid || 'rgba(127, 127, 127, .18)';
+                    [0, .5, 1].forEach(part => g.fillRect(0, Math.round(top + part * (usable - ratio)), width, ratio));
+                }
+                const rates = series('kbps', Math.max(1, maxOf('kbps')));
+                g.fillStyle = colours.kbps;
+                g.globalAlpha = colours.kbpsAlpha ?? 1;
+                g.beginPath();
+                let open = false;
+                rates.forEach((point, index) => {
+                    if (!point) {
+                        return;
+                    }
+                    if (!open) {
+                        g.moveTo(point[0], height);
+                        open = true;
+                    }
+                    g.lineTo(point[0], point[1]);
+                    if (index === rates.length - 1 || !rates[index + 1]) {
+                        g.lineTo(point[0], height);
+                    }
+                });
+                if (g.globalAlpha > 0) {
+                    g.fill();
+                }
+                g.globalAlpha = 1;
+                // The small one in the bar: a faint floor across its width, so a quiet minute still reads as one.
+                if (colours.spark) {
+                    g.fillStyle = colours.fps;
+                    g.globalAlpha = .25;
+                    g.fillRect(0, height - ratio, width, ratio);
+                    g.globalAlpha = 1;
+                }
+                const line = (points, colour) => {
+                    g.strokeStyle = colour;
+                    g.lineWidth = 1.5 * ratio;
+                    g.lineJoin = 'round';
+                    g.beginPath();
+                    let drawing = false;
+                    points.forEach(point => {
+                        if (!point) {
+                            drawing = false;
+                            return;
+                        }
+                        drawing ? g.lineTo(point[0], point[1]) : g.moveTo(point[0], point[1]);
+                        drawing = true;
+                    });
+                    g.stroke();
+                };
+                line(series('rtt', Math.max(100, maxOf('rtt') * 1.15)), colours.rtt);
+                line(series('fps', Math.max(limit || 0, maxOf('fps'), 30)), colours.fps);
+            };
+            const paintGraph = data => {
+                if (!perfOn || perfSize !== 'large') {
+                    return;
+                }
+                drawHistory(perfGraph, perfHistory, graphColours, data.fpsLimit);
+                const latest = perfHistory[perfHistory.length - 1] || {};
+                const entry = (colour, label, value) => {
+                    const item = document.createElement('span');
+                    const swatch = document.createElement('i');
+                    swatch.style.background = colour;
+                    item.append(swatch, label + (value ? ' ' + value : ''));
+                    return item;
+                };
+                const parts = [entry(graphColours.fps, text.graphFps, latest.fps != null ? String(Math.round(latest.fps)) : '')];
+                if (perfHistory.some(sample => sample.rtt != null)) {
+                    parts.push(entry(graphColours.rtt, text.graphLatency, latest.rtt != null ? Math.round(latest.rtt) + ' ms' : ''));
+                }
+                perfLegend.replaceChildren(...parts);
+            };
             const perfPlaces = ['top-left', 'top-right', 'bottom-left', 'bottom-right'];
             let perfCorner = perfPlaces.indexOf(localStorage.getItem('matgate.screen.perfAt')) >= 0 ? localStorage.getItem('matgate.screen.perfAt') : 'top-left';
             const placePerf = () => perfPlaces.forEach(place => perfBox.classList.toggle('at-' + place, place === perfCorner));
@@ -2907,6 +3028,13 @@ public static class AgentScreenPage
                 perfFrames = window.__screen.frames;
                 perfAt = now;
                 const rate = data.kbps == null ? '' : data.kbps >= 1000 ? (data.kbps / 1000).toFixed(1) + ' Mbit/s' : data.kbps + ' kbit/s';
+                if (perfSize === 'small') {
+                    perfText.textContent = [
+                        (data.fps != null ? Math.round(data.fps) : '-') + ' ' + text.fps,
+                        data.rtt != null ? Math.round(data.rtt) + ' ms' : '',
+                    ].filter(Boolean).join('  ');
+                    return;
+                }
                 const first = [
                     (data.fps != null ? Math.round(data.fps) : '-') + '/' + shownRate + ' ' + text.fps,
                     data.rtt != null ? Math.round(data.rtt) + ' ms' : '',
@@ -2919,7 +3047,20 @@ public static class AgentScreenPage
                     data.encoder || '',
                     data.agentMs != null ? data.agentMs + ' ms' : '',
                 ].filter(Boolean).join('  ');
-                perfBox.textContent = first + '\n' + second;
+                perfText.textContent = first + '\n' + second;
+                paintGraph(data);
+            };
+            const setPerfSize = size => {
+                if (perfSizes.indexOf(size) < 0) {
+                    return;
+                }
+                perfSize = size;
+                localStorage.setItem('matgate.screen.perfSize', size);
+                sizePerf();
+                if (perfOn && window.__screen.stats) {
+                    paintPerf(window.__screen.stats);
+                }
+                notifyShell();
             };
             const setPerf = on => {
                 perfOn = !!on;
@@ -2928,7 +3069,7 @@ public static class AgentScreenPage
                 perfFrames = window.__screen.frames;
                 perfAt = performance.now();
                 if (perfOn) {
-                    perfBox.textContent = text.perfWaiting;
+                    perfText.textContent = text.perfWaiting;
                     if (window.__screen.stats) {
                         paintPerf(window.__screen.stats);
                     }
@@ -2979,6 +3120,8 @@ public static class AgentScreenPage
                     keyboardInset,
                     perf: perfOn,
                     perfAt: perfCorner,
+                    perfSize,
+                    history: perfHistory.slice(),
                     touch: coarse,
                     canWindows,
                     windowsOpen: windowsOpen(),
@@ -3003,9 +3146,17 @@ public static class AgentScreenPage
                         perfHint: text.perfHint,
                         perfPosition: text.perfPosition,
                         perfPlaces: [text.perfTopLeft, text.perfTopRight, text.perfBottomLeft, text.perfBottomRight],
+                        perfSize: text.perfSize,
+                        perfSizes: [text.perfSmall, text.perfMedium, text.perfLarge],
+                        perfSizeHint: text.perfSizeHint,
+                        graphFps: text.graphFps,
+                        graphLatency: text.graphLatency,
                     },
                 }),
                 setPerfPosition,
+                setPerfSize,
+                // The last minute as a graph on a canvas of the caller's (the status bar's details).
+                drawHistory: (target, colours) => drawHistory(target, perfHistory, Object.assign({}, graphColours, colours || {}), window.__screen.stats ? window.__screen.stats.fpsLimit : 0),
                 setResolution: value => {
                     resolutionSelect.value = value;
                     resolutionSelect.dispatchEvent(new Event('change'));

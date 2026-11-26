@@ -83,6 +83,18 @@ const shots = process.env.SHOTS || os.tmpdir();
     });
     check("a click opens the details, with the switch for the numbers in the picture", [details.open, details.rows >= 8, details.perf], [true, true, true]);
     check("the frame time is among them", await page.evaluate(() => [...document.querySelectorAll("#status-metrics-panel dd")].some(d => / ms$/.test(d.textContent))), true);
+    // The graph of the last minute: drawn, with its legend - and a small line in the bar itself.
+    const inked = sel => page.evaluate(s => {
+      const c = document.querySelector(s);
+      if (!c || !c.width) return 0;
+      const d = c.getContext("2d").getImageData(0, 0, c.width, c.height).data;
+      let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 0) n++;
+      return n;
+    }, sel);
+    check("the details show a graph of the last minute", (await inked("#status-metrics-panel [data-status-graph]")) > 50, true);
+    check("with a legend", await page.evaluate(() => [...document.querySelectorAll("#status-metrics-panel .status-graph-legend span")].map(s => s.dataset.kind).filter(k => k !== "rtt")), ["fps", "kbps"]);
+    check("and the bar has a small line of frames a second", await page.evaluate(() => !document.getElementById("status-spark").hidden), true);
+    check("which is drawn", (await inked("#status-spark")) > 30, true);
     await page.screenshot({ path: path.join(shots, "status-panel.png"), clip: { x: 900, y: 420, width: 500, height: 480 } });
     // Switched on there, the numbers show in the picture; the corners appear and move them.
     await page.click("[data-status-perf]");
@@ -91,6 +103,28 @@ const shots = process.env.SHOTS || os.tmpdir();
     await page.click("[data-status-perf-at='bottom-right']");
     await sleep(400);
     check("and a corner moves them", await frame().evaluate(() => document.getElementById("perf").classList.contains("at-bottom-right")), true);
+    // Three sizes: small one line, medium two, large two and the graph.
+    const perfLook = () => frame().evaluate(() => {
+      const box = document.getElementById("perf");
+      const graph = box.querySelector(".perf-graph");
+      let ink = 0;
+      if (graph.width && getComputedStyle(graph).display !== "none") {
+        const d = graph.getContext("2d").getImageData(0, 0, graph.width, graph.height).data;
+        for (let i = 3; i < d.length; i += 4) if (d[i] > 0) ink++;
+      }
+      return { lines: box.querySelector(".perf-text").textContent.split("\n").length, graph: getComputedStyle(graph).display !== "none", ink: ink > 50 };
+    });
+    check("medium is the default: two lines, no graph", await perfLook(), { lines: 2, graph: false, ink: false });
+    await page.click("[data-status-perf-size='large']");
+    await sleep(2500);
+    check("large: two lines and the graph", await perfLook(), { lines: 2, graph: true, ink: true });
+    await page.screenshot({ path: path.join(shots, "status-perf-large.png") });
+    await page.click("[data-status-perf-size='small']");
+    await sleep(1500);
+    check("small: one line", await perfLook(), { lines: 1, graph: false, ink: false });
+    check("the size is kept on this device", await frame().evaluate(() => localStorage.getItem("matgate.screen.perfSize")), "small");
+    await page.click("[data-status-perf-size='medium']");
+    await sleep(300);
     await page.screenshot({ path: path.join(shots, "status-panel-perf.png") });
     await page.click("[data-status-perf]");
     await sleep(300);

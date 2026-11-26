@@ -183,7 +183,7 @@ volumes:
   *bring it here* or start a *new session*, so the same Windows user is not signed in twice.
 - **Fastest response** quality: fewer colours (16 bit) and short buffers for the lowest latency.
 - **Pop a session out** into a window of its own and hand it back with one click, handy on several monitors.
-- **Real fullscreen** (safe-area aware on iPhone), clipboard sync and a compact status bar - a dot for the state, frames a second, latency (coloured) and data rate; a click shows frame time, picture, encoder and Matgate's own latency and switches the numbers into the picture. It can be switched off under *Settings → Sessions*.
+- **Real fullscreen** (safe-area aware on iPhone), clipboard sync and a compact status bar - a dot for the state, frames a second, latency (coloured) and data rate; a click shows frame time, picture, encoder and Matgate's own latency and a graph of the last minute (frames a second, latency, data rate; a small line of it in the bar), and switches the numbers into the picture - small (one line), medium (two) or large (two and the graph). It can be switched off under *Settings → Sessions*.
 - **A scale instead of a resolution**: fit to window at 50 %, 100 %, 150 %, …
 - **A password that is not stored** is asked for when connecting.
 
