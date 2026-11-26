@@ -1035,6 +1035,60 @@ public static partial class RemoteFiles
 
     private static readonly XNamespace Dav = "DAV:";
 
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<(string Host, int Port, bool Relaxed), HttpClient> WebDavDialed = new();
+
+    // WebDAV through a relay or tunnel: the URL (and the certificate's name) stay the server's, the TCP connection goes to the dial address.
+    private static HttpClient WebDavThrough(FileTarget server) =>
+        WebDavDialed.GetOrAdd((server.ConnectHost, server.ConnectPort, server.IgnoreCertificate), key =>
+        {
+            var handler = new SocketsHttpHandler
+            {
+                ConnectCallback = async (_, cancellationToken) =>
+                {
+                    var socket = new System.Net.Sockets.Socket(System.Net.Sockets.SocketType.Stream, System.Net.Sockets.ProtocolType.Tcp) { NoDelay = true };
+                    try
+                    {
+                        await socket.ConnectAsync(key.Host, key.Port, cancellationToken);
+                        return new System.Net.Sockets.NetworkStream(socket, ownsSocket: true);
+                    }
+                    catch
+                    {
+                        socket.Dispose();
+                        throw;
+                    }
+                },
+            };
+            if (key.Relaxed)
+            {
+                handler.SslOptions.RemoteCertificateValidationCallback = (_, _, _, _) => true;
+            }
+
+            return new HttpClient(handler);
+        });
+
+    // SMB on another port than 445 (a relay, a tunnel): SMBLibrary 1.5 has that only as an internal overload - used when it is there,
+    // otherwise only 445 works.
+    private static bool ConnectSmb(SMB2Client client, FileTarget server)
+    {
+        var port = server.ConnectPort;
+        if (port == 445)
+        {
+            return client.Connect(server.ConnectHost, SMBTransportType.DirectTCPTransport);
+        }
+
+        var withPort = typeof(SMB2Client).GetMethod("Connect", System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic,
+            [typeof(System.Net.IPAddress), typeof(SMBTransportType), typeof(int)]);
+        if (withPort is null)
+        {
+            throw new InvalidOperationException("SMB geht mit dieser Bibliothek nur ueber Port 445.");
+        }
+
+        var address = System.Net.IPAddress.TryParse(server.ConnectHost, out var parsed)
+            ? parsed
+            : System.Net.Dns.GetHostAddresses(server.ConnectHost).First();
+        return (bool)withPort.Invoke(client, [address, SMBTransportType.DirectTCPTransport, port])!;
+    }
+
     private static async Task<FileGatewayListResult> ListWebDavAsync(FileTarget server, string? path, CancellationToken cancellationToken)
     {
         var virtualPath = NormalizeVirtualPath(path);
@@ -1190,7 +1244,7 @@ public static partial class RemoteFiles
 
     private static async Task<HttpResponseMessage> WebDavSend(FileTarget server, HttpRequestMessage request, CancellationToken cancellationToken)
     {
-        var client = server.IgnoreCertificate ? WebDavRelaxed : WebDavStrict;
+        var client = server.DialHost.Length > 0 ? WebDavThrough(server) : server.IgnoreCertificate ? WebDavRelaxed : WebDavStrict;
         var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
         if (!response.IsSuccessStatusCode)
         {
@@ -1245,12 +1299,12 @@ public static partial class RemoteFiles
             throw new InvalidOperationException("SFTP benoetigt einen Ziel-Benutzer.");
         }
 
-        return new SftpClient(SshLogin.For(server.Host, server.Port, server.UserName, server.Password, server.PrivateKey));
+        return new SftpClient(SshLogin.For(server.ConnectHost, server.ConnectPort, server.UserName, server.Password, server.PrivateKey));
     }
 
     private static AsyncFtpClient CreateFtpClient(FileTarget server)
     {
-        return new AsyncFtpClient(server.Host, server.UserName, server.Password, server.Port);
+        return new AsyncFtpClient(server.ConnectHost, server.UserName, server.Password, server.ConnectPort);
     }
 
     private static void CheckSmbStatus(NTStatus status, string operation)
@@ -1459,7 +1513,7 @@ public static partial class RemoteFiles
         public static SmbSession Connect(FileTarget server)
         {
             var client = new SMB2Client();
-            if (!client.Connect(server.Host, SMBTransportType.DirectTCPTransport))
+            if (!ConnectSmb(client, server))
             {
                 throw new InvalidOperationException("SMB-Verbindung konnte nicht aufgebaut werden.");
             }

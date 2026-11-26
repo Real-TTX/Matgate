@@ -48,7 +48,8 @@ public sealed class SqlServerDialect : IDatabaseDialect
     public DbConnection Create(DatabaseTarget server, string user, string password, string? database) =>
         new SqlConnection(new SqlConnectionStringBuilder
         {
-            DataSource = $"{server.Host},{server.Port}",
+            DataSource = $"{server.ConnectHost},{server.ConnectPort}",
+            HostNameInCertificate = server.DialHost.Length > 0 ? server.Host : "",
             UserID = user,
             Password = password,
             InitialCatalog = database ?? "",
@@ -74,8 +75,8 @@ public sealed class MySqlDialect : IDatabaseDialect
     public DbConnection Create(DatabaseTarget server, string user, string password, string? database) =>
         new MySqlConnection(new MySqlConnectionStringBuilder
         {
-            Server = server.Host,
-            Port = (uint)server.Port,
+            Server = server.ConnectHost,
+            Port = (uint)server.ConnectPort,
             UserID = user,
             Password = password,
             Database = database ?? "",
@@ -100,8 +101,8 @@ public sealed class PostgresDialect : IDatabaseDialect
     public DbConnection Create(DatabaseTarget server, string user, string password, string? database) =>
         new NpgsqlConnection(new NpgsqlConnectionStringBuilder
         {
-            Host = server.Host,
-            Port = server.Port,
+            Host = server.ConnectHost,
+            Port = server.ConnectPort,
             Username = user,
             Password = password,
             Database = string.IsNullOrEmpty(database) ? "postgres" : database,

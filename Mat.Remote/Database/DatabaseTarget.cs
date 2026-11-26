@@ -29,6 +29,18 @@ public sealed record DatabaseTarget
     /// <summary>How the connection names itself to the server (SQL Server's program name).</summary>
     public string ApplicationName { get; init; } = "Matgate";
 
+    /// <summary>
+    /// Where the TCP connection really goes when not to Host and Port - a relay or tunnel on this machine (ThixGate über Matgate). SQL
+    /// Server still checks its certificate against Host. Empty / 0: Host and Port.
+    /// </summary>
+    public string DialHost { get; init; } = "";
+
+    public int DialPort { get; init; }
+
+    internal string ConnectHost => DialHost.Length > 0 ? DialHost : Host;
+
+    internal int ConnectPort => DialPort > 0 ? DialPort : Port > 0 ? Port : DefaultPort(Protocol);
+
     public static int DefaultPort(DatabaseEngine engine) => engine switch
     {
         DatabaseEngine.MsSql => 1433,

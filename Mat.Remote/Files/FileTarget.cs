@@ -36,6 +36,18 @@ public sealed record FileTarget
     /// <summary>WebDAV: accept any certificate of the server.</summary>
     public bool IgnoreCertificate { get; init; }
 
+    /// <summary>
+    /// Where the TCP connection really goes when not to Host and Port - a relay or tunnel on this machine (ThixGate über Matgate). The
+    /// protocol still speaks to Host: WebDAV keeps its URL and certificate name. Empty / 0: Host and Port.
+    /// </summary>
+    public string DialHost { get; init; } = "";
+
+    public int DialPort { get; init; }
+
+    internal string ConnectHost => DialHost.Length > 0 ? DialHost : Host;
+
+    internal int ConnectPort => DialPort > 0 ? DialPort : Port > 0 ? Port : DefaultPort(Protocol);
+
     public static int DefaultPort(FileProtocol protocol) => protocol switch
     {
         FileProtocol.Sftp => 22,
