@@ -51,6 +51,11 @@ public sealed partial class VncClient : IAsyncDisposable
     }
 
     // The desktop's size. Together with Framebuffer it only changes under FrameLock.
+    // Bytes that came from the server, and the connection to it (for its round trip, see TcpRoundTrip).
+    public long BytesReceived => _reader?.BytesRead ?? 0;
+
+    public Socket? Socket => Volatile.Read(ref _socket);
+
     public int Width => _width;
 
     public int Height => _height;

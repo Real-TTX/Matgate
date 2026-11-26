@@ -336,12 +336,17 @@ public sealed partial class RdpClient
     // the tests, which read the bytes.)
     internal byte[] ClientData()
     {
-        var data = new WireWriter(512);
+        var data = new WireWriter(1024);
+        var monitors = MonitorLayout(_options.Monitors);
+        var (width, height) = monitors.Count > 1
+            ? (monitors.Max(monitor => monitor.Right) - monitors.Min(monitor => monitor.Left) + 1,
+               monitors.Max(monitor => monitor.Bottom) - monitors.Min(monitor => monitor.Top) + 1)
+            : (_options.Width, _options.Height);
 
         // Core data.
         data.U16(0xC001).U16(216);
         data.U32(0x00080004);
-        data.U16(_options.Width).U16(_options.Height);
+        data.U16(width).U16(height);
         data.U16(0xCA01).U16(0xAA03);
         data.U32(_options.KeyboardLayout);
         data.U32(19041);
@@ -373,7 +378,40 @@ public sealed partial class RdpClient
             data.Bytes(name).U32(channel.Options);
         }
 
+        // Monitor data: every monitor as its edges (right and bottom inclusive), the primary one marked.
+        if (monitors.Count > 1)
+        {
+            data.U16(0xC005).U16(12 + monitors.Count * 20).U32(0).U32((uint)monitors.Count);
+            foreach (var monitor in monitors)
+            {
+                data.I32(monitor.Left).I32(monitor.Top).I32(monitor.Right).I32(monitor.Bottom).U32(monitor.Primary ? 1u : 0u);
+            }
+        }
+
         return data.ToArray();
+    }
+
+    internal readonly record struct MonitorEdges(int Left, int Top, int Right, int Bottom, bool Primary);
+
+    // The monitors as the server takes them: at most 16, exactly one primary, and the primary's top left corner at 0,0
+    // - the others are placed relative to it, as Windows' own client does (MS-RDPBCGR 2.2.1.3.6.1).
+    internal static List<MonitorEdges> MonitorLayout(IReadOnlyList<RdpMonitor> monitors)
+    {
+        var usable = monitors.Where(monitor => monitor.Width >= 200 && monitor.Height >= 200).Take(16).ToList();
+        if (usable.Count < 2)
+        {
+            return [];
+        }
+
+        var primary = usable.FirstOrDefault(monitor => monitor.Primary) ?? usable[0];
+        return usable
+            .Select(monitor => new MonitorEdges(
+                monitor.Left - primary.Left,
+                monitor.Top - primary.Top,
+                monitor.Left - primary.Left + monitor.Width - 1,
+                monitor.Top - primary.Top + monitor.Height - 1,
+                ReferenceEquals(monitor, primary)))
+            .ToList();
     }
 
     // The colour fields of the core data: the depth asked for, the depths this client takes, and the early

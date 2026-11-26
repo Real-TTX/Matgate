@@ -32,6 +32,9 @@ public sealed class RdpdrChannel : StaticChannel
     private const ushort UserLoggedOn = 0x554C;
 
     private const ushort CapabilityGeneral = 1;
+    private const ushort CapabilityDrive = 4;
+    private const ushort DriveLength = 8;
+    private const uint DriveVersion2 = 2;
     private const uint GeneralVersion2 = 2;
     private const int GeneralLength = 44;
 
@@ -68,7 +71,7 @@ public sealed class RdpdrChannel : StaticChannel
     // devices, tell it that there are none (an empty Client Device List Announce Request). FreeRDP 3 and
     // IronRDP send nothing in that case; both are within the specification, which only says the client
     // announces "its devices" then.
-    public RdpdrChannel(string computerName = DefaultComputerName, bool announceEmptyDeviceList = true)
+    public RdpdrChannel(string computerName = DefaultComputerName, bool announceEmptyDeviceList = true, IReadOnlyList<RdpDrive>? drives = null)
     {
         ArgumentNullException.ThrowIfNull(computerName);
         if (computerName.Length is 0 or > MaxComputerNameLength || computerName.Contains('\0'))
@@ -79,6 +82,90 @@ public sealed class RdpdrChannel : StaticChannel
         ComputerName = computerName;
         _name = Encoding.Unicode.GetBytes(computerName + "\0");
         _announceEmptyList = announceEmptyDeviceList;
+        uint id = 1;
+        foreach (var drive in drives ?? [])
+        {
+            if (Directory.Exists(drive.Path))
+            {
+                _drives.Add(new DriveDevice(id++, drive));
+            }
+        }
+    }
+
+    // Folders of this computer the server sees as drives (DriveDevice), each with its id.
+    private readonly List<DriveDevice> _drives = [];
+
+    // The drives' requests, handled one after the other away from the session's read loop.
+    private readonly Queue<Action> _work = new();
+    private bool _working;
+
+    public int DriveCount => _drives.Count;
+
+    private void Enqueue(Action action)
+    {
+        lock (_work)
+        {
+            _work.Enqueue(action);
+            if (_working)
+            {
+                return;
+            }
+
+            _working = true;
+        }
+
+        _ = Task.Run(() =>
+        {
+            while (true)
+            {
+                Action next;
+                lock (_work)
+                {
+                    if (!_work.TryDequeue(out next!))
+                    {
+                        _working = false;
+                        return;
+                    }
+                }
+
+                try
+                {
+                    next();
+                }
+                catch (Exception exception) when (exception is not OutOfMemoryException)
+                {
+                    Report("a drive request failed: " + exception.Message);
+                }
+            }
+        });
+    }
+
+    private void DeviceRequest(ReadOnlySpan<byte> request)
+    {
+        if (request.Length < 4)
+        {
+            Report("dropped an I/O request too short to name its device");
+            return;
+        }
+
+        var deviceId = BinaryPrimitives.ReadUInt32LittleEndian(request);
+        var device = _drives.FirstOrDefault(drive => drive.Id == deviceId);
+        if (device is null)
+        {
+            // A request for a device that was never announced is ignored (MS-RDPEFS 3.1.5.2).
+            Report("ignored an I/O request for an unknown device");
+            return;
+        }
+
+        var copy = request.ToArray();
+        Enqueue(() =>
+        {
+            var answer = device.Handle(copy);
+            if (answer is not null)
+            {
+                Transmit(answer);
+            }
+        });
     }
 
     public override string Name => "rdpdr";
@@ -146,6 +233,12 @@ public sealed class RdpdrChannel : StaticChannel
             return;
         }
 
+        if (packet == DeviceIoRequest)
+        {
+            DeviceRequest(message[4..]);
+            return;
+        }
+
         var outgoing = new List<byte[]>();
         string? note;
         lock (_gate)
@@ -156,10 +249,7 @@ public sealed class RdpdrChannel : StaticChannel
                 ServerCapability => Capabilities(reader, outgoing),
                 ClientIdConfirm => Confirm(reader, outgoing),
                 UserLoggedOn => LoggedOn(outgoing),
-                DeviceReply => "ignored a device announce response: no device was announced",
-
-                // A request for a device that was never announced is ignored (MS-RDPEFS 3.1.5.2).
-                DeviceIoRequest => "ignored an I/O request: there are no devices",
+                DeviceReply => DeviceAnswered(reader),
                 _ => $"dropped the unknown message {packet:X4}",
             };
         }
@@ -177,6 +267,13 @@ public sealed class RdpdrChannel : StaticChannel
 
     public override void Closed()
     {
+        Enqueue(() =>
+        {
+            foreach (var drive in _drives)
+            {
+                drive.CloseAll();
+            }
+        });
         lock (_gate)
         {
             _announced = false;
@@ -255,9 +352,11 @@ public sealed class RdpdrChannel : StaticChannel
         _serverIoCodes = ioCodes;
         _serverSendsLogon = logon;
 
-        // Only the general set: this client supports no device type, so it lists none (MS-RDPEFS 3.2.5.1.8).
-        outgoing.Add(Message(ClientCapability, 4 + GeneralLength)
-            .U16(1)
+        // The general set, and the drive set (version 2: the drive's name comes along) when there are drives; without
+        // them this client supports no device type, so it lists none (MS-RDPEFS 3.2.5.1.8).
+        var withDrives = _drives.Count > 0;
+        var capabilities = Message(ClientCapability, 4 + GeneralLength + (withDrives ? DriveLength : 0))
+            .U16(withDrives ? (ushort)2 : (ushort)1)
             .U16(0)
             .U16(CapabilityGeneral)
             .U16(GeneralLength)
@@ -271,8 +370,13 @@ public sealed class RdpdrChannel : StaticChannel
             .U32(ExtendedPdus)
             .U32(EnableAsyncIo)
             .U32(0)
-            .U32(0)
-            .ToArray());
+            .U32(0);
+        if (withDrives)
+        {
+            capabilities.U16(CapabilityDrive).U16(DriveLength).U32(DriveVersion2);
+        }
+
+        outgoing.Add(capabilities.ToArray());
         _capabilities = true;
         AnnounceIfDue(false, outgoing);
         return null;
@@ -313,7 +417,7 @@ public sealed class RdpdrChannel : StaticChannel
     // capabilities and client id are settled (MS-RDPEFS 3.2.5.1.5 and 3.2.5.1.9).
     private void AnnounceIfDue(bool loggedOn, List<byte[]> outgoing)
     {
-        if (_listSent || !_announceEmptyList)
+        if (_listSent || (!_announceEmptyList && _drives.Count == 0))
         {
             return;
         }
@@ -325,7 +429,29 @@ public sealed class RdpdrChannel : StaticChannel
         }
 
         _listSent = true;
-        outgoing.Add(Message(DeviceListAnnounce, 4).U32(0).ToArray());
+        var devices = _drives.Select(drive => drive.Announcement()).ToList();
+        var list = Message(DeviceListAnnounce, 4 + devices.Sum(device => device.Length)).U32((uint)devices.Count);
+        foreach (var device in devices)
+        {
+            list.Bytes(device);
+        }
+
+        outgoing.Add(list.ToArray());
+    }
+
+    private string? DeviceAnswered(ByteReader reader)
+    {
+        if (_drives.Count == 0)
+        {
+            return "ignored a device announce response: no device was announced";
+        }
+
+        if (!reader.TryU32(out var device) || !reader.TryU32(out var result))
+        {
+            return "dropped a device announce response that is too short";
+        }
+
+        return result == 0 ? null : $"the server refused device {device}: {result:X8}";
     }
 
     private void Transmit(byte[] message)

@@ -6,7 +6,7 @@ namespace Matgate.Display;
 
 // VNC for a screen session: Matgate's own VNC client plus what a viewer needs around it - asking for the
 // password, the text clipboard, and a desktop that follows the viewer's window where the server can do that.
-internal sealed class VncBackend : IScreenBackend, IVncHandler
+internal sealed class VncBackend : IScreenBackend, IVncHandler, IScreenMeter
 {
     private const uint ControlLeft = 0xFFE3;
     private const uint AltLeft = 0xFFE9;
@@ -44,6 +44,10 @@ internal sealed class VncBackend : IScreenBackend, IVncHandler
     // True colour, 8 bits for each of red, green and blue, whatever the quality: fewer colours would need every
     // decoder to read other pixel formats.
     public int ColorDepth => 24;
+
+    public long BytesReceived => _client?.BytesReceived ?? 0;
+
+    public TimeSpan? RoundTrip => TcpRoundTrip.Of(_client?.Socket);
 
     public bool QualityColours => false;
 

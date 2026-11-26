@@ -161,6 +161,18 @@ eine Website geht sie zu Host und Port ihrer Adresse.
 **In ThixGate:** Dateimanager, SQL-Browser und Website als Tabs – mit ThixGates eigener Anmeldung (Matgate gibt kein Passwort
 heraus).
 
+## Stufe 4b – was nur ein Programm auf dem eigenen Computer kann ✅
+
+In `Mat.Remote` (`ScreenLocal.cs`), nur von ThixGate gesetzt – Matgates Server nutzt nichts davon:
+
+- **Mehrere Monitore** (`ScreenTarget.Monitors`): der Desktop über zwei oder mehr Monitore des Computers (Client Monitor Data,
+  der primäre bei 0,0); die Größe folgt dann nicht dem Fenster.
+- **Laufwerke** (`ScreenTarget.Drives`): Ordner des Computers als Laufwerke der Sitzung (MS-RDPEFS, `DriveDevice` im
+  Gerätekanal `rdpdr`): öffnen, lesen, schreiben, auflisten, umbenennen, löschen, Datenträger-Angaben; nichts außerhalb des Ordners.
+- **Zwischenablage mit Dateipfaden** (`IScreenLocalClipboard.ClipLocalFiles`): Dateien und Ordner ohne vorheriges Kopieren.
+- **Messwerte** (`IScreenMeter`): empfangene Bytes und die Laufzeit der TCP-Verbindung, wie das Betriebssystem sie misst
+  (`TcpRoundTrip`: Windows SIO_TCP_INFO, macOS TCP_CONNECTION_INFO, Linux TCP_INFO).
+
 ## Stufe 5 – später
 
 - Zwischenablage und Ton auch für die Sitzung auf Matgate; H.264 als zweites Bildformat.

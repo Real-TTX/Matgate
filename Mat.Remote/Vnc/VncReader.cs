@@ -149,12 +149,19 @@ internal sealed class VncReader
     // message took minus this is what unpacking it took.
     public long Waited { get; private set; }
 
+    // Bytes that came from the server.
+    public long BytesRead => Interlocked.Read(ref _bytesRead);
+
+    private long _bytesRead;
+
     private int ReadStream(Span<byte> destination)
     {
         var started = Stopwatch.GetTimestamp();
         try
         {
-            return _stream.Read(destination);
+            var read = _stream.Read(destination);
+            Interlocked.Add(ref _bytesRead, read);
+            return read;
         }
         catch (Exception exception) when (exception is IOException or InvalidOperationException)
         {

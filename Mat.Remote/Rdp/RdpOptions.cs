@@ -42,7 +42,14 @@ public sealed class RdpOptions
     // window contents while dragging, 0x04 no menu animations, 0x08 no visual styles, 0x20 no cursor shadow,
     // 0x40 no blinking cursor, 0x80 smoothed fonts, 0x100 desktop composition.
     public uint PerformanceFlags { get; init; } = 0x180;
+
+    // Two or more: the desktop spans these monitors (Client Monitor Data, MS-RDPBCGR 2.2.1.3.6), at most 16; the
+    // desktop is then the rectangle around them. Fewer: one monitor of Width by Height.
+    public IReadOnlyList<RdpMonitor> Monitors { get; init; } = [];
 }
+
+// One monitor of this computer in its pixels; Left and Top place it among the others.
+public sealed record RdpMonitor(int Left, int Top, int Width, int Height, bool Primary);
 
 // What the session tells whoever shows it. All of these are called on the session's read loop: they must
 // return quickly and must not call back into the client in a way that waits for the server.

@@ -10,7 +10,7 @@ namespace Matgate.Display;
 // RDP for a screen session: Matgate's own RDP client plus what a viewer needs around it - asking for a
 // password when the server wants one, the clipboard in both directions (text, pictures, files), sound, and a
 // desktop that follows the size of the viewer's window.
-internal sealed class RdpBackend : IScreenBackend, IRdpHandler
+internal sealed class RdpBackend : IScreenBackend, IRdpHandler, IScreenMeter, IScreenLocalClipboard
 {
     // The id under which this side announces a list of files; the name is what the server goes by.
     private const uint FileListFormat = 0xC0D0;
@@ -67,6 +67,9 @@ internal sealed class RdpBackend : IScreenBackend, IRdpHandler
     private sealed record LocalFile(string Name, string Path)
     {
         public long Size { get; set; }
+
+        // A folder of a copied folder: listed before its files, so the remote side makes it first.
+        public bool Folder { get; init; }
     }
 
     private sealed record RemoteFile(string Name, long Size, bool Folder);
@@ -91,6 +94,10 @@ internal sealed class RdpBackend : IScreenBackend, IRdpHandler
     public bool Sound => true;
 
     public int ColorDepth => _client?.ColorDepth ?? 0;
+
+    public long BytesReceived => _client?.BytesReceived ?? 0;
+
+    public TimeSpan? RoundTrip => TcpRoundTrip.Of(_client?.Socket);
 
     public bool QualityColours => true;
 
@@ -137,6 +144,7 @@ internal sealed class RdpBackend : IScreenBackend, IRdpHandler
                     Sound = true,
                     ColorDepth = quality.RdpColorDepth,
                     PerformanceFlags = quality.RdpPerformanceFlags,
+                    Monitors = _target.Monitors.Select(monitor => new RdpMonitor(monitor.Left, monitor.Top, monitor.Width, monitor.Height, monitor.Primary)).ToList(),
                 },
                 this,
                 _host.Log);
@@ -144,7 +152,8 @@ internal sealed class RdpBackend : IScreenBackend, IRdpHandler
             client.AddChannel(dynamic);
             client.AddChannel(sound);
             // Windows only sends sound to a client that also has the device channel - with no devices on it.
-            client.AddChannel(new RdpdrChannel());
+            // With the viewer's folders as drives, when it brings some (ThixGate).
+            client.AddChannel(new RdpdrChannel(drives: _target.Drives.Select(drive => new RdpDrive(drive.Name, drive.Path)).ToList()));
             _clipboard = clipboard;
             _display = display;
             _sound = sound;
@@ -266,7 +275,8 @@ internal sealed class RdpBackend : IScreenBackend, IRdpHandler
                     _reactivating = true;
                 }
 
-                if (display is null || !display.IsReady || _wantWidth <= 0 || _settled
+                // A desktop over several monitors keeps their size.
+                if (display is null || !display.IsReady || _wantWidth <= 0 || _settled || _target.Monitors.Count > 1
                     || (client.Width == _wantWidth && client.Height == _wantHeight))
                 {
                     continue;
@@ -596,7 +606,7 @@ internal sealed class RdpBackend : IScreenBackend, IRdpHandler
             }
             else if (format == FileListFormat && _localKind == 3)
             {
-                data = FileGroupDescriptor.Encode(_localFiles.Select(file => new ClipFile(file.Name, file.Size, false, null)).ToList());
+                data = FileGroupDescriptor.Encode(_localFiles.Select(file => new ClipFile(file.Name, file.Size, file.Folder, null)).ToList());
             }
         }
 
@@ -772,6 +782,52 @@ internal sealed class RdpBackend : IScreenBackend, IRdpHandler
         {
             EndUpload(id, upload);
         }
+    }
+
+    // The viewer's own files, by path (ThixGate): announced as they are, read from where they lie when the remote side
+    // pastes. A folder brings its files along, named with their path below it.
+    public void ClipLocalFiles(IReadOnlyList<string> paths, bool paste)
+    {
+        var files = new List<LocalFile>();
+        foreach (var path in paths)
+        {
+            if (File.Exists(path))
+            {
+                files.Add(new LocalFile(Path.GetFileName(path), path) { Size = new FileInfo(path).Length });
+            }
+            else if (Directory.Exists(path))
+            {
+                var top = Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(path)) ?? path;
+                string Name(string full) => Path.GetRelativePath(top, full).Replace('/', '\\');
+                files.Add(new LocalFile(Name(path), path) { Folder = true });
+                foreach (var entry in Directory.EnumerateFileSystemEntries(path, "*", SearchOption.AllDirectories).Take(MaxUploadFiles))
+                {
+                    files.Add(Directory.Exists(entry)
+                        ? new LocalFile(Name(entry), entry) { Folder = true }
+                        : new LocalFile(Name(entry), entry) { Size = new FileInfo(entry).Length });
+                }
+            }
+
+            if (files.Count >= MaxUploadFiles)
+            {
+                break;
+            }
+        }
+
+        if (files.Count == 0)
+        {
+            return;
+        }
+
+        lock (_clip)
+        {
+            DropLocalFiles();
+            _localFiles = files;
+            _localKind = 3;
+            _pastePending = paste;
+        }
+
+        Announce();
     }
 
     private void BeginUpload(string id, JsonObject data)

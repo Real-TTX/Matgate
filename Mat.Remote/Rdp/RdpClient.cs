@@ -58,6 +58,14 @@ public sealed partial class RdpClient : IAsyncDisposable
     // False while connecting and while the server takes the desktop apart to bring it back in another size.
     public bool IsActive => _active;
 
+    // Bytes of RDP messages that came from the server.
+    public long BytesReceived => Interlocked.Read(ref _received);
+
+    // The connection to the server (for its round trip, see TcpRoundTrip).
+    public Socket? Socket => _tcp?.Client;
+
+    private long _received;
+
     private sealed class JoinedChannel(StaticChannel channel)
     {
         public StaticChannel Channel { get; } = channel;
@@ -228,6 +236,7 @@ public sealed partial class RdpClient : IAsyncDisposable
             }
 
             await stream.ReadExactlyAsync(_pdu.AsMemory(4, length - 4), cancellationToken);
+            Interlocked.Add(ref _received, length);
             SlowPath(_pdu.AsSpan(0, length));
             return;
         }
@@ -248,6 +257,7 @@ public sealed partial class RdpClient : IAsyncDisposable
         }
 
         await stream.ReadExactlyAsync(_pdu.AsMemory(header, length - header), cancellationToken);
+        Interlocked.Add(ref _received, length);
         FastPath(_pdu.AsSpan(0, length), header);
     }
 

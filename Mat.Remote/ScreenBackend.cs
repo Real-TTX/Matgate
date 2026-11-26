@@ -33,6 +33,14 @@ public sealed class ScreenTarget
     public int FitHeight { get; init; }
 
     public string Session { get; init; } = "";
+
+    // RDP: the monitors of the viewer's computer the desktop spans (two or more; otherwise one monitor of the window's
+    // size). Only an app on that computer sets this (ThixGate), never Matgate's server.
+    public IReadOnlyList<ScreenMonitor> Monitors { get; init; } = [];
+
+    // RDP: folders of the viewer's computer as drives of the remote desktop. Only an app on that computer sets this
+    // (ThixGate) - Matgate's server never offers its own disks.
+    public IReadOnlyList<ScreenDrive> Drives { get; init; } = [];
 }
 
 // Something went wrong that the viewer should read as it is.
