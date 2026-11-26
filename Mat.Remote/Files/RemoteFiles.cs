@@ -1218,8 +1218,18 @@ public static partial class RemoteFiles
 
     private static async Task DeleteWebDavAsync(FileTarget server, string? path, CancellationToken cancellationToken)
     {
-        using var request = WebDavRequest(server, "DELETE", NormalizeVirtualPath(path), false);
-        using var response = await WebDavSend(server, request, cancellationToken);
+        var virtualPath = NormalizeVirtualPath(path);
+        try
+        {
+            using var request = WebDavRequest(server, "DELETE", virtualPath, false);
+            using var response = await WebDavSend(server, request, cancellationToken);
+        }
+        catch (InvalidOperationException)
+        {
+            // A folder without its slash: many servers redirect (301), and the redirect loses the login - again as a folder.
+            using var request = WebDavRequest(server, "DELETE", virtualPath, true);
+            using var response = await WebDavSend(server, request, cancellationToken);
+        }
     }
 
     private static HttpRequestMessage WebDavRequest(FileTarget server, string method, string virtualPath, bool directory)
