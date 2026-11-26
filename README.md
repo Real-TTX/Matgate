@@ -264,6 +264,10 @@ needed). [→ Agent documentation](agent/README.md)
   whole row, a finger on its grip.
 - **Workspaces**: bundles to share, with public links, password protection, shared text and file exchange.
 - Live **network tools**: ping, DNS lookup, port check, download test.
+- **Desktop app ThixGate**: a remote manager for Windows and macOS signs in through the browser (password, second
+  factor, single sign-on as always, then *Allow ThixGate on this device*), shows the RDP, VNC and SSH connections
+  you may work in – without passwords – and connects to them **through Matgate** with its own engine. Each device
+  is listed under *Settings → Security → Devices* and signed out there with one click.
 
 ### 🔐 Users & operation
 
@@ -460,6 +464,7 @@ Everything Matgate keeps lives under the data directory (`./data`, mounted at `/
 ├─ folders.json             folders (also empty ones), and which of them do not inherit
 ├─ servers.json             connections and folders
 ├─ workspaces.json          workspaces and share settings
+├─ app-devices.json         devices of the desktop app (ThixGate): only the hash of each token
 ├─ guacamole.properties     generated Guacamole config
 └─ user-mapping.xml         generated Guacamole mapping (no cleartext credentials)
 ```

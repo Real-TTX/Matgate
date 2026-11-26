@@ -161,6 +161,7 @@ builder.Services.AddHostedService<Matgate.Agent.AgentAutoUpdater>();
 builder.Services.AddSingleton<IFileGatewayService, FileGatewayService>();
 builder.Services.AddSingleton<WorkspaceService>();
 builder.Services.AddSingleton<WebsiteProxyService>();
+builder.Services.AddSingleton<AppDeviceStore>();
 
 var app = builder.Build();
 GuacamoleLauncher.Configure(app.Configuration);

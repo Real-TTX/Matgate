@@ -84,9 +84,28 @@ herauslösen, Daten bleiben kompatibel, Import/Export) – das kann auch paralle
 
 **Größe:** der größte Brocken, etwa 8–12 Releases.
 
-## Stufe 2 – Matgate als Zusatz
+## Stufe 2 – Matgate als Zusatz – **erledigt (Matgate 0.56.0, ThixGate 0.2)**
 
-**Auf Matgate-Seite (2–3 Releases):**
+So ist es gebaut (`Matgate/Web/EndpointMapping.App.cs`, `Services/AppDeviceStore.cs`, `AppLibrary.cs`, `AppRelay.cs`):
+
+| Weg | Was |
+|---|---|
+| `GET /app/authorize?client_id=thixgate&redirect_uri=http://127.0.0.1:<port>/…&code_challenge=…&code_challenge_method=S256&state=…&device=<Name>` | „ThixGate auf *Gerät* zulassen?“ für den im Browser Angemeldeten (sonst erst `/login`, auch SSO und TOTP); nur Rücksprung auf Loopback mit Port |
+| `POST /app/authorize` | Zulassen → Einmal-Code (2 Minuten) an die Rücksprungadresse; Abbrechen → `error=access_denied` |
+| `POST /app/api/token` `{code, codeVerifier, redirectUri}` | Code + PKCE-Verifier → Geräte-Token `mgd_…` (nur sein SHA-256 in `app-devices.json`); Ratenbremse wie die Anmeldung |
+| `GET /app/api/me`, `GET /app/api/library` | Benutzer; RDP/VNC/SSH mit mindestens „Verbinden“, Ordner, **ohne** Passwort/Schlüssel; `ETag` = Revision (304) |
+| `GET /app/api/relay/{id}` (WebSocket) | eine TCP-Verbindung zu Host/Port genau dieser Verbindung (auch durch ihren Tunnel), binär in beide Richtungen; protokolliert |
+| `POST /app/api/logout`, Einstellungen → Sicherheit → Geräte | Gerät abmelden; mit dem Benutzer gehen auch seine Geräte |
+
+Alles unter `/app/api` gilt nur mit `Authorization: Bearer` – das Cookie des Browsers zählt dort nicht. „Nur lesen“-Verbindungen
+fehlen in der Bibliothek: eine App mit eigener Engine könnte sie nicht schreibgeschützt halten. Die Bibliothek wird abgefragt
+(alle 5 Minuten und auf Knopfdruck, dank ETag billig), einen Ereignis-Strom gibt es noch nicht.
+
+In ThixGate: Matgate › Anmelden (Browser, Rückkehr auf 127.0.0.1), Tab „Verbindungen“ (Verbinden, In Bibliothek übernehmen),
+je eigener Verbindung „Verbinden über“ ein Matgate **und** die Verbindung dort, über die durchgeleitet wird – die
+Durchleitung ist kein offener Proxy. Die Anmeldung und das Passwort kommen von ThixGate.
+
+**Ursprünglicher Plan – auf Matgate-Seite (2–3 Releases):**
 
 - **App-Anmeldung:** ThixGate öffnet den Browser, Anmeldung wie gewohnt (Passwort, TOTP, MatIdentity, Entra),
   „ThixGate auf *Gerät* zulassen“ → Geräte-Token (PKCE, Rückkehr über 127.0.0.1). Token nur als Hash in Matgate; in

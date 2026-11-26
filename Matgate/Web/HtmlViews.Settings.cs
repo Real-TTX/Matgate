@@ -87,8 +87,8 @@ public sealed partial class HtmlViews
                 de ? "Hell oder dunkel, Farbschema und eigene Farben – gilt auf jedem Gerät, auf dem du angemeldet bist." : "Light or dark, colour scheme and your own colours – applies on every device you are signed in on.",
                 AppearanceSection(context, user), Saved("appearance")),
             SettingsPanel(context, "security", tab == "security", Title("security"),
-                de ? "Dein Passwort und die Anmeldung mit zweitem Faktor." : "Your password and signing in with a second factor.",
-                SecuritySection(context, user, recoveryCodes), Saved("password", "totp-off") + TotpRecoveryNotice(context, recoveryCodes)),
+                de ? "Dein Passwort, die Anmeldung mit zweitem Faktor und die Geräte, auf denen Apps angemeldet sind." : "Your password, signing in with a second factor and the devices apps are signed in on.",
+                SecuritySection(context, user, recoveryCodes), Saved("password", "totp-off", "device") +TotpRecoveryNotice(context, recoveryCodes)),
             SettingsPanel(context, "home", tab == "home", Title("home"),
                 de ? "Was die Seite „Neue Verbindung“ zeigt – der Tab mit dem Plus." : "What the “New connection” page shows – the tab with the plus.",
                 HomeSection(context, user, servers, favoriteServers), Saved("home", "favorites")),
@@ -115,6 +115,7 @@ public sealed partial class HtmlViews
         "favorites" => de ? "Aus den Favoriten genommen." : "Removed from favorites.",
         "session" or "keys" => de ? "Gespeichert – gilt für Sitzungen, die du ab jetzt öffnest." : "Saved – applies to sessions you open from now on.",
         "password" => de ? "Passwort geändert. Du bleibst angemeldet." : "Password changed. You stay signed in.",
+        "device" => de ? "Gerät abgemeldet." : "Device signed out.",
         "totp-off" => de ? "Zwei-Faktor-Anmeldung ausgeschaltet." : "Two-factor sign-in turned off.",
         _ => de ? "Gespeichert." : "Saved.",
     };
@@ -276,6 +277,7 @@ public sealed partial class HtmlViews
                 {{password}}
             </form>
             {{TotpPanel(context, user, recoveryCodes)}}
+            {{AppDevicesCard(context, user)}}
             """;
     }
 

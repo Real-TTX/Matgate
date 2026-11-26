@@ -27806,7 +27806,9 @@ public sealed partial class HtmlViews
 
                             event.preventDefault();
                             askToConfirm({
-                                text: form.getAttribute('data-confirm') || ''
+                                text: form.getAttribute('data-confirm') || '',
+                                // The button's word, where "Delete" is not what happens ("Sign out").
+                                ...(form.hasAttribute('data-confirm-label') ? { confirm: form.getAttribute('data-confirm-label') } : {})
                             }).then(sure => {
                                 if (!sure) {
                                     return;

@@ -451,6 +451,7 @@ public static partial class EndpointMapping
         MapFolderEndpoints(app);
         MapKeptSessionEndpoints(app);
         MapWebsiteSiteEndpoints(app);
+        MapAppEndpoints(app);
         // "app" and "version" let ThixGate recognise a Matgate when an account is added (docs/thixgate-plan.md).
         app.MapGet("/health", () => Results.Ok(new { status = "ok", app = "matgate", version = HtmlViews.ApplicationVersion() }));
         app.MapMethods("/favicon.svg", new[] { "GET", "HEAD" }, () => Results.Text(FaviconSvg, "image/svg+xml"));
@@ -5127,6 +5128,8 @@ public static partial class EndpointMapping
         // What was given to them, and their place in groups, go with them.
         await store.UpdateGrantsAsync(grants => grants.RemoveAll(grant => grant.PrincipalKind == AccessPrincipalKind.User && grant.PrincipalId == id), context.RequestAborted);
         await store.UpdateGroupsAsync(groups => groups.ForEach(group => group.MemberIds.Remove(id)), context.RequestAborted);
+        // The devices apps were allowed on for them sign out with them.
+        context.RequestServices.GetService<AppDeviceStore>()?.RemoveUser(id);
 
         await configWriter.SynchronizeAsync(context.RequestAborted);
         return Results.Redirect(EmbedAwareRedirect(context, "/admin/users"));
