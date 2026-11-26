@@ -463,7 +463,7 @@ let agent;
   await touch("pointerdown", [[1, cx, cy]]);
   await sleep(80);
   await touch("pointerup", [[1, cx, cy]]);
-  await sleep(500);
+  await sleep(800);
   check("a tap is a left click", (await touchDebug()).filter(l => /^button/.test(l)), ["button 0 down", "button 0 up"]);
   await touch("pointerdown", [[1, cx, cy]]);
   await sleep(350);
@@ -538,18 +538,23 @@ let agent;
   check("direct touch clicks where the finger is", [dx < 40 && dy < 40, direct.filter(l => /^button/.test(l))], [true, ["button 0 down", "button 0 up"]]);
   // Tap, then touch again and hold: the left button stays down (to select), holding still is no right click;
   // moving drags, lifting lets go.
-  const holdAfterTap = async (x, y, taps) => {
-    await sleep(700);
+  // tapMs: how long each tap rests; offset: how far from the tap the finger touches again. The ring for a right
+  // click never shows meanwhile.
+  const holdAfterTap = async (x, y, taps, tapMs = 60, offset = 0) => {
+    await sleep(900);
     await touchDebug();
     for (let i = 0; i < taps; i++) {
       await touch("pointerdown", [[1, x, y]]);
-      await sleep(60);
+      await sleep(tapMs);
       await touch("pointerup", [[1, x, y]]);
       await sleep(120);
     }
-    await touch("pointerdown", [[1, x, y]]);
-    await sleep(900);
+    await touch("pointerdown", [[1, x + offset, y]]);
+    let ring = false;
+    for (let i = 0; i < 9; i++) { await sleep(100); ring = ring || await tapPage.evaluate(() => document.querySelector(".hold-ring").classList.contains("show")); }
+    x += offset;
     const held = (await touchDebug()).filter(l => /^button/.test(l));
+    if (ring) { held.push("ring"); }
     for (let step = 1; step <= 4; step++) { await touch("pointermove", [[1, x + step * 12, y]]); await sleep(30); }
     await touch("pointerup", [[1, x + 48, y]]);
     await sleep(400);
@@ -561,6 +566,20 @@ let agent;
   await tapPage.evaluate(() => window.MatgateScreen.setPointerMode("touchpad"));
   check("touchpad: tap, then hold - the same, at the cursor", await holdAfterTap(px, py, 1), [[...tapsThen(1), "button 0 down"], true, ["button 0 up"]]);
   check("touchpad: tap, tap, then hold - the same", await holdAfterTap(px, py, 2), [[...tapsThen(2), "button 0 down"], true, ["button 0 up"]]);
+  check("touchpad: a slow tap (350 ms), then hold - the same, no ring", await holdAfterTap(px, py, 1, 350), [[...tapsThen(1), "button 0 down"], true, ["button 0 up"]]);
+  check("touchpad: touching again elsewhere on the pad - the same", await holdAfterTap(px, py, 2, 60, 120), [[...tapsThen(2), "button 0 down"], true, ["button 0 up"]]);
+  await tapPage.evaluate(() => window.MatgateScreen.setPointerMode("direct"));
+  check("direct: a slow tap, then hold - the same, no ring", await holdAfterTap(px, py, 1, 350), [[...tapsThen(1), "button 0 down"], true, ["button 0 up"]]);
+  check("direct: tap, tap, then hold a little off - the same", await holdAfterTap(px, py, 2, 60, 40), [[...tapsThen(2), "button 0 down"], true, ["button 0 up"]]);
+  // Holding still with nothing tapped before: still the right click, with its ring.
+  await sleep(900);
+  await touchDebug();
+  await touch("pointerdown", [[1, px, py]]);
+  let plainRing = false;
+  for (let i = 0; i < 9; i++) { await sleep(100); plainRing = plainRing || await tapPage.evaluate(() => document.querySelector(".hold-ring").classList.contains("show")); }
+  await touch("pointerup", [[1, px, py]]);
+  await sleep(300);
+  check("holding still without a tap before: the ring and the right click", [plainRing, (await touchDebug()).filter(l => /^button/.test(l))], [true, ["button 2 down", "button 2 up"]]);
   await tapPage.evaluate(() => window.MatgateScreen.setPointerMode("direct"));
   await tapPage.screenshot({ path: path.join(work, "screen-phone.png") });
   await view.screenshot({ path: path.join(work, "screen-desktop.png") });

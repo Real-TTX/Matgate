@@ -1144,16 +1144,45 @@ public static class AgentScreenPage
             let lastTap = { time: 0, x: 0, y: 0 };
             // Tap, then touch again within this time and this near: the left button goes down and stays down while the
             // finger does - to select text or move something, as on a laptop's trackpad. Also after a double tap (tap,
-            // tap, hold). Holding still then is not a right click.
-            const dragWindowMs = 500;
-            const dragRadius = 60;
-            const tapAgain = event => performance.now() - lastTap.time < dragWindowMs && Math.hypot(event.clientX - lastTap.x, event.clientY - lastTap.y) < dragRadius;
+            // tap, hold). Holding still then is not a right click - and right after a tap a finger never makes one:
+            // the ring does not even show. On the touchpad it does not matter where the finger touches again (as on a
+            // laptop's); touching the picture directly, a touch somewhere else is a new tap.
+            const dragWindowMs = 600;
+            const recentTap = () => performance.now() - lastTap.time < dragWindowMs;
+            const tapAgain = event => recentTap() && (pointerMode === 'touchpad' || Math.hypot(event.clientX - lastTap.x, event.clientY - lastTap.y) < 80);
             // How a finger makes a right click (Settings - Sessions): holding it still, tapping with two fingers, or
             // either; and how long holding takes.
             const rightClickMode = ['both', 'two', 'long'].includes(document.body.dataset.rightClick) ? document.body.dataset.rightClick : 'both';
             const holdMs = Math.min(1500, Math.max(300, parseInt(document.body.dataset.holdMs, 10) || 550));
             const holdRightClicks = rightClickMode !== 'two';
             const twoFingerRightClicks = rightClickMode !== 'long';
+            // How long a finger may rest and still have tapped: until holding would right-click (without that, a
+            // little longer than a quick tap).
+            const tapMs = holdRightClicks ? holdMs : 500;
+            const wasTap = () => !gesture.moved && performance.now() - gesture.start < tapMs;
+            // Touching again presses the left button a moment later (or as soon as the finger moves or lifts): a second
+            // finger in that moment makes it a two-finger gesture without a stray left click.
+            let pendingPress = null;
+            let pressTimer = 0;
+            const pressNow = () => {
+                window.clearTimeout(pressTimer);
+                if (pendingPress) {
+                    const press = pendingPress;
+                    pendingPress = null;
+                    press();
+                }
+            };
+            const pressSoon = press => {
+                pendingPress = press;
+                window.clearTimeout(pressTimer);
+                pressTimer = window.setTimeout(pressNow, 100);
+            };
+            const dropPress = () => {
+                window.clearTimeout(pressTimer);
+                const pending = !!pendingPress;
+                pendingPress = null;
+                return pending;
+            };
             // The ring that fills while a finger is held: it appears after a moment (a tap shows nothing) and is
             // full exactly when the right click happens.
             const holdRing = document.createElement('div');
@@ -1293,7 +1322,7 @@ public static class AgentScreenPage
                     // Tap, then touch again: dragging with the left button, as on a laptop's trackpad.
                     if (tapAgain(event)) {
                         gesture.dragging = true;
-                        buttonAtCursor(0, true);
+                        pressSoon(() => buttonAtCursor(0, true));
                     }
                     if (holdRightClicks && !gesture.dragging) {
                         const at = cursorOnScreen();
@@ -1312,11 +1341,15 @@ public static class AgentScreenPage
                     if (tapAgain(event)) {
                         // Tap, then touch again: the left button down right here, held as long as the finger is.
                         gesture.dragging = true;
-                        queueMove(event.clientX, event.clientY);
-                        flushMove();
-                        button(0, true);
+                        const x = event.clientX;
+                        const y = event.clientY;
+                        pressSoon(() => {
+                            queueMove(x, y);
+                            flushMove();
+                            button(0, true);
+                        });
                     }
-                    else if (holdRightClicks) {
+                    else if (holdRightClicks && !recentTap()) {
                         showRingAt(event.clientX, event.clientY);
                         longPress = window.setTimeout(() => {
                             if (gesture && gesture.kind === 'one' && !gesture.moved) {
@@ -1329,7 +1362,7 @@ public static class AgentScreenPage
                 }
                 else if (touches.size === 2) {
                     hideRing();
-                    if (gesture && gesture.dragging) {
+                    if (gesture && gesture.dragging && !dropPress()) {
                         button(0, false);
                     }
                     window.clearTimeout(longPress);
@@ -1376,6 +1409,7 @@ public static class AgentScreenPage
                         hideRing();
                     }
                     if (gesture.moved) {
+                        pressNow();
                         moveCursorBy(dx, dy);
                     }
                     return;
@@ -1395,6 +1429,7 @@ public static class AgentScreenPage
                         }
                     }
                     if (gesture.dragging) {
+                        pressNow();
                         queueMove(touch.x, touch.y);
                     }
                 }
@@ -1474,11 +1509,12 @@ public static class AgentScreenPage
                 }
                 if (gesture.kind === 'pad') {
                     if (gesture.dragging) {
+                        pressNow();
                         button(0, false);
                         // Down and up again without moving: the second tap of a double tap - a third touch then drags.
-                        lastTap = !gesture.moved && performance.now() - gesture.start < 300 ? { time: performance.now(), x: event.clientX, y: event.clientY } : { time: 0, x: 0, y: 0 };
+                        lastTap = wasTap() ? { time: performance.now(), x: event.clientX, y: event.clientY } : { time: 0, x: 0, y: 0 };
                     }
-                    else if (!gesture.moved && performance.now() - gesture.start < 300) {
+                    else if (wasTap()) {
                         clickAtCursor(0);
                         lastTap = { time: performance.now(), x: event.clientX, y: event.clientY };
                     }
@@ -1500,9 +1536,10 @@ public static class AgentScreenPage
                 }
                 if (gesture.kind === 'one') {
                     if (gesture.dragging) {
+                        pressNow();
                         queueMove(event.clientX, event.clientY);
                         button(0, false);
-                        lastTap = !gesture.moved && performance.now() - gesture.start < 300 ? { time: performance.now(), x: event.clientX, y: event.clientY } : { time: 0, x: 0, y: 0 };
+                        lastTap = wasTap() ? { time: performance.now(), x: event.clientX, y: event.clientY } : { time: 0, x: 0, y: 0 };
                     }
                     else if (!gesture.moved) {
                         tap(event.clientX, event.clientY, 0);
