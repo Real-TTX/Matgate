@@ -2,7 +2,7 @@ using System.Data.Common;
 using System.Globalization;
 using System.Text.Json;
 using System.Xml.Linq;
-using Matgate.Models;
+
 
 namespace Matgate.Services.Database;
 
@@ -31,7 +31,7 @@ public sealed record DbPlan(string Shape, IReadOnlyList<PlanNode> Nodes, DbResul
 // let the others run as they are.
 public sealed partial class DatabaseGateway
 {
-    public async Task<DbPlan> PlanAsync(ServerEndpoint server, string user, string password, string? database, string sql, bool analyze, bool readOnly, bool german, CancellationToken cancellationToken)
+    public async Task<DbPlan> PlanAsync(DatabaseTarget server, string user, string password, string? database, string sql, bool analyze, bool readOnly, bool german, CancellationToken cancellationToken)
     {
         sql = sql.Trim().TrimEnd(';').Trim();
         if (!ReadOnlySql.IsSingleStatement(sql, server.Protocol))
@@ -48,8 +48,8 @@ public sealed partial class DatabaseGateway
         await using var connection = await OpenAsync(dialect, server, user, password, database, cancellationToken);
         return server.Protocol switch
         {
-            ServerProtocol.Postgres => await PostgresPlanAsync(connection, sql, analyze, readOnly, german, cancellationToken),
-            ServerProtocol.MsSql => await SqlServerPlanAsync(connection, sql, german, cancellationToken),
+            DatabaseEngine.Postgres => await PostgresPlanAsync(connection, sql, analyze, readOnly, german, cancellationToken),
+            DatabaseEngine.MsSql => await SqlServerPlanAsync(connection, sql, german, cancellationToken),
             _ => await MySqlPlanAsync(connection, sql, cancellationToken),
         };
     }
@@ -87,7 +87,7 @@ public sealed partial class DatabaseGateway
     {
         if (analyze)
         {
-            await ExecuteAsync(connection, readOnly ? ReadOnlySql.Begin(ServerProtocol.Postgres) : "BEGIN", cancellationToken);
+            await ExecuteAsync(connection, readOnly ? ReadOnlySql.Begin(DatabaseEngine.Postgres) : "BEGIN", cancellationToken);
         }
 
         string json;

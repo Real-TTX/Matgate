@@ -31,7 +31,10 @@ public static partial class EndpointMapping
         app.MapPost("/api/db/{id:guid}/plan", DatabasePlanAsync).RequireAuthorization();
     }
 
-    private sealed record DatabaseAccess(ServerEndpoint Server, MatgateUser User, string Login, string Password);
+    private sealed record DatabaseAccess(ServerEndpoint Server, MatgateUser User, string Login, string Password)
+    {
+        public DatabaseTarget Target { get; } = DatabaseTargets.Of(Server);
+    }
 
     private static async Task<(DatabaseAccess? Access, IResult? Result)> RequireDatabaseAsync(Guid id, HttpContext context, JsonDataStore store, bool api)
     {
@@ -128,14 +131,14 @@ public static partial class EndpointMapping
     private static Task<IResult> DatabaseListAsync(Guid id, HttpContext context, JsonDataStore store) =>
         DatabaseRunAsync(id, context, store, async access => new
         {
-            databases = await Databases.DatabasesAsync(access.Server, access.Login, access.Password, context.RequestAborted),
+            databases = await Databases.DatabasesAsync(access.Target, access.Login, access.Password, context.RequestAborted),
             current = access.Server.DatabaseName,
         });
 
     private static Task<IResult> DatabaseObjectsAsync(Guid id, HttpContext context, JsonDataStore store) =>
         DatabaseRunAsync(id, context, store, async access => new
         {
-            objects = await Databases.ObjectsAsync(access.Server, access.Login, access.Password, context.Request.Query["db"].ToString(), context.RequestAborted),
+            objects = await Databases.ObjectsAsync(access.Target, access.Login, access.Password, context.Request.Query["db"].ToString(), context.RequestAborted),
         });
 
     private static Task<IResult> DatabaseRowsAsync(Guid id, HttpContext context, JsonDataStore store) =>
@@ -144,7 +147,7 @@ public static partial class EndpointMapping
             var query = context.Request.Query;
             var order = query["order"].ToString();
             return await Databases.RowsAsync(
-                access.Server, access.Login, access.Password,
+                access.Target, access.Login, access.Password,
                 query["db"].ToString(), query["schema"].ToString(), query["table"].ToString(),
                 int.TryParse(query["offset"], out var offset) ? offset : 0,
                 int.TryParse(query["limit"], out var limit) ? limit : 100,
@@ -175,7 +178,7 @@ public static partial class EndpointMapping
             try
             {
                 var batch = await Databases.BatchAsync(
-                    access.Server, access.Login, access.Password, database.Length > 0 ? database : null, sql,
+                    access.Target, access.Login, access.Password, database.Length > 0 ? database : null, sql,
                     IsReadOnlyFor(access.User, access.Server), HtmlViews.Language(context) == "de", cancel.Token);
                 var first = batch.Results.FirstOrDefault();
                 // The first result's fields at the top, as before 0.44.0; every result in "results".
@@ -227,13 +230,13 @@ public static partial class EndpointMapping
         DatabaseRunAsync(id, context, store, async access =>
         {
             var query = context.Request.Query;
-            return await Databases.TableAsync(access.Server, access.Login, access.Password, query["db"].ToString(), query["schema"].ToString(), query["table"].ToString(), context.RequestAborted);
+            return await Databases.TableAsync(access.Target, access.Login, access.Password, query["db"].ToString(), query["schema"].ToString(), query["table"].ToString(), context.RequestAborted);
         });
 
     private static Task<IResult> DatabaseRoutinesAsync(Guid id, HttpContext context, JsonDataStore store) =>
         DatabaseRunAsync(id, context, store, async access => new
         {
-            routines = await Databases.RoutinesAsync(access.Server, access.Login, access.Password, context.Request.Query["db"].ToString(), context.RequestAborted),
+            routines = await Databases.RoutinesAsync(access.Target, access.Login, access.Password, context.Request.Query["db"].ToString(), context.RequestAborted),
         });
 
     private static Task<IResult> DatabaseScriptAsync(Guid id, HttpContext context, JsonDataStore store) =>
@@ -242,7 +245,7 @@ public static partial class EndpointMapping
             var query = context.Request.Query;
             return new
             {
-                script = await Databases.ScriptAsync(access.Server, access.Login, access.Password, query["db"].ToString(), query["kind"].ToString(), query["schema"].ToString(), query["name"].ToString(), context.RequestAborted),
+                script = await Databases.ScriptAsync(access.Target, access.Login, access.Password, query["db"].ToString(), query["kind"].ToString(), query["schema"].ToString(), query["name"].ToString(), context.RequestAborted),
             };
         });
 
@@ -277,15 +280,15 @@ public static partial class EndpointMapping
 
             var db = request.Db ?? "";
             var schema = request.Schema ?? "";
-            var original = string.IsNullOrEmpty(request.Table) ? null : await Databases.TableAsync(access.Server, access.Login, access.Password, db, schema, request.Table, context.RequestAborted);
+            var original = string.IsNullOrEmpty(request.Table) ? null : await Databases.TableAsync(access.Target, access.Login, access.Password, db, schema, request.Table, context.RequestAborted);
             if (original is { Columns.Count: 0 })
             {
                 throw new DatabaseException(german ? "Die Tabelle gibt es nicht (mehr)." : "The table does not exist (any more).");
             }
 
-            var statements = TableDesigner.Statements(access.Server.Protocol, schema, request.Table, original, request.Design, german);
+            var statements = TableDesigner.Statements(access.Target.Protocol, schema, request.Table, original, request.Design, german);
             var ran = request.Apply && statements.Count > 0
-                ? await Databases.ApplyAsync(access.Server, access.Login, access.Password, db.Length > 0 ? db : null, statements, german, context.RequestAborted)
+                ? await Databases.ApplyAsync(access.Target, access.Login, access.Password, db.Length > 0 ? db : null, statements, german, context.RequestAborted)
                 : 0;
             return new { statements, applied = request.Apply, ran };
         });
@@ -322,10 +325,10 @@ public static partial class EndpointMapping
 
             var db = request.Db ?? "";
             var schema = request.Schema ?? "";
-            var info = await Databases.TableAsync(access.Server, access.Login, access.Password, db, schema, request.Table, context.RequestAborted);
-            var statements = DatabaseGateway.RowStatements(access.Server.Protocol, schema, request.Table, info, request.Changes, german);
+            var info = await Databases.TableAsync(access.Target, access.Login, access.Password, db, schema, request.Table, context.RequestAborted);
+            var statements = DatabaseGateway.RowStatements(access.Target.Protocol, schema, request.Table, info, request.Changes, german);
             var ran = request.Apply && statements.Count > 0
-                ? await Databases.ApplyRowsAsync(access.Server, access.Login, access.Password, db.Length > 0 ? db : null, info, statements, german, context.RequestAborted)
+                ? await Databases.ApplyRowsAsync(access.Target, access.Login, access.Password, db.Length > 0 ? db : null, info, statements, german, context.RequestAborted)
                 : 0;
             return new { statements = statements.Select(statement => statement.Preview), applied = request.Apply, ran };
         });
@@ -339,8 +342,8 @@ public static partial class EndpointMapping
             var form = await context.Request.ReadFormAsync(context.RequestAborted);
             var database = form["db"].ToString();
             return await Databases.PlanAsync(
-                access.Server, access.Login, access.Password, database.Length > 0 ? database : null, form["sql"].ToString(),
-                form["analyze"] == "1" && access.Server.Protocol == ServerProtocol.Postgres,
+                access.Target, access.Login, access.Password, database.Length > 0 ? database : null, form["sql"].ToString(),
+                form["analyze"] == "1" && access.Target.Protocol == DatabaseEngine.Postgres,
                 IsReadOnlyFor(access.User, access.Server), HtmlViews.Language(context) == "de", context.RequestAborted);
         });
 
@@ -379,7 +382,7 @@ public static partial class EndpointMapping
         try
         {
             await Databases.ExportAsync(
-                access.Server, access.Login, access.Password, database.Length > 0 ? database : null, sql,
+                access.Target, access.Login, access.Password, database.Length > 0 ? database : null, sql,
                 IsReadOnlyFor(access.User, access.Server), german, MaxExportRows,
                 async columns =>
                 {

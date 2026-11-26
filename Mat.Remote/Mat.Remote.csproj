@@ -1,7 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    Mat.Remote: Matgate's own remote engine (RDP, VNC, sound, clipboard, the H.264 encoder), without ASP.NET.
+    Mat.Remote: Matgate's own remote engine (RDP, VNC, sound, clipboard, the H.264 encoder) and its clients for files (SFTP, FTP, SMB, WebDAV)
+    and databases (SQL Server, MySQL, PostgreSQL), without ASP.NET.
     Used by Matgate (server: picture as H.264 to the browser) and by ThixGate (desktop: picture drawn directly).
     The namespaces stay Matgate.Display.* so that Matgate's code and data are unchanged by the move.
   -->
@@ -16,6 +17,17 @@
   <ItemGroup>
     <!-- Matgate's ScreenSession sets the encoder up through internal members (ScreenQuality.EncoderOptions). -->
     <InternalsVisibleTo Include="Matgate" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- File connections (Files/RemoteFiles) and databases (Database/): the same clients for Matgate and ThixGate. -->
+    <PackageReference Include="FluentFTP" Version="54.1.2" />
+    <PackageReference Include="Microsoft.Data.SqlClient" Version="7.1.2" />
+    <PackageReference Include="MySqlConnector" Version="3.0.0" />
+    <PackageReference Include="Npgsql" Version="11.0.0" />
+    <PackageReference Include="SMBLibrary" Version="1.5.7" />
+    <PackageReference Include="SSH.NET" Version="2026.0.0" />
+    <PackageReference Include="SharpCompress" Version="0.48.0" />
   </ItemGroup>
 
 </Project>

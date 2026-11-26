@@ -226,7 +226,8 @@ public static partial class EndpointMapping
     }
 
     // The relay: a WebSocket over which Matgate opens one TCP connection to the host and port of exactly this
-    // connection - no other address, so it is no open proxy. It needs "Connect" on the connection (AppLibrary.CanUse);
+    // connection (a website: those of its address) - no other address, so it is no open proxy. Every protocol of the
+    // app library but FTP (its data goes over further connections). It needs "Connect" on the connection (AppLibrary.CanUse);
     // through a tunnel when the connection goes through one. The app runs its own engine over it, with its own login.
     private static async Task AppRelayAsync(Guid id, HttpContext context, JsonDataStore store, AppDeviceStore devices)
     {
@@ -244,7 +245,7 @@ public static partial class EndpointMapping
         }
 
         var server = await store.FindServerByIdAsync(id, context.RequestAborted);
-        if (server is null || !AppLibrary.CanUse(user, server))
+        if (server is null || !AppLibrary.CanUse(user, server) || !AppLibrary.IsRelayProtocol(server.Protocol))
         {
             context.Response.StatusCode = StatusCodes.Status404NotFound;
             return;
@@ -271,7 +272,8 @@ public static partial class EndpointMapping
         {
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(context.RequestAborted);
             timeout.CancelAfter(TimeSpan.FromSeconds(15));
-            await tcp.ConnectAsync(target.Host, target.Port, timeout.Token);
+            var (host, port) = AppLibrary.RelayTarget(target);
+            await tcp.ConnectAsync(host, port, timeout.Token);
         }
         catch (Exception exception) when (exception is SocketException or OperationCanceledException)
         {

@@ -1,7 +1,7 @@
 using System.Data.Common;
 using System.Diagnostics;
 using System.Globalization;
-using Matgate.Models;
+
 using Microsoft.Data.SqlClient;
 using MySqlConnector;
 using Npgsql;
@@ -28,7 +28,7 @@ public sealed class DatabaseException(string message, Exception? inner = null) :
 // them and lives in DatabaseGateway, as the file connections share FileGatewayService.
 public interface IDatabaseDialect
 {
-    DbConnection Create(ServerEndpoint server, string user, string password, string? database);
+    DbConnection Create(DatabaseTarget server, string user, string password, string? database);
 
     string ListDatabases { get; }
 
@@ -45,7 +45,7 @@ public interface IDatabaseDialect
 
 public sealed class SqlServerDialect : IDatabaseDialect
 {
-    public DbConnection Create(ServerEndpoint server, string user, string password, string? database) =>
+    public DbConnection Create(DatabaseTarget server, string user, string password, string? database) =>
         new SqlConnection(new SqlConnectionStringBuilder
         {
             DataSource = $"{server.Host},{server.Port}",
@@ -55,7 +55,7 @@ public sealed class SqlServerDialect : IDatabaseDialect
             Encrypt = SqlConnectionEncryptOption.Mandatory,
             TrustServerCertificate = server.IgnoreCertificate,
             ConnectTimeout = 15,
-            ApplicationName = "Matgate",
+            ApplicationName = server.ApplicationName,
             Pooling = false,
         }.ConnectionString);
 
@@ -71,7 +71,7 @@ public sealed class SqlServerDialect : IDatabaseDialect
 
 public sealed class MySqlDialect : IDatabaseDialect
 {
-    public DbConnection Create(ServerEndpoint server, string user, string password, string? database) =>
+    public DbConnection Create(DatabaseTarget server, string user, string password, string? database) =>
         new MySqlConnection(new MySqlConnectionStringBuilder
         {
             Server = server.Host,
@@ -97,7 +97,7 @@ public sealed class MySqlDialect : IDatabaseDialect
 
 public sealed class PostgresDialect : IDatabaseDialect
 {
-    public DbConnection Create(ServerEndpoint server, string user, string password, string? database) =>
+    public DbConnection Create(DatabaseTarget server, string user, string password, string? database) =>
         new NpgsqlConnection(new NpgsqlConnectionStringBuilder
         {
             Host = server.Host,
@@ -107,7 +107,7 @@ public sealed class PostgresDialect : IDatabaseDialect
             Database = string.IsNullOrEmpty(database) ? "postgres" : database,
             SslMode = SslMode.Prefer,
             Timeout = 15,
-            ApplicationName = "Matgate",
+            ApplicationName = server.ApplicationName,
             Pooling = false,
         }.ConnectionString);
 
@@ -126,22 +126,22 @@ public sealed partial class DatabaseGateway
     public const int MaxRows = 1000;
     public const int MaxCellLength = 4000;
 
-    public static IDatabaseDialect DialectOf(ServerProtocol protocol) => protocol switch
+    public static IDatabaseDialect DialectOf(DatabaseEngine protocol) => protocol switch
     {
-        ServerProtocol.MsSql => new SqlServerDialect(),
-        ServerProtocol.MySql => new MySqlDialect(),
-        ServerProtocol.Postgres => new PostgresDialect(),
+        DatabaseEngine.MsSql => new SqlServerDialect(),
+        DatabaseEngine.MySql => new MySqlDialect(),
+        DatabaseEngine.Postgres => new PostgresDialect(),
         _ => throw new DatabaseException("Not a database connection."),
     };
 
-    public async Task<List<string>> DatabasesAsync(ServerEndpoint server, string user, string password, CancellationToken cancellationToken)
+    public async Task<List<string>> DatabasesAsync(DatabaseTarget server, string user, string password, CancellationToken cancellationToken)
     {
         var dialect = DialectOf(server.Protocol);
         var result = await RunAsync(server, user, password, null, dialect.ListDatabases, MaxRows, null, cancellationToken);
         return [.. result.Rows.Select(row => row[0] ?? "").Where(name => name.Length > 0)];
     }
 
-    public async Task<List<DbObject>> ObjectsAsync(ServerEndpoint server, string user, string password, string database, CancellationToken cancellationToken)
+    public async Task<List<DbObject>> ObjectsAsync(DatabaseTarget server, string user, string password, string database, CancellationToken cancellationToken)
     {
         var dialect = DialectOf(server.Protocol);
         var result = await RunAsync(server, user, password, database, dialect.ListObjects, 20000, new() { ["db"] = database }, cancellationToken);
@@ -154,7 +154,7 @@ public sealed partial class DatabaseGateway
     // One page of a table, ordered by one of its columns. The column is taken only when the table has it - a
     // name from the browser is never written into a statement unchecked.
     public async Task<DbResult> RowsAsync(
-        ServerEndpoint server, string user, string password, string database,
+        DatabaseTarget server, string user, string password, string database,
         string schema, string table, int offset, int limit, string? orderColumn, bool descending,
         CancellationToken cancellationToken)
     {
@@ -186,7 +186,7 @@ public sealed partial class DatabaseGateway
     // login may do. The rows of the first result are read, up to MaxRows.
     // Read-only (the user may only read this connection): see ReadOnlySql - checked before, and run inside a
     // read-only transaction that is rolled back after.
-    public async Task<DbResult> QueryAsync(ServerEndpoint server, string user, string password, string? database, string sql, bool readOnly, bool german, CancellationToken cancellationToken)
+    public async Task<DbResult> QueryAsync(DatabaseTarget server, string user, string password, string? database, string sql, bool readOnly, bool german, CancellationToken cancellationToken)
     {
         if (!readOnly)
         {
@@ -234,7 +234,7 @@ public sealed partial class DatabaseGateway
     }
 
     private static async Task<DbResult> RunAsync(
-        ServerEndpoint server, string user, string password, string? database, string sql, int maxRows,
+        DatabaseTarget server, string user, string password, string? database, string sql, int maxRows,
         Dictionary<string, object>? parameters, CancellationToken cancellationToken)
     {
         var dialect = DialectOf(server.Protocol);
@@ -242,7 +242,7 @@ public sealed partial class DatabaseGateway
         return await ReadAsync(connection, sql, maxRows, parameters, cancellationToken);
     }
 
-    private static async Task<DbConnection> OpenAsync(IDatabaseDialect dialect, ServerEndpoint server, string user, string password, string? database, CancellationToken cancellationToken)
+    private static async Task<DbConnection> OpenAsync(IDatabaseDialect dialect, DatabaseTarget server, string user, string password, string? database, CancellationToken cancellationToken)
     {
         var chosen = string.IsNullOrWhiteSpace(database) ? (string.IsNullOrWhiteSpace(server.DatabaseName) ? null : server.DatabaseName) : database;
         var connection = dialect.Create(server, user, password, chosen);

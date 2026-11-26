@@ -1,5 +1,5 @@
 using System.Text;
-using Matgate.Models;
+
 
 namespace Matgate.Services.Database;
 
@@ -22,7 +22,7 @@ public sealed partial class DatabaseGateway
 {
     private const int CatalogRows = 20000;
 
-    private async Task<List<string?[]>> CatalogAsync(ServerEndpoint server, string user, string password, string database, string sql, Dictionary<string, object> parameters, CancellationToken cancellationToken)
+    private async Task<List<string?[]>> CatalogAsync(DatabaseTarget server, string user, string password, string database, string sql, Dictionary<string, object> parameters, CancellationToken cancellationToken)
     {
         var result = await RunAsync(server, user, password, database, sql, CatalogRows, parameters, cancellationToken);
         return [.. result.Rows];
@@ -30,12 +30,12 @@ public sealed partial class DatabaseGateway
 
     private static bool Flag(string? value) => value is "1" or "true" or "True" or "t" or "YES";
 
-    public async Task<DbTableInfo> TableAsync(ServerEndpoint server, string user, string password, string database, string schema, string table, CancellationToken cancellationToken)
+    public async Task<DbTableInfo> TableAsync(DatabaseTarget server, string user, string password, string database, string schema, string table, CancellationToken cancellationToken)
     {
         var parameters = new Dictionary<string, object> { ["db"] = database, ["schema"] = schema, ["table"] = table };
         var (columnsSql, indexesSql, keysSql) = server.Protocol switch
         {
-            ServerProtocol.Postgres => (
+            DatabaseEngine.Postgres => (
                 """
                 SELECT a.attname, format_type(a.atttypid, a.atttypmod), CASE WHEN a.attnotnull THEN 0 ELSE 1 END, pg_get_expr(d.adbin, d.adrelid),
                        CASE WHEN EXISTS (SELECT 1 FROM pg_index i WHERE i.indrelid = c.oid AND i.indisprimary AND a.attnum = ANY(i.indkey)) THEN 1 ELSE 0 END,
@@ -65,7 +65,7 @@ public sealed partial class DatabaseGateway
                 WHERE con.contype = 'f' AND n.nspname = @schema AND c.relname = @table
                 ORDER BY con.conname
                 """),
-            ServerProtocol.MySql => (
+            DatabaseEngine.MySql => (
                 """
                 SELECT COLUMN_NAME, COLUMN_TYPE, CASE WHEN IS_NULLABLE = 'YES' THEN 1 ELSE 0 END, COLUMN_DEFAULT,
                        CASE WHEN COLUMN_KEY = 'PRI' THEN 1 ELSE 0 END, CASE WHEN EXTRA LIKE '%auto_increment%' THEN 1 ELSE 0 END
@@ -144,18 +144,18 @@ public sealed partial class DatabaseGateway
         return new DbTableInfo(columns, indexes, keys);
     }
 
-    public async Task<List<DbRoutine>> RoutinesAsync(ServerEndpoint server, string user, string password, string database, CancellationToken cancellationToken)
+    public async Task<List<DbRoutine>> RoutinesAsync(DatabaseTarget server, string user, string password, string database, CancellationToken cancellationToken)
     {
         var sql = server.Protocol switch
         {
-            ServerProtocol.Postgres => """
+            DatabaseEngine.Postgres => """
                 SELECT n.nspname, p.proname, CASE p.prokind WHEN 'p' THEN 'procedure' ELSE 'function' END
                 FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
                 LEFT JOIN pg_depend d ON d.objid = p.oid AND d.deptype = 'e'
                 WHERE n.nspname NOT IN ('pg_catalog', 'information_schema') AND n.nspname NOT LIKE 'pg_toast%' AND p.prokind IN ('f', 'p') AND d.objid IS NULL
                 ORDER BY n.nspname, p.proname
                 """,
-            ServerProtocol.MySql => """
+            DatabaseEngine.MySql => """
                 SELECT ROUTINE_SCHEMA, ROUTINE_NAME, LOWER(ROUTINE_TYPE) FROM information_schema.ROUTINES WHERE ROUTINE_SCHEMA = @db ORDER BY ROUTINE_NAME
                 """,
             _ => """
@@ -170,11 +170,11 @@ public sealed partial class DatabaseGateway
 
     // An object as the statement that makes it. Views, procedures and functions as the server keeps them; a table
     // from its columns, keys and indexes (MySQL says it itself).
-    public async Task<string> ScriptAsync(ServerEndpoint server, string user, string password, string database, string kind, string schema, string name, CancellationToken cancellationToken)
+    public async Task<string> ScriptAsync(DatabaseTarget server, string user, string password, string database, string kind, string schema, string name, CancellationToken cancellationToken)
     {
         var dialect = DialectOf(server.Protocol);
         var parameters = new Dictionary<string, object> { ["db"] = database, ["schema"] = schema, ["name"] = name };
-        if (server.Protocol == ServerProtocol.MySql)
+        if (server.Protocol == DatabaseEngine.MySql)
         {
             var what = kind switch { "view" => "VIEW", "procedure" => "PROCEDURE", "function" => "FUNCTION", _ => "TABLE" };
             var shown = await RunAsync(server, user, password, database, $"SHOW CREATE {what} {dialect.Table(schema, name)}", 1, null, cancellationToken);
@@ -184,21 +184,21 @@ public sealed partial class DatabaseGateway
 
         if (kind is "view" or "procedure" or "function")
         {
-            var sql = server.Protocol == ServerProtocol.Postgres
+            var sql = server.Protocol == DatabaseEngine.Postgres
                 ? kind == "view"
                     ? "SELECT 'CREATE OR REPLACE VIEW ' || quote_ident(@schema) || '.' || quote_ident(@name) || ' AS' || chr(10) || pg_get_viewdef((quote_ident(@schema) || '.' || quote_ident(@name))::regclass, true)"
                     : "SELECT pg_get_functiondef(p.oid) FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace WHERE n.nspname = @schema AND p.proname = @name ORDER BY p.oid LIMIT 1"
                 : "SELECT OBJECT_DEFINITION(OBJECT_ID(QUOTENAME(@schema) + '.' + QUOTENAME(@name)))";
             var result = await RunAsync(server, user, password, database, sql, 1, parameters, cancellationToken);
             var text = result.Rows.Count > 0 ? result.Rows[0][0] ?? "" : "";
-            return text.TrimEnd() + (server.Protocol == ServerProtocol.MsSql ? "\nGO" : ";");
+            return text.TrimEnd() + (server.Protocol == DatabaseEngine.MsSql ? "\nGO" : ";");
         }
 
         var info = await TableAsync(server, user, password, database, schema, name, cancellationToken);
         return TableScript(server.Protocol, dialect, schema, name, info);
     }
 
-    internal static string TableScript(ServerProtocol protocol, IDatabaseDialect dialect, string schema, string name, DbTableInfo info)
+    internal static string TableScript(DatabaseEngine protocol, IDatabaseDialect dialect, string schema, string name, DbTableInfo info)
     {
         var table = dialect.Table(schema, name);
         var lines = new List<string>();
@@ -206,11 +206,11 @@ public sealed partial class DatabaseGateway
         {
             var line = "    " + dialect.Quote(column.Name) + " " + column.Type;
             var serial = column.Identity && column.Default?.StartsWith("nextval(", StringComparison.OrdinalIgnoreCase) == true;
-            if (column.Identity && protocol == ServerProtocol.MsSql)
+            if (column.Identity && protocol == DatabaseEngine.MsSql)
             {
                 line += " IDENTITY(1,1)";
             }
-            else if (column.Identity && protocol == ServerProtocol.Postgres && !serial)
+            else if (column.Identity && protocol == DatabaseEngine.Postgres && !serial)
             {
                 line += " GENERATED BY DEFAULT AS IDENTITY";
             }
@@ -235,7 +235,7 @@ public sealed partial class DatabaseGateway
         foreach (var index in info.Indexes.Where(index => !index.Primary))
         {
             script.Append('\n');
-            script.Append(protocol == ServerProtocol.Postgres && index.Definition.Length > 0
+            script.Append(protocol == DatabaseEngine.Postgres && index.Definition.Length > 0
                 ? index.Definition + ";"
                 : "CREATE " + (index.Unique ? "UNIQUE " : "") + "INDEX " + dialect.Quote(index.Name) + " ON " + table + " (" + QuotedList(dialect, index.Columns) + ");");
         }

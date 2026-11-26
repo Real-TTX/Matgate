@@ -1,6 +1,6 @@
 using System.Data.Common;
 using System.Globalization;
-using Matgate.Models;
+
 using Npgsql;
 using NpgsqlTypes;
 
@@ -24,7 +24,7 @@ public sealed partial class DatabaseGateway
     public const int MaxRowChanges = 500;
 
     // Columns whose values the data view does not show whole (binary data as cut hex) or that cannot be written.
-    public static bool IsEditableType(ServerProtocol protocol, string type)
+    public static bool IsEditableType(DatabaseEngine protocol, string type)
     {
         var lower = type.ToLowerInvariant();
         string[] binary = ["binary", "blob", "bytea", "image", "geometry", "geography", "hierarchyid", "rowversion", "sql_variant"];
@@ -34,10 +34,10 @@ public sealed partial class DatabaseGateway
         }
 
         // In SQL Server "timestamp" is the row's version number, set by the server.
-        return !(protocol == ServerProtocol.MsSql && lower.StartsWith("timestamp", StringComparison.Ordinal));
+        return !(protocol == DatabaseEngine.MsSql && lower.StartsWith("timestamp", StringComparison.Ordinal));
     }
 
-    public static List<RowStatement> RowStatements(ServerProtocol protocol, string schema, string table, DbTableInfo info, IReadOnlyList<RowChange> changes, bool german)
+    public static List<RowStatement> RowStatements(DatabaseEngine protocol, string schema, string table, DbTableInfo info, IReadOnlyList<RowChange> changes, bool german)
     {
         if (info.Columns.Count == 0)
         {
@@ -135,7 +135,7 @@ public sealed partial class DatabaseGateway
                     values.ForEach(entry => Writable(entry.Column));
                     if (values.Count == 0)
                     {
-                        var empty = protocol == ServerProtocol.MySql ? $"INSERT INTO {name} () VALUES ()" : $"INSERT INTO {name} DEFAULT VALUES";
+                        var empty = protocol == DatabaseEngine.MySql ? $"INSERT INTO {name} () VALUES ()" : $"INSERT INTO {name} DEFAULT VALUES";
                         statements.Add(new RowStatement("insert", empty + ";", empty, parameters));
                         break;
                     }
@@ -163,11 +163,11 @@ public sealed partial class DatabaseGateway
     }
 
     // A value as it is shown in the preview: NULL, or the text in quotes (N'...' for SQL Server's Unicode).
-    private static string Literal(ServerProtocol protocol, string? value) =>
-        value is null ? "NULL" : (protocol == ServerProtocol.MsSql ? "N'" : "'") + (protocol == ServerProtocol.MySql ? value.Replace("\\", "\\\\") : value).Replace("'", "''") + "'";
+    private static string Literal(DatabaseEngine protocol, string? value) =>
+        value is null ? "NULL" : (protocol == DatabaseEngine.MsSql ? "N'" : "'") + (protocol == DatabaseEngine.MySql ? value.Replace("\\", "\\\\") : value).Replace("'", "''") + "'";
 
     // All changes in one transaction. An UPDATE or DELETE that does not hit exactly one row undoes everything.
-    public async Task<int> ApplyRowsAsync(ServerEndpoint server, string user, string password, string? database, DbTableInfo info, IReadOnlyList<RowStatement> statements, bool german, CancellationToken cancellationToken)
+    public async Task<int> ApplyRowsAsync(DatabaseTarget server, string user, string password, string? database, DbTableInfo info, IReadOnlyList<RowStatement> statements, bool german, CancellationToken cancellationToken)
     {
         var dialect = DialectOf(server.Protocol);
         var types = info.Columns.ToDictionary(column => column.Name, column => column.Type, StringComparer.Ordinal);
@@ -226,9 +226,9 @@ public sealed partial class DatabaseGateway
 
     // PostgreSQL: the text as an untyped value, so the server reads it as it reads a literal - for every type,
     // its own ones included. SQL Server and MySQL: the text turned into the column's type first.
-    private static DbParameter Parameter(DbCommand command, ServerProtocol protocol, string name, string type, string column, string? value, bool german)
+    private static DbParameter Parameter(DbCommand command, DatabaseEngine protocol, string name, string type, string column, string? value, bool german)
     {
-        if (protocol == ServerProtocol.Postgres)
+        if (protocol == DatabaseEngine.Postgres)
         {
             return new NpgsqlParameter(name, NpgsqlDbType.Unknown) { Value = (object?)value ?? DBNull.Value };
         }
@@ -239,14 +239,14 @@ public sealed partial class DatabaseGateway
         return parameter;
     }
 
-    public static object Typed(ServerProtocol protocol, string type, string column, string value, bool german)
+    public static object Typed(DatabaseEngine protocol, string type, string column, string value, bool german)
     {
         var lower = type.ToLowerInvariant();
         var invariant = CultureInfo.InvariantCulture;
         bool Is(params string[] words) => words.Any(word => lower.StartsWith(word, StringComparison.Ordinal));
         try
         {
-            if (protocol == ServerProtocol.MsSql && Is("bit") || protocol == ServerProtocol.MySql && (lower.StartsWith("tinyint(1)", StringComparison.Ordinal) || Is("bool")))
+            if (protocol == DatabaseEngine.MsSql && Is("bit") || protocol == DatabaseEngine.MySql && (lower.StartsWith("tinyint(1)", StringComparison.Ordinal) || Is("bool")))
             {
                 return value.Trim().ToLowerInvariant() switch
                 {

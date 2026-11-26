@@ -6,7 +6,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <!-- The H.264 encoder of Matgate's own display engine is called through function pointers. -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <VersionPrefix>0.58.1</VersionPrefix>
+    <VersionPrefix>0.59.0</VersionPrefix>
   </PropertyGroup>
 
   <ItemGroup>
@@ -22,15 +22,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <PackageReference Include="FluentFTP" Version="54.1.2" />
     <PackageReference Include="Microsoft.AspNetCore.Authentication.OpenIdConnect" Version="10.0.13" />
-    <PackageReference Include="Microsoft.Data.SqlClient" Version="7.1.2" />
-    <PackageReference Include="MySqlConnector" Version="3.0.0" />
-    <PackageReference Include="Npgsql" Version="11.0.0" />
     <PackageReference Include="QRCoder" Version="1.8.0" />
-    <PackageReference Include="SMBLibrary" Version="1.5.7" />
-    <PackageReference Include="SSH.NET" Version="2026.0.0" />
-    <PackageReference Include="SharpCompress" Version="0.48.0" />
   </ItemGroup>
 
 </Project>

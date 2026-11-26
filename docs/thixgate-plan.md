@@ -41,7 +41,7 @@ Geteilt wird alles **ohne Oberfläche und ohne Server-Eigenheiten**, in drei Pak
 
 | Paket | Inhalt | Nutzen |
 |---|---|---|
-| `Mat.Remote` | RDP, VNC (Engines, Kanäle, Zwischenablage, Ton); Datei-Clients SFTP/SMB/FTP/WebDAV | eine Engine, Fehler werden einmal behoben |
+| `Mat.Remote` | RDP, VNC (Engines, Kanäle, Zwischenablage, Ton); Datei-Clients SFTP/SMB/FTP/WebDAV; Datenbanken (SQL Server, MySQL, PostgreSQL) | eine Engine, Fehler werden einmal behoben |
 | `Mat.Remote.Connections` | das **Verbindungsmodell** (Art, Host, Port, Optionen je Protokoll: Tastatur, Farbtiefe, Laufwerke, Gateway …), Ordner, „gespeicherte Zugangsdaten“ als Verweis; Prüfung und Normalisierung; daraus die Engine-Optionen bauen; **Import/Export** (`.rdp`, RDCMan, mRemoteNG) | eine Verbindung bedeutet in beiden dasselbe; Import gibt es dann auch in Matgate |
 | `Mat.Remote.Contracts` | die Typen der App-Schnittstelle (Bibliothek, Ereignisse, Durchleitung) | Matgate und ThixGate können nicht auseinanderlaufen |
 
@@ -144,11 +144,29 @@ In ThixGate: je Verbindung über Matgate (RDP/VNC) **„Sitzung auf Matgate“**
 gehen Verbindungen mit in Matgate gespeichertem Passwort und „Nur lesen“ von selbst so. Im Tab „Verbindungen“ eines
 Matgate: **Neu in Matgate, Bearbeiten, Löschen** – soweit Matgate es erlaubt.
 
-## Stufe 4 – später
+## Stufe 4 – Dateien, Datenbanken, Websites – **erledigt (Matgate 0.59.0, ThixGate 0.4)**
+
+**In Matgate:** die Datei-Clients (SFTP, FTP, SMB, WebDAV) stehen jetzt in `Mat.Remote/Files` (`RemoteFiles` mit
+`FileTarget`, dazu `FileOperations`: kopieren auch zwischen zwei Verbindungen, verschieben, umbenennen, ZIP, entpacken,
+einen Ordner hochladen), die Datenbank-Anbindung (SQL Server, MySQL, PostgreSQL: Katalog, Abfragen mit mehreren Ergebnissen,
+Abbrechen, Zeilen bearbeiten, Tabellen entwerfen, Plan, Export, Nur-lesen-Schutz) in `Mat.Remote/Database` (`DatabaseGateway`
+mit `DatabaseTarget`). Matgates `FileGatewayService` behält nur seine eigenen Ablagen (lokal, Agent) und die Prüfung auf
+Nur lesen; `FileTargets` / `DatabaseTargets` machen aus einem `ServerEndpoint` das Ziel.
+
+**App-Schnittstelle:** die Bibliothek enthält auch Dateien (`sftp`, `ftp`, `smb`, `webdav`), Websites (`website`) und
+Datenbanken (`mssql`, `mysql`, `postgres`) mit „Verbinden“ – dazu `url`, `rootPath` und `database`; Zurückschreiben
+kennt dieselben Arten und Felder. Die Durchleitung trägt alle außer FTP (das öffnet weitere Verbindungen für seine Daten); für
+eine Website geht sie zu Host und Port ihrer Adresse.
+
+**In ThixGate:** Dateimanager, SQL-Browser und Website als Tabs – mit ThixGates eigener Anmeldung (Matgate gibt kein Passwort
+heraus).
+
+## Stufe 5 – später
 
 - Zwischenablage und Ton auch für die Sitzung auf Matgate; H.264 als zweites Bildformat.
 - Ereignis-Strom statt Abfragen der Bibliothek.
-- SFTP-/SMB-Dateimanager, weitere Protokolle, iPhone/Android über Avalonia.
+- Matgates Datei-Endpunkte auf `FileOperations` umstellen (heute noch eigener Code für Kopieren, ZIP, Entpacken).
+- Websites mit Matgates Anmeldung (Browser-Farm, Proxmox), weitere Protokolle, iPhone/Android über Avalonia.
 
 ## Offene Entscheidungen
 

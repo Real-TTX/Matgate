@@ -130,7 +130,10 @@ public sealed class AppApiTests : IDisposable
         {
             new ServerEndpoint { Name = "Web", Protocol = ServerProtocol.Rdp, Host = "web.lab", Port = 3389, FolderName = "Lab/Linux", UserName = "admin", Password = "secret", Domain = "LAB" },
             new ServerEndpoint { Name = "Shell", Protocol = ServerProtocol.Ssh, Host = "ssh.lab", Port = 22, FolderName = "Lab", PrivateKey = "-----BEGIN KEY-----" },
-            new ServerEndpoint { Name = "Files", Protocol = ServerProtocol.Sftp, Host = "files.lab", FolderName = "Lab" },
+            new ServerEndpoint { Name = "Files", Protocol = ServerProtocol.Sftp, Host = "files.lab", Port = 22, FolderName = "Lab", FileRootPath = "/srv" },
+            new ServerEndpoint { Name = "Wiki", Protocol = ServerProtocol.Website, Host = "wiki.lab", WebsiteUrl = "https://wiki.lab/start", FolderName = "Lab" },
+            new ServerEndpoint { Name = "Shop-DB", Protocol = ServerProtocol.Postgres, Host = "db.lab", Port = 5432, FolderName = "Lab", DatabaseName = "shop", Password = "secret" },
+            new ServerEndpoint { Name = "Agent", Protocol = ServerProtocol.Agent, Host = "agent.lab", FolderName = "Lab" },
             new ServerEndpoint { Name = "Off", Protocol = ServerProtocol.Vnc, Host = "off.lab", FolderName = "Lab", IsEnabled = false },
             new ServerEndpoint { Name = "Elsewhere", Protocol = ServerProtocol.Rdp, Host = "x", FolderName = "Office" },
             new ServerEndpoint { Name = "Mine", Protocol = ServerProtocol.Vnc, Host = "mine", Port = 5901, OwnerUserId = user.Id },
@@ -140,7 +143,14 @@ public sealed class AppApiTests : IDisposable
         var library = AppLibrary.Build(user, servers);
 
         // "Watched" (RDP, read only) is there too: it opens as a session on Matgate, which keeps it read-only.
-        Assert.Equal(["Mine", "Shell", "Watched", "Web"], library.Connections.Select(connection => connection.Name).Order().ToArray());
+        // Files, websites and databases too (the app opens them with its own engine); Matgate's own kinds (agents) not.
+        Assert.Equal(["Files", "Mine", "Shell", "Shop-DB", "Watched", "Web", "Wiki"], library.Connections.Select(connection => connection.Name).Order().ToArray());
+        var files = library.Connections.Single(connection => connection.Name == "Files");
+        Assert.Equal(("sftp", "/srv", "", ""), (files.Protocol, files.RootPath, files.Url, files.Database));
+        var wiki = library.Connections.Single(connection => connection.Name == "Wiki");
+        Assert.Equal(("website", "https://wiki.lab/start"), (wiki.Protocol, wiki.Url));
+        var database = library.Connections.Single(connection => connection.Name == "Shop-DB");
+        Assert.Equal(("postgres", "shop", true), (database.Protocol, database.Database, database.HasStoredLogin));
         Assert.Equal("ReadOnly", library.Connections.Single(connection => connection.Name == "Watched").Level);
         Assert.Equal(["Lab", "Lab/Linux"], library.Folders.Select(folder => folder.Path).ToArray());
         Assert.Equal(("Linux", "Lab"), (library.Folders[1].Name, library.Folders[1].Parent));

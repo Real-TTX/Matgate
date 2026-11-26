@@ -21,7 +21,7 @@ public sealed class RowEditTests
     [Fact]
     public void A_changed_cell_is_an_update_by_the_key_with_parameters()
     {
-        var statements = DatabaseGateway.RowStatements(ServerProtocol.MsSql, "dbo", "customers", Customers,
+        var statements = DatabaseGateway.RowStatements(DatabaseEngine.MsSql, "dbo", "customers", Customers,
             [new RowChange("update", new() { ["id"] = "7" }, new() { ["city"] = "Köln's", ["name"] = "Anna" })], true);
         var update = Assert.Single(statements);
         Assert.Equal("UPDATE [dbo].[customers] SET [city] = N'Köln''s', [name] = N'Anna' WHERE [id] = N'7';", update.Preview);
@@ -32,7 +32,7 @@ public sealed class RowEditTests
     [Fact]
     public void Insert_delete_and_null()
     {
-        var statements = DatabaseGateway.RowStatements(ServerProtocol.Postgres, "public", "customers", Customers,
+        var statements = DatabaseGateway.RowStatements(DatabaseEngine.Postgres, "public", "customers", Customers,
             [
                 new RowChange("insert", null, new() { ["name"] = "Bernd", ["city"] = null }),
                 new RowChange("delete", new() { ["id"] = "3" }, null),
@@ -48,22 +48,22 @@ public sealed class RowEditTests
     public void Refused_without_a_key_with_unknown_columns_and_binary_data()
     {
         var noKey = new DbTableInfo([new DbColumn("name", "text", true, null, false, false)], [], []);
-        Assert.Throws<DatabaseException>(() => DatabaseGateway.RowStatements(ServerProtocol.Postgres, "public", "log", noKey, [new RowChange("delete", new() { ["name"] = "x" }, null)], true));
-        Assert.Throws<DatabaseException>(() => DatabaseGateway.RowStatements(ServerProtocol.MsSql, "dbo", "customers", Customers, [new RowChange("update", new() { ["id"] = "1" }, new() { ["nope"] = "x" })], true));
-        Assert.Throws<DatabaseException>(() => DatabaseGateway.RowStatements(ServerProtocol.MsSql, "dbo", "customers", Customers, [new RowChange("update", new() { ["id"] = "1" }, new() { ["photo"] = "0x00" })], true));
-        Assert.Throws<DatabaseException>(() => DatabaseGateway.RowStatements(ServerProtocol.MsSql, "dbo", "customers", Customers, [new RowChange("update", new() { ["city"] = "x" }, new() { ["name"] = "y" })], true));
+        Assert.Throws<DatabaseException>(() => DatabaseGateway.RowStatements(DatabaseEngine.Postgres, "public", "log", noKey, [new RowChange("delete", new() { ["name"] = "x" }, null)], true));
+        Assert.Throws<DatabaseException>(() => DatabaseGateway.RowStatements(DatabaseEngine.MsSql, "dbo", "customers", Customers, [new RowChange("update", new() { ["id"] = "1" }, new() { ["nope"] = "x" })], true));
+        Assert.Throws<DatabaseException>(() => DatabaseGateway.RowStatements(DatabaseEngine.MsSql, "dbo", "customers", Customers, [new RowChange("update", new() { ["id"] = "1" }, new() { ["photo"] = "0x00" })], true));
+        Assert.Throws<DatabaseException>(() => DatabaseGateway.RowStatements(DatabaseEngine.MsSql, "dbo", "customers", Customers, [new RowChange("update", new() { ["city"] = "x" }, new() { ["name"] = "y" })], true));
     }
 
     [Fact]
     public void Values_take_the_columns_type()
     {
-        Assert.Equal(true, DatabaseGateway.Typed(ServerProtocol.MsSql, "bit", "on", "true", true));
-        Assert.Equal(false, DatabaseGateway.Typed(ServerProtocol.MySql, "tinyint(1)", "on", "0", true));
-        Assert.Equal(42L, DatabaseGateway.Typed(ServerProtocol.MySql, "int(11)", "n", "42", true));
-        Assert.Equal(12.5m, DatabaseGateway.Typed(ServerProtocol.MsSql, "decimal(10,2)", "n", "12.5", true));
-        Assert.Equal(new DateTime(2026, 11, 25, 10, 30, 0), DatabaseGateway.Typed(ServerProtocol.MsSql, "datetime2(7)", "d", "2026-11-25 10:30:00", true));
-        Assert.Equal("text", DatabaseGateway.Typed(ServerProtocol.MsSql, "nvarchar(10)", "t", "text", true));
-        Assert.Throws<DatabaseException>(() => DatabaseGateway.Typed(ServerProtocol.MsSql, "int", "n", "zwölf", true));
+        Assert.Equal(true, DatabaseGateway.Typed(DatabaseEngine.MsSql, "bit", "on", "true", true));
+        Assert.Equal(false, DatabaseGateway.Typed(DatabaseEngine.MySql, "tinyint(1)", "on", "0", true));
+        Assert.Equal(42L, DatabaseGateway.Typed(DatabaseEngine.MySql, "int(11)", "n", "42", true));
+        Assert.Equal(12.5m, DatabaseGateway.Typed(DatabaseEngine.MsSql, "decimal(10,2)", "n", "12.5", true));
+        Assert.Equal(new DateTime(2026, 11, 25, 10, 30, 0), DatabaseGateway.Typed(DatabaseEngine.MsSql, "datetime2(7)", "d", "2026-11-25 10:30:00", true));
+        Assert.Equal("text", DatabaseGateway.Typed(DatabaseEngine.MsSql, "nvarchar(10)", "t", "text", true));
+        Assert.Throws<DatabaseException>(() => DatabaseGateway.Typed(DatabaseEngine.MsSql, "int", "n", "zwölf", true));
     }
 
     [Theory]
@@ -73,5 +73,5 @@ public sealed class RowEditTests
     [InlineData("SELECT 1; DROP TABLE t", false)]
     [InlineData("  ", false)]
     public void The_plan_gets_exactly_one_statement(string sql, bool single) =>
-        Assert.Equal(single, ReadOnlySql.IsSingleStatement(sql, ServerProtocol.Postgres));
+        Assert.Equal(single, ReadOnlySql.IsSingleStatement(sql, DatabaseEngine.Postgres));
 }

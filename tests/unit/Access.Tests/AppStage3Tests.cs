@@ -138,8 +138,37 @@ public sealed class AppStage3Tests
         // A server manager deletes shared connections, as in the form.
         Assert.True(AppLibrary.CanDelete(UserWith(AccessLevel.Edit, server, manage: true), server));
 
+        // Websites, files and databases are the app's too now; Matgate's own kinds (agents) are not.
         var website = new ServerEndpoint { Name = "Site", Protocol = ServerProtocol.Website, Host = "site" };
-        Assert.False(AppLibrary.CanEdit(UserWith(AccessLevel.Manage, website), website));
+        Assert.True(AppLibrary.CanEdit(UserWith(AccessLevel.Manage, website), website));
+        var agent = new ServerEndpoint { Name = "Agent", Protocol = ServerProtocol.Agent, Host = "agent" };
+        Assert.False(AppLibrary.CanEdit(UserWith(AccessLevel.Manage, agent), agent));
+    }
+
+    [Fact]
+    public void Websites_files_and_databases_are_written_back_with_their_own_fields()
+    {
+        var creator = new MatgateUser { UserName = "c", CanCreateServers = true };
+        var now = DateTimeOffset.UtcNow;
+
+        var site = new AppLibrary.ConnectionChange("Wiki", "website", null, null, null, null, "Lab", null, null, true, false, Url: "wiki.lab/start");
+        Assert.Null(AppLibrary.Check(site, null));
+        var created = AppLibrary.Create(site, creator, now);
+        Assert.Equal((ServerProtocol.Website, "https://wiki.lab/start", "wiki.lab", 0), (created.Protocol, created.WebsiteUrl, created.Host, created.Port));
+        Assert.Equal(("wiki.lab", 443), AppLibrary.RelayTarget(created));
+        Assert.Equal("url", AppLibrary.Check(site with { Url = "" }, null)?.Field);
+        Assert.Equal("url", AppLibrary.Check(site with { Url = "ftp://x" }, null)?.Field);
+
+        var share = AppLibrary.Create(new AppLibrary.ConnectionChange("Ablage", "smb", "nas", null, "anna", "LAB", null, null, null, null, false, RootPath: "daten/projekte"), creator, now);
+        Assert.Equal((ServerProtocol.Smb, 445, "LAB", "daten/projekte"), (share.Protocol, share.Port, share.Domain, share.FileRootPath));
+
+        var database = AppLibrary.Create(new AppLibrary.ConnectionChange("DB", "mssql", "sql", 0, "sa", null, null, null, null, false, false, Database: "erp"), creator, now);
+        Assert.Equal((ServerProtocol.MsSql, 1433, "erp", false), (database.Protocol, database.Port, database.DatabaseName, database.IgnoreCertificate));
+
+        // FTP opens further connections for its data: the relay does not carry it, everything else it does.
+        Assert.False(AppLibrary.IsRelayProtocol(ServerProtocol.Ftp));
+        Assert.True(AppLibrary.IsRelayProtocol(ServerProtocol.Smb));
+        Assert.True(AppLibrary.IsRelayProtocol(ServerProtocol.Postgres));
     }
 
     [Fact]
@@ -170,7 +199,7 @@ public sealed class AppStage3Tests
     [InlineData(null, "h", "rdp", "name", "required")]
     [InlineData("n", " ", "rdp", "host", "required")]
     [InlineData("n", "a b", "rdp", "host", "invalid")]
-    [InlineData("n", "h", "sftp", "protocol", "protocol")]
+    [InlineData("n", "h", "agent", "protocol", "protocol")]
     public void A_new_connection_needs_a_name_a_host_and_an_app_protocol(string? name, string host, string protocol, string field, string error)
     {
         var problem = AppLibrary.Check(new AppLibrary.ConnectionChange(name, protocol, host, null, null, null, null, null, null, null, null), null);

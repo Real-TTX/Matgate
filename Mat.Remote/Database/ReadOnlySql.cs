@@ -1,4 +1,4 @@
-using Matgate.Models;
+
 
 namespace Matgate.Services.Database;
 
@@ -30,14 +30,14 @@ public static class ReadOnlySql
     // Exactly one statement (a ";" at its end allowed): what EXPLAIN may be put in front of. Strings, quoted
     // names and comments are skipped as in Refusal. SQL Server needs no ";" between statements - there the
     // plan is only shown, nothing runs, so it does not matter.
-    public static bool IsSingleStatement(string sql, ServerProtocol protocol)
+    public static bool IsSingleStatement(string sql, DatabaseEngine protocol)
     {
         var (words, several) = Scan(sql, protocol);
         return words.Count > 0 && !several;
     }
 
     // Null when the statement may run read-only; otherwise why not.
-    public static string? Refusal(string sql, ServerProtocol protocol, bool german)
+    public static string? Refusal(string sql, DatabaseEngine protocol, bool german)
     {
         var (words, several) = Scan(sql, protocol);
         if (several)
@@ -84,17 +84,17 @@ public static class ReadOnlySql
     }
 
     // What opens the read-only transaction on each server.
-    public static string Begin(ServerProtocol protocol) => protocol switch
+    public static string Begin(DatabaseEngine protocol) => protocol switch
     {
-        ServerProtocol.Postgres => "BEGIN TRANSACTION READ ONLY",
-        ServerProtocol.MySql => "START TRANSACTION READ ONLY",
+        DatabaseEngine.Postgres => "BEGIN TRANSACTION READ ONLY",
+        DatabaseEngine.MySql => "START TRANSACTION READ ONLY",
         _ => "BEGIN TRANSACTION",
     };
 
-    public static string End(ServerProtocol protocol) => protocol == ServerProtocol.MsSql ? "IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION" : "ROLLBACK";
+    public static string End(DatabaseEngine protocol) => protocol == DatabaseEngine.MsSql ? "IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION" : "ROLLBACK";
 
     // The words of a statement outside strings and comments, and whether a second statement follows the first.
-    private static (List<string> Words, bool Several) Scan(string sql, ServerProtocol protocol)
+    private static (List<string> Words, bool Several) Scan(string sql, DatabaseEngine protocol)
     {
         var words = new List<string>();
         var statements = 0;
@@ -104,7 +104,7 @@ public static class ReadOnlySql
         {
             var c = sql[i];
             var next = i + 1 < sql.Length ? sql[i + 1] : '\0';
-            if (c == '-' && next == '-' || c == '#' && protocol == ServerProtocol.MySql)
+            if (c == '-' && next == '-' || c == '#' && protocol == DatabaseEngine.MySql)
             {
                 while (i < sql.Length && sql[i] != '\n')
                 {
@@ -127,7 +127,7 @@ public static class ReadOnlySql
                 return (words, true);
             }
 
-            if (c is '\'' or '"' or '`' || c == '[' && protocol == ServerProtocol.MsSql)
+            if (c is '\'' or '"' or '`' || c == '[' && protocol == DatabaseEngine.MsSql)
             {
                 var close = c == '[' ? ']' : c;
                 i++;
@@ -145,7 +145,7 @@ public static class ReadOnlySql
                         break;
                     }
 
-                    if (sql[i] == '\\' && protocol == ServerProtocol.MySql && c != '`')
+                    if (sql[i] == '\\' && protocol == DatabaseEngine.MySql && c != '`')
                     {
                         i++;
                     }
@@ -158,7 +158,7 @@ public static class ReadOnlySql
                 continue;
             }
 
-            if (c == '$' && protocol == ServerProtocol.Postgres)
+            if (c == '$' && protocol == DatabaseEngine.Postgres)
             {
                 // A dollar-quoted string: $$...$$ or $tag$...$tag$.
                 var tagEnd = sql.IndexOf('$', i + 1);

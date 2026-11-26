@@ -6,8 +6,9 @@ using Matgate.Models;
 
 namespace Matgate.Services;
 
-// What an app gets as its library (GET /app/api/library): the remote desktops and terminals this user may work in -
-// RDP, VNC and SSH with at least "Connect" - and their folders, plus the remote desktops (RDP, VNC) they may only
+// What an app gets as its library (GET /app/api/library): the connections this user may work in with the app's own
+// engine - RDP, VNC, SSH, files (SFTP, FTP, SMB, WebDAV), websites and databases (SQL Server, MySQL, PostgreSQL) with at
+// least "Connect" - and their folders, plus the remote desktops (RDP, VNC) they may only
 // watch: those open as a session on Matgate (GET /app/api/screen), which keeps them read-only. Never a password or a
 // key: the app keeps its own, and what is stored here stays here.
 //
@@ -41,13 +42,34 @@ public static class AppLibrary
         bool HasStoredLogin,
         string CredentialName,
         bool IsPrivate,
-        bool CanDelete);
+        bool CanDelete,
+        string Url = "",
+        string RootPath = "",
+        string Database = "");
 
     public sealed record Library(string Revision, LibraryUser User, IReadOnlyList<LibraryFolder> Folders, IReadOnlyList<LibraryConnection> Connections);
 
-    // The protocols an app opens on its own - the ones a relay can carry (one TCP connection to host and port).
+    // The protocols an app opens on its own, with its own engine and login.
     public static bool IsAppProtocol(ServerProtocol protocol) =>
-        protocol is ServerProtocol.Rdp or ServerProtocol.Vnc or ServerProtocol.Ssh;
+        protocol is ServerProtocol.Rdp or ServerProtocol.Vnc or ServerProtocol.Ssh
+            or ServerProtocol.Sftp or ServerProtocol.Ftp or ServerProtocol.Smb or ServerProtocol.WebDav
+            or ServerProtocol.Website
+            or ServerProtocol.MsSql or ServerProtocol.MySql or ServerProtocol.Postgres;
+
+    // The protocols the relay carries (one TCP connection to host and port): all of them but FTP, which opens further
+    // connections for its data.
+    public static bool IsRelayProtocol(ServerProtocol protocol) => IsAppProtocol(protocol) && protocol != ServerProtocol.Ftp;
+
+    // Where the relay of a connection goes: host and port - for a website those of its address.
+    public static (string Host, int Port) RelayTarget(ServerEndpoint server)
+    {
+        if (server.Protocol == ServerProtocol.Website && Uri.TryCreate(server.WebsiteUrl, UriKind.Absolute, out var url))
+        {
+            return (url.Host, url.Port);
+        }
+
+        return (server.Host, server.Port);
+    }
 
     // The protocols Matgate runs a session of for an app (GET /app/api/screen).
     public static bool IsScreenProtocol(ServerProtocol protocol) =>
@@ -112,7 +134,7 @@ public static class AppLibrary
         server.Host,
         server.Port,
         server.UserName,
-        server.Protocol == ServerProtocol.Rdp ? server.Domain : "",
+        server.Protocol is ServerProtocol.Rdp or ServerProtocol.Smb ? server.Domain : "",
         ServerFolders.CleanPath(server.FolderName),
         server.Notes,
         AccessResolver.Level(user, server).ToString(),
@@ -121,7 +143,10 @@ public static class AppLibrary
         !string.IsNullOrEmpty(server.Password) || !string.IsNullOrEmpty(server.PrivateKey),
         server.CredentialName,
         server.IsPrivate,
-        CanDelete(user, server));
+        CanDelete(user, server),
+        server.Protocol == ServerProtocol.Website ? server.WebsiteUrl : "",
+        server.Protocol is ServerProtocol.Sftp or ServerProtocol.Ftp or ServerProtocol.Smb or ServerProtocol.WebDav ? server.FileRootPath : "",
+        server.Protocol is ServerProtocol.MsSql or ServerProtocol.MySql or ServerProtocol.Postgres ? server.DatabaseName : "");
 
     // ---- writing back --------------------------------------------------------------------------------------
 
@@ -137,7 +162,10 @@ public static class AppLibrary
         string? Notes,
         string? KeyboardLayout,
         bool? IgnoreCertificate,
-        bool? Shared);
+        bool? Shared,
+        string? Url = null,
+        string? RootPath = null,
+        string? Database = null);
 
     // A field that is not right: its name and a code the app turns into its own words.
     public sealed record ChangeProblem(string Field, string Error);
@@ -152,13 +180,28 @@ public static class AppLibrary
         "rdp" => ServerProtocol.Rdp,
         "vnc" => ServerProtocol.Vnc,
         "ssh" => ServerProtocol.Ssh,
+        "sftp" => ServerProtocol.Sftp,
+        "ftp" => ServerProtocol.Ftp,
+        "smb" => ServerProtocol.Smb,
+        "webdav" => ServerProtocol.WebDav,
+        "website" => ServerProtocol.Website,
+        "mssql" => ServerProtocol.MsSql,
+        "mysql" => ServerProtocol.MySql,
+        "postgres" => ServerProtocol.Postgres,
         _ => null,
     };
 
     public static int DefaultPort(ServerProtocol protocol) => protocol switch
     {
-        ServerProtocol.Ssh => 22,
+        ServerProtocol.Ssh or ServerProtocol.Sftp => 22,
         ServerProtocol.Vnc => 5900,
+        ServerProtocol.Ftp => 21,
+        ServerProtocol.Smb => 445,
+        ServerProtocol.WebDav => 443,
+        ServerProtocol.Website => 0,
+        ServerProtocol.MsSql => 1433,
+        ServerProtocol.MySql => 3306,
+        ServerProtocol.Postgres => 5432,
         _ => 3389,
     };
 
@@ -186,7 +229,27 @@ public static class AppLibrary
             return new ChangeProblem("name", "too_long");
         }
 
+        var protocol = existing?.Protocol ?? ParseProtocol(change.Protocol);
+        if (protocol == ServerProtocol.Website)
+        {
+            var url = ServerEndpoint.CleanWebsiteUrl(change.Url, existing?.WebsiteUrl ?? "");
+            if (url.Length == 0 || !Uri.TryCreate(url, UriKind.Absolute, out var parsed) || parsed.Scheme is not ("http" or "https"))
+            {
+                return new ChangeProblem("url", url.Length == 0 && (change.Url ?? "").Trim().Length == 0 ? "required" : "invalid");
+            }
+        }
+
+        if ((change.RootPath ?? "").Length > MaxTextLength || (change.Database ?? "").Length > MaxTextLength)
+        {
+            return new ChangeProblem(change.RootPath is { Length: > MaxTextLength } ? "rootPath" : "database", "too_long");
+        }
+
         var host = (change.Host ?? existing?.Host ?? "").Trim();
+        if (protocol == ServerProtocol.Website && host.Length == 0)
+        {
+            host = new Uri(ServerEndpoint.CleanWebsiteUrl(change.Url, existing?.WebsiteUrl ?? "")).Host;
+        }
+
         if (host.Length == 0)
         {
             return new ChangeProblem("host", "required");
@@ -262,8 +325,28 @@ public static class AppLibrary
 
             if (change.Domain is not null)
             {
-                server.Domain = server.Protocol == ServerProtocol.Rdp ? change.Domain.Trim() : "";
+                server.Domain = server.Protocol is ServerProtocol.Rdp or ServerProtocol.Smb ? change.Domain.Trim() : "";
             }
+        }
+
+        if (server.Protocol == ServerProtocol.Website && change.Url is not null)
+        {
+            server.WebsiteUrl = ServerEndpoint.CleanWebsiteUrl(change.Url, server.WebsiteUrl);
+            server.Port = 0;
+            if (change.Host is null && Uri.TryCreate(server.WebsiteUrl, UriKind.Absolute, out var url))
+            {
+                server.Host = url.Host;
+            }
+        }
+
+        if (server.Protocol is ServerProtocol.Sftp or ServerProtocol.Ftp or ServerProtocol.Smb && change.RootPath is not null)
+        {
+            server.FileRootPath = change.RootPath.Trim();
+        }
+
+        if (server.Protocol is ServerProtocol.MsSql or ServerProtocol.MySql or ServerProtocol.Postgres && change.Database is not null)
+        {
+            server.DatabaseName = change.Database.Trim();
         }
 
         if (change.Folder is not null)

@@ -1,7 +1,7 @@
 using System.Data.Common;
 using System.Diagnostics;
 using System.Globalization;
-using Matgate.Models;
+
 
 namespace Matgate.Services.Database;
 
@@ -15,7 +15,7 @@ public sealed partial class DatabaseGateway
     public const int MaxResults = 20;
 
     // A batch typed into the browser: every result it gives, each up to MaxRows. Read-only as QueryAsync.
-    public async Task<DbBatch> BatchAsync(ServerEndpoint server, string user, string password, string? database, string sql, bool readOnly, bool german, CancellationToken cancellationToken)
+    public async Task<DbBatch> BatchAsync(DatabaseTarget server, string user, string password, string? database, string sql, bool readOnly, bool german, CancellationToken cancellationToken)
     {
         return await WithConnectionAsync(server, user, password, database, sql, readOnly, german, async connection =>
         {
@@ -79,7 +79,7 @@ public sealed partial class DatabaseGateway
     // The rows of a statement's first result, all of them (up to maxRows), handed out one by one - for an export
     // that does not fit into a page. Values are whole here: no cut after MaxCellLength, binary data fully as hex.
     public async Task ExportAsync(
-        ServerEndpoint server, string user, string password, string? database, string sql, bool readOnly, bool german, long maxRows,
+        DatabaseTarget server, string user, string password, string? database, string sql, bool readOnly, bool german, long maxRows,
         Func<IReadOnlyList<string>, Task> columns, Func<string?[], Task> row, CancellationToken cancellationToken)
     {
         await WithConnectionAsync(server, user, password, database, sql, readOnly, german, async connection =>
@@ -118,7 +118,7 @@ public sealed partial class DatabaseGateway
     }
 
     // A connection for a statement typed in - read-only where the user may only read (see ReadOnlySql).
-    private async Task<T> WithConnectionAsync<T>(ServerEndpoint server, string user, string password, string? database, string sql, bool readOnly, bool german, Func<DbConnection, Task<T>> work, CancellationToken cancellationToken)
+    private async Task<T> WithConnectionAsync<T>(DatabaseTarget server, string user, string password, string? database, string sql, bool readOnly, bool german, Func<DbConnection, Task<T>> work, CancellationToken cancellationToken)
     {
         if (readOnly && ReadOnlySql.Refusal(sql, server.Protocol, german) is { } refusal)
         {
@@ -166,14 +166,14 @@ public sealed partial class DatabaseGateway
     // The designer's statements, one after the other. PostgreSQL and SQL Server change a table's structure inside a
     // transaction: all of them or none. MySQL ends a transaction with every such statement - there they run one by
     // one, and a failure says how many had already run.
-    public async Task<int> ApplyAsync(ServerEndpoint server, string user, string password, string? database, IReadOnlyList<string> statements, bool german, CancellationToken cancellationToken)
+    public async Task<int> ApplyAsync(DatabaseTarget server, string user, string password, string? database, IReadOnlyList<string> statements, bool german, CancellationToken cancellationToken)
     {
         var dialect = DialectOf(server.Protocol);
         await using var connection = await OpenAsync(dialect, server, user, password, database, cancellationToken);
-        var transactional = server.Protocol != ServerProtocol.MySql;
+        var transactional = server.Protocol != DatabaseEngine.MySql;
         if (transactional)
         {
-            await ExecuteAsync(connection, server.Protocol == ServerProtocol.MsSql ? "BEGIN TRANSACTION" : "BEGIN", cancellationToken);
+            await ExecuteAsync(connection, server.Protocol == DatabaseEngine.MsSql ? "BEGIN TRANSACTION" : "BEGIN", cancellationToken);
         }
 
         var ran = 0;
@@ -202,7 +202,7 @@ public sealed partial class DatabaseGateway
 
             if (transactional)
             {
-                await ExecuteAsync(connection, server.Protocol == ServerProtocol.MsSql ? "COMMIT TRANSACTION" : "COMMIT", cancellationToken);
+                await ExecuteAsync(connection, server.Protocol == DatabaseEngine.MsSql ? "COMMIT TRANSACTION" : "COMMIT", cancellationToken);
             }
 
             return ran;
@@ -213,7 +213,7 @@ public sealed partial class DatabaseGateway
             {
                 try
                 {
-                    await ExecuteAsync(connection, server.Protocol == ServerProtocol.MsSql ? "IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION" : "ROLLBACK", CancellationToken.None);
+                    await ExecuteAsync(connection, server.Protocol == DatabaseEngine.MsSql ? "IF @@TRANCOUNT > 0 ROLLBACK TRANSACTION" : "ROLLBACK", CancellationToken.None);
                 }
                 catch (DatabaseException)
                 {
