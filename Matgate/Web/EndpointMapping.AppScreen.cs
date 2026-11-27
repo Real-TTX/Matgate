@@ -15,7 +15,8 @@ public static partial class EndpointMapping
     // screen page (AgentWire frames: screen.ready, screen.monitor, screen.cursor, screen.auth, screen.ended ...), but
     // the picture comes as "screen.tiles" - compressed pieces of the screen the app draws itself - instead of H.264.
     // The login is Matgate's: the stored one, or what the user types when Matgate asks (screen.auth). Read-only
-    // for this user: the picture comes, nothing they press goes. No clipboard and no sound yet. Ends with the socket.
+    // for this user: the picture comes, nothing they press goes. The clipboard goes both ways unless watching (screen.clip.*); screen.stats
+    // carries hostRtt, how far the remote desktop is from Matgate. Ends with the socket.
     private static async Task AppScreenAsync(Guid id, HttpContext context, JsonDataStore store, AppDeviceStore devices, DisplayBridge bridge)
     {
         var (user, device) = await AppUserAsync(context, store, devices);

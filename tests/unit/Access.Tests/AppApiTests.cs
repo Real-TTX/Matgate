@@ -170,6 +170,27 @@ public sealed class AppApiTests : IDisposable
     }
 
     [Fact]
+    public async Task An_open_relay_tells_how_far_the_host_is_from_Matgate()
+    {
+        var host = new TcpListener(IPAddress.Loopback, 0);
+        host.Start();
+        using var target = new TcpClient();
+        await target.ConnectAsync(IPAddress.Loopback, ((IPEndPoint)host.LocalEndpoint).Port);
+        using var accepted = await host.AcceptTcpClientAsync();
+        var (device, server) = (Guid.NewGuid(), Guid.NewGuid());
+
+        Assert.Null(AppRelay.HostRoundTrip(device, server));
+        using (AppRelay.Track(target.Client, device, server))
+        {
+            Assert.NotNull(AppRelay.HostRoundTrip(device, server));
+            Assert.Null(AppRelay.HostRoundTrip(Guid.NewGuid(), server)); // another device asks for its own relay only
+        }
+
+        Assert.Null(AppRelay.HostRoundTrip(device, server));
+        host.Stop();
+    }
+
+    [Fact]
     public async Task The_relay_carries_bytes_both_ways_and_ends_with_either_side()
     {
         // The host: echoes what it gets, upper case, then closes after "BYE".

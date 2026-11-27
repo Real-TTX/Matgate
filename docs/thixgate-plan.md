@@ -95,6 +95,7 @@ So ist es gebaut (`Matgate/Web/EndpointMapping.App.cs`, `Services/AppDeviceStore
 | `POST /app/api/token` `{code, codeVerifier, redirectUri}` | Code + PKCE-Verifier → Geräte-Token `mgd_…` (nur sein SHA-256 in `app-devices.json`); Ratenbremse wie die Anmeldung |
 | `GET /app/api/me`, `GET /app/api/library` | Benutzer; RDP/VNC/SSH mit mindestens „Verbinden“, Ordner, **ohne** Passwort/Schlüssel; `ETag` = Revision (304) |
 | `GET /app/api/relay/{id}` (WebSocket) | eine TCP-Verbindung zu Host/Port genau dieser Verbindung (auch durch ihren Tunnel), binär in beide Richtungen; protokolliert |
+| `GET /app/api/relay/{id}/latency` | wie weit der Host von Matgate ist, auf der offenen Durchleitung dieses Geräts: `{"hostMs": 12.3}` (null: keine offen oder durch einen Tunnel); bei einer Sitzung auf Matgate steht dasselbe als `hostRtt` in `screen.stats` |
 | `POST /app/api/logout`, Einstellungen → Sicherheit → Geräte | Gerät abmelden; mit dem Benutzer gehen auch seine Geräte |
 
 Alles unter `/app/api` gilt nur mit `Authorization: Bearer` – das Cookie des Browsers zählt dort nicht. „Nur lesen“-Verbindungen

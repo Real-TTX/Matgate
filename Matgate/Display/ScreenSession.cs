@@ -898,6 +898,8 @@ public sealed class ScreenSession : IScreenHost, IAsyncDisposable
                 ["fps"] = Math.Round(_statFrames / seconds, 1),
                 ["kbps"] = (long)(_statBytes * 8 / 1000 / seconds),
                 ["rtt"] = _statRttCount > 0 ? JsonValue.Create(_statRtt / _statRttCount) : null,
+                // How far the remote desktop is from Matgate (the TCP connection of the session; an app shows it next to its own way).
+                ["hostRtt"] = _backend is IScreenMeter { RoundTrip: { } host } ? JsonValue.Create(Math.Round(host.TotalMilliseconds, 1)) : null,
                 ["agentMs"] = _statFrames > 0 ? JsonValue.Create(Math.Round(_statEncodeMs / _statFrames, 1)) : null,
                 ["encoder"] = _tiles ? "zlib" : "OpenH264",
                 ["fpsLimit"] = _quality.FramesPerSecond,

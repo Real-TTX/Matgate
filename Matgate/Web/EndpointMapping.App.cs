@@ -21,6 +21,7 @@ public static partial class EndpointMapping
         app.MapGet("/app/api/library", AppLibraryAsync);
         app.MapPost("/app/api/logout", AppLogoutAsync);
         app.Map("/app/api/relay/{id:guid}", AppRelayAsync);
+        app.MapGet("/app/api/relay/{id:guid}/latency", AppRelayLatencyAsync);
         // Stage 3 (EndpointMapping.AppScreen.cs): a session on Matgate, and writing connections back.
         app.Map("/app/api/screen/{id:guid}", AppScreenAsync);
         app.MapPost("/app/api/connections", AppCreateConnectionAsync);
@@ -286,9 +287,31 @@ public static partial class EndpointMapping
         var started = DateTimeOffset.UtcNow;
         log.LogInformation("Relay opened: {User} ({App} on {Device}) to {Server} ({Protocol}, {Host}:{Port}).",
             user.UserName, device.App, device.Name, server.Name, server.Protocol, server.Host, server.Port);
+        // Through a tunnel the connection ends at the tunnel, not at the host: no latency to tell then.
+        using var tracked = target == server ? AppRelay.Track(tcp.Client, device.Id, server.Id) : null;
         var (sent, received) = await AppRelay.RelayAsync(socket, tcp.GetStream(), context.RequestAborted);
         log.LogInformation("Relay closed: {User} to {Server} after {Seconds:0}s, {Up} bytes up, {Down} bytes down.",
             user.UserName, server.Name, (DateTimeOffset.UtcNow - started).TotalSeconds, sent, received);
+    }
+
+    // How far the host is from Matgate on the open relay of this device to that connection: {"hostMs": 12.3} (null: no relay
+    // open, through a tunnel, or the system does not tell). ThixGate shows it next to its own way to Matgate.
+    private static async Task<IResult> AppRelayLatencyAsync(Guid id, HttpContext context, JsonDataStore store, AppDeviceStore devices)
+    {
+        var (user, device) = await AppUserAsync(context, store, devices);
+        if (user is null || device is null)
+        {
+            return Results.Unauthorized();
+        }
+
+        var server = await store.FindServerByIdAsync(id, context.RequestAborted);
+        if (server is null || !AppLibrary.CanUse(user, server))
+        {
+            return Results.NotFound();
+        }
+
+        var roundTrip = AppRelay.HostRoundTrip(device.Id, server.Id);
+        return Results.Json(new { hostMs = roundTrip is { } value ? Math.Round(value.TotalMilliseconds, 1) : (double?)null });
     }
 
     // The user and device of the request's token; nothing for no token, an unknown one, or a user who is gone or

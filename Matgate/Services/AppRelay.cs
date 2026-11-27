@@ -1,12 +1,35 @@
 using System.Buffers;
+using System.Collections.Concurrent;
 using System.Net.Sockets;
 using System.Net.WebSockets;
+using Matgate.Display;
 
 namespace Matgate.Services;
 
 // The relay of the app API: carries the bytes of one TCP connection over a WebSocket, both ways, as binary messages.
 public static class AppRelay
 {
+    // The open relays: the TCP connection to the host, by the device and connection it is for - so the app can ask how far
+    // the host is from Matgate (GET /app/api/relay/{id}/latency) next to how far Matgate is from itself.
+    private static readonly ConcurrentDictionary<Socket, (Guid Device, Guid Server)> Open = new();
+
+    // Keeps a relay's connection to the host until it is disposed.
+    public static IDisposable Track(Socket socket, Guid device, Guid server)
+    {
+        Open[socket] = (device, server);
+        return new Untrack(socket);
+    }
+
+    // The round trip from Matgate to the host of the newest open relay of this device to this connection (null: none open,
+    // or the system does not tell).
+    public static TimeSpan? HostRoundTrip(Guid device, Guid server) =>
+        Open.Where(entry => entry.Value == (device, server)).Select(entry => TcpRoundTrip.Of(entry.Key)).LastOrDefault(roundTrip => roundTrip is not null);
+
+    private sealed class Untrack(Socket socket) : IDisposable
+    {
+        public void Dispose() => Open.TryRemove(socket, out _);
+    }
+
     // Carries bytes both ways until one side ends. Returns the bytes sent to the host and received from it.
     public static async Task<(long Up, long Down)> RelayAsync(WebSocket socket, Stream stream, CancellationToken cancellationToken)
     {
