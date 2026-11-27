@@ -1147,7 +1147,9 @@ public static class AgentScreenPage
             // tap, hold). Holding still then is not a right click - and right after a tap a finger never makes one:
             // the ring does not even show. On the touchpad it does not matter where the finger touches again (as on a
             // laptop's); touching the picture directly, a touch somewhere else is a new tap.
-            const dragWindowMs = 600;
+            // Short, as on a laptop's trackpad: with longer, tapping and then moving the cursor straight away (the
+            // most common thing on the pad) held the left button and dragged instead.
+            const dragWindowMs = 300;
             const recentTap = () => performance.now() - lastTap.time < dragWindowMs;
             const tapAgain = event => recentTap() && (pointerMode === 'touchpad' || Math.hypot(event.clientX - lastTap.x, event.clientY - lastTap.y) < 80);
             // How a finger makes a right click (Settings - Sessions): holding it still, tapping with two fingers, or
@@ -1190,7 +1192,9 @@ public static class AgentScreenPage
             holdRing.setAttribute('aria-hidden', 'true');
             holdRing.innerHTML = '<svg viewBox="0 0 64 64"><circle class="track" cx="32" cy="32" r="28"></circle><circle class="fill" cx="32" cy="32" r="28"></circle></svg>';
             document.body.appendChild(holdRing);
-            const ringDelay = 150;
+            // Only once half of the time to hold is gone: a slow tap or a finger resting before a swipe is no
+            // right click and shows none coming.
+            const ringDelay = Math.max(200, Math.round(holdMs / 2));
             let ringTimer = 0;
             const showRingAt = (x, y) => {
                 window.clearTimeout(ringTimer);

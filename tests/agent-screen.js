@@ -580,6 +580,22 @@ let agent;
   await touch("pointerup", [[1, px, py]]);
   await sleep(300);
   check("holding still without a tap before: the ring and the right click", [plainRing, (await touchDebug()).filter(l => /^button/.test(l))], [true, ["button 2 down", "button 2 up"]]);
+  // What happened by accident: a slow tap (a good 200 ms) showed the ring coming, and a swipe soon after a tap (to move the
+  // cursor on, 400 ms later) held the left button and dragged.
+  await tapPage.evaluate(() => window.MatgateScreen.setPointerMode("touchpad"));
+  await sleep(900);
+  await touchDebug();
+  await touch("pointerdown", [[1, px, py]]);
+  await sleep(220);
+  const slowRing = await tapPage.evaluate(() => document.querySelector(".hold-ring").classList.contains("show"));
+  await touch("pointerup", [[1, px, py]]);
+  await sleep(400);
+  for (let step = 0; step <= 6; step++) { await touch(step === 0 ? "pointerdown" : "pointermove", [[1, px + step * 10, py]]); await sleep(30); }
+  await touch("pointerup", [[1, px + 60, py]]);
+  await sleep(400);
+  const accidental = await touchDebug();
+  check("a slow tap shows no ring, a swipe after it only moves", [slowRing, accidental.filter(l => /^button/.test(l)), accidental.some(l => /^move /.test(l))],
+    [false, ["button 0 down", "button 0 up"], true]);
   await tapPage.evaluate(() => window.MatgateScreen.setPointerMode("direct"));
   await tapPage.screenshot({ path: path.join(work, "screen-phone.png") });
   await view.screenshot({ path: path.join(work, "screen-desktop.png") });
