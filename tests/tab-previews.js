@@ -27,32 +27,41 @@ const check = (name, got, want) => {
     const text = await (await fetch("/", { credentials: "same-origin" })).text();
     return JSON.parse(text.match(/const availableServers = (\[.*?\]);/s)[1]);
   });
-  // A VNC connection with Matgate's own engine, to the stack's desktop container (as display.js makes it).
+  // Connections with Matgate's own engine (as display.js makes them): VNC to the stack's desktop container, SSH
+  // to its ssh container. The SSH one has a long name: a card has the width for it.
+  const ensure = async (name, protocol, fields) => {
+    if (!(await servers()).find(s => s.name === name)) {
+      await page.goto(BASE + "/admin/servers/new", { waitUntil: "networkidle" });
+      await sleep(400);
+      await page.evaluate(([n, p, f]) => {
+        document.querySelector("[data-protocol-option='" + p + "']").click();
+        const set = (field, value) => {
+          const all = [...document.querySelectorAll("[name='" + field + "']")];
+          const el = all.find(e => !e.disabled) || all[0];
+          el.value = value;
+          el.dispatchEvent(new Event("change", { bubbles: true }));
+        };
+        set("name", n);
+        Object.entries(f).forEach(([field, value]) => set(field, value));
+        document.querySelector("[name='name']").form.requestSubmit();
+      }, [name, protocol, fields]).catch(() => { /* the submit navigated before the call returned */ });
+      await sleep(1500);
+    }
+  };
   const vncName = "Test-VNC-Vorschau";
-  if (!(await servers()).find(s => s.name === vncName)) {
-    await page.goto(BASE + "/admin/servers/new", { waitUntil: "networkidle" });
-    await sleep(400);
-    await page.evaluate(n => {
-      document.querySelector("[data-protocol-option='Vnc']").click();
-      const set = (field, value) => {
-        const all = [...document.querySelectorAll("[name='" + field + "']")];
-        const el = all.find(e => !e.disabled) || all[0];
-        el.value = value;
-        el.dispatchEvent(new Event("change", { bubbles: true }));
-      };
-      set("name", n); set("host", "desktop"); set("port", "5901"); set("targetPassword", "demo-pw1"); set("engine", "");
-      document.querySelector("[name='name']").form.requestSubmit();
-    }, vncName).catch(() => { /* the submit navigated before the call returned */ });
-    await sleep(1500);
-  }
+  const ownSshName = "Test-SSH-eigene-Engine-mit-langem-Namen";
+  await ensure(vncName, "Vnc", { host: "desktop", port: "5901", targetPassword: "demo-pw1", engine: "" });
+  await ensure(ownSshName, "Ssh", { host: "ssh", port: "2222", targetUserName: "demo", targetPassword: "demo-only-pw", engine: "" });
   const all = await servers();
   const vnc = all.find(s => s.name === vncName);
+  const ownSsh = all.find(s => s.name === ownSshName);
   const ssh = all.find(s => s.name === "Linux-Testhost");
   const db = all.find(s => s.name === "Test-Postgres");
-  check("connections there", [!!vnc, !!ssh, !!db], [true, true, true]);
+  check("connections there", [!!vnc, !!ownSsh, !!ssh, !!db], [true, true, true, true]);
 
-  // Each opened in a tab of its own; a session needs a moment to show something.
-  for (const s of [vnc, ssh, db].filter(Boolean)) {
+  // Each opened in a tab of its own; a session needs a moment to show something. The own SSH comes last: its
+  // terminal is text, not a canvas, and is only laid out - so only pictured - while its tab is the open one.
+  for (const s of [vnc, ssh, db, ownSsh].filter(Boolean)) {
     await page.goto(BASE + "/?open=" + s.id, { waitUntil: "networkidle" });
     await sleep(s === db ? 2500 : 9000);
   }
@@ -68,6 +77,8 @@ const check = (name, got, want) => {
         // A real picture, not an empty frame: a JPEG of some size.
         picture: !!img && img.src.startsWith("data:image/jpeg") && img.src.length > 3000,
         src: img ? img.src : "",
+        // The whole name readable: nothing cut off at the end.
+        nameWhole: (n => n.scrollHeight <= n.clientHeight + 1 && n.scrollWidth <= n.clientWidth + 1)(c.querySelector(".mobile-tab-item-name")),
       }];
     })));
     return got;
@@ -78,6 +89,21 @@ const check = (name, got, want) => {
   check("own-engine VNC: its screen as the picture", pick(first, vncName), { preview: "image", picture: true });
   check("Guacamole SSH: its terminal as the picture", pick(first, "Linux-Testhost"), { preview: "image", picture: true });
   check("database: its sign, no picture", pick(first, "Test-Postgres"), { preview: "icon", picture: false });
+  check("own-engine SSH: its terminal as the picture", pick(first, ownSshName), { preview: "image", picture: true });
+  check("a long name is shown whole", !!first[ownSshName] && first[ownSshName].nameWhole, true);
+  check("one card a row", await page.evaluate(() => {
+    const cards = Array.from(document.querySelectorAll(".mobile-tab-card")).map(c => c.getBoundingClientRect());
+    return cards.length > 1 && cards.every((r, i) => i === 0 || r.top >= cards[i - 1].bottom);
+  }), true);
+  // Four cards are more than fit on the screen: each still shows its head - sign and name inside the card, the
+  // picture below them - and the list scrolls instead of squeezing them.
+  check("every card shows its head above the picture", await page.evaluate(() => Array.from(document.querySelectorAll(".mobile-tab-card")).every(c => {
+    const card = c.getBoundingClientRect();
+    const name = c.querySelector(".mobile-tab-item-name").getBoundingClientRect();
+    const sign = c.querySelector(".mobile-tab-item-icon").getBoundingClientRect();
+    const thumb = c.querySelector(".mobile-tab-item-thumb").getBoundingClientRect();
+    return name.height > 0 && name.top >= card.top && sign.top >= card.top && thumb.top >= name.bottom - 1 && thumb.bottom <= card.bottom + 1;
+  })), true);
 
   // Shut the sheet, type into the SSH session, open it again: the picture is taken anew each time.
   await page.locator(".mobile-tab-sheet-close").tap();
@@ -91,19 +117,21 @@ const check = (name, got, want) => {
   await sleep(1500);
   const second = await cards();
   check("the picture is fresh after the session changed", !!second["Linux-Testhost"] && second["Linux-Testhost"].src !== first["Linux-Testhost"].src, true);
+  // The own SSH tab is in the background now, its terminal not laid out: its card keeps the last picture.
+  check("a terminal in the background keeps its last picture", second[ownSshName] ? { preview: second[ownSshName].preview, same: second[ownSshName].src === first[ownSshName].src } : null, { preview: "image", same: true });
   await page.screenshot({ path: "tab-previews-2.png" });
 
-  // The VNC connection goes again: other scripts open "the first connection" on the start page.
-  await page.evaluate(async n => {
+  // The connections of this script go again: other scripts open "the first connection" on the start page.
+  await page.evaluate(async names => {
     const doc = new DOMParser().parseFromString(await (await fetch("/admin?tab=servers", { credentials: "same-origin" })).text(), "text/html");
     for (const row of doc.querySelectorAll("tr")) {
       const cell = ((row.querySelector("td") || {}).textContent || "").trim();
       const form = row.querySelector("form[action$='/delete']");
-      if (form && cell === n) {
+      if (form && names.includes(cell)) {
         await fetch(form.getAttribute("action"), { method: "POST", body: new FormData(form), credentials: "same-origin", redirect: "manual" });
       }
     }
-  }, vncName);
+  }, [vncName, ownSshName]);
 
   await b.close();
   console.log("failed: " + JSON.stringify(failures));

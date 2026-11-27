@@ -6229,6 +6229,72 @@ public sealed partial class HtmlViews
                         });
                         return best;
                     };
+                    // A terminal of the own engine (SSH, an agent's shell) is xterm.js with its DOM renderer: rows of
+                    // text, no canvas. Its visible rows are drawn onto one, each piece where the page laid it out, in
+                    // its colour and on its background.
+                    const terminalPicture = doc => {
+                        const rows = doc.querySelector('.xterm-rows');
+                        const screen = doc.querySelector('.xterm-screen') || rows;
+                        if (!rows || !screen) {
+                            return null;
+                        }
+                        const box = screen.getBoundingClientRect();
+                        if (box.width < 64 || box.height < 48) {
+                            return null;
+                        }
+                        const view = doc.defaultView;
+                        const scale = 2;
+                        const canvas = document.createElement('canvas');
+                        canvas.width = Math.round(box.width * scale);
+                        canvas.height = Math.round(box.height * scale);
+                        const pen = canvas.getContext('2d');
+                        pen.scale(scale, scale);
+                        const viewport = doc.querySelector('.xterm-viewport') || doc.querySelector('.xterm') || doc.body;
+                        const paper = view.getComputedStyle(viewport).backgroundColor;
+                        pen.fillStyle = paper && paper !== 'rgba(0, 0, 0, 0)' ? paper : '#0f1412';
+                        pen.fillRect(0, 0, box.width, box.height);
+                        pen.textBaseline = 'middle';
+                        const range = doc.createRange();
+                        const paint = (node, style) => {
+                            const text = node.textContent || '';
+                            if (!text.trim() && style.backgroundColor === 'rgba(0, 0, 0, 0)') {
+                                return;
+                            }
+                            range.selectNodeContents(node);
+                            const r = range.getBoundingClientRect();
+                            const x = r.left - box.left;
+                            const y = r.top - box.top;
+                            if (style.backgroundColor && style.backgroundColor !== 'rgba(0, 0, 0, 0)') {
+                                pen.fillStyle = style.backgroundColor;
+                                pen.fillRect(x, y, r.width, r.height);
+                            }
+                            if (text.trim()) {
+                                pen.font = `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+                                pen.fillStyle = style.color;
+                                // Spread over the width the page gave it, so a font of another width stays in its cells.
+                                pen.fillText(text, x, y + r.height / 2, r.width + 0.5);
+                            }
+                        };
+                        rows.querySelectorAll(':scope > div').forEach(row => {
+                            const rowStyle = view.getComputedStyle(row);
+                            row.childNodes.forEach(node => {
+                                if (node.nodeType === 3) {
+                                    paint(node, rowStyle);
+                                }
+                                else if (node.nodeType === 1) {
+                                    paint(node, view.getComputedStyle(node));
+                                }
+                            });
+                        });
+                        // The cursor, where the terminal shows it.
+                        const cursor = rows.querySelector('.xterm-cursor');
+                        if (cursor) {
+                            const c = cursor.getBoundingClientRect();
+                            pen.fillStyle = 'rgba(127, 214, 168, .85)';
+                            pen.fillRect(c.left - box.left, c.top - box.top, Math.max(2, c.width), c.height);
+                        }
+                        return canvas;
+                    };
                     const searchPanel = panel => {
                         if (!panel) {
                             return null;
@@ -6237,7 +6303,7 @@ public sealed partial class HtmlViews
                         panel.querySelectorAll('iframe').forEach(frame => {
                             try {
                                 const doc = frame.contentDocument;
-                                const found = doc ? (doc.querySelector('canvas#screen') || biggestCanvas(doc)) : null;
+                                const found = doc ? (doc.querySelector('canvas#screen') || biggestCanvas(doc) || terminalPicture(doc)) : null;
                                 if (found && found.width >= 64 && (!best || found.width * found.height > best.width * best.height)) {
                                     best = found;
                                 }
@@ -26871,21 +26937,23 @@ public sealed partial class HtmlViews
                         /* A new connection is not one of the open ones: it stands apart below them. */
                         .mobile-tab-sheet .mobile-tab-item--add { border-style: dashed; margin-top: 10px; padding-right: 0; }
                         .mobile-tab-sheet .mobile-tab-item--add .mobile-tab-item-main { color: var(--accent); }
-                        /* The tabs as cards in a grid, as a phone browser shows its tabs: the name on top, below it
-                           the last picture of the session (or its sign when it draws none). Two columns upright,
-                           more when the phone lies on its side. */
+                        /* The tabs as cards, as a phone browser shows its tabs: the name on top, below it the last
+                           picture of the session (or its sign when it draws none). One card a row - two side by side
+                           left the names a few letters each. A plain column, not a grid: with more cards than fit,
+                           a grid squeezed its rows (a card that clips counts as able to shrink to nothing) and
+                           the head of every card slid out of it. Here each card keeps its height and the list scrolls. */
                         .mobile-tab-sheet .mobile-tab-grid {
-                            align-content: start;
-                            display: grid;
+                            display: flex;
                             flex: 1 1 auto;
+                            flex-direction: column;
                             gap: 12px;
-                            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
                             min-height: 0;
                             overflow-y: auto;
                             overscroll-behavior: contain;
                             padding: 2px 2px 8px;
                         }
-                        .mobile-tab-sheet .mobile-tab-grid .mobile-tab-item--add { grid-column: 1 / -1; margin-top: 4px; }
+                        .mobile-tab-sheet .mobile-tab-grid .mobile-tab-item--add { margin-top: 4px; }
+                        .mobile-tab-sheet .mobile-tab-grid > .mobile-tab-item { flex: 0 0 auto; }
                         .mobile-tab-sheet .mobile-tab-item.mobile-tab-card {
                             align-items: stretch;
                             flex-direction: column;
@@ -26920,9 +26988,18 @@ public sealed partial class HtmlViews
                         .mobile-tab-sheet .mobile-tab-card .mobile-tab-item-main .mobile-tab-item-label { padding: 8px 46px 8px 0; }
                         .mobile-tab-sheet .mobile-tab-card .mobile-tab-item-main .mobile-tab-item-icon { align-self: start; margin-top: 10px; }
                         .mobile-tab-sheet .mobile-tab-card .mobile-tab-item-state { font-size: 12px; }
+                        /* A long name gets a second line before it is cut. */
+                        .mobile-tab-sheet .mobile-tab-card .mobile-tab-item-main .mobile-tab-item-name {
+                            -webkit-box-orient: vertical;
+                            -webkit-line-clamp: 2;
+                            display: -webkit-box;
+                            line-height: 1.25;
+                            overflow-wrap: anywhere;
+                            white-space: normal;
+                        }
                         .mobile-tab-sheet .mobile-tab-card .mobile-tab-item-thumb {
                             align-items: center;
-                            aspect-ratio: 3 / 4;
+                            aspect-ratio: 16 / 10;
                             background: var(--surface-2);
                             border-top: 1px solid var(--line);
                             color: var(--muted);
@@ -26934,6 +27011,7 @@ public sealed partial class HtmlViews
                         /* A screen is shown whole, never cut: a session can be upright or wide. */
                         .mobile-tab-sheet .mobile-tab-card .mobile-tab-item-thumb[data-preview="image"] { background: #111; }
                         .mobile-tab-sheet .mobile-tab-card .mobile-tab-item-thumb img { display: block; height: 100%; object-fit: contain; width: 100%; }
+                        .mobile-tab-sheet .mobile-tab-card .mobile-tab-item-thumb[data-tall] img { object-fit: cover; object-position: top center; }
                         .mobile-tab-sheet .mobile-tab-card .mobile-tab-item-thumb[data-preview="icon"] .icon,
                         .mobile-tab-sheet .mobile-tab-card .mobile-tab-item-thumb[data-preview="icon"] svg,
                         .mobile-tab-sheet .mobile-tab-card .mobile-tab-item-thumb[data-preview="icon"] img { height: 44px; opacity: .55; width: 44px; }
@@ -28508,6 +28586,12 @@ public sealed partial class HtmlViews
                                         if (preview) {
                                             const img = document.createElement('img');
                                             img.alt = '';
+                                            // An upright picture (a session follows the phone's shape) fills the
+                                            // card's width from its top, as a phone browser shows a page; a wide one
+                                            // is shown whole.
+                                            img.addEventListener('load', () => {
+                                                thumb.toggleAttribute('data-tall', img.naturalHeight > img.naturalWidth * 0.75);
+                                            });
                                             img.src = preview;
                                             thumb.appendChild(img);
                                             thumb.setAttribute('data-preview', 'image');
