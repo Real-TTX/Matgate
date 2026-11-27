@@ -76,8 +76,8 @@ const GROUPS = [
       "ssh-key.js"],
   },
   {
-    name: "Group 16 - the status bar, cards of one size, the right-click ring",
-    scripts: ["status-bar.js", "equal-cards.js", "hold-ring-setting.js"],
+    name: "Group 16 - the status bar, cards of one size, the right-click ring, the phone's tab cards",
+    scripts: ["status-bar.js", "equal-cards.js", "hold-ring-setting.js", "tab-previews.js"],
   },
 ];
 

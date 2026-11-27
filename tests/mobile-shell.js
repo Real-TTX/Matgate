@@ -89,6 +89,30 @@ const button = page => page.evaluate(() => {
     };
   });
   check("the sheet looks like the main menu's", look, { count: "2", icons: true, names: true, states: true, addLast: true, addHasNoPlusInText: true, closeInsideRow: true });
+  // The tabs are cards in a grid, as a phone browser shows its tabs: two side by side, each with the last
+  // picture of its session, the new connection across the whole width below them.
+  const cards = await page.evaluate(() => {
+    const grid = document.querySelector(".mobile-tab-menu-panel .mobile-tab-grid");
+    const all = Array.from(grid ? grid.querySelectorAll(".mobile-tab-card") : []);
+    const r = all.map(c => c.getBoundingClientRect());
+    const add = grid && grid.querySelector(".mobile-tab-item--add");
+    return {
+      grid: !!grid,
+      cards: all.length,
+      sideBySide: r.length >= 2 && Math.abs(r[0].top - r[1].top) < 2 && r[1].left >= r[0].right,
+      thumbs: all.every(c => !!c.querySelector(".mobile-tab-item-thumb")),
+      // What "Connect" opens depends on the start page's order (a file place, an SSH session): a card shows its
+      // session's picture or, when the session draws none, its sign. tab-previews.js checks which is which.
+      previews: all.every(c => {
+        const thumb = c.querySelector(".mobile-tab-item-thumb");
+        const img = thumb.querySelector("img");
+        return thumb.getAttribute("data-preview") === "image" ? !!img && img.src.startsWith("data:image/jpeg") : !!thumb.querySelector("svg");
+      }),
+      addFullWidth: !!add && Math.abs(add.getBoundingClientRect().width - grid.clientWidth) < 6,
+      oneActive: all.filter(c => c.classList.contains("active")).length,
+    };
+  });
+  check("tabs as cards with their picture", cards, { grid: true, cards: 2, sideBySide: true, thumbs: true, previews: true, addFullWidth: true, oneActive: 1 });
   await page.screenshot({ path: "mobile-1-sheet.png" });
   await page.locator(".mobile-tab-item-main").first().tap();
   await sleep(1000);

@@ -6216,6 +6216,58 @@ public sealed partial class HtmlViews
                     })
                     .filter(Boolean);
 
+                // The picture a tab shows right now, for the phone's tab overview: Guacamole's display flattened
+                // to one canvas, otherwise the biggest canvas in the tab or in a page of this origin inside it (the
+                // screen of the own engine and of an agent, the terminal). Null when the tab draws no picture.
+                window.MatgateTabCanvas = id => {
+                    const biggestCanvas = root => {
+                        let best = null;
+                        root.querySelectorAll('canvas').forEach(canvas => {
+                            if (canvas.width >= 64 && canvas.height >= 48 && (!best || canvas.width * canvas.height > best.width * best.height)) {
+                                best = canvas;
+                            }
+                        });
+                        return best;
+                    };
+                    const searchPanel = panel => {
+                        if (!panel) {
+                            return null;
+                        }
+                        let best = biggestCanvas(panel);
+                        panel.querySelectorAll('iframe').forEach(frame => {
+                            try {
+                                const doc = frame.contentDocument;
+                                const found = doc ? (doc.querySelector('canvas#screen') || biggestCanvas(doc)) : null;
+                                if (found && found.width >= 64 && (!best || found.width * found.height > best.width * best.height)) {
+                                    best = found;
+                                }
+                            }
+                            catch {
+                                // A page of another origin shows no picture here.
+                            }
+                        });
+                        return best;
+                    };
+                    try {
+                        const page = shellTabs.get(id);
+                        if (page) {
+                            return searchPanel(page.panel);
+                        }
+                        const tab = tabs.get(id);
+                        if (!tab) {
+                            return null;
+                        }
+                        const display = tab.client && typeof tab.client.getDisplay === 'function' ? tab.client.getDisplay() : null;
+                        if (display && typeof display.flatten === 'function' && display.getWidth() >= 64) {
+                            return display.flatten();
+                        }
+                        return searchPanel(tab.panel);
+                    }
+                    catch {
+                        return null;
+                    }
+                };
+
                 function saveShellTabs() {
                     if (isPoppedWindow) { return; }
                     try {
@@ -26819,6 +26871,84 @@ public sealed partial class HtmlViews
                         /* A new connection is not one of the open ones: it stands apart below them. */
                         .mobile-tab-sheet .mobile-tab-item--add { border-style: dashed; margin-top: 10px; padding-right: 0; }
                         .mobile-tab-sheet .mobile-tab-item--add .mobile-tab-item-main { color: var(--accent); }
+                        /* The tabs as cards in a grid, as a phone browser shows its tabs: the name on top, below it
+                           the last picture of the session (or its sign when it draws none). Two columns upright,
+                           more when the phone lies on its side. */
+                        .mobile-tab-sheet .mobile-tab-grid {
+                            align-content: start;
+                            display: grid;
+                            flex: 1 1 auto;
+                            gap: 12px;
+                            grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+                            min-height: 0;
+                            overflow-y: auto;
+                            overscroll-behavior: contain;
+                            padding: 2px 2px 8px;
+                        }
+                        .mobile-tab-sheet .mobile-tab-grid .mobile-tab-item--add { grid-column: 1 / -1; margin-top: 4px; }
+                        .mobile-tab-sheet .mobile-tab-item.mobile-tab-card {
+                            align-items: stretch;
+                            flex-direction: column;
+                            min-height: 0;
+                            overflow: hidden;
+                            padding: 0;
+                            position: relative;
+                        }
+                        .mobile-tab-sheet .mobile-tab-item.mobile-tab-card.active { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent); }
+                        .mobile-tab-sheet .mobile-tab-item.mobile-tab-card .mobile-tab-item-main,
+                        .mobile-tab-sheet .mobile-tab-item.mobile-tab-card .mobile-tab-item-main:hover,
+                        .mobile-tab-sheet .mobile-tab-item.mobile-tab-card .mobile-tab-item-main:active {
+                            align-items: center;
+                            border-radius: 0;
+                            column-gap: 8px;
+                            display: grid;
+                            font-size: 14px;
+                            grid-template-columns: auto minmax(0, 1fr);
+                            min-height: 0;
+                            padding: 0;
+                            row-gap: 0;
+                            width: 100%;
+                        }
+                        .mobile-tab-sheet .mobile-tab-card .mobile-tab-item-main .mobile-tab-item-icon {
+                            border-radius: 8px;
+                            height: 28px;
+                            margin: 8px 0 8px 8px;
+                            width: 28px;
+                        }
+                        .mobile-tab-card .mobile-tab-item-icon .icon, .mobile-tab-card .mobile-tab-item-icon svg, .mobile-tab-card .mobile-tab-item-icon img { height: 16px; width: 16px; }
+                        /* Room on the right for the close button, which sits in the card's head. */
+                        .mobile-tab-sheet .mobile-tab-card .mobile-tab-item-main .mobile-tab-item-label { padding: 8px 46px 8px 0; }
+                        .mobile-tab-sheet .mobile-tab-card .mobile-tab-item-main .mobile-tab-item-icon { align-self: start; margin-top: 10px; }
+                        .mobile-tab-sheet .mobile-tab-card .mobile-tab-item-state { font-size: 12px; }
+                        .mobile-tab-sheet .mobile-tab-card .mobile-tab-item-thumb {
+                            align-items: center;
+                            aspect-ratio: 3 / 4;
+                            background: var(--surface-2);
+                            border-top: 1px solid var(--line);
+                            color: var(--muted);
+                            display: flex;
+                            grid-column: 1 / -1;
+                            justify-content: center;
+                            overflow: hidden;
+                        }
+                        /* A screen is shown whole, never cut: a session can be upright or wide. */
+                        .mobile-tab-sheet .mobile-tab-card .mobile-tab-item-thumb[data-preview="image"] { background: #111; }
+                        .mobile-tab-sheet .mobile-tab-card .mobile-tab-item-thumb img { display: block; height: 100%; object-fit: contain; width: 100%; }
+                        .mobile-tab-sheet .mobile-tab-card .mobile-tab-item-thumb[data-preview="icon"] .icon,
+                        .mobile-tab-sheet .mobile-tab-card .mobile-tab-item-thumb[data-preview="icon"] svg,
+                        .mobile-tab-sheet .mobile-tab-card .mobile-tab-item-thumb[data-preview="icon"] img { height: 44px; opacity: .55; width: 44px; }
+                        .mobile-tab-sheet .mobile-tab-item.mobile-tab-card .mobile-tab-item-close,
+                        .mobile-tab-sheet .mobile-tab-item.mobile-tab-card .mobile-tab-item-close:hover {
+                            font-size: 18px;
+                            height: 40px;
+                            margin: 0;
+                            min-height: 40px;
+                            min-width: 40px;
+                            position: absolute;
+                            right: 4px;
+                            top: 4px;
+                            width: 40px;
+                        }
                         /* The rest of a session's actions stays a menu at its button - it must not
                            cover the session it acts on - but its rows are the main menu's rows: the
                            icon in a tile, the label in the same size and weight. */
@@ -28265,11 +28395,45 @@ public sealed partial class HtmlViews
                             // off and put the close "x" right next to the switch, which ends sessions
                             // by accident.
                             const sheetMode = () => window.matchMedia('(max-width: 720px)').matches;
+                            // The sheet shows every tab as a card with its picture, as a phone browser shows its
+                            // tabs. The picture is taken when the sheet opens; a tab that draws nothing now (ended,
+                            // reconnecting) keeps the last one it had.
+                            const tabPreviews = new Map();
+                            const capturePreview = id => {
+                                const source = typeof window.MatgateTabCanvas === 'function' ? window.MatgateTabCanvas(id) : null;
+                                if (!source || !source.width || !source.height) {
+                                    return tabPreviews.get(id) || '';
+                                }
+                                try {
+                                    const scale = Math.min(1, 480 / source.width);
+                                    const small = document.createElement('canvas');
+                                    small.width = Math.max(1, Math.round(source.width * scale));
+                                    small.height = Math.max(1, Math.round(source.height * scale));
+                                    small.getContext('2d').drawImage(source, 0, 0, small.width, small.height);
+                                    const url = small.toDataURL('image/jpeg', 0.72);
+                                    tabPreviews.set(id, url);
+                                    return url;
+                                }
+                                catch {
+                                    return tabPreviews.get(id) || '';
+                                }
+                            };
                             const rebuildTabList = () => {
                                 if (!tabPanel) {
                                     return;
                                 }
                                 tabPanel.replaceChildren();
+                                // Pictures of tabs that are gone go with them.
+                                const openIds = new Set(listSessionTabs().map(el => el.getAttribute('data-tab-id') || ''));
+                                Array.from(tabPreviews.keys()).forEach(id => {
+                                    if (!openIds.has(id)) {
+                                        tabPreviews.delete(id);
+                                    }
+                                });
+                                const grid = sheetMode() ? document.createElement('div') : null;
+                                if (grid) {
+                                    grid.className = 'mobile-tab-grid';
+                                }
 
                                 if (sheetMode()) {
                                     // Tapping beside it is no way out once it covers everything, so the
@@ -28334,6 +28498,29 @@ public sealed partial class HtmlViews
                                         label.appendChild(state);
                                     }
                                     main.appendChild(label);
+                                    if (sheet && !isAdd) {
+                                        // The card's picture: the last image of the session, or its sign when it draws none.
+                                        item.classList.add('mobile-tab-card');
+                                        const thumb = document.createElement('span');
+                                        thumb.className = 'mobile-tab-item-thumb';
+                                        thumb.setAttribute('aria-hidden', 'true');
+                                        const preview = capturePreview(tabEl.getAttribute('data-tab-id') || '');
+                                        if (preview) {
+                                            const img = document.createElement('img');
+                                            img.alt = '';
+                                            img.src = preview;
+                                            thumb.appendChild(img);
+                                            thumb.setAttribute('data-preview', 'image');
+                                        }
+                                        else {
+                                            const sign = tabEl.querySelector('.session-tab-title > .icon, .session-tab-title > svg, .session-tab-title > img');
+                                            if (sign) {
+                                                thumb.appendChild(sign.cloneNode(true));
+                                            }
+                                            thumb.setAttribute('data-preview', 'icon');
+                                        }
+                                        main.appendChild(thumb);
+                                    }
                                     main.addEventListener('click', () => {
                                         // Close first, then switch. The other way round, everything the switch
                                         // brings with it can still overtake the closing.
@@ -28378,8 +28565,16 @@ public sealed partial class HtmlViews
                                             }
                                         });
                                     }
-                                    tabPanel.appendChild(item);
+                                    (grid || tabPanel).appendChild(item);
                                 });
+                                if (grid) {
+                                    tabPanel.appendChild(grid);
+                                    // The open card stays in view when there are more than fit on the screen.
+                                    const current = grid.querySelector('.mobile-tab-item.active');
+                                    if (current) {
+                                        window.requestAnimationFrame(() => current.scrollIntoView({ block: 'nearest' }));
+                                    }
+                                }
                             };
                             if (tabTrigger && tabPanel) {
                                 tabTrigger.addEventListener('click', () => {
