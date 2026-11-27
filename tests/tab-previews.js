@@ -121,6 +121,38 @@ const check = (name, got, want) => {
   check("a terminal in the background keeps its last picture", second[ownSshName] ? { preview: second[ownSshName].preview, same: second[ownSshName].src === first[ownSshName].src } : null, { preview: "image", same: true });
   await page.screenshot({ path: "tab-previews-2.png" });
 
+  // A tap anywhere on a card - its picture, its name, its sign - switches straight to that tab and shuts the list;
+  // only the cross ends a session, and it switches nowhere.
+  const activeTab = () => page.evaluate(() => {
+    const t = document.querySelector("#session-tabs .session-tab.active .session-tab-title");
+    return t ? t.textContent.trim() : null;
+  });
+  const sheetOpen = () => page.evaluate(() => {
+    const p = document.querySelector(".mobile-tab-menu-panel");
+    return !!p && getComputedStyle(p).display !== "none";
+  });
+  const shownTab = () => page.evaluate(() => {
+    const id = (document.querySelector("#session-tabs .session-tab.active") || {}).getAttribute?.("data-tab-id");
+    const panel = document.querySelector(".connection-panel:not(.hidden), .shell-page-panel:not(.hidden)");
+    return !!panel && !!id && (panel.getAttribute("data-shell-panel-id") === id || panel.classList.contains("connection-panel"));
+  });
+  for (const [target, part] of [["Test-Postgres", ".mobile-tab-item-thumb"], ["Linux-Testhost", ".mobile-tab-item-name"], ["Test-Postgres", ".mobile-tab-item-icon"]]) {
+    if (!(await sheetOpen())) {
+      await page.locator(".mobile-tab-menu-trigger").tap();
+      await sleep(700);
+    }
+    await page.locator(".mobile-tab-card", { hasText: target }).locator(part).tap();
+    await sleep(1200);
+    check("tap on the " + part.replace(".mobile-tab-item-", "") + " of " + target + " switches to it", { active: await activeTab(), shown: await shownTab(), sheetOpen: await sheetOpen() }, { active: target, shown: true, sheetOpen: false });
+  }
+  await page.locator(".mobile-tab-menu-trigger").tap();
+  await sleep(700);
+  const stays = await activeTab();
+  const before = await page.locator(".mobile-tab-card").count();
+  await page.locator(".mobile-tab-card", { hasText: vncName }).locator(".mobile-tab-item-close").tap();
+  await sleep(1000);
+  check("the cross closes that tab only, without switching", { active: await activeTab(), cards: await page.locator(".mobile-tab-card").count(), sheetOpen: await sheetOpen() }, { active: stays, cards: before - 1, sheetOpen: true });
+
   // The connections of this script go again: other scripts open "the first connection" on the start page.
   await page.evaluate(async names => {
     const doc = new DOMParser().parseFromString(await (await fetch("/admin?tab=servers", { credentials: "same-origin" })).text(), "text/html");
